@@ -393,8 +393,9 @@ docs/upstream-notes.md#definition-of-done-origin-story.
 Passing typecheck is not done. Passing tests are not done. **Running in the container is done.**
 A **docs-only** change stops after step 1.
 
-1. **`bun run verify` green** — worktree check, version-pin, docs check, lint, typecheck, tests,
-   build. Fails fast; later stages do not run once one fails.
+1. **`bun run verify` green** — every offline gate (worktree, pins, prod-info, hygiene, docs,
+   lint, typecheck, tests, build). Fails fast; later stages do not run once one
+   fails.
  1b. **Built and running locally from the worktree** (Workflow step 3), and **tested by the user**:
     say what to look at, stop, and wait. Merge only after they say it works — no machine check
     replaces this gate, and unit tests passing is not "working".
@@ -522,7 +523,7 @@ app-server request loop that `use-session.ts` documents).
 
 | Command | What it does |
 |---|---|
-| `bun run verify` | **The gate.** worktree → version-pin → docs → lint → typecheck → test → build, fail-fast |
+| `bun run verify` | **The gate.** every offline stage, cheapest first (stages listed in Definition of done 1) |
 | `bun run check-prod-info` | Fails if any tracked file contains a private IPv4 address or a personal mail domain |
 | `bun run check-docs` | Asserts `AGENTS.md` and `.agents/skills/` are honest: anchors, paths, command table, skill frontmatter, size budget |
 | `bun run deploy-check` | Asserts the running container serves the merged code, and is healthy |

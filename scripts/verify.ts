@@ -29,6 +29,16 @@ const STAGES: Stage[] = [
     why: "one letta-code release across images and types",
   },
   {
+    name: "prod-info",
+    cmd: ["bun", "scripts/check-prod-info.ts"],
+    why: "no prod addresses or personal mail in a public tree",
+  },
+  {
+    name: "hygiene",
+    cmd: ["bun", "scripts/check-release-hygiene.ts"],
+    why: "VERSION and CHANGELOG agree",
+  },
+  {
     name: "docs",
     cmd: ["bun", "scripts/check-docs.ts"],
     why: "AGENTS.md and .agents/skills point at things that exist",

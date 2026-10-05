@@ -45,7 +45,7 @@ const PATTERNS: Pattern[] = [
 /**
  * `bff/src/google/fixtures/` holds recorded `tools/list` output from the pinned workspace-mcp
  * image; it is reproducible upstream output, not something to hand-edit, and its sample text
- * carries a made-up `message123@gmail.com`.
+ * carries a made-up personal mail address.
  */
 const EXEMPT_PATHS = ["bff/src/google/fixtures/"];
 

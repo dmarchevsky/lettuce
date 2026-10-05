@@ -23,6 +23,14 @@ import { resolve } from "node:path";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 
+// CI checks out a detached HEAD of a branch that exists nowhere else, so there is
+// no main checkout to protect and no session to collide with. The gate exists to
+// stop an agent from committing feature work in the main checkout on a dev box.
+if (process.env.CI === "true") {
+  console.log("  CI checkout — worktree rule does not apply");
+  process.exit(0);
+}
+
 function git(...args: string[]): string | null {
   const result = Bun.spawnSync(["git", ...args], {
     cwd: ROOT,
