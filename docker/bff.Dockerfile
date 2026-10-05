@@ -62,8 +62,10 @@ FROM deps AS runtime
 # running on agent-authored repositories inside this container, mitigated by
 # the read-only mount, argv-only spawns, timeouts and output caps. Only `git`
 # itself is needed; --no-install-recommends keeps perl manpages etc. out.
+# `openssh-client` is the remote pi worker's transport (bff/src/pi/): the BFF
+# itself is the ssh client, so the app-server image carries nothing for it.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git \
+  && apt-get install -y --no-install-recommends git openssh-client \
   && rm -rf /var/lib/apt/lists/*
 
 COPY tsconfig.base.json ./tsconfig.base.json
