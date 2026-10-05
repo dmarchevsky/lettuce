@@ -165,9 +165,21 @@ the remote session id from the run itself, no second query.
 ### 3.4 Cancellation probe
 
 Started a long remote run over ssh, then killed the local ssh mid-run: the remote pi
-survived with the same PID and kept working; killing it required an explicit
+survived with the same PID (1538929) and kept working; killing it required an explicit
 `ssh … kill <pid>` (then verified gone both sides). **Local kill detaches, it does not
 cancel** — § 4 sub-decision 4 resolves v1 semantics around this.
+
+### 3.5 Capture custody and host cleanup
+
+The raw captures (full `spike-a.jsonl`, `spike-b.jsonl`, the fetched durable session file,
+the probe's truncated local stream and the probe run's remote session file) are kept
+durable in `~/.local/share/lettuce-remote-pi-spike/` on the spike host — deliberately not
+in the repo, since they embed prompts, provider usage and user paths. Everything the spike
+added to the host — the deploy key (both halves and its `authorized_keys` line), the
+`~/lettuce-pi-spike` workdir and its pi session directory — was removed after the captures
+were secured; re-verified: key auth is refused and no spike paths or stray processes
+remain. Any implementation-phase spike (milestone gates below) must repeat this
+cleanup duty; it is part of the nothing-installed rule.
 
 ## 4. Design decisions
 
