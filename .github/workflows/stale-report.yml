@@ -32,25 +32,30 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          echo "## Branches with no open PR (report only — nothing is deleted)" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| branch | last commit | PR state |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
-          found=0
-          for branch in $(gh api "repos/$GITHUB_REPOSITORY/branches" --paginate \
-              --jq '.[].name | select(. != "main")'); do
-            state=$(gh pr list --head "$branch" --state all --json state --jq '.[0].state // "NONE"')
-            case "$state" in
-              OPEN) continue ;;
-            esac
-            when=$(gh api "repos/$GITHUB_REPOSITORY/branches/$branch" \
-              --jq '.commit.commit.committer.date[:10]' 2>/dev/null || echo "unknown")
-            echo "| \`$branch\` | $when | $state |" >> "$GITHUB_STEP_SUMMARY"
-            found=$((found + 1))
-          done
-          if [ "$found" = "0" ]; then
-            echo "_none — every branch has an open PR_" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "Decide yourself: delete a real leftover, or open the PR it was always meant to have." >> "$GITHUB_STEP_SUMMARY"
-          fi
+          # One redirect for the whole report: individual `>>` lines trip SC2129, and actionlint is
+          # a required check here, so style that CI rejects is a broken workflow.
+          {
+            echo "## Branches with no open PR (report only — nothing is deleted)"
+            echo ""
+            echo "| branch | last commit | PR state |"
+            echo "|---|---|---|"
+            found=0
+            for branch in $(gh api "repos/$GITHUB_REPOSITORY/branches" --paginate \
+                --jq '.[].name | select(. != "main")'); do
+              state=$(gh pr list --head "$branch" --state all --json state --jq '.[0].state // "NONE"')
+              if [ "$state" = "OPEN" ]; then
+                continue
+              fi
+              when=$(gh api "repos/$GITHUB_REPOSITORY/branches/$branch" \
+                --jq '.commit.commit.committer.date[:10]' 2>/dev/null || echo "unknown")
+              echo "| \`$branch\` | $when | $state |"
+              found=$((found + 1))
+            done
+            if [ "$found" = "0" ]; then
+              echo ""
+              echo "_none — every branch has an open PR_"
+            else
+              echo ""
+              echo "Decide yourself: delete a real leftover, or open the PR it was always meant to have."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
