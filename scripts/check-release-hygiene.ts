@@ -13,14 +13,17 @@
  * Two modes:
  *
  *   bun scripts/check-release-hygiene.ts                          # repo state only
- *   bun scripts/check-release-hygiene.ts --pr [--base <ref>] [--labels a,b]
+ *   bun scripts/check-release-hygiene.ts --pr [--base <ref>] [--labels a,b] [--subject "..."]
  *
  * Repo-state mode checks `VERSION`/`CHANGELOG.md` as they stand in the checkout.
  * PR mode additionally checks the change: whether a PR that touches `bff/`,
  * `web/` or `docker/` actually added the changelog entry, and whether its declared
  * bump (a `bump:*` label, else the Conventional Commit subject, else the sections
- * it added under `[Unreleased]`) is self-consistent. Labels arrive as `--labels`
- * or the `PR_LABELS` environment variable so this script needs no GitHub token.
+ * it added under `[Unreleased]`) is self-consistent. Labels arrive as `--labels` or
+ * the `PR_LABELS` environment variable, and the squash-commit subject as `--subject`,
+ * so this script needs no GitHub token — CI passes what `gh pr view` already fetched.
+ * On a PR head the local HEAD is not the squash commit, so `--subject` (the PR title)
+ * beats `git log` there.
  *
  * An unknown bump type is a warning, not a failure: the release command takes
  * `--minor`/`--patch` from a human, and a wrong label is worth printing rather
@@ -199,7 +202,7 @@ if (import.meta.main) {
       const findings = reviewPr({
         changedFiles: changed,
         labels,
-        commitSubject: git("log", "-1", "--format=%s"),
+        commitSubject: arg("--subject") || git("log", "-1", "--format=%s"),
         changelogSections: sections,
       });
       for (const error of findings.errors) {
