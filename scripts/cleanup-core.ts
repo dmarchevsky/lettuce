@@ -39,6 +39,13 @@ export type BranchCandidate = {
   prState: PrState;
   /** Worktree path that has it checked out, or null when no worktree does. */
   checkedOutIn: string | null;
+  /**
+   * True when `checkedOutIn` names a worktree this same pass is removing. Without it a merged
+   * branch always survives the pass that removes its worktree — the worktree holds it, so the
+   * branch is "that worktree's decision", and only by the next run is the hold gone. Correct, but
+   * it made every real cleanup take two passes.
+   */
+  holderRemoval: boolean;
 };
 
 export type Verdict = { action: "remove" | "keep"; reason: string };
@@ -84,8 +91,6 @@ export function decideWorktree(c: WorktreeCandidate): Verdict {
  */
 export function decideBranch(c: BranchCandidate): Verdict {
   if (isProtectedBranch(c.branch)) return { action: "keep", reason: "protected branch" };
-  if (c.checkedOutIn !== null)
-    return { action: "keep", reason: `checked out in ${c.checkedOutIn}` };
   if (c.prState !== "merged") {
     const label =
       c.prState === "none"
@@ -94,6 +99,12 @@ export function decideBranch(c: BranchCandidate): Verdict {
           ? "PR state unknown"
           : `PR ${c.prState}`;
     return { action: "keep", reason: `${label} — never delete a branch that did not merge` };
+  }
+  if (c.checkedOutIn !== null && !c.holderRemoval) {
+    return { action: "keep", reason: `checked out in ${c.checkedOutIn}` };
+  }
+  if (c.checkedOutIn !== null) {
+    return { action: "remove", reason: "PR merged, and its worktree is being removed too" };
   }
   return { action: "remove", reason: "PR merged, no worktree holds it" };
 }
@@ -112,5 +123,6 @@ export function reportRows<T extends { verdict: Verdict }>(rows: T[]): { remove:
  * confirmation is tied to the plan that was printed.
  */
 export function confirmPhrase(worktrees: number, branches: number): string {
-  return `delete ${worktrees} worktrees and ${branches} branches`;
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  return `delete ${plural(worktrees, "worktree", "worktrees")} and ${plural(branches, "branch", "branches")}`;
 }

@@ -22,7 +22,13 @@ function wt(over: Partial<WorktreeCandidate> = {}): WorktreeCandidate {
 }
 
 function br(over: Partial<BranchCandidate> = {}): BranchCandidate {
-  return { branch: "feat/thing", prState: "merged", checkedOutIn: null, ...over };
+  return {
+    branch: "feat/thing",
+    prState: "merged",
+    checkedOutIn: null,
+    holderRemoval: false,
+    ...over,
+  };
 }
 
 describe("a merged PR is what makes a worktree removable", () => {
@@ -78,6 +84,17 @@ describe("local branches not held by a worktree", () => {
     expect(v.reason).toContain("checked out in");
   });
 
+  test("…but a worktree being removed in the same pass is not a reason to keep it", () => {
+    const v = decideBranch(br({ checkedOutIn: "/repo/.worktrees/thing", holderRemoval: true }));
+    expect(v.action).toBe("remove");
+    expect(v.reason).toContain("worktree is being removed");
+    // An unmerged branch stays protected even when its worktree goes: the holder is not what
+    // makes deletion safe, the merged PR is.
+    expect(
+      decideBranch(br({ prState: "open", checkedOutIn: "/w", holderRemoval: true })).action,
+    ).toBe("keep");
+  });
+
   test("main and unmerged branches are never deleted", () => {
     expect(decideBranch(br({ branch: "main" })).action).toBe("keep");
     expect(decideBranch(br({ prState: "open" })).action).toBe("keep");
@@ -98,6 +115,8 @@ describe("reporting and confirmation", () => {
 
   test("the confirmation phrase is tied to the plan", () => {
     expect(confirmPhrase(2, 5)).toBe("delete 2 worktrees and 5 branches");
+    expect(confirmPhrase(1, 1)).toBe("delete 1 worktree and 1 branch");
+    expect(confirmPhrase(0, 1)).toBe("delete 0 worktrees and 1 branch");
     // A plan changed after the phrase was printed must not be confirmed by the old phrase.
     expect(confirmPhrase(2, 5)).not.toBe(confirmPhrase(2, 6));
   });

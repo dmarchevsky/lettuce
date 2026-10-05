@@ -162,7 +162,9 @@ remember, each one a way to eat someone's work:
   as occupied, not empty). This is the case rule 8 was written for — another session sitting in the
   worktree — and nothing about the PR being merged tells you.
 
-There is no `--force`. A refusal is an instruction to go look. `--remote` additionally deletes the
+A branch some worktree holds is normally that worktree's decision and never touched separately —
+unless that worktree is being removed in the same pass, in which case one run finishes the job
+(worktrees go first). There is no `--force`. A refusal is an instruction to go look. `--remote` additionally deletes the
 merged branches on `origin` for branches that were created before auto-delete existed, and
 `--skip-session-check` exists for a platform that cannot report live sessions; both are stated in
 the output, never assumed.

@@ -181,10 +181,17 @@ const branchNames = (await git("for-each-ref", "--format=%(refname:short)", "ref
   .filter((b) => b !== "");
 const branchRows: { branch: string; verdict: ReturnType<typeof decideBranch> }[] = [];
 for (const branch of branchNames) {
+  const holder = heldByWorktree.get(branch) ?? null;
+  // A worktree this same pass is going away is not a reason to keep the branch: worktrees are
+  // removed before branches, so one pass finishes the job.
+  const holderRemoval = worktreeRows.some(
+    (r) => r.row.path === holder && r.verdict.action === "remove",
+  );
   const candidate: BranchCandidate = {
     branch,
     prState: await stateOf(branch),
-    checkedOutIn: heldByWorktree.get(branch) ?? null,
+    checkedOutIn: holder,
+    holderRemoval,
   };
   branchRows.push({ branch, verdict: decideBranch(candidate) });
 }
