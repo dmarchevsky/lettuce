@@ -55,18 +55,20 @@ jobs:
         run: bunx playwright install --with-deps chromium
 
       # docker/.env is gitignored, so CI writes the smallest thing that boots:
-      # loopback bind, state under the runner temp dir, local mode (dev bypass,
-      # no Cloudflare Access) and NO compose profiles, which means no cloudflared
-      # and no sidecars — the image also skips the Codex and Claude CLIs, because
-      # CODING_FEATURES is derived from this same string.
+      # state under the runner temp dir, local mode (dev bypass, no Cloudflare Access)
+      # and NO compose profiles, which means no cloudflared and no sidecars — the image
+      # also skips the Codex and Claude CLIs, because CODING_FEATURES is derived from
+      # this same string. Two things that bit the first run: the BFF refuses a
+      # SESSION_SECRET under 32 characters, and there is deliberately no BFF_BIND —
+      # binding 127.0.0.1 *inside* the container makes Docker's published port
+      # unreachable from the runner, which is exactly how the first run lost /readyz.
       - name: Write compose env
         run: |
           cat > docker/.env <<EOF
-          BFF_BIND=127.0.0.1
           BFF_PORT=8090
           PUBLIC_ORIGIN=http://127.0.0.1:8090
           LETTA_STATE_DIR=${{ runner.temp }}/lettuce-state
-          SESSION_SECRET=ci-only-not-a-secret
+          SESSION_SECRET=$(openssl rand -hex 32)
           DEV_BYPASS_EMAIL=ci@lettuce.test
           COMPOSE_PROFILES=
           EOF
@@ -84,10 +86,12 @@ jobs:
       # The BFF answers /readyz only once the upstream connection is up, so this
       # loop is also the proof that the app-server WebSocket connected — the thing
       # deploy-check asserts and the thing a compose file can silently break.
+      # Four minutes is generous: a healthy boot reaches it in seconds, and the
+      # first run's 450 s wait was this file's bug, not the stack's.
       - name: Wait for /readyz
         run: |
           ok=0
-          for i in $(seq 1 90); do
+          for i in $(seq 1 48); do
             if curl -fsS --max-time 5 http://127.0.0.1:8090/readyz >/dev/null 2>&1; then
               ok=1; break
             fi
