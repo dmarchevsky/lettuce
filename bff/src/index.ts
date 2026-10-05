@@ -689,6 +689,13 @@ app.get("/readyz", (c) =>
   upstream.isReady() ? c.text("ok\n") : c.text(`app-server ${upstream.getState()}\n`, 503),
 );
 
+// Which build is this, unauthenticated like /readyz and for the same reason:
+// `bun run deploy-check` asks it from outside, with no session, to prove the
+// container runs the commit it was built from rather than an older artifact.
+// It reveals a version and a commit hash — the same things /readyz reveals about
+// state, and no more. The commit itself is not secret and the repo is public.
+app.get("/versionz", (c) => c.text(`${uiVersion}\n`));
+
 // Resolves the session for every other route, minting one transparently from
 // a Cloudflare Access JWT the first time it sees one with no cookie yet.
 // After that first hit, every request (including this one) uses the cheap

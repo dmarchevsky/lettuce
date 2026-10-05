@@ -18,6 +18,8 @@
     "check-prod-info": "bun scripts/check-prod-info.ts",
     "check-release-hygiene": "bun scripts/check-release-hygiene.ts",
     "build": "bun run --filter '*' build",
+    "build:bff": "bun scripts/build-bff.ts",
+    "build-info": "bun scripts/build-info.ts",
     "dev": "bun run --filter '*' dev",
     "smoke": "bun scripts/persistence-smoke.ts",
     "ui-check": "bun scripts/ui-check.ts",

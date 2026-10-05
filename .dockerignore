@@ -10,7 +10,14 @@ node_modules/
 **/node_modules/
 dist/
 web/dist/
-.git/
+# Git: metadata only. The bff image's buildinfo stage reads HEAD and the refs to
+# stamp the build with its commit (docker/bff.Dockerfile), which needs the refs
+# and absolutely none of the objects — the history is not a build input and does
+# not belong in an image layer or an uploaded context.
+.git/**
+!.git/HEAD
+!.git/refs/**
+!.git/packed-refs
 .ui-check/
 .worktrees/
 *.log

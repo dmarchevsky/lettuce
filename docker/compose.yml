@@ -235,6 +235,11 @@ services:
       # there keeps node_modules and .git out of the context.
       context: ..
       dockerfile: docker/bff.Dockerfile
+      # Optional: which commit to stamp the image with. Empty means the build
+      # derives it from the git refs in the context (the normal case, including
+      # Dockhand's plain `compose up`); CI can pass --build-arg GIT_SHA=$GITHUB_SHA.
+      args:
+        GIT_SHA: ${GIT_SHA:-}
     depends_on:
       app-server:
         condition: service_healthy

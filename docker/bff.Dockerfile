@@ -31,6 +31,26 @@ COPY web/vite.config.ts ./web/vite.config.ts
 
 RUN cd web && bun run build
 
+# ── Stage 2: this build's version string ─────────────────────────────────────
+FROM deps AS buildinfo
+
+WORKDIR /app
+
+COPY bff/src/build-info.ts ./bff/src/build-info.ts
+COPY scripts/build-info.ts ./scripts/build-info.ts
+COPY VERSION               ./VERSION
+# Git *metadata*, not the repository: .dockerignore keeps only HEAD, refs and
+# packed-refs out of .git, so this is a few kilobytes with no objects and no
+# history. That is enough to resolve the commit, and it means the SHA is right no
+# matter who runs the build: Dockhand deploys with a plain `compose up` and passes
+# no build args. A linked git worktree is the exception — its `.git` is a file
+# pointing outside the build context — which is what `bun run build:bff` is for.
+COPY .git/                   ./gitmeta
+# Optional override for a builder with no .git in its context (CI passing
+# github.sha). Empty means: derive it from gitmeta.
+ARG GIT_SHA=""
+RUN bun scripts/build-info.ts --emit BUILD_INFO --gitmeta gitmeta --git-sha "$GIT_SHA"
+
 # ── Stage 3: runtime ─────────────────────────────────────────────────────────
 FROM deps AS runtime
 
@@ -50,10 +70,15 @@ COPY tsconfig.base.json ./tsconfig.base.json
 COPY bff/src            ./bff/src
 COPY bff/tsconfig.json  ./bff/tsconfig.json
 # This build's release tag, served at /api/status and shown in Settings → About.
-# A file rather than `git describe`: .dockerignore excludes .git, and the git
+# A file rather than `git describe`: .dockerignore excludes .git objects, and the git
 # install above must not become the reason this build could not be derived
 # (see CLAUDE.md "Versioning and tags").
 COPY VERSION            ./VERSION
+# The commit this was built from, computed in the buildinfo stage above, so
+# /api/status can say "v0.6.1-letta_0.34.1+9400080" instead of the last release.
+# A dirty tree is invisible from inside an image build, so the metadata carries no
+# -dirty suffix here; deploy-check compares the SHA, not the suffix.
+COPY --from=buildinfo /app/BUILD_INFO ./BUILD_INFO
 # Skills the BFF installs into every agent's global skill directory on connect
 # (bff/src/agent-skills.ts). In the image, not a bind mount: under Dockhand a
 # relative mount source resolves inside Dockhand's container, not on the host.

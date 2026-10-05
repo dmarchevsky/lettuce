@@ -5,6 +5,9 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Added
+- Settings → About names the exact commit the running build came from (`v0.6.1-letta_0.34.1+9400080`), so a build between releases is no longer indistinguishable from the last release.
+
 ## [v0.6.1-letta_0.34.1] - 2026-10-04
 
 ### Fixed

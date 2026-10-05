@@ -10,6 +10,7 @@
  */
 
 import { readFileSync } from "node:fs";
+import { readBuildInfo, versionString } from "../bff/src/build-info.ts";
 
 const ORIGIN = process.argv[2] ?? "http://127.0.0.1:8090";
 const ROOT = new URL("..", import.meta.url).pathname;
@@ -174,7 +175,37 @@ if (localBundle && servedBundle) {
   );
 }
 
-// ── 3. The stack is healthy ────────────────────────────────────────────────
+// ── 3. Which commit this build is ─────────────────────────────────────────────
+section("Build identity");
+
+/**
+ * `/versionz` answers with what the image was built from (`vX.Y.Z-letta_A.B.C+sha`);
+ * the local side resolves it the same way from this checkout. The `-dirty` suffix
+ * is ignored on both sides: an image build cannot see a dirty working tree, so only
+ * a `bun run build:bff` of a dirty checkout can produce it.
+ */
+const expectedBuild = versionString(readBuildInfo(ROOT)).replace(/-dirty$/, "");
+let servedVersion: string | null = null;
+try {
+  const response = await fetch(`${ORIGIN}/versionz`, { signal: AbortSignal.timeout(5000) });
+  servedVersion = response.ok ? (await response.text()).trim() : `HTTP ${response.status}`;
+} catch (cause) {
+  check(`${ORIGIN}/versionz is reachable`, false, cause instanceof Error ? cause.message : cause);
+}
+if (servedVersion !== null) {
+  const matches = servedVersion.replace(/-dirty$/, "") === expectedBuild;
+  check(
+    `served build matches this checkout (${expectedBuild})`,
+    matches,
+    matches
+      ? undefined
+      : `serving ${servedVersion}. "+unknown" or an older sha means the image predates your last ` +
+          "commit: `bun run build:bff` then `docker compose -f docker/compose.yml up -d bff`. " +
+          "An HTTP 404 means the running image predates /versionz.",
+  );
+}
+
+// ── 4. The stack is healthy ─────────────────────────────────────────────────
 section("Stack health");
 
 try {
