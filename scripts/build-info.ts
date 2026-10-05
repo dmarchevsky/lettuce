@@ -35,7 +35,9 @@ if (import.meta.main) {
     : resolveFromGit(ROOT);
   const info: BuildInfo = {
     base: readBase(ROOT),
-    sha: override !== "" ? override : resolved.sha,
+    // Always eight, whoever supplied it: CI passes a full 40-hex `github.sha` and the
+    // About row must not grow depending on which builder ran.
+    sha: (override !== "" ? override : (resolved.sha ?? "")).slice(0, 8) || null,
     // Only a live checkout can tell the tree was dirty; a build arg or copied refs cannot.
     dirty: argv.includes("--dirty") || (!gitmeta && override === "" && resolved.dirty),
   };
