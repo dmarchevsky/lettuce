@@ -337,8 +337,8 @@ assertions — story: docs/upstream-notes.md#main-checkout-collision-story-2026-
 anything spanning more than one of them. The PR body (`.github/pull_request_template.md`) is the
 gate list; a reviewer's approval *is* the container test — nothing replaces it.
 
-**A docs-only change touches none of `bff/`, `web/`, `docker/`: commit it straight to `main`, no
-worktree, nothing to rebuild.** That is `AGENTS.md`, `docs/`, `README.md`, `CHANGELOG.md`,
+**A docs-only change touches none of `bff/`, `web/`, `docker/`: a PR of its own, nothing to
+rebuild, nothing to deploy.** That is `AGENTS.md`, `docs/`, `README.md`, `CHANGELOG.md`,
 `.agents/skills/`, `.pi/`, `scripts/` — none of it reaches an image, so it rides the next release's
 tag. Gate: `bun run check-docs`, plus lint and tests when a script changed. `docker/agent-skills/`
 is not docs-only — it ships in the app-server image.
@@ -365,7 +365,7 @@ entries, the docs-sync duty and why the release commit is never made on a featur
 The ordered shape of a change; "Definition of done" is the checklist each step has to satisfy.
 
 1. **Worktree.** `git worktree add .worktrees/<name> -b <branch>` from the main checkout — never
-   branch in the main checkout; **docs-only** skips 1 and 3–5. Launched in someone else's worktree
+   branch in the main checkout; a **docs-only** PR skips 3–5. Launched in someone else's worktree
    (`.pendant/worktrees/…`)? Use it; the gate only cares that you are not in the main checkout.
 2. **Implement, commit, `bun run verify` green** — with the `CHANGELOG.md` `[Unreleased]` entry and
    any docs update in the same commit, and a `bump:*` label picked for the PR.
