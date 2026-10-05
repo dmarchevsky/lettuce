@@ -9,25 +9,26 @@ const fileIn = () => join(mkdtempSync(join(tmpdir(), "tool-access-")), "agent-to
 describe("AgentToolAccessStore", () => {
   test("an unknown agent gets everything", () => {
     const store = new AgentToolAccessStore(fileIn(), () => {});
-    expect(store.get("agent-a")).toEqual({ codex: true, claude: true, google: "full" });
+    expect(store.get("agent-a")).toEqual({ codex: true, claude: true, google: "full", pi: true });
     expect(store.all()).toEqual({});
   });
 
   test("keeps only non-default entries, and survives a restart", async () => {
     const file = fileIn();
     const store = new AgentToolAccessStore(file, () => {});
-    expect(store.set("agent-a", { codex: false, claude: true, google: "read" })).toBe(true);
-    expect(store.set("agent-b", { codex: true, claude: false, google: "off" })).toBe(true);
-    expect(store.set("agent-b", { codex: true, claude: false, google: "off" })).toBe(false);
-    expect(store.set("agent-b", { codex: true, claude: true, google: "full" })).toBe(true);
+    expect(store.set("agent-a", { codex: false, claude: true, google: "read", pi: true })).toBe(true);
+    expect(store.set("agent-b", { codex: true, claude: false, google: "off", pi: true })).toBe(true);
+    expect(store.set("agent-b", { codex: true, claude: false, google: "off", pi: true })).toBe(false);
+    expect(store.set("agent-b", { codex: true, claude: true, google: "full", pi: true })).toBe(true);
     await store.drain();
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({
-      "agent-a": { codex: false, claude: true, google: "read" },
+      "agent-a": { codex: false, claude: true, google: "read", pi: true },
     });
     expect(new AgentToolAccessStore(file, () => {}).get("agent-a")).toEqual({
       codex: false,
       claude: true,
       google: "read",
+      pi: true,
     });
   });
 
@@ -45,15 +46,15 @@ describe("AgentToolAccessStore", () => {
       }),
     );
     const store = new AgentToolAccessStore(file, () => {});
-    // `agent-b` predates the `claude` field: it loads with claude at its default.
-    expect(store.all()).toEqual({ "agent-b": { codex: false, claude: true, google: "off" } });
+    // `agent-b` predates the `claude` and `pi` fields: it loads with both at their default.
+    expect(store.all()).toEqual({ "agent-b": { codex: false, claude: true, google: "off", pi: true } });
     writeFileSync(file, "{not json");
     expect(new AgentToolAccessStore(file, () => {}).all()).toEqual({});
   });
 
   test("rejects what is not an agent id or not an access", () => {
     const store = new AgentToolAccessStore(fileIn(), () => {});
-    expect(() => store.set("a/b", { codex: true, claude: true, google: "full" })).toThrow();
+    expect(() => store.set("a/b", { codex: true, claude: true, google: "full", pi: true })).toThrow();
     expect(parseToolAccess({ codex: true, google: "write" })).toBeNull();
     expect(parseToolAccess({ codex: true, claude: "yes", google: "full" })).toBeNull();
     expect(parseToolAccess(null)).toBeNull();
@@ -63,9 +64,9 @@ describe("AgentToolAccessStore", () => {
     expect(
       agentsWhere(
         {
-          "agent-z": { codex: false, claude: true, google: "full" },
-          "agent-a": { codex: false, claude: false, google: "off" },
-          "agent-m": { codex: true, claude: false, google: "off" },
+          "agent-z": { codex: false, claude: true, google: "full", pi: true },
+          "agent-a": { codex: false, claude: false, google: "off", pi: true },
+          "agent-m": { codex: true, claude: false, google: "off", pi: true },
         },
         (a) => !a.codex,
       ),
@@ -73,9 +74,9 @@ describe("AgentToolAccessStore", () => {
     expect(
       agentsWhere(
         {
-          "agent-z": { codex: false, claude: true, google: "full" },
-          "agent-a": { codex: false, claude: false, google: "off" },
-          "agent-m": { codex: true, claude: false, google: "off" },
+          "agent-z": { codex: false, claude: true, google: "full", pi: true },
+          "agent-a": { codex: false, claude: false, google: "off", pi: true },
+          "agent-m": { codex: true, claude: false, google: "off", pi: true },
         },
         (a) => !a.claude,
       ),

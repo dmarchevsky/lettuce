@@ -57,6 +57,12 @@ export interface BffConfig {
   /** Per-agent Codex and Google access (`agents/tool-access.ts`), on the `bff-data` volume. */
   agentToolAccessFile: string;
   /**
+   * Remote pi worker (`pi/`): settings + private key + captured run streams,
+   * all on the `bff-data` volume under one directory. None of it ever crosses
+   * the upstream connection — the BFF itself is the ssh client here.
+   */
+  piDir: string;
+  /**
    * Declared model capabilities (`providers/store.ts`), on the `bff-data`
    * volume: vision/thinking/real windows for models behind endpoints that
    * report none. Drives the providers mod.
@@ -83,12 +89,14 @@ export interface BffConfig {
   features: FeatureFlags;
 }
 
-/** The four profile-gated integrations. See `BffConfig.features`. */
+/** The profile-gated integrations. See `BffConfig.features`. */
 export interface FeatureFlags {
   web: boolean;
   google: boolean;
   codex: boolean;
   claude: boolean;
+  /** Virtual token like codex/claude, but BFF-side only: no image involvement. */
+  pi: boolean;
 }
 
 export interface GoogleConfig {
@@ -337,6 +345,7 @@ function readFeatures(): FeatureFlags {
     google: hasProfile(profiles, "google"),
     codex: hasProfile(profiles, "codex"),
     claude: hasProfile(profiles, "claude"),
+    pi: hasProfile(profiles, "pi"),
   };
 }
 
@@ -385,6 +394,7 @@ export function loadConfig(): BffConfig {
       process.env.ARCHIVED_AGENTS_FILE?.trim() || "/app/data/archived-agents.json",
     agentToolAccessFile:
       process.env.AGENT_TOOL_ACCESS_FILE?.trim() || "/app/data/agent-tool-access.json",
+    piDir: process.env.PI_DIR?.trim() || "/app/data/pi",
     modelCapsFile: process.env.MODEL_CAPS_FILE?.trim() || "/app/data/vision-models.json",
     webTools: {
       searxngUrl: process.env.SEARXNG_URL?.trim() || null,

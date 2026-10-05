@@ -51,6 +51,7 @@ describe("loadConfig features", () => {
         google: false,
         codex: false,
         claude: false,
+        pi: false,
       });
     });
   });
@@ -62,14 +63,16 @@ describe("loadConfig features", () => {
         google: true,
         codex: false,
         claude: false,
+        pi: false,
       });
     });
-    withEnv({ ...base, LETTA_MODE: "codex,claude" }, () => {
+    withEnv({ ...base, LETTA_MODE: "codex,claude,pi" }, () => {
       expect(loadConfig().features).toEqual({
         web: false,
         google: false,
         codex: true,
         claude: true,
+        pi: true,
       });
     });
   });
@@ -81,6 +84,7 @@ describe("loadConfig features", () => {
         google: false,
         codex: true,
         claude: false,
+        pi: false,
       });
     });
   });

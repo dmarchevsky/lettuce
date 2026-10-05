@@ -78,6 +78,15 @@ import { handleInternalTools } from "./internal-tools/http.ts";
 import { type ModsIo, type RenderedMod, syncMods } from "./internal-tools/install.ts";
 import { readRenamed } from "./internal-tools/legacy.ts";
 import { MODS_DIR, renderToolsMod } from "./internal-tools/mod.ts";
+import {
+  InvalidPiSettingsError,
+  PI_TOOL_NAMES,
+  PI_TOOL_SPECS,
+  isPiRunId,
+  PiService,
+  toPublicPiSettings,
+} from "./pi/service.ts";
+import { parsePiRun, summarizePiRun } from "./pi/transcript.ts";
 import type { ToolHandler } from "./internal-tools/types.ts";
 import { ensureMcpServers, loadMcpServers, type McpIo, saveMcpServers } from "./mcp/service.ts";
 import {
@@ -420,6 +429,15 @@ const webToolsBackends = (): WebToolsBackends => ({
   searxngUrl: config.webTools.searxngUrl,
   ddg: config.webTools.ddgMcpUrl ? ddgCaller(config.webTools.ddgMcpUrl) : null,
 });
+// The remote pi worker (docs/remote-pi-plan.md): settings, keys and captured
+// run streams are all BFF-local on `bff-data`; the BFF itself is the ssh
+// client, so nothing here crosses the upstream connection.
+const piService = new PiService({
+  paths: { dir: config.piDir },
+  featureEnabled: () => config.features.pi,
+  log,
+});
+void piService.reconcile().catch((error) => log(`Remote pi: reconcile failed: ${errorMessage(error)}`));
 const mcpCatalog = new McpCatalog({
   servers: () => loadMcpServers(mcpIo),
   client: mcpClient,
@@ -445,6 +463,7 @@ const toolHandlers: ReadonlyMap<string, ToolHandler> = new Map<string, ToolHandl
     lostAccess: googleLostAccess,
     accessFor: googleAccessFor,
   }),
+  ...piService.handlers(),
 ]);
 const modsIo: ModsIo = {
   read: codexIo.read,
@@ -545,6 +564,24 @@ async function renderAllMods(): Promise<RenderedMod[]> {
       }),
     },
   ];
+  // The remote pi worker: the stored switch counts only when the `pi`
+  // profile token is on, and Agent → Tools access hides the pi tools from a
+  // blocked agent's turn the same way Google tools are hidden.
+  const pi = await piService.load();
+  const piHidden = Object.fromEntries(
+    Object.entries(access)
+      .filter(([, a]) => a.pi === false)
+      .map(([agentId]) => [agentId, [...PI_TOOL_NAMES]]),
+  );
+  mods.push({
+    path: `${MODS_DIR}/lettuce-pi-tools.mjs`,
+    source: renderToolsMod({
+      title: "lettuce pi-tools v1",
+      tools: pi.enabled && config.features.pi ? PI_TOOL_SPECS : [],
+      port: config.port,
+      hidden: piHidden,
+    }),
+  });
   // The providers mod mirrors the served model list, so it can only be
   // rendered from a complete mirror: `null` means the mirror is still empty
   // for a prefix that needs one (the BFF connected before the first model
@@ -1011,7 +1048,7 @@ app.put("/api/agents/tool-access/:agentId", async (c) => {
   const access = parseToolAccess(await c.req.json().catch(() => null));
   if (!access) {
     return c.text(
-      'Body must be { codex: boolean, claude: boolean, google: "full" | "read" | "off" }',
+      'Body must be { codex: boolean, claude: boolean, google: "full" | "read" | "off", pi?: boolean }',
       400,
     );
   }
@@ -1277,6 +1314,59 @@ app.get("/api/claude/runs/:sessionId", async (c) => {
   } catch (error) {
     return c.text(errorMessage(error), 502);
   }
+});
+
+// ── Remote pi worker ─────────────────────────────────────────────────────
+// Everything BFF-local: settings and keys on `bff-data`, runs captured from
+// the BFF's own ssh spawns. No upstream file channel, no app-server involved.
+// See `pi/` and docs/remote-pi-plan.md.
+
+app.get("/api/pi/settings", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!config.features.pi) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
+  return c.json({ settings: toPublicPiSettings(await piService.load()) });
+});
+
+app.put("/api/pi/settings", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!config.features.pi) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
+  const body = await c.req.json().catch(() => null);
+  try {
+    const saved = await piService.save(body);
+    const mod = await resyncMods("Settings → Remote pi", { refreshCatalog: false });
+    return c.json({ settings: toPublicPiSettings(saved), mod });
+  } catch (error) {
+    if (error instanceof InvalidPiSettingsError) return c.text(error.message, 400);
+    return c.text(errorMessage(error), 502);
+  }
+});
+
+/** TOFU pin: ssh-keyscan the configured host and append what it answers. */
+app.post("/api/pi/pin-host", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!config.features.pi) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
+  try {
+    return c.json({ pinned: await piService.pinHostKey() });
+  } catch (error) {
+    return c.text(errorMessage(error), 400);
+  }
+});
+
+app.get("/api/pi/runs", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  const limit = Math.min(Math.max(Number(c.req.query("limit")) || 10, 1), 30);
+  const runs = (await piService.listRuns(limit)).map(summarizePiRun);
+  return c.json({ runs });
+});
+
+app.get("/api/pi/runs/:runId", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  const runId = c.req.param("runId");
+  if (!isPiRunId(runId)) return c.text("Not a run id", 400);
+  const meta = await piService.getRun(runId);
+  if (!meta) return c.text("No such run", 404);
+  const events = (await piService.store.readEventsTail(runId, 8_000_000)) ?? "";
+  return c.json({ run: parsePiRun(meta, events), capturing: piService.runner.isRunning(runId) });
 });
 
 // ── Google (Gmail / Calendar / Tasks) ───────────────────────────────────────

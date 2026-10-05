@@ -25,12 +25,16 @@ export interface AgentToolAccess {
   codex: boolean;
   claude: boolean;
   google: GoogleAccess;
+  /** Whether the agent may dispatch to the remote pi worker (its mod hides
+   * the pi tools from a blocked agent's turn, like Google's isEnabled). */
+  pi: boolean;
 }
 
 export const DEFAULT_TOOL_ACCESS: Readonly<AgentToolAccess> = Object.freeze({
   codex: true,
   claude: true,
   google: "full",
+  pi: true,
 });
 
 const GOOGLE_ACCESS: readonly GoogleAccess[] = ["full", "read", "off"];
@@ -43,11 +47,14 @@ export function parseToolAccess(value: unknown): AgentToolAccess | null {
   // browser) without it means the default, not a broken entry — dropping it
   // would silently lift that agent's other blocks.
   if ("claude" in record && typeof record.claude !== "boolean") return null;
+  if ("pi" in record && typeof record.pi !== "boolean") return null;
   if (!GOOGLE_ACCESS.includes(record.google as GoogleAccess)) return null;
   return {
     codex: record.codex,
     claude: record.claude !== false,
     google: record.google as GoogleAccess,
+    // `pi` arrived last: an old entry without it means the default (on).
+    pi: record.pi !== false,
   };
 }
 
@@ -55,7 +62,8 @@ function isDefault(access: AgentToolAccess): boolean {
   return (
     access.codex === DEFAULT_TOOL_ACCESS.codex &&
     access.claude === DEFAULT_TOOL_ACCESS.claude &&
-    access.google === DEFAULT_TOOL_ACCESS.google
+    access.google === DEFAULT_TOOL_ACCESS.google &&
+    access.pi === DEFAULT_TOOL_ACCESS.pi
   );
 }
 
