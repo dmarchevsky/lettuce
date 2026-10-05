@@ -1,6 +1,6 @@
 ---
 name: lettuce-pr-and-ci
-description: 'lettuce PR and CI mechanics: worktree → PR → squash merge instead of a local fast-forward, which branch protections are on and which are deliberately not yet, the bump:minor / bump:patch / bump:none labels and how a missing one is derived, the Tier A job list in .github/workflows/ci.yml and why no job gets a secret, why a PR branch only runs checks if it contains the workflow file, why `git push` inside a `&&` chain kills the whole command, why feature branches get `main` merged into them instead of rebased, and the rule that an agent merges only after the operator confirms that specific PR. Read before opening, reviewing, updating or merging a PR, or before touching `.github/workflows/` or the guard rules around merges.'
+description: 'lettuce PR and CI mechanics: worktree → PR → squash merge instead of a local fast-forward, which branch protections are on and which are deliberately not yet, the bump:minor / bump:patch / bump:none labels and how a missing one is derived, the Tier A job list in .github/workflows/ci.yml, the advisory Tier B live stack in .github/workflows/live.yml, and why no job gets a secret, why a PR branch only runs checks if it contains the workflow file, why `git push` inside a `&&` chain kills the whole command, why feature branches get `main` merged into them instead of rebased, and the rule that an agent merges only after the operator confirms that specific PR. Read before opening, reviewing, updating or merging a PR, or before touching `.github/workflows/` or the guard rules around merges.'
 ---
 
 # PR flow and CI
@@ -75,8 +75,21 @@ Hard rules about the file itself:
 - `bun install --frozen-lockfile --ignore-scripts` mirrors the image: letta-code's native
   postinstall builds need a toolchain neither the runner nor the runtime image carries.
 
-The live tier — `deploy-check`, `ui-check`, `smoke` against a real compose stack — is **not** in
-Tier A and has no home yet; it has never run outside a dev box.
+## Tier B (`live.yml`) — advisory until it has measured itself
+
+The live tier runs the shipped compose file on a runner: writes a gitignored `docker/.env` (loopback,
+state in the runner temp, local mode, **no compose profiles**, so no sidecars and no Codex/Claude
+CLIs in the image), `build`, `up -d`, waits on `/readyz` — which only answers once the upstream
+WebSocket is connected, so that loop stands in for `deploy-check`'s health assertion — then
+`ui-check` in a real Chromium at both widths, and tears the stack down. It runs on PRs, on `main`,
+and nightly.
+
+It is **deliberately not in the required `ci` aggregate**, and it carries no `continue-on-error`: a red
+`live` check is loud and honest, it just does not block the merge. The open question it exists to
+answer is cost — the app-server image has to be pulled and built on a cold runner, and whether that
+is four minutes or fifteen decides whether Tier B becomes a gate for `web/**` PRs or stays
+nightly-only. Read the per-step timings on a run before deciding anything from this paragraph.
+`smoke` is in neither tier: it mutates live state and needs an agent to exist.
 
 ## Labels and the bump
 
