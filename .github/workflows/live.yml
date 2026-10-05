@@ -54,22 +54,28 @@ jobs:
       - name: Install Chromium for ui-check
         run: bunx playwright install --with-deps chromium
 
-      # docker/.env is gitignored, so CI writes the smallest thing that boots:
-      # state under the runner temp dir, local mode (dev bypass, no Cloudflare Access)
-      # and NO compose profiles, which means no cloudflared and no sidecars — the image
+      # docker/.env is gitignored, so CI writes the smallest thing that boots: state
+      # under the runner temp dir, local mode (dev bypass, no Cloudflare Access) and
+      # NO compose profiles, which means no cloudflared and no sidecars — the image
       # also skips the Codex and Claude CLIs, because CODING_FEATURES is derived from
-      # this same string. Two things that bit the first run: the BFF refuses a
-      # SESSION_SECRET under 32 characters, and there is deliberately no BFF_BIND —
-      # binding 127.0.0.1 *inside* the container makes Docker's published port
-      # unreachable from the runner, which is exactly how the first run lost /readyz.
+      # this same string. Three things the first two runs had to learn:
+      #   • SESSION_SECRET must be ≥32 characters or the BFF refuses to start.
+      #   • there are TWO binds. BFF_BIND is the host side of Compose's published
+      #     port (keep it loopback on a runner); the BFF's own bind is separate, and
+      #     dev bypass pins it to loopback unless DEV_BYPASS_ALLOW_REMOTE=true —
+      #     a loopback bind inside the namespace means the published port has
+      #     nothing to talk to, which is how run one lost /readyz for 450s.
+      #   • the container listens on 8080; the runner reaches it on BFF_PORT.
       - name: Write compose env
         run: |
           cat > docker/.env <<EOF
+          BFF_BIND=127.0.0.1
           BFF_PORT=8090
           PUBLIC_ORIGIN=http://127.0.0.1:8090
           LETTA_STATE_DIR=${{ runner.temp }}/lettuce-state
           SESSION_SECRET=$(openssl rand -hex 32)
           DEV_BYPASS_EMAIL=ci@lettuce.test
+          DEV_BYPASS_ALLOW_REMOTE=true
           COMPOSE_PROFILES=
           EOF
           mkdir -p "${{ runner.temp }}/lettuce-state"
