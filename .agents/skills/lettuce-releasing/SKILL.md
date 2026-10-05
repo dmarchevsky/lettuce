@@ -1,11 +1,11 @@
 ---
 name: lettuce-releasing
-description: 'Cutting a lettuce release: the `v<MAJOR>.<MINOR>.<PATCH>-letta_<version>` tag format and what bumps MINOR versus PATCH, creating a tag only after the prod deploy verifies, `bun run release --minor|--patch` as one gated command, the VERSION file as the only machine-readable record (and why no package.json version exists), the CHANGELOG.md [Unreleased] voice and section rules, and the README / docs/CONFIGURATION.md docs-sync duty on the feature branch and at release time. Read when bumping VERSION, tagging, writing a changelog entry, or running release.'
+description: 'Cutting a lettuce release: the `v<MAJOR>.<MINOR>.<PATCH>-letta_<version>` tag format and what bumps MINOR versus PATCH, creating a tag only after the prod deploy verifies, `bun run release` as gated commands (`--pr` to open the release PR, `--deploy` to ship and tag it, or the one-shot), the VERSION file as the only machine-readable record (and why no package.json version exists), the CHANGELOG.md [Unreleased] voice and section rules, and the README / docs/CONFIGURATION.md docs-sync duty on the feature branch and at release time. Read when bumping VERSION, tagging, writing a changelog entry, or running release.'
 ---
 
 # Versioning, tags, changelog, docs sync
 
-Loaded from `AGENTS.md`. Tags and VERSION are the only version record, and the release commit is made on main, never on a feature branch.
+Loaded from `AGENTS.md`. Tags and VERSION are the only version record, and the release commit is made on main — directly, or (once `main` requires PRs) through a release PR — never on a feature branch.
 
 Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `docs/upstream-notes.md` pointers working.
 
@@ -31,14 +31,28 @@ v<MAJOR>.<MINOR>.<PATCH>-letta_<LETTA_CODE_VERSION>     e.g. v0.1.0-letta_0.33.7
 - Before running it, make the release-time **docs sync** commit on `main` if the
   `[Unreleased]` range changed anything `README.md` or `docs/CONFIGURATION.md` describes
   (see "Docs sync"). `release.ts` only stages `VERSION` and `CHANGELOG.md`.
-- **`bun run release --minor|--patch`** (`scripts/release.ts`) is the whole release as one
-  gated command: it asserts `main` is clean and untagged, computes the next tag from
-  `VERSION` + the compose pin, makes the release commit on `main`, runs `deploy-check`,
-  prints the Dockhand plan, asks for the one confirmation (type the tag exactly; a
-  non-interactive caller sets `RELEASE_CONFIRM=<tag>` after asking the human), then
-  push → deploy → verify → upstream-log check → tag → push tag, stopping on any failure
-  with no rollback. Doing it by hand is still allowed — this is the same order — but the
-  hand version is what forgot the VERSION bump once.
+- **`bun run release`** (`scripts/release.ts`) is the release as gated commands. All of them
+  assert `main` is checked out, clean and level with origin, that `VERSION` is well-formed and
+  agrees with the newest `CHANGELOG.md` section, and that HEAD is not already tagged; the tag is
+  computed from `VERSION` + the compose pin, never from memory.
+  - **`--minor` / `--patch` / `--auto`** picks the bump. `--auto` reads the `[Unreleased]`
+    headings (`Added`/`Changed` → MINOR, `Fixed` only → PATCH) and falls back to the commit
+    subjects since the current tag, then prints its reasoning — read it.
+  - **`… --pr`** opens the **release PR**: branch `release/<tag>` carrying the `VERSION` bump and
+    the `[Unreleased]` rename, pushed and opened with `bump:none`. It deploys and tags nothing.
+    A human merges it; merge it **last**, because anything merged after it would ship and get
+    tagged with no changelog entry.
+  - **`--deploy`** is the second half: it refuses unless `origin/main`'s tip *is* that release
+    commit and unless that tag does not already exist, then runs `deploy-check`, prints the
+    Dockhand plan, asks for the one confirmation, and does deploy → verify → upstream-log check →
+    tag → push tag.
+  - **`--minor` alone** is the original one-shot (release commit on `main` locally, then push →
+    deploy → verify → tag). Correct while `main` accepts direct pushes; it fails at the push
+    once require-PR is on.
+  - Confirmation is unchanged in every mode: type the tag exactly on a TTY, or
+    `RELEASE_CONFIRM=<tag>` for a non-interactive caller that has asked the human. A failure
+    stops with no rollback, and a failed deploy is never tagged. Doing it by hand is still
+    allowed — this is the same order — but the hand version is what forgot the VERSION bump once.
 - **`VERSION` at the repo root is the machine-readable record** — the full tag string,
   one line, bumped in the same commit that is tagged. The bff image `COPY`s it and the
   BFF serves it at `/api/status` (authenticated branch only — the route's

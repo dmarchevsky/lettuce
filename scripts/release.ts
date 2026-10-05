@@ -1,22 +1,40 @@
 /**
- * The release, as one gated command (see the lettuce-releasing skill and
+ * The release, as gated commands (see the `lettuce-releasing` skill and
  * "Stop before releasing to prod").
  *
  * It exists because the release is five manual steps with a human gate in the
- * middle, and two of them were easy to forget: the VERSION bump (it belongs on
- * `main` at release time, not on a feature branch — parallel worktrees cannot
- * know the next version, and two MINOR features merged together are one MINOR
- * release) and the tag after the verified deploy. The script computes the tag
- * mechanically from `VERSION` + the compose pin, makes the release commit on
- * `main`, and then runs the documented chain — deploy-check → plan → ONE
- * confirmation → push → deploy → verify → upstream-log check → tag → push tag —
- * stopping on the first failure without rolling anything back.
+ * middle, and two of them were easy to forget: the `VERSION` bump (it belongs on
+ * `main` at release time, not on a feature branch — parallel worktrees cannot know
+ * the next version, and two MINOR features merged together are one MINOR release)
+ * and the tag after the verified deploy. The tag is computed mechanically from
+ * `VERSION` + the compose pin, and nothing deploys or tags without the human typing
+ * the exact tag.
+ *
+ * Three modes, in the order the workflow uses them:
+ *
+ *   bun run release --minor|--patch|--auto --pr
+ *       Open the release PR: branch `release/<tag>` off `main` with the `VERSION`
+ *       bump and the `[Unreleased]` rename, pushed, PR created. Deploys nothing and
+ *       tags nothing. This is the mode a repo with branch protection on `main` needs,
+ *       because branch protection will not accept a direct push of the release commit.
+ *
+ *   bun run release --deploy
+ *       After that PR is merged: assert `origin/main`'s tip *is* the release commit,
+ *       run `deploy-check`, print the Dockhand plan, ask for the one confirmation,
+ *       then deploy → verify → upstream-log check → tag that commit → push the tag.
+ *
+ *   bun run release --minor|--patch|--auto
+ *       The original one-shot: the release commit on `main` locally, then push →
+ *       deploy → verify → tag. Still supported and still correct while `main` accepts
+ *       direct pushes; once require-PR is on, this mode fails at the push.
+ *
+ * What never changes: a failed deploy is never tagged, nothing is rolled back, and
+ * the confirmation names the exact tag. On a TTY it is typed; a non-interactive
+ * caller (an agent that has asked the human) sets RELEASE_CONFIRM=<the exact tag>.
  *
  * Usage (from the main checkout, on `main`, clean tree):
- *   bun run release --minor | --patch [--message "..."] [--env letta] [--stack letta-code-ui-prod]
- *
- * The confirmation types the exact tag on a TTY; for a non-interactive caller
- * (an agent that has asked the human) set RELEASE_CONFIRM=<the exact tag>.
+ *   bun run release --minor | --patch | --auto [--pr | --deploy] [--message "..."]
+ *                   [--env letta] [--stack letta-code-ui-prod]
  */
 
 import { homedir } from "node:os";
@@ -33,22 +51,31 @@ function flag(name: string): string | null {
 }
 const bumpMinor = args.includes("--minor");
 const bumpPatch = args.includes("--patch");
+const bumpAuto = args.includes("--auto");
+const modePr = args.includes("--pr");
+const modeDeploy = args.includes("--deploy");
 const message = flag("--message") || "";
 const ENV = flag("--env") || "letta";
 const STACK = flag("--stack") || "letta-code-ui-prod";
 
-function die(step: string, why: string): never {
+function die(step: string, why: string, next = ""): never {
   console.log(`\n✗ STOPPED at ${step}: ${why}`);
-  console.log("  Nothing was rolled back. Fix the cause and run again.");
+  if (next) console.log(`  ${next}`);
+  console.log("  Nothing was rolled back.");
   process.exit(1);
 }
 
-if (bumpMinor === bumpPatch) {
+const bumpFlags = [bumpMinor, bumpPatch, bumpAuto].filter(Boolean).length;
+if (modeDeploy) {
+  if (bumpFlags > 0)
+    die("arguments", "--deploy takes no bump flag — the version to ship is already in VERSION");
+} else if (bumpFlags !== 1) {
   die(
     "arguments",
-    "exactly one of --minor or --patch is required (see the lettuce-releasing skill)",
+    "exactly one of --minor, --patch or --auto is required (see the lettuce-releasing skill)",
   );
 }
+if (modePr && modeDeploy) die("arguments", "--pr and --deploy are two steps, not one run");
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function git(...cmd: string[]): string {
@@ -83,13 +110,7 @@ if (git("rev-parse", "--abbrev-ref", "HEAD") !== "main") {
   );
 }
 if (git("status", "--porcelain") !== "") die("preflight", "working tree is not clean");
-if (git("tag", "--points-at", "HEAD") !== "") {
-  die("preflight", "HEAD is already tagged — this release was cut");
-}
 git("fetch", "origin", "main");
-if (!gitOk(["git", "merge-base", "--is-ancestor", "origin/main", "HEAD"])) {
-  die("preflight", "local main has diverged from origin/main — rebase first");
-}
 
 const versionText = await Bun.file(`${ROOT}VERSION`)
   .text()
@@ -117,78 +138,198 @@ const pin = compose.match(
 )?.[1];
 if (!pin) die("preflight", "could not read LETTA_CODE_VERSION from docker/compose.yml");
 
-const next = bumpMinor
+/** `### Added` / `### Changed` under [Unreleased] mean MINOR; only `### Fixed` means PATCH. */
+function unreleasedSections(): string[] {
+  const section = changelog.split(/^## \[Unreleased\]/m)[1]?.split(/^## \[/m)[0] ?? "";
+  return [...section.matchAll(/^### (\w+)/gm)].map((m) => m[1]!.toLowerCase());
+}
+
+function deriveBump(): { minor: boolean; why: string } {
+  const sections = unreleasedSections();
+  if (sections.some((s) => s === "added" || s === "changed"))
+    return { minor: true, why: `[Unreleased] has ${sections.join(", ")}` };
+  if (sections.length) return { minor: false, why: `[Unreleased] has only ${sections.join(", ")}` };
+  // No changelog headings to go on: fall back to the commit subjects since the tag.
+  const subjects = git("log", `${current}..HEAD`, "--format=%s")
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!subjects.length)
+    die("auto", `cannot derive a bump: no [Unreleased] sections and no commits since ${current}`);
+  return subjects.some((s) => /^feat\b|^feat[(/]/i.test(s))
+    ? { minor: true, why: `commit subjects since ${current} include feat` }
+    : { minor: false, why: `no feat commit since ${current}` };
+}
+
+let minor = bumpMinor;
+if (bumpAuto) {
+  const derived = deriveBump();
+  minor = derived.minor;
+  console.log(`  --auto → ${minor ? "minor" : "patch"}: ${derived.why}`);
+}
+const next = minor
   ? `v${parsed[1]}.${Number(parsed[2]) + 1}.0-letta_${pin}`
   : `v${parsed[1]}.${parsed[2]}.${Number(parsed[3]) + 1}-letta_${pin}`;
-const ahead = git("rev-list", "--count", "origin/main..HEAD");
-console.log(`  releasing ${ahead} commit(s): ${current} → ${next} (pin letta_${pin})`);
 
-// ── 2. The release commit on main ────────────────────────────────────────────
-console.log("\n── release commit");
+// ── 2. `--deploy`: the release PR has been merged ────────────────────────────
+if (modeDeploy) {
+  const local = git("rev-parse", "HEAD");
+  const remote = git("rev-parse", "origin/main");
+  if (local !== remote)
+    die(
+      "preflight",
+      "local main is not origin/main",
+      `git pull --ff-only (local ${local.slice(0, 8)}, origin ${remote.slice(0, 8)})`,
+    );
+  if (git("tag", "--points-at", "HEAD") !== "")
+    die("preflight", "HEAD is already tagged — this release was cut");
+  if (git("tag", "-l", current) !== "")
+    die("preflight", `tag ${current} already exists locally — pull tags or this release was cut`);
+  const tipSubject = git("log", "-1", "--format=%s");
+  if (!tipSubject.startsWith(`chore(release): ${current}`))
+    die(
+      "preflight",
+      `origin/main's tip is "${tipSubject}", not the release commit for ${current}`,
+      "Merge the release PR last: anything merged after it would ship unannounced.",
+    );
+  console.log(`  deploying ${current} (release commit is origin/main's tip)`);
+  await deployAndTag(current);
+  process.exit(0);
+}
+
+// ── 3. The release commit ────────────────────────────────────────────────────
 const date = new Date().toISOString().slice(0, 10);
 const renamed = changelog.replace("## [Unreleased]", `## [Unreleased]\n\n## [${next}] - ${date}`);
+const ahead = git("rev-list", "--count", "origin/main..HEAD");
+
+if (modePr) {
+  if (git("tag", "--points-at", "HEAD") !== "")
+    die("preflight", "HEAD is already tagged — this release was cut");
+  console.log(
+    `\n── release PR: ${current} → ${next} (pin letta_${pin}, ${ahead} commit(s) ahead of origin)`,
+  );
+  const branch = `release/${next}`;
+  if (git("rev-parse", "--verify", branch) !== "")
+    die("preflight", `branch ${branch} already exists`, `git branch -D ${branch} to start over`);
+  await capture(["git", "checkout", "-q", "-b", branch]);
+  await Bun.write(`${ROOT}VERSION`, `${next}\n`);
+  await Bun.write(`${ROOT}CHANGELOG.md`, renamed);
+  await capture(["git", "add", "VERSION", "CHANGELOG.md"]);
+  await capture(["git", "commit", "-m", `chore(release): ${next}`]);
+  await capture(["git", "push", "-u", "origin", branch]);
+  const body = `## What changes, and why
+
+The release commit: \`VERSION\` ${current} → ${next}, and \`CHANGELOG.md\`'s \`[Unreleased]\`
+renamed to the released section. It is opened as a PR rather than pushed straight to \`main\`
+because branch protection will not take the direct push once require-PR is on.
+
+## Release hygiene
+
+- \`bump:none\` — this commit *is* the bump; the entries it names are already in the changelog
+
+## Notes for the reviewer
+
+Merge this last: anything merged after it would be deployed and tagged with no changelog entry.
+After it merges, \`bun run release --deploy\` runs deploy-check → Dockhand plan → the exact-tag
+confirmation → deploy → verify → tag.`;
+  await capture([
+    "gh",
+    "pr",
+    "create",
+    "--base",
+    "main",
+    "--head",
+    branch,
+    "--title",
+    `chore(release): ${next}`,
+    "--label",
+    "bump:none",
+    "--body",
+    body,
+  ]);
+  await capture(["git", "checkout", "-q", "main"]);
+  await capture(["git", "branch", "-q", "-D", branch]);
+  console.log(`\n✓ release PR opened for ${next}. Next: merge it, then  bun run release --deploy`);
+  process.exit(0);
+}
+
+console.log(`\n── release commit`);
+if (git("tag", "--points-at", "HEAD") !== "")
+  die("preflight", "HEAD is already tagged — this release was cut");
+if (ahead === "0" && unreleasedSections().length === 0)
+  die(
+    "preflight",
+    `nothing unreleased to ship — [Unreleased] is empty and main is level with origin`,
+  );
 await Bun.write(`${ROOT}VERSION`, `${next}\n`);
 await Bun.write(`${ROOT}CHANGELOG.md`, renamed);
 await capture(["git", "add", "VERSION", "CHANGELOG.md"]);
 await capture(["git", "commit", "-m", `chore(release): ${next}`]);
-console.log(`  committed chore(release): ${next}`);
+console.log(`  committed chore(release): ${next} (${current} → ${next}, pin letta_${pin})`);
+await deployAndTag(next, true);
 
-// ── 3. The local gate ────────────────────────────────────────────────────────
-console.log("\n── deploy-check (the merged code must be what the local container runs)");
-if ((await run(["bun", "run", "deploy-check"])) !== 0) {
-  die(
-    "deploy-check",
-    "undo the release commit with: git reset --soft HEAD~1 && git restore VERSION CHANGELOG.md",
-  );
-}
-
-// ── 4. Preflight, then the one confirmation ──────────────────────────────────
-console.log("\n── dockhand plan");
-await capture([DOCKHAND, "plan", ENV, STACK]);
-
-console.log(`\nReleasing ${next}: push origin main → deploy ${ENV}/${STACK} → verify → tag.`);
-let confirmed = false;
-if (process.stdin.isTTY) {
-  const { createInterface } = await import("node:readline/promises");
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const answer = await rl.question(`Type ${next} to release: `);
-  rl.close();
-  confirmed = answer.trim() === next;
-} else {
-  if (process.env.RELEASE_CONFIRM === undefined) {
+// ── 4. The shared deploy-and-tag chain ───────────────────────────────────────
+async function deployAndTag(tag: string, pushMain = false): Promise<void> {
+  console.log("\n── deploy-check (the merged code must be what the local container runs)");
+  if ((await run(["bun", "run", "deploy-check"])) !== 0) {
     die(
-      "confirmation",
-      "not a TTY and RELEASE_CONFIRM is not set — a human must confirm this release",
+      "deploy-check",
+      pushMain
+        ? "undo the release commit with: git reset --soft HEAD~1 && git restore VERSION CHANGELOG.md"
+        : "fix whatever deploy-check named — nothing has been deployed",
     );
   }
-  confirmed = process.env.RELEASE_CONFIRM === next;
+
+  console.log("\n── dockhand plan");
+  await capture([DOCKHAND, "plan", ENV, STACK]);
+
+  console.log(
+    `\nReleasing ${tag}: ${pushMain ? "push origin main → " : ""}deploy ${ENV}/${STACK} → verify → tag.`,
+  );
+  let confirmed = false;
+  if (process.stdin.isTTY) {
+    const { createInterface } = await import("node:readline/promises");
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    const answer = await rl.question(`Type ${tag} to release: `);
+    rl.close();
+    confirmed = answer.trim() === tag;
+  } else {
+    if (process.env.RELEASE_CONFIRM === undefined) {
+      die(
+        "confirmation",
+        "not a TTY and RELEASE_CONFIRM is not set — a human must confirm this release",
+      );
+    }
+    confirmed = process.env.RELEASE_CONFIRM === tag;
+  }
+  if (!confirmed)
+    die("confirmation", `the exact tag ${tag} was not confirmed — nothing was pushed or deployed`);
+
+  if (pushMain) {
+    console.log("\n── git push origin main");
+    await capture(["git", "push", "origin", "main"]);
+  }
+
+  console.log("\n── dockhand deploy");
+  const deployOut = await capture([DOCKHAND, "deploy", ENV, STACK, "--confirm"]);
+  if (!deployOut.includes("success exit=0")) die("deploy", "the deploy run did not report success");
+  const started = deployOut.match(/deploy started (\S+)/)?.[1];
+  if (!started) die("deploy", "could not parse the deploy start time for --since");
+
+  console.log("\n── dockhand verify");
+  const verifyOut = await capture([DOCKHAND, "verify", ENV, STACK, "--since", started]);
+  if (!verifyOut.includes("VERIFY: PASS"))
+    die("verify", "verify did not PASS — review its output above");
+
+  console.log("\n── upstream connection");
+  const logs = await capture([DOCKHAND, "logs", ENV, `${STACK}-bff-1`, "200"]);
+  if (!logs.includes(`Upstream connected: letta-code ${pin}`)) {
+    die("upstream", `the BFF log does not show "Upstream connected: letta-code ${pin}"`);
+  }
+
+  console.log("\n── tag");
+  await capture(["git", "tag", "-a", tag, "-m", message || `release ${tag}`]);
+  await capture(["git", "push", "origin", tag]);
+
+  console.log(`\n✓ ${tag} released: ${pushMain ? "pushed, " : ""}deployed, verified, tagged.`);
 }
-if (!confirmed) die("confirmation", `the exact tag ${next} was not confirmed — nothing was pushed`);
-
-// ── 5. Push, deploy, verify ──────────────────────────────────────────────────
-console.log("\n── git push origin main");
-await capture(["git", "push", "origin", "main"]);
-
-console.log("\n── dockhand deploy");
-const deployOut = await capture([DOCKHAND, "deploy", ENV, STACK, "--confirm"]);
-if (!deployOut.includes("success exit=0")) die("deploy", "the deploy run did not report success");
-const started = deployOut.match(/deploy started (\S+)/)?.[1];
-if (!started) die("deploy", "could not parse the deploy start time for --since");
-
-console.log("\n── dockhand verify");
-const verifyOut = await capture([DOCKHAND, "verify", ENV, STACK, "--since", started]);
-if (!verifyOut.includes("VERIFY: PASS"))
-  die("verify", "verify did not PASS — review its output above");
-
-console.log("\n── upstream connection");
-const logs = await capture([DOCKHAND, "logs", ENV, `${STACK}-bff-1`, "200"]);
-if (!logs.includes(`Upstream connected: letta-code ${pin}`)) {
-  die("upstream", `the BFF log does not show "Upstream connected: letta-code ${pin}"`);
-}
-
-// ── 6. Tag ───────────────────────────────────────────────────────────────────
-console.log("\n── tag");
-await capture(["git", "tag", "-a", next, "-m", message || `release ${next}`]);
-await capture(["git", "push", "origin", next]);
-
-console.log(`\n✓ ${next} released: pushed, deployed, verified, tagged.`);
