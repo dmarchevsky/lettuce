@@ -78,15 +78,6 @@ import { handleInternalTools } from "./internal-tools/http.ts";
 import { type ModsIo, type RenderedMod, syncMods } from "./internal-tools/install.ts";
 import { readRenamed } from "./internal-tools/legacy.ts";
 import { MODS_DIR, renderToolsMod } from "./internal-tools/mod.ts";
-import {
-  InvalidPiSettingsError,
-  PI_TOOL_NAMES,
-  PI_TOOL_SPECS,
-  isPiRunId,
-  PiService,
-  toPublicPiSettings,
-} from "./pi/service.ts";
-import { parsePiRun, summarizePiRun } from "./pi/transcript.ts";
 import type { ToolHandler } from "./internal-tools/types.ts";
 import { ensureMcpServers, loadMcpServers, type McpIo, saveMcpServers } from "./mcp/service.ts";
 import {
@@ -99,6 +90,15 @@ import { MCP_SKILL_NAME } from "./mcp/skill.ts";
 import { McpCatalog } from "./mcp-bridge/catalog.ts";
 import { mcpClient } from "./mcp-bridge/client.ts";
 import { BRIDGE_TOOL_SPECS, bridgeHandlers, MCP_BRIDGE_MOD_PATH } from "./mcp-bridge/tools.ts";
+import {
+  InvalidPiSettingsError,
+  isPiRunId,
+  PI_TOOL_NAMES,
+  PI_TOOL_SPECS,
+  PiService,
+  toPublicPiSettings,
+} from "./pi/service.ts";
+import { parsePiRun, summarizePiRun } from "./pi/transcript.ts";
 import { ProviderSight } from "./providers/sight.ts";
 import {
   ModelCapsError,
@@ -437,7 +437,9 @@ const piService = new PiService({
   featureEnabled: () => config.features.pi,
   log,
 });
-void piService.reconcile().catch((error) => log(`Remote pi: reconcile failed: ${errorMessage(error)}`));
+void piService
+  .reconcile()
+  .catch((error) => log(`Remote pi: reconcile failed: ${errorMessage(error)}`));
 const mcpCatalog = new McpCatalog({
   servers: () => loadMcpServers(mcpIo),
   client: mcpClient,

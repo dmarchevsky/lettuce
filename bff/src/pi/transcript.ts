@@ -92,15 +92,22 @@ export function parsePiRun(meta: PiRunMeta, eventsText: string): PiRun {
     }
     const type = record.type;
     if (type === "message_end") {
-      const message = record.message as { role?: string; content?: unknown; timestamp?: number } | undefined;
+      const message = record.message as
+        | { role?: string; content?: unknown; timestamp?: number }
+        | undefined;
       const role = message?.role;
       if (role === "assistant") {
-        const at = typeof message?.timestamp === "number" ? new Date(message.timestamp).toISOString() : null;
+        const at =
+          typeof message?.timestamp === "number" ? new Date(message.timestamp).toISOString() : null;
         const content = Array.isArray(message?.content) ? (message.content as ContentPart[]) : [];
         for (const part of content) {
           if (part?.type === "text" && typeof part.text === "string" && part.text.trim()) {
             steps.push({ kind: "message", text: part.text, at });
-          } else if (part?.type === "thinking" && typeof part.thinking === "string" && part.thinking.trim()) {
+          } else if (
+            part?.type === "thinking" &&
+            typeof part.thinking === "string" &&
+            part.thinking.trim()
+          ) {
             steps.push({ kind: "reasoning", text: part.thinking, at });
           }
         }

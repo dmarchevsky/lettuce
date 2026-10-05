@@ -15,27 +15,27 @@ import type { ToolAnswer, ToolHandler, ToolSpec } from "../internal-tools/types.
 import { capText } from "../internal-tools/types.ts";
 import {
   DirPiRunStore,
+  isPiSessionId,
   type PiKeyFiles,
   type PiRunMeta,
   PiRunner,
-  piAgentId,
-  isPiSessionId,
   type PiSpawner,
+  piAgentId,
 } from "./runner.ts";
 import {
-  type PiSettings,
-  piConfigured,
-  parsePiSettings,
-  renderPiSettings,
   applyPiSettingsUpdate,
   InvalidPiSettingsError,
+  type PiSettings,
+  parsePiSettings,
+  piConfigured,
+  renderPiSettings,
 } from "./settings.ts";
 
-export { InvalidPiSettingsError };
-export { toPublicPiSettings, piTarget, piConfigured } from "./settings.ts";
-export { DirPiRunStore, PiRunner, piAgentId, isPiSessionId } from "./runner.ts";
-export type { PiSettings, PublicPiSettings } from "./settings.ts";
 export type { PiRunMeta } from "./runner.ts";
+export { DirPiRunStore, isPiSessionId, PiRunner, piAgentId } from "./runner.ts";
+export type { PiSettings, PublicPiSettings } from "./settings.ts";
+export { piConfigured, piTarget, toPublicPiSettings } from "./settings.ts";
+export { InvalidPiSettingsError };
 
 export interface PiPaths {
   /** Directory on the bff-data volume, e.g. `/app/data/pi`. */
@@ -191,7 +191,12 @@ export class PiService {
     const existing = (await readOrNull(file)) ?? "";
     const kept = existing
       .split("\n")
-      .filter((line) => line.trim() && !line.includes(` ${settings.host} `) && !line.startsWith(`[${settings.host}`))
+      .filter(
+        (line) =>
+          line.trim() &&
+          !line.includes(` ${settings.host} `) &&
+          !line.startsWith(`[${settings.host}`),
+      )
       .join("\n");
     await writePrivate(file, `${kept}${kept ? "\n" : ""}${text}\n`);
     return { lines: text.split("\n").filter(Boolean).length, target: settings.host };
@@ -200,7 +205,10 @@ export class PiService {
   /** Boot reconciliation: runs still marked running are orphans of the old BFF. */
   async reconcile(): Promise<number> {
     const orphaned = await this.runner.reconcileOnBoot();
-    if (orphaned > 0) (this.options.log ?? (() => {}))(`Remote pi: ${orphaned} run(s) orphaned by restart → detached`);
+    if (orphaned > 0)
+      (this.options.log ?? (() => {}))(
+        `Remote pi: ${orphaned} run(s) orphaned by restart → detached`,
+      );
     return orphaned;
   }
 
@@ -218,10 +226,7 @@ export class PiService {
     return null;
   }
 
-  private async startRun(
-    kind: "run" | "send",
-    args: Record<string, unknown>,
-  ): Promise<ToolAnswer> {
+  private async startRun(kind: "run" | "send", args: Record<string, unknown>): Promise<ToolAnswer> {
     const off = this.guard();
     if (off) return off;
     const settings = await this.load();
@@ -237,8 +242,7 @@ export class PiService {
       }
       session = raw;
     }
-    const model =
-      typeof args.model === "string" && args.model.trim() ? args.model.trim() : null;
+    const model = typeof args.model === "string" && args.model.trim() ? args.model.trim() : null;
 
     try {
       const files = await this.keyFiles(settings);
@@ -257,18 +261,26 @@ export class PiService {
         await Bun.sleep(500);
       }
       if (observed.state === "failed") {
-        return { text: `The run failed to start: ${observed.error ?? "ssh failed"}`, isError: true };
+        return {
+          text: `The run failed to start: ${observed.error ?? "ssh failed"}`,
+          isError: true,
+        };
       }
       const agentId = observed.session ? piAgentId(observed.session) : null;
       return {
         text:
           `Started remote-pi ${kind} ${observed.runId}` +
-          (observed.session ? ` on session ${observed.session} (agent ${agentId})` : " — session id not yet visible") +
+          (observed.session
+            ? ` on session ${observed.session} (agent ${agentId})`
+            : " — session id not yet visible") +
           `. Poll with pi_status {run:"${observed.runId}"}.`,
         isError: false,
       };
     } catch (error) {
-      return { text: `Could not start the remote-pi run: ${error instanceof Error ? error.message : String(error)}`, isError: true };
+      return {
+        text: `Could not start the remote-pi run: ${error instanceof Error ? error.message : String(error)}`,
+        isError: true,
+      };
     }
   }
 
@@ -288,14 +300,17 @@ export class PiService {
     if (!meta) return { text: `No remote-pi run ${runId}`, isError: true };
     const lines = [
       `run ${meta.runId} — ${meta.state}${meta.exitCode !== null ? ` (exit ${meta.exitCode})` : ""}`,
-      meta.session ? `session ${meta.session} (follow up with pi_send {session:"${meta.session}"})` : "session not yet visible",
+      meta.session
+        ? `session ${meta.session} (follow up with pi_send {session:"${meta.session}"})`
+        : "session not yet visible",
       `events ${meta.eventCount}, started ${meta.startedAt}${meta.lastEventAt ? `, last activity ${meta.lastEventAt}` : ""}`,
     ];
     if (meta.error) lines.push(`error: ${meta.error}`);
     const tail = await this.store.readEventsTail(runId, 4_000);
     if (tail) {
       const answer = lastAssistantText(tail);
-      if (answer) lines.push(`last assistant text:\n${capText(answer, "older output is in the run viewer")}`);
+      if (answer)
+        lines.push(`last assistant text:\n${capText(answer, "older output is in the run viewer")}`);
     }
     return { text: lines.join("\n"), isError: false };
   };
@@ -308,7 +323,11 @@ export class PiService {
     if (!runId) return { text: "`run` is a run id from a previous pi_run/pi_send", isError: true };
     const meta = await this.store.read(runId);
     if (!meta) return { text: `No remote-pi run ${runId}`, isError: true };
-    if (!this.runner.stop(runId)) return { text: `Run ${runId} is not being captured by this BFF (state: ${meta.state})`, isError: true };
+    if (!this.runner.stop(runId))
+      return {
+        text: `Run ${runId} is not being captured by this BFF (state: ${meta.state})`,
+        isError: true,
+      };
     return {
       text: `Stopped capturing run ${runId}. The remote pi keeps running until its turn ends (detach-only; docs/remote-pi-plan.md § 4.5).`,
       isError: false,
@@ -344,9 +363,13 @@ export function lastAssistantText(tail: string): string | null {
       const content = record.message.content;
       if (!Array.isArray(content)) continue;
       const text = content
-        .filter((p): p is { type: "text"; text: string } =>
-          Boolean(p) && typeof p === "object" && (p as { type?: string }).type === "text" &&
-          typeof (p as { text?: unknown }).text === "string")
+        .filter(
+          (p): p is { type: "text"; text: string } =>
+            Boolean(p) &&
+            typeof p === "object" &&
+            (p as { type?: string }).type === "text" &&
+            typeof (p as { text?: unknown }).text === "string",
+        )
         .map((p) => p.text)
         .join("");
       if (text) answer = text;
@@ -364,9 +387,13 @@ const RUN_PARAMETERS = {
   properties: {
     prompt: {
       type: "string",
-      description: "The task for the remote pi agent, in full. It runs autonomously on the remote host.",
+      description:
+        "The task for the remote pi agent, in full. It runs autonomously on the remote host.",
     },
-    model: { type: "string", description: "Optional pi model id; default: the remote pi's own default." },
+    model: {
+      type: "string",
+      description: "Optional pi model id; default: the remote pi's own default.",
+    },
   },
   required: ["prompt"],
   additionalProperties: false,
@@ -408,7 +435,8 @@ export const PI_TOOL_SPECS: readonly ToolSpec[] = [
   },
   {
     name: "pi_status",
-    description: "State of a remote-pi run: running/completed/detached/failed, its session id, and the tail of its last assistant text.",
+    description:
+      "State of a remote-pi run: running/completed/detached/failed, its session id, and the tail of its last assistant text.",
     parameters: STATUS_PARAMETERS,
     approval: "auto",
   },

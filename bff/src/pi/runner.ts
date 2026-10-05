@@ -13,10 +13,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import {
-  type PiSettings,
-  piTarget,
-} from "./settings.ts";
+import { type PiSettings, piTarget } from "./settings.ts";
 
 /** pi session ids are plain UUIDs (docs/session-format.md). */
 const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -186,9 +183,7 @@ export class DirPiRunStore implements PiRunStore {
         // A half-written meta is skipped, never fatal to the listing.
       }
     }
-    return metas
-      .sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1))
-      .slice(0, Math.max(0, limit));
+    return metas.sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1)).slice(0, Math.max(0, limit));
   }
   async readEventsTail(runId: string, maxChars: number): Promise<string | null> {
     const fs = await import("node:fs/promises");

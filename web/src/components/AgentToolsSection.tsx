@@ -90,12 +90,14 @@ export function AgentToolsSection({ agentId, features, onOpenGlobalSettings }: P
     !saved ||
     saved.codex !== access.codex ||
     saved.claude !== access.claude ||
-    saved.google !== access.google;
+    saved.google !== access.google ||
+    saved.pi !== access.pi;
 
   const showGoogle = featureEnabled(features, "google");
   const showCodex = featureEnabled(features, "codex");
   const showClaude = featureEnabled(features, "claude");
-  if (!showGoogle && !showCodex && !showClaude) {
+  const showPi = featureEnabled(features, "pi");
+  if (!showGoogle && !showCodex && !showClaude && !showPi) {
     return (
       <p className="muted pad">
         No shared tool family is enabled on this instance, so there is nothing to narrow here.
@@ -159,6 +161,24 @@ export function AgentToolsSection({ agentId, features, onOpenGlobalSettings }: P
               {access.claude
                 ? "The agent may hand coding tasks to Claude Code workers."
                 : "Starting or messaging a Claude Code worker is refused, in every permission mode."}
+            </span>
+          </label>
+        ) : null}
+
+        {showPi ? (
+          <label className="field">
+            Remote pi worker
+            <select
+              value={access.pi ? "on" : "off"}
+              onChange={(event) => setAccess({ ...access, pi: event.target.value === "on" })}
+            >
+              <option value="on">Allowed</option>
+              <option value="off">Blocked</option>
+            </select>
+            <span className="muted small">
+              {access.pi
+                ? "The agent may dispatch coding tasks to the remote pi agent."
+                : "The pi tools are hidden from this agent's turns."}
             </span>
           </label>
         ) : null}

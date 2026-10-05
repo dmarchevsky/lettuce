@@ -2,6 +2,18 @@ import { expect, test } from "bun:test";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import {
+  buildPiRemoteCommand,
+  buildSshArgs,
+  DirPiRunStore,
+  isPiSessionId,
+  type PiProcess,
+  type PiRunMeta,
+  PiRunner,
+  piAgentId,
+  shq,
+} from "./runner.ts";
+import { lastAssistantText, PiService, piKeyFile, piSettingsFile } from "./service.ts";
+import {
   applyPiSettingsUpdate,
   DEFAULT_PI_SETTINGS,
   InvalidPiSettingsError,
@@ -10,19 +22,7 @@ import {
   piConfigured,
   toPublicPiSettings,
 } from "./settings.ts";
-import {
-  buildPiRemoteCommand,
-  buildSshArgs,
-  DirPiRunStore,
-  isPiSessionId,
-  piAgentId,
-  type PiProcess,
-  type PiRunMeta,
-  PiRunner,
-  shq,
-} from "./runner.ts";
 import { parsePiRun, summarizePiRun } from "./transcript.ts";
-import { lastAssistantText, PiService, piKeyFile, piSettingsFile } from "./service.ts";
 
 const BASE: PiSettings = {
   ...DEFAULT_PI_SETTINGS,
@@ -54,7 +54,10 @@ test("a stored key survives an update that does not mention it", () => {
 
 test("enabling requires a complete configuration", () => {
   expect(() =>
-    applyPiSettingsUpdate({ ...DEFAULT_PI_SETTINGS }, { enabled: true, host: "h", user: "u", workdir: "/w" }),
+    applyPiSettingsUpdate(
+      { ...DEFAULT_PI_SETTINGS },
+      { enabled: true, host: "h", user: "u", workdir: "/w" },
+    ),
   ).toThrow(InvalidPiSettingsError);
   const ok = applyPiSettingsUpdate(
     { ...DEFAULT_PI_SETTINGS },
@@ -163,7 +166,11 @@ const SESSION = "01a10e10-08ec-705d-a364-5cfa40e1a963";
 
 test("a completed run records session, settled and files", async () => {
   const { dir, store, runner, children } = await freshRunner();
-  const meta = await runner.start(BASE, { keyFile: "/k", knownHostsFile: "/kh" }, { kind: "run", prompt: "hi" });
+  const meta = await runner.start(
+    BASE,
+    { keyFile: "/k", knownHostsFile: "/kh" },
+    { kind: "run", prompt: "hi" },
+  );
   const child = only(children);
   child.emit(`{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/tmp"}\n`);
   child.emit(`{"type":"agent_settled"}\n`);
@@ -179,7 +186,11 @@ test("a completed run records session, settled and files", async () => {
 
 test("killing the local ssh detaches, never claims the remote stopped", async () => {
   const { store, runner, children } = await freshRunner();
-  const meta = await runner.start(BASE, { keyFile: "/k", knownHostsFile: "/kh" }, { kind: "run", prompt: "hi" });
+  const meta = await runner.start(
+    BASE,
+    { keyFile: "/k", knownHostsFile: "/kh" },
+    { kind: "run", prompt: "hi" },
+  );
   const child = only(children);
   child.emit(`{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/tmp"}\n`);
   expect(runner.isRunning(meta.runId)).toBe(true);
@@ -192,7 +203,11 @@ test("killing the local ssh detaches, never claims the remote stopped", async ()
 
 test("ssh failing before any output is a failure with the stderr tail", async () => {
   const { runner, children } = await freshRunner();
-  const meta = await runner.start(BASE, { keyFile: "/k", knownHostsFile: "/kh" }, { kind: "run", prompt: "hi" });
+  const meta = await runner.start(
+    BASE,
+    { keyFile: "/k", knownHostsFile: "/kh" },
+    { kind: "run", prompt: "hi" },
+  );
   const child = only(children);
   child.finish(255);
   await Bun.sleep(10);

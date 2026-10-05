@@ -91,7 +91,8 @@ export function applyPiSettingsUpdate(current: PiSettings, body: unknown): PiSet
 
   const next: PiSettings = { ...current };
   if ("enabled" in r) {
-    if (typeof r.enabled !== "boolean") throw new InvalidPiSettingsError("`enabled` must be true or false");
+    if (typeof r.enabled !== "boolean")
+      throw new InvalidPiSettingsError("`enabled` must be true or false");
     next.enabled = r.enabled;
   }
   if (typeof r.host === "string") next.host = r.host.trim();
@@ -104,11 +105,13 @@ export function applyPiSettingsUpdate(current: PiSettings, body: unknown): PiSet
     next.port = port;
   }
   if ("pathPrepend" in r) {
-    if (typeof r.pathPrepend !== "string") throw new InvalidPiSettingsError("`pathPrepend` must be a string");
+    if (typeof r.pathPrepend !== "string")
+      throw new InvalidPiSettingsError("`pathPrepend` must be a string");
     next.pathPrepend = r.pathPrepend.trim();
   }
   if ("workdir" in r) {
-    if (typeof r.workdir !== "string") throw new InvalidPiSettingsError("`workdir` must be a string");
+    if (typeof r.workdir !== "string")
+      throw new InvalidPiSettingsError("`workdir` must be a string");
     next.workdir = r.workdir.trim();
   }
   if ("model" in r) {
@@ -126,8 +129,10 @@ export function applyPiSettingsUpdate(current: PiSettings, body: unknown): PiSet
   }
 
   if (next.enabled) {
-    if (!next.host) throw new InvalidPiSettingsError("`host` is required to enable the remote pi worker");
-    if (!next.user) throw new InvalidPiSettingsError("`user` is required to enable the remote pi worker");
+    if (!next.host)
+      throw new InvalidPiSettingsError("`host` is required to enable the remote pi worker");
+    if (!next.user)
+      throw new InvalidPiSettingsError("`user` is required to enable the remote pi worker");
     if (!next.workdir.startsWith("/")) {
       throw new InvalidPiSettingsError("`workdir` must be an absolute path on the remote host");
     }

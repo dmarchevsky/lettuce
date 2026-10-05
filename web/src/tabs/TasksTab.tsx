@@ -7,6 +7,7 @@ import { ClaudeRunsList } from "../components/ClaudeRunsList.tsx";
 import { CodexRunsList } from "../components/CodexRunsList.tsx";
 import { Icon } from "../components/Icon.tsx";
 import { ToggleRow } from "../components/MenuRow.tsx";
+import { PiRunsList } from "../components/PiRunsList.tsx";
 import { Sheet } from "../components/Sheet.tsx";
 import { CLAUDE_SUBAGENT_TYPE } from "../lib/claude.ts";
 import { CODEX_SUBAGENT_TYPE } from "../lib/codex.ts";
@@ -335,6 +336,17 @@ export function TasksTab({
 
       {featureEnabled(features, "claude") ? (
         <ClaudeRunsList
+          refreshKey={backgroundProcesses
+            .filter((process) => process.kind === "agent_task")
+            .map((process) => process.processId)
+            .join(",")}
+        />
+      ) : null}
+
+      {/* Remote-pi runs are captured by the BFF itself, so this list does not
+          need the worker tokens the coding lists ride on — only `pi` itself. */}
+      {featureEnabled(features, "pi") ? (
+        <PiRunsList
           refreshKey={backgroundProcesses
             .filter((process) => process.kind === "agent_task")
             .map((process) => process.processId)

@@ -9,6 +9,8 @@ export interface FeatureFlags {
   google: boolean;
   codex: boolean;
   claude: boolean;
+  /** Virtual token like codex/claude; the transport lives in the BFF itself. */
+  pi: boolean;
 }
 
 export type FeatureName = keyof FeatureFlags;
