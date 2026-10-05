@@ -181,7 +181,30 @@ Sub-decisions § 4 must settle (spike informs 1 and 4):
 
 ## 5. Implementation milestones
 
-_Pending § 4._
+_Drafted against option B (re-cut only if the spike overturns the choice). Each slice is a
+PR per `AGENTS.md` workflow; the operator's container test is the merge gate on each._
+
+0. **Spike** — done in this planning goal; its evidence fixes the transcript-collection and
+   cancellation sub-decisions.
+1. **BFF core** — `bff/src/pi/`: settings module mirroring `bff/src/codex/settings.ts`
+   (schema, save/load, never echo the key), `pi` virtual profile token in
+   `config.features`, ssh runner that spawns `ssh` (bff image gains `openssh-client`),
+   streams the run's stdout jsonl into a durable per-run file under the state dir, and
+   handlers for `pi_run` / `pi_send` / `pi_status` behind `/internal/tools/`. Gate:
+   `bun run verify` + unit tests with a faked ssh runner.
+2. **Mod + gating** — render the pi tools mod (disabled when the token or switch is off),
+   per-agent tool-access rows, `enabled:false` semantics on token loss. Gate: `verify`,
+   plus a live check that a chat turn can `pi_run` against the spike host.
+3. **Runs + viewer** — lenient parser for pi's json event stream (json.md is the wire
+   contract), `GET /api/pi/runs[/:sessionId]`, Tasks list row and transcript sheet
+   (pattern: `bff/src/claude/transcript.ts` + its `web/` viewer); the `pi_run` tool return
+   carries the session/run id so the transcript entry links to the run. Gate: `verify`,
+   `ui-check`.
+4. **Settings UI** — Settings → Remote pi worker (host/port/user/key/workdir/model, enabled
+   switch, known_hosts TOFU pin), hidden when the `pi` token is off. Gate: `ui-check`,
+   `deploy-check` after merge.
+5. **Docs + follow-ups** — `README.md` / `docs/CONFIGURATION.md` entries, CHANGELOG per
+   slice; follow-up work if the spike demands remote-kill: `pi_stop` as a separate slice.
 
 ## 6. Open questions
 
