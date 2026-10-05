@@ -268,8 +268,7 @@ exists.
 - **Conversations DO have a native `archived` field** (plus `archived_at`), settable via
   `conversation_update {body:{archived}}` — verified against the local backend. But
   `conversation_list` ignores an `archived` query filter, so the *list* is filtered
-  client-side. (An earlier note here claimed the field did not exist and prescribed a tag
-  workaround; that was wrong.)
+  client-side.
 - **Rename** = `conversation_update {body:{summary}}`. A fresh conversation has
   `summary: null`, so the UI supplies its own placeholder.
 - **`create_agent` presets** are exactly `memo | tutorial | blank | linus | kawaii`. There is
@@ -341,6 +340,9 @@ rebuild, nothing to deploy.** That is `AGENTS.md`, `docs/`, `README.md`, `CHANGE
 `.agents/skills/`, `.pi/`, `scripts/` — none of it reaches an image, so it rides the next release's
 tag. Gate: `bun run check-docs`, plus lint and tests when a script changed. `docker/agent-skills/`
 is not docs-only — it ships in the app-server image.
+
+**Never split a plan from the code it plans: a plan doc rides its work's branch and PR, not
+its own PR.**
 
 ### Versioning, tags, changelog — summary
 
