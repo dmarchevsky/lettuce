@@ -1,0 +1,209 @@
+# > **What this is.** Tier A of `docs/PR-CI-PLAN.md` §4: every gate that needs no running
+# > stack, run on a GitHub runner instead of only on whoever's laptop committed the change.
+# > The live-stack tier (`deploy-check`, `ui-check`) is deliberately not here — it needs a
+# > compose stack and has never run outside a dev box.
+# >
+# > **Nothing here has a secret.** That is a hard rule, not a preference: `pull_request` jobs
+# > from a fork run with a read-only token and no repository secrets, so anything that needs
+# > a credential is `workflow_dispatch`-only on `main`.
+# >
+# > Actions are pinned to commit SHAs (Dependabot PRs propose bumps; the pins are the
+# > supply-chain gate), every job declares the least permission it needs, and the aggregate
+# > `ci` job is the single check to make required in branch protection — with path filters a
+# > required check that can go *skipped* is a PR that never merges.
+#
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Mirrors "packageManager" in package.json. Bump both together; the image builds on
+  # oven/bun:1.3, which is a moving minor and does not need to match exactly.
+  BUN_VERSION: "1.3.0"
+
+jobs:
+  lint-and-types:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+      - run: bun install --frozen-lockfile --ignore-scripts
+      # Warnings do not fail lint (biome.jsonc explains which ones are load-bearing);
+      # errors do. typecheck is also this repo's protocol-drift detector.
+      - run: bun run lint
+      - run: bun run typecheck
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun test
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun run build
+
+  hygiene:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      # Full history: --base needs to diff against the base branch, and the changelog
+      # duty is read out of the diff this PR adds.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun scripts/check-version-pin.ts
+      - run: bun scripts/check-docs.ts
+      - run: bun scripts/check-prod-info.ts
+      - name: Release hygiene
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          labels=$(gh pr view "$PR_NUMBER" --json labels --jq '[.labels[].name] | join(",")')
+          title=$(gh pr view "$PR_NUMBER" --json title --jq .title)
+          echo "labels: ${labels:-none}"
+          bun scripts/check-release-hygiene.ts --pr \
+            --base "origin/${{ github.base_ref }}" \
+            --labels "$labels" \
+            --subject "$title"
+      - name: Release hygiene (push to main)
+        if: github.event_name != 'pull_request'
+        run: bun scripts/check-release-hygiene.ts
+
+  compose-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # Catches a compose.yml that only breaks at deploy time — a bad profile token, a
+      # mount typo, an interpolation that needs an unset variable. SESSION_SECRET is
+      # required by the file itself; a throwaway value is enough to parse it. The
+      # virtual coding tokens are the ones no service declares, so Compose warns about
+      # them and that warning is expected, not an error.
+      - name: docker compose config
+        env:
+          SESSION_SECRET: not-a-secret-ci-only
+        run: |
+          docker compose -f docker/compose.yml config --quiet
+          docker compose -f docker/compose.yml --profile cloudflared --profile google \
+            --profile search --profile codex --profile claude --profile telegram \
+            config --quiet
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      # Builds what ships; pushes nothing. The Dockerfile, the `COPY VERSION` and the
+      # web-build stage are all things nothing checked until a deploy did. GIT_SHA is
+      # passed because a runner checkout can be shallow, where the build cannot read
+      # refs the way a clone can.
+      - name: Build the bff image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: docker/bff.Dockerfile
+          load: true
+          tags: lettuce-ci:probe
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      # Stamping is optional by design: this workflow lands before the commit-stamped
+      # build does, and a required check must not be red waiting for another PR. Once
+      # BUILD_INFO exists in the image this step becomes a real assertion.
+      - name: The image names its commit
+        run: |
+          if docker run --rm lettuce-ci:probe sh -c 'test -s BUILD_INFO'; then
+            docker run --rm lettuce-ci:probe cat BUILD_INFO
+          else
+            echo "::notice::no BUILD_INFO in this image yet — stamping arrives with the build-sha PR"
+          fi
+
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # Checks the workflows themselves: expression syntax, shellcheck on `run:`,
+      # needs/`if` sanity. Run from the pinned image rather than a third-party action.
+      - name: actionlint
+        run: |
+          docker run --rm -v "$PWD:/work:ro" -w /work \
+            rhysd/actionlint:1.7.7 -color
+
+  secrets-scan:
+    runs-on: ubuntu-latest
+    # Advisory for now: a scan that has never run on this history is more likely to be
+    # noisy on its first week than to catch something. Promote it into the required
+    # aggregate below once it has been quiet, or delete it if it never says anything.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc # v2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+  # The single required check. Every job above is a signal in the UI; this one is what
+  # branch protection points at, so a job that is filtered out can never leave a PR
+  # waiting on a check that will never report.
+  ci:
+    needs:
+      - lint-and-types
+      - test
+      - build
+      - hygiene
+      - compose-config
+      - image
+      - actionlint
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: All tiers green
+        run: |
+          if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}" = "true" ]; then
+            echo "::error::at least one CI tier did not pass"
+            exit 1
+          fi
+          echo "every CI tier passed"
