@@ -116,15 +116,27 @@ branch — see the `lettuce-releasing` skill.
 
 ## Branch protection: what is on
 
-Currently on `main`: force-push and branch deletion **forbidden** (`enforce_admins` false, so an
-admin can still do both — it is a guardrail for agents, not a lock).
+`main` is protected. Read it live rather than trusting this file —
+`gh api repos/dmarchevsky/lettuce/branches/main/protection -q '{approvals:
+.required_pull_request_reviews.required_approving_review_count, checks:
+.required_status_checks.contexts, strict: .required_status_checks.strict, force:
+.allow_force_pushes.enabled, admins: .enforce_admins.enabled}'` — but as it stands:
 
-Deliberately **not** on yet, because each one breaks something until its dependency lands:
+- **A PR is required**, and `ci` must be green on a branch current with `main` (`strict: true`, and
+  with no force-push, "current" means merging `main` into the branch).
+- **Zero approving reviews, deliberately.** One human account and the agent's token are the same
+  identity, and GitHub refuses self-approval flat out — *"Can not approve your own pull request"* —
+  so a review requirement turned every merge into an admin bypass, which hides who decided. The gate
+  is now `ci` **plus a human commanding the specific merge**: the guard confirms every `gh pr merge`,
+  and the agent merges #N only when #N is named. A review is still welcome and still counts; it is
+  just not the thing standing between a branch and `main`.
+- **Conversation resolution is required**, and **squash is the repo's only merge method**, so history
+  stays one commit per PR.
+- Force-push and deleting `main` are forbidden outright. **`enforce_admins` is false**, so the owner
+  keeps an emergency direct push; an agent reaches for `--admin` only when told to override something
+  protection still requires, and says so in the same breath.
+- Nothing auto-deletes a merged branch, so the rule that a merged worktree is *reported* safe to
+  remove, never removed by the agent, still has teeth.
 
-- **Require a PR** — `scripts/release.ts`'s one-shot mode still commits on `main`; it works via
-  `--pr`/`--deploy` now, so this can be switched on once that has shipped.
-- **Require the `ci` check** — pointless without require-a-PR, since a direct push bypasses it.
-- **Require an approving review, squash-only** — same moment.
-
-The moment those go on, the release *must* go through `bun run release --pr`, and `AGENTS.md`'s
-release summary has to say so.
+Because a PR is required, `bun run release --pr` is not optional for a release — see
+`lettuce-releasing`.

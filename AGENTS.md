@@ -335,7 +335,7 @@ assertions — story: docs/upstream-notes.md#main-checkout-collision-story-2026-
 
 **Every change touching `bff/`, `web/` or `docker/` is a PR** — a new capability, a new sidecar, or
 anything spanning more than one of them. The PR body (`.github/pull_request_template.md`) is the
-gate list; a reviewer's approval *is* the container test — nothing replaces it.
+gate list; the operator's own container test *is* the gate — nothing replaces it.
 
 **A docs-only change touches none of `bff/`, `web/`, `docker/`: a PR of its own, nothing to
 rebuild, nothing to deploy.** That is `AGENTS.md`, `docs/`, `README.md`, `CHANGELOG.md`,
