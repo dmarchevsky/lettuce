@@ -17,10 +17,25 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const titles = (command: string) => reviewCommand(command).map((hit) => hit.rule.title);
 const hard = (command: string) => reviewCommand(command).some((hit) => !!hit.rule.hard);
 
-test("git push is gated", () => {
-  expect(titles("git push origin main")).toEqual(["git push"]);
-  expect(titles("git -C /elsewhere push")).toEqual(["git push"]);
+test("landing a branch is free; landing main or a tag is the release", () => {
+  expect(titles("git push -u origin feat/build-sha")).toEqual([]);
+  expect(titles("git push origin HEAD")).toEqual([]);
+  expect(titles("git push origin release/v0.7.0-letta_0.34.1")).toEqual([]);
+  expect(titles("git push origin main")).toEqual(["git push to main or tags"]);
+  expect(titles("git push --follow-tags").sort()).toEqual([
+    "git push to main or tags",
+    "git push with no refspec",
+  ]);
+  expect(titles("git -C /elsewhere push")).toEqual(["git push with no refspec"]);
   expect(titles("git pushd .")).toEqual([]);
+});
+
+test("merging and approving a PR is the operator's, not the agent's", () => {
+  expect(titles("gh pr merge 7 --squash")).toEqual(["gh pr merge"]);
+  expect(titles("gh pr review 7 --approve")).toEqual(["gh pr review --approve"]);
+  expect(titles('gh pr create --base main --title "x" --body "y"')).toEqual([]);
+  expect(titles("gh pr view 7 --json state")).toEqual([]);
+  expect(titles("gh pr checks 8")).toEqual([]);
 });
 
 test("force is blocked outright", () => {
@@ -70,7 +85,9 @@ test("reads that quote a forbidden command do not trip a gate", () => {
 });
 
 test("compound commands check every doing segment", () => {
-  expect(titles("git add -A && git commit -m x && git push origin main")).toEqual(["git push"]);
+  expect(titles("git add -A && git commit -m x && git push origin main")).toEqual([
+    "git push to main or tags",
+  ]);
 });
 
 test("protected files match by path, not by prefix accidents", () => {

@@ -24,14 +24,14 @@ keeps this file inside its size budget.
    command run from anywhere must hit the same state.
 4. **Never recreate `app-server` on its own.** Its network namespace holds `bff` and
    `channel-gateway`, so always run `docker compose -f docker/compose.yml up -d` unscoped.
-5. **Never push, tag, or redeploy prod without asking, every time** (see "Stop before releasing to
-   prod"). `.pi/extensions/guard.ts` makes the harness enforce the same thing.
+5. **Never push `main`, tag, or redeploy prod without asking, every time** — a feature-branch push
+   is routine; a `main`/tag push *is* the release. `.pi/extensions/guard.ts` enforces that split.
 6. **Done means the user has tested it in the container**: `bun run verify`, the local run, the
    human test gate, then after merging — rebuild `bff`, `bun run deploy-check`, plus
    `bun run ui-check` for any `web/` change. Typecheck and tests passing is not done. A
    **docs-only** change (see "Branches") stops at `bun run check-docs`.
 7. **Feature work happens in a worktree on a feature branch**, under `.worktrees/` inside this
-   checkout. The main checkout stays on `main` with a clean tree and only takes merges — except a
+   checkout. The main checkout stays on `main` with a clean tree and only takes merged PRs — except a
    **docs-only** change (see "Branches").
 8. **Never remove a worktree or delete a branch on your own initiative.** Report it as merged and
    safe to remove and let the human decide; act only when asked about that specific one
@@ -212,6 +212,7 @@ traps; read it before working in that area.
 | LLM timeout env, agent app ports, failing subagent spawns | `lettuce-runtime-and-ops` |
 | Memory tab, `persona.md`, "the system prompt did not update" | `lettuce-memory-and-system-prompt` |
 | `AgentMenu`, the sidebar agent list, pin/archive lists | `lettuce-ui-conventions` |
+| PRs, `.github/workflows/`, `bump:*` labels, branch protection | `lettuce-pr-and-ci` |
 | `bun run sync-upstream`, `LETTA_CODE_VERSION` | `lettuce-upstream-sync` |
 | `VERSION`, `CHANGELOG.md`, tagging, `bun run release` | `lettuce-releasing` |
 
@@ -318,29 +319,29 @@ skill. Read it before running the command.
 
 ## Git workflow
 
-### Branches
+### Branches and PRs
 
-Worktrees per feature, feature branches, fast-forward merge to `main`
-(`git merge --ff-only`, no merge commits), no PRs. Rebase the feature branch onto `main`
-first if it isn't already a fast-forward.
+Worktrees per branch, then a **PR into `main`, squash-merged** (one commit per PR, no merge
+commits). Nothing lands on `main` except through a merged PR — a release included.
+**An agent merges only after the operator confirms that specific PR.** Mechanics — updating a
+branch without force-pushing, why a PR can report no checks, `bump:*` labels, what branch protection
+enforces and what it deliberately does not yet: **`lettuce-pr-and-ci`**.
 
-**The main checkout stays on `main` with a clean tree — only merges happen there.** All feature
-work, including creating the branch and every commit on it, happens in a worktree under
-`.worktrees/` inside the checkout (`git worktree add .worktrees/<name> -b <branch>`; the directory
-is git- and docker-ignored — the bff image's build context is the repo root). Branching inside the
+**The main checkout stays on `main` with a clean tree — only merge bookkeeping happens there.** All
+feature work, including the branch and every commit on it, happens in a worktree under `.worktrees/`
+(`git worktree add .worktrees/<name> -b <branch>`; git- and docker-ignored). Branching inside the
 main checkout lets two sessions collide and breaks `deploy-check`'s clean-tree and on-`main`
 assertions — story: docs/upstream-notes.md#main-checkout-collision-story-2026-09-29.
 
-**Every user-facing feature gets its own feature branch**: a new capability, a new service or
-sidecar, or any change spanning more than one of `bff/`, `web/`, `docker/`. Small fixes may land
-on `main` too; both carry a PATCH tag when they ship. (This is a rule about the *scope* of a
-change; what bumps the version is in the `lettuce-releasing` skill.)
+**Every change touching `bff/`, `web/` or `docker/` is a PR** — a new capability, a new sidecar, or
+anything spanning more than one of them. The PR body (`.github/pull_request_template.md`) is the
+gate list; a reviewer's approval *is* the container test — nothing replaces it.
 
 **A docs-only change touches none of `bff/`, `web/`, `docker/`: commit it straight to `main`, no
 worktree, nothing to rebuild.** That is `AGENTS.md`, `docs/`, `README.md`, `CHANGELOG.md`,
-`.agents/skills/`, `.pi/`, `scripts/` — none of it reaches an image, so it rides the next
-release's tag. Gate: `bun run check-docs`, plus lint and tests when a script changed.
-`docker/agent-skills/` is not docs-only — it ships in the app-server image.
+`.agents/skills/`, `.pi/`, `scripts/` — none of it reaches an image, so it rides the next release's
+tag. Gate: `bun run check-docs`, plus lint and tests when a script changed. `docker/agent-skills/`
+is not docs-only — it ships in the app-server image.
 
 ### Versioning, tags, changelog — summary
 
@@ -348,41 +349,39 @@ Releases are annotated tags on `main` shaped `v<MAJOR>.<MINOR>.<PATCH>-letta_<LE
 cut only after the prod deploy is verified. MINOR is any new or changed user-facing functionality;
 PATCH is everything else that ships to prod. `VERSION` at the repo root is the only
 machine-readable record and is bumped in the same commit that gets tagged; the UI reads it through
-`/api/status`. A user-visible change carries a `CHANGELOG.md` `[Unreleased]` entry in the same
-commit as the change, plus its `README.md` / `docs/CONFIGURATION.md` update.
+`/api/status`, and a build between releases carries its commit (`+<sha>`) so it is never
+indistinguishable from the last release. A user-visible change carries a `CHANGELOG.md`
+`[Unreleased]` entry in the same commit as the change, plus its `README.md` /
+`docs/CONFIGURATION.md` update.
 
-`bun run release --minor|--patch` is the whole gated sequence (release commit on `main` → push →
-deploy → verify → tag). The tag format rules, who writes changelog entries, the docs-sync duty and
-why the release commit is never made on a feature branch: **`lettuce-releasing`** skill.
+`bun run release --minor|--patch|--auto --pr` opens the release PR (the `VERSION` bump +
+`[Unreleased]` rename); after it merges, `bun run release --deploy` runs deploy-check → Dockhand
+plan → the one confirmation → deploy → verify → tag. Tag format rules, who writes changelog
+entries, the docs-sync duty and why the release commit is never made on a feature branch:
+**`lettuce-releasing`** skill.
 
 ## Workflow
 
 The ordered shape of a change; "Definition of done" is the checklist each step has to satisfy.
 
-1. **Worktree.** `git worktree add .worktrees/<name> -b <branch>`, run from the main checkout —
-   never branch inside the main checkout; **docs-only** skips 1 and 3–5. If the session was
-   launched in a worktree someone else made (`.pendant/worktrees/…`, an agent manager's own
-   directory), use it; the gate only cares that you are not in the main checkout.
-2. **Implement and commit.** Commit on the branch, with the `CHANGELOG.md` `[Unreleased]` entry and
-   any `README.md` / `docs/CONFIGURATION.md` update in the same commit, and `bun run verify`
-   green.
-3. **Build and run it locally**, from the worktree:
-   `docker compose -f docker/compose.yml build bff && docker compose -f docker/compose.yml up -d`
-   (unscoped — hard rule 4). The local stack is **one per machine, shared by every worktree**, so
-   local testing is serialized: your `up -d bff` replaces what another session is looking at.
-   A worktree has no `docker/.env` (it is gitignored) — copy it first
-   (`cp ../../docker/.env docker/.env`), or its absolute `LETTA_STATE_DIR` is missing and the
-   `../..` default builds a state tree inside `.worktrees/`.
-4. **Pause for the user to test.** Say what to click and what should happen, then stop. Nothing
-   merges before they say it works; a failed test goes back to step 2.
-5. **Merge.** `git merge --ff-only <branch>` in the main checkout, then prove the artifact that
-   ships from `main`: rebuild `bff`, `bun run deploy-check`, plus `ui-check` / `smoke` where they
-   apply. Do not remove the worktree — report it as merged and safe to remove.
-6. **Release — only after asking.** `bun run release --minor|--patch` makes the release commit on
-   `main` (`VERSION` bump + `[Unreleased]` rename), runs `deploy-check`, then push → Dockhand
-   deploy → verify → **annotated tag + push the tag**. A failed deploy is never tagged. Without the
-   `dockhand-deploy` skill on this machine the release ends at `git push origin main` and the
-   deploy is the human's.
+1. **Worktree.** `git worktree add .worktrees/<name> -b <branch>` from the main checkout — never
+   branch in the main checkout; **docs-only** skips 1 and 3–5. Launched in someone else's worktree
+   (`.pendant/worktrees/…`)? Use it; the gate only cares that you are not in the main checkout.
+2. **Implement, commit, `bun run verify` green** — with the `CHANGELOG.md` `[Unreleased]` entry and
+   any docs update in the same commit, and a `bump:*` label picked for the PR.
+3. **Build and run it locally**, from the worktree: `bun run build:bff && docker compose -f
+   docker/compose.yml up -d` (unscoped — hard rule 4). The stack is **one per machine, shared by
+   every worktree**, so your `up -d` replaces what another session is testing. Copy the gitignored
+   env in first (`cp ../../docker/.env docker/.env`) or the state dir lands in `.worktrees/`.
+4. **Open the PR and stop.** Push the branch, `gh pr create` with the template filled in, say what
+   to click and what should happen, then wait. Nothing merges before the human says it works; a
+   failed test goes back to step 2.
+5. **Merge is the human's** (squash). Then prove the artifact that ships from `main`: rebuild `bff`,
+   `bun run deploy-check`, plus `ui-check` / `smoke` where they apply. Report the worktree merged
+   and safe to remove; do not remove it.
+6. **Release — only after asking.** `bun run release --auto --pr`, human merges, `bun run release
+   --deploy` deploys and tags. A failed deploy is never tagged; without the `dockhand-deploy` skill
+   the release ends at the push and the deploy is the human's.
 
 ## Definition of done
 
@@ -399,12 +398,11 @@ A **docs-only** change stops after step 1.
  1b. **Built and running locally from the worktree** (Workflow step 3), and **tested by the user**:
     say what to look at, stop, and wait. Merge only after they say it works — no machine check
     replaces this gate, and unit tests passing is not "working".
- 2. **Committed** on a feature branch and fast-forwarded into `main`
-   (`git merge --ff-only`). A user-visible change carries its `CHANGELOG.md` `[Unreleased]`
-   entry — and its `README.md` / `docs/CONFIGURATION.md` update when it touched the
-   configuration surface or a user-facing workflow — in the same commit. The **release commit**
-   (`VERSION` bump + `[Unreleased]` rename) is made on `main` by `bun run release`, never on a
-   feature branch — see `lettuce-releasing`.
+ 2. **Committed on the branch and squash-merged through its PR.** A user-visible change carries its
+   `CHANGELOG.md` `[Unreleased]` entry — and its `README.md` / `docs/CONFIGURATION.md` update when
+   it touched the configuration surface or a user-facing workflow — in the same commit. The
+   **release commit** (`VERSION` bump + `[Unreleased]` rename) comes from `bun run release --pr`,
+   never from a feature branch — see `lettuce-releasing`.
 3. **The worktree is reported, not removed** — never `git worktree remove` or `git branch -d` on
    your own initiative (`.pi/extensions/guard.ts` makes the operator confirm either; `--force`
    variants and `git worktree prune` are blocked outright). Concurrent agents may have live
