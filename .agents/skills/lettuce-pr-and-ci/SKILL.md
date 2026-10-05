@@ -135,8 +135,42 @@ branch — see the `lettuce-releasing` skill.
 - Force-push and deleting `main` are forbidden outright. **`enforce_admins` is false**, so the owner
   keeps an emergency direct push; an agent reaches for `--admin` only when told to override something
   protection still requires, and says so in the same breath.
-- Nothing auto-deletes a merged branch, so the rule that a merged worktree is *reported* safe to
-  remove, never removed by the agent, still has teeth.
+- Merging **auto-deletes the branch on `origin`** (`delete_branch_on_merge`), so a merged branch is
+  gone from the remote without anyone sweeping. It is still recoverable for a while at
+  `refs/pull/<N>/head` — `git fetch origin pull/<N>/head:<name>` — which is also why PRs are never
+  tidied away: they are the record.
 
 Because a PR is required, `bun run release --pr` is not optional for a release — see
 `lettuce-releasing`.
+
+## After merge: `bun run cleanup`
+
+Worktree and local-branch bookkeeping is a script, not a habit: `scripts/cleanup-merged.ts` with
+the decision rules in `scripts/cleanup-core.ts` (tests: `tests/cleanup-core.test.ts`). Default mode
+only reports; `--apply` removes, and only after you type the exact phrase it printed, which is
+derived from the counts so a plan that changed mid-run cannot be confirmed by the old phrase.
+
+Why a script and not `git worktree remove` in a loop — three checks a human would otherwise have to
+remember, each one a way to eat someone's work:
+
+- **PR state decides, never git ancestry.** This repo squash-merges, so a merged branch is not an
+  ancestor of `main` and `git branch --merged` is permanently meaningless here; `-d` always refuses
+  and `-D` deletes anything, merged or not. The script asks the API.
+- **A dirty tree is a refusal.** A follow-up fix made only in the worktree is exactly what a
+  merge-triggered auto-delete would lose. Untracked files count as dirty.
+- **A live process with its cwd inside is a refusal** (read from `/proc/*/cwd`; unknown is treated
+  as occupied, not empty). This is the case rule 8 was written for — another session sitting in the
+  worktree — and nothing about the PR being merged tells you.
+
+There is no `--force`. A refusal is an instruction to go look. `--remote` additionally deletes the
+merged branches on `origin` for branches that were created before auto-delete existed, and
+`--skip-session-check` exists for a platform that cannot report live sessions; both are stated in
+the output, never assumed.
+
+Abandoned branches — the kind a merge never triggers on — are not the script's business. The weekly
+`stale-report` workflow lists branches with no open PR and lets a human decide; it never deletes.
+
+The guard follows the same shape: `git branch -D` is confirmable (it has to be, because squash
+ancestry means `-d` can never succeed), every `--force` variant and worktree pruning stay hard
+blocks, and `bun run cleanup` — like `release.ts` — carries its own confirmation because the guard
+only sees what an agent types.

@@ -79,9 +79,9 @@ export const RULES: Rule[] = [
     pattern: /\bgit\b[^\n]*\bworktree remove\b/,
     title: "git worktree remove",
     message:
-      "AGENTS.md: report a merged worktree as safe to remove and let the operator decide. Confirm " +
-      "only because they asked for this specific one — another session may be sitting in it " +
-      "with uncommitted work.",
+      "AGENTS.md hard rule 8: `bun run cleanup` is the supported path — it checks the PR state, " +
+      "the tree and live sessions first. Confirm a manual removal only because the operator asked " +
+      "for this specific worktree; another session may be sitting in it with uncommitted work.",
   },
   {
     pattern: /\bgit\b[^\n]*\bworktree\s+prune\b/,
@@ -100,8 +100,11 @@ export const RULES: Rule[] = [
   {
     pattern: /\bgit\b[^\n]*\bbranch\s+(?:-D\b|--delete\s+--force|--force\s+--delete)/,
     title: "git branch -D",
-    message: "Unmerged branch deletion is not part of this repo's workflow.",
-    hard: true,
+    message:
+      "This deletes a branch whose commits are not ancestors of main — which is what every " +
+      "squash-merged branch looks like to git, so `-d` will always refuse. Confirm only because " +
+      "the operator named these branches, and only for a branch whose PR is merged. " +
+      "`bun run cleanup` does the checking.",
   },
   {
     pattern: /\bdocker\b[^\n]*\bcompose\b[^\n]*\b(?:rm|down|stop|kill)\b/,

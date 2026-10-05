@@ -33,10 +33,9 @@ keeps this file inside its size budget.
 7. **Feature work happens in a worktree on a feature branch**, under `.worktrees/` inside this
    checkout. The main checkout stays on `main` with a clean tree and only takes merged PRs — except a
    **docs-only** change (see "Branches").
-8. **Never remove a worktree or delete a branch on your own initiative.** Report it as merged and
-   safe to remove and let the human decide; act only when asked about that specific one
-   (`.pi/extensions/guard.ts` makes them confirm it). Another session may be sitting in it with
-   uncommitted work.
+8. **Never remove a worktree or delete a branch by hand** — `bun run cleanup` does it once a PR
+   is merged, and refuses anything unmerged, dirty, or occupied by another session. Hand-removal
+   needs the operator to name the specific one (`.pi/extensions/guard.ts` gates what you type).
 
 ## Workspace layout
 
@@ -377,8 +376,7 @@ The ordered shape of a change; "Definition of done" is the checklist each step h
    to click and what should happen, then wait. Nothing merges before the human says it works; a
    failed test goes back to step 2.
 5. **Merge is the human's** (squash). Then prove the artifact that ships from `main`: rebuild `bff`,
-   `bun run deploy-check`, plus `ui-check` / `smoke` where they apply. Report the worktree merged
-   and safe to remove; do not remove it.
+   `bun run deploy-check`, plus `ui-check` / `smoke` where they apply. Then `bun run cleanup`.
 6. **Release — only after asking.** `bun run release --auto --pr`, human merges, `bun run release
    --deploy` deploys and tags. A failed deploy is never tagged; without the `dockhand-deploy` skill
    the release ends at the push and the deploy is the human's.
@@ -403,11 +401,10 @@ A **docs-only** change stops after step 1.
    it touched the configuration surface or a user-facing workflow — in the same commit. The
    **release commit** (`VERSION` bump + `[Unreleased]` rename) comes from `bun run release --pr`,
    never from a feature branch — see `lettuce-releasing`.
-3. **The worktree is reported, not removed** — never `git worktree remove` or `git branch -d` on
-   your own initiative (`.pi/extensions/guard.ts` makes the operator confirm either; `--force`
-   variants and `git worktree prune` are blocked outright). Concurrent agents may have live
-   worktrees; removing one that is not yours destroys another session's uncommitted work.
-   `deploy-check` no longer requires a single worktree.
+3. **The worktree goes through `bun run cleanup`**, which reports everything and removes only a
+   worktree whose PR is merged with a clean tree and no process inside it (`--force` and pruning
+   stay blocked outright). A concurrent agent may be sitting in a worktree; removing that one
+   destroys uncommitted work.
 4. **Docker rebuilt from `main`** —
    `docker compose -f docker/compose.yml build bff && docker compose -f docker/compose.yml up -d bff`.
    The `build` is not optional; see the note below.
@@ -536,6 +533,7 @@ app-server request loop that `use-session.ts` documents).
 | `bun run sync-upstream v<x.y.z>` | Move the upstream checkout to a release, report drift, re-pin |
 | `bun run release --minor\|--patch` | The whole release: release commit on `main`, then gated push → deploy → verify → tag |
 | `bun run check-version-pin` | Assert every letta-code version literal agrees (runs inside `verify`) |
+| `bun run cleanup` | Report merged worktrees and branches; `--apply` removes ones that are merged, clean and unoccupied |
 | `bun run screenshots` | Regenerate `docs/images/` screenshots from the running stack |
 | `bun run migrate-state` | One-shot: copy the old `letta-home`/`letta-data` named volumes onto the host |
 | `docker compose -f docker/compose.yml build bff` | Rebuild the BFF image — **required** to ship UI changes |
@@ -551,10 +549,9 @@ The repo carries its own agent-harness configuration so the rules above are not 
 - `.agents/skills/lettuce-*/SKILL.md` — the task-scoped mechanics this file moved out; pi lists
   their names and descriptions and loads the body only when one is read.
 - `.pi/extensions/guard.ts` — confirms, or outright blocks, what this file forbids: `git push`,
-  `git tag -a`, `git worktree remove` / `git branch -d` (blocked when combined with `--force`;
-  `git worktree prune` and `git branch -D` are always blocked), `docker compose … rm|down|stop|
-  kill|restart`, a scoped `up … app-server`, and any write to `docker/.env`, `docker/secrets/` or
-  `VERSION`. With no UI a confirmable action is blocked, never silently allowed. Rules are pure
+  `git tag -a`, `git worktree remove` / `git branch -d|-D` (every `--force` variant and worktree
+  pruning stay blocked outright), `docker compose … rm|down|stop|kill|restart`, a scoped
+  `up … app-server`, and any write to `docker/.env`, `docker/secrets/` or `VERSION`. With no UI a confirmable action is blocked, never silently allowed. Rules are pure
   functions in `guard-core.ts` (tests: `tests/guard-core.test.ts`); read-only commands that merely quote
   one are exempt; it guards what an agent types, not what a script does internally — which is why
   `release.ts` carries its own typed confirmation.

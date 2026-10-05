@@ -42,14 +42,18 @@ test("force is blocked outright", () => {
   expect(hard("git push --force-with-lease origin main")).toBe(true);
 });
 
-test("removing a worktree or a merged branch needs the operator; forcing them does not exist", () => {
+test("removing a worktree or deleting a branch needs the operator; forcing them does not exist", () => {
   expect(titles("git worktree remove .worktrees/x")).toEqual(["git worktree remove"]);
   expect(hard("git worktree remove .worktrees/x")).toBe(false);
   expect(titles("git branch -d merged-branch")).toEqual(["git branch -d"]);
   expect(hard("git branch -d merged-branch")).toBe(false);
   expect(hard("git worktree prune")).toBe(true);
-  expect(hard("git branch -D unmerged")).toBe(true);
+  // -D is confirmable now: squash merges make every merged branch look unmerged to git, so
+  // `-d` can never work here and cleanup needs a deletable path. Still gated, never silent.
+  expect(titles("git branch -D chore/merged-thing")).toEqual(["git branch -D"]);
+  expect(hard("git branch -D chore/merged-thing")).toBe(false);
   expect(hard("git worktree remove --force .worktrees/x")).toBe(true);
+  expect(hard("git branch --delete --force chore/x")).toBe(true);
   expect(titles("git branch --show-current")).toEqual([]);
 });
 

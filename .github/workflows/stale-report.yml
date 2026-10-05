@@ -1,0 +1,56 @@
+name: stale-report
+
+# Layer 3 of the cleanup policy: the staleness a merge never triggers on.
+#
+# `bun run cleanup` (see the `lettuce-pr-and-ci` skill) removes merged worktrees and branches, and
+# `delete_branch_on_merge` makes merges tidy `origin` by themselves. What neither can see is a
+# branch that was abandoned — no PR ever, or a PR that was closed — because there is no merge event
+# to hang a rule on, and nobody knows from the outside whether a three-day-old branch is finished
+# or mid-thought. So this workflow does not delete anything. It prints a list once a week and a
+# human decides.
+#
+# Report-only is the whole design rule here: an automated delete against "looks stale" eventually
+# deletes someone's live work.
+
+on:
+  schedule:
+    - cron: "3 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  report:
+    name: branches with no open PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: List stale-looking branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "## Branches with no open PR (report only — nothing is deleted)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| branch | last commit | PR state |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          found=0
+          for branch in $(gh api "repos/$GITHUB_REPOSITORY/branches" --paginate \
+              --jq '.[].name | select(. != "main")'); do
+            state=$(gh pr list --head "$branch" --state all --json state --jq '.[0].state // "NONE"')
+            case "$state" in
+              OPEN) continue ;;
+            esac
+            when=$(gh api "repos/$GITHUB_REPOSITORY/branches/$branch" \
+              --jq '.commit.commit.committer.date[:10]' 2>/dev/null || echo "unknown")
+            echo "| \`$branch\` | $when | $state |" >> "$GITHUB_STEP_SUMMARY"
+            found=$((found + 1))
+          done
+          if [ "$found" = "0" ]; then
+            echo "_none — every branch has an open PR_" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Decide yourself: delete a real leftover, or open the PR it was always meant to have." >> "$GITHUB_STEP_SUMMARY"
+          fi

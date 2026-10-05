@@ -29,6 +29,10 @@ In order:
    it, CI goes green, and they merge — or tell you to merge *that* PR. You do not merge on a general
    "continue", and you never approve your own PR. If their test fails, go back to step 1 with their
    feedback.
-7. Report the worktree path as merged-and-safe-to-remove once they merge it; never remove it or the
-   branch yourself. **Do not push `main`, do not tag, do not touch prod**: the release is a separate,
-   explicitly confirmed step (`/release`).
+7. Once they merge it, run `bun run cleanup` (plain first, then `--apply` and type the phrase it
+   prints). It removes this worktree and branch only if the PR merged, the tree is clean and no
+   process has its cwd inside; any refusal means leave it and say why. Do not `git worktree remove`
+   or `git branch -D` by hand — the script is the checked path, and it is the only thing that knows
+   squash-merged branches are not "merged" as far as git cares.
+8. **Do not push `main`, do not tag, do not touch prod**: the release is a separate, explicitly
+   confirmed step (`/release`).
