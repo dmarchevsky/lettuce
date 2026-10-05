@@ -54,6 +54,11 @@ Confirmed decisions (operator, 2026-10-05):
   contract, `lettuce.json` switch, env injection. The BFF renders config into the
   letta-home mount on save and on every upstream connect
   (`bff/src/codex/settings.ts` — `apiKey` never returns to a browser).
+- Native tools reach agents as **mods** (`bff/src/internal-tools/mod.ts`): a file in the
+  app-server's `~/.letta/mods` whose tools POST args to the loopback-only
+  `http://127.0.0.1:<bff>/internal/tools/<name>` route; the work lives in the BFF. Listener
+  turns (chats, crons, channel) get mod tools; **subagent turns do not** (providers-only
+  profile). A mod cannot import npm packages and reloads only on `reload`.
 - Run viewers parse the CLI's own transcript files leniently:
   `bff/src/claude/transcript.ts` (Claude session jsonl, 5-min recency heuristic for
   "running") and `bff/src/codex/rollout.ts`, served by
@@ -112,22 +117,67 @@ Confirmed decisions (operator, 2026-10-05):
 
 ## 3. Spike evidence
 
-_Pending task-0 (host access), task-2 (single-shot), task-3 (session iteration +
-fetch-back). Recorded here as command + trimmed output, no hostnames, IPs (outside RFC
-5737) or keys._
+_Pending task-0 (host access). Recorded here as command + trimmed output, no hostnames,
+IPs (outside RFC 5737) or keys._
+
+Runbook the spike will execute (`HOST` = operator-provided `user@host[:port]`, everything
+local-machine `ssh`, nothing installed on the remote):
+
+```bash
+SSH='ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10'
+# 0. readiness: $SSH HOST 'pi --version' && $SSH HOST 'mkdir -p ~/lettuce-pi-spike'
+# 2. Spike A, single-shot json mode:
+$SSH HOST 'cd ~/lettuce-pi-spike && pi --mode json "Reply with exactly: PI-SPIKE-OK"' \
+  > spike-a.jsonl                     # first line is the session header, last agent_settled
+# 3. Spike B, iteration on the same session:
+sid=$(head -1 spike-a.jsonl | jq -r .id)
+$SSH HOST "cd ~/lettuce-pi-spike && pi --mode json --session $sid \
+  'What word did I just ask you to reply with?'" > spike-b.jsonl   # answer must be PI-SPIKE-OK
+# 3b. locate + fetch back the growing transcript:
+$SSH HOST "ls ~/.pi/agent/sessions/*/*${sid}*.jsonl"
+$SSH HOST "cat <that path>" > fetched.jsonl   # superset of spike-a+spike-b events
+# cancellation probe: start a long run, kill local ssh mid-run, then check whether the
+# remote pi process survived — decides whether § 4 needs explicit remote-kill semantics.
+```
+
+Dev-machine prerequisites checked (2026-10-05): local OpenSSH 10.0p2 (ControlMaster,
+BatchMode supported), local pi 1.0.3 as flag reference. The dev machine currently has **no
+SSH private keys or config** — the operator must supply the key or point at one.
 
 ## 4. Design decisions
 
-_Pending. Options to compare, at minimum: (A) masquerade `claude-code` slot with a pi
-bridge shim (upstream subagent machinery for free; costs: collides with real Claude Code
-worker, bidirectional protocol translation, claude_ id namespace); (B) BFF-native mod
-tools `pi_run` / `pi_send` on the loopback route (clean, our code end to end, native
-session ids; costs: no Task/update_subagent_state machinery, needs ssh client in the BFF
-image); (C) agent-shell path — a global skill instructing the agent to `ssh host pi …`
-directly (zero new code; no parity UI, no structure). Plus sub-decisions: transcript
-collection (fetch-back of remote jsonl vs capture stdout jsonl locally), settings shape,
-profile token, timeouts and cancellation (note: killing the local ssh process does not
-kill the remote pi — must decide remote kill semantics)._
+**Decision pending** spike + operator pick. Options compared:
+
+| | Mechanism | Upstream machinery | Costs |
+|---|---|---|---|
+| **A** | Masquerade: shim on PATH bridging the claude-code launch shape → `ssh host pi --mode json` (and stream-json ⇄ pi event translation both ways) | Full `Task` subagent machinery: `subagent_type: "claude-code"`, `update_subagent_state`, `claude_<uuid>` link, `--resume` follow-ups via `SendAgentMessage` | Collides head-on with the real Claude Code worker — one `claude` on PATH, one preflight, one id namespace; bidirectional protocol translation of an internal, version-drifting format |
+| **B** | BFF-native mod tools (`pi_run`, `pi_send`, `pi_status`, `pi_runs`) on the loopback mod route; BFF spawns ssh, captures pi jsonl, owns run state | None from upstream; parity UI (Tasks list + viewer) is built by us over the captured jsonl, same viewer pattern as `bff/src/claude/transcript.ts` | Needs ssh client in the bff image (image is ours — today it has none); mod tools block their turn, so long runs must return a run id and be polled (`pi_run` starts, `pi_send` follows up on a session); subagent turns cannot see mod tools, so dispatch happens on the agent's own turns (fine — that's where dispatch lives) |
+| **C** | Global skill: agent shells `ssh host pi …` itself (app-server image already has `/usr/bin/ssh`) | none | zero structure: no parity UI, no settings/switch, key lives in the container, nothing for the BFF to show |
+
+Direction of travel (pre-spike, not yet binding): **B**. A's only unique benefit is reusing
+upstream's Task plumbing at the price of hijacking another worker's identity; B keeps every
+moving part in code we own, gets the UUID session id natively from pi's json header, and
+reaches the confirmed UX bar through the existing viewer pattern.
+
+Sub-decisions § 4 must settle (spike informs 1 and 4):
+
+1. **Transcript collection**: capture the ssh stdout jsonl in the BFF as the run's durable
+   copy (durable under `LETTA_STATE_DIR`, viewer never touches the remote) vs lazy
+   fetch-back of the remote `~/.pi/agent/sessions/...` file per poll. Spike B measures
+   whether fetch-back mid-run is as reliable as stream capture.
+2. **Settings shape** (modeled on `bff/src/codex/settings.ts`): `enabled`, `host`, `port`,
+   `user`, private key (stored server-side under the state dir, never returned to a
+   browser — the `apiKey` precedent), `workdir`, optional `model`; plus a `known_hosts`
+   pin with a first-connect TOFU affordance (`StrictHostKeyChecking=yes` always).
+3. **Feature gate**: a `pi` virtual compose profile token, effective-enabled = token AND
+   stored switch, exactly like `codex`/`claude` (Settings save route 404s while off).
+   Unlike codex/claude, nothing needs baking into the *app-server* image for option B —
+   the transport lives in the BFF (whose image gains `openssh-client`).
+4. **Cancellation / liveness**: killing the local ssh does not reliably kill remote pi
+   (spike probe records actual behavior). Decide whether Lettuce ever kills remote runs
+   (`ssh host kill <pid>` — still within the nothing-installed rule) or simply detaches.
+5. **Timeouts**: mod-call turn timeout vs detached run — the BFF should run ssh in the
+   background and let tools poll, mirroring how Claude viewer treats "running" as recency.
 
 ## 5. Implementation milestones
 
