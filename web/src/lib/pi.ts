@@ -1,16 +1,22 @@
 /**
  * The remote pi worker, as the browser sees it: Settings → Remote pi worker
- * and the run viewer. Everything goes through the BFF's /api/pi routes — the
- * key and the captured run streams live on the BFF's own volume and never
- * cross to the browser. The types mirror `bff/src/pi/`; the two packages
- * cannot import from each other.
+ * and the run viewer. Everything goes through the BFF's /api/pi routes — in
+ * `stored_key` mode the key and the captured run streams live on the BFF's own
+ * volume and never cross to the browser; in `ssh_agent` mode (the default)
+ * there is no stored key at all. The types mirror `bff/src/pi/`; the two
+ * packages cannot import from each other.
  */
+
+export type PiAuthMode = "ssh_agent" | "stored_key";
 
 export interface PiSettings {
   enabled: boolean;
   host: string;
   port: number;
   user: string;
+  authMode: PiAuthMode;
+  /** ssh-agent socket path; null inherits the server's SSH_AUTH_SOCK. */
+  identityAgent: string | null;
   pathPrepend: string;
   workdir: string;
   model: string | null;

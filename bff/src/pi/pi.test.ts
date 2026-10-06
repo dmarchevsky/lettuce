@@ -16,7 +16,6 @@ import { lastAssistantText, PiService, piKeyFile, piSettingsFile } from "./servi
 import {
   applyPiSettingsUpdate,
   DEFAULT_PI_SETTINGS,
-  InvalidPiSettingsError,
   type PiSettings,
   parsePiSettings,
   piConfigured,
@@ -53,19 +52,41 @@ test("a stored key survives an update that does not mention it", () => {
 });
 
 test("enabling requires a complete configuration", () => {
+  // ssh_agent (the default) mode needs no stored key at all…
+  const agentOk = applyPiSettingsUpdate(
+    { ...DEFAULT_PI_SETTINGS },
+    { enabled: true, host: "h", user: "u", workdir: "/w" },
+  );
+  expect(piConfigured(agentOk)).toBe(true);
+  // …stored_key demands one.
   expect(() =>
     applyPiSettingsUpdate(
       { ...DEFAULT_PI_SETTINGS },
-      { enabled: true, host: "h", user: "u", workdir: "/w" },
+      { enabled: true, host: "h", user: "u", workdir: "/w", authMode: "stored_key" },
     ),
-  ).toThrow(InvalidPiSettingsError);
+  ).toThrow(/stored_key/);
   const ok = applyPiSettingsUpdate(
     { ...DEFAULT_PI_SETTINGS },
-    { enabled: true, host: "h", user: "u", workdir: "/w", privateKey: VALID_KEY },
+    {
+      enabled: true,
+      host: "h",
+      user: "u",
+      workdir: "/w",
+      authMode: "stored_key",
+      privateKey: VALID_KEY,
+    },
   );
   expect(ok.enabled).toBe(true);
   expect(piConfigured(ok)).toBe(true);
   expect(piConfigured({ ...DEFAULT_PI_SETTINGS })).toBe(false);
+});
+
+test("identityAgent must be an absolute socket path or empty", () => {
+  expect(() =>
+    applyPiSettingsUpdate({ ...BASE }, { identityAgent: "relative/sock" }),
+  ).toThrow(/socket/);
+  const cleared = applyPiSettingsUpdate({ ...BASE, identityAgent: "/run/s" }, { identityAgent: "" });
+  expect(cleared.identityAgent).toBe(null);
 });
 
 test("workdir must be absolute and keys must be PEM", () => {
@@ -100,15 +121,36 @@ test("session resume passes --session and rejects non-UUIDs", () => {
   expect(() => buildPiRemoteCommand(BASE, { prompt: "x", session: "'; rm -rf / #" })).toThrow();
 });
 
-test("ssh argv is hardened: batch mode, pinned hosts, key file, timeout", () => {
+test("ssh argv is hardened and auth mode decides how ssh finds the identity", () => {
   const args = buildSshArgs(BASE, { keyFile: "/k", knownHostsFile: "/kh" }, "true");
   const joined = args.join(" ");
   expect(joined).toContain("-o BatchMode=yes");
   expect(joined).toContain("-o StrictHostKeyChecking=yes");
   expect(joined).toContain("-o UserKnownHostsFile=/kh");
-  expect(joined).toContain("-i /k");
   expect(joined).toContain("-p 22");
   expect(args.at(-2)).toBe("worker@pi.example.invalid");
+  // ssh_agent with no explicit socket: no key file in argv at all, ssh inherits
+  // SSH_AUTH_SOCK from the BFF process.
+  expect(args).not.toContain("-i");
+  expect(joined).not.toContain("IdentityFile");
+  expect(joined).not.toContain("IdentityAgent");
+
+  const agentSock = buildSshArgs(
+    { ...BASE, identityAgent: "/run/user/1000/agent" },
+    { keyFile: "/k", knownHostsFile: "/kh" },
+    "true",
+  ).join(" ");
+  expect(agentSock).toContain("-o IdentityAgent=/run/user/1000/agent");
+  expect(agentSock).not.toContain("IdentityFile");
+
+  const stored = buildSshArgs(
+    { ...BASE, authMode: "stored_key" },
+    { keyFile: "/k", knownHostsFile: "/kh" },
+    "true",
+  ).join(" ");
+  expect(stored).toContain("-o IdentityFile=/k");
+  expect(stored).toContain("-o IdentitiesOnly=yes");
+  expect(stored).not.toContain("IdentityAgent");
 });
 
 // ── runner ───────────────────────────────────────────────────────────────────

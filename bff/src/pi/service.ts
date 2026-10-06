@@ -146,15 +146,18 @@ export class PiService {
     const settings = applyPiSettingsUpdate(await this.load(), body);
     await writePrivate(piSettingsFile(this.options.paths), renderPiSettings(settings));
     this.cached = null;
-    if (settings.privateKey) {
+    if (settings.privateKey && settings.authMode === "stored_key") {
       await writePrivate(piKeyFile(this.options.paths), settings.privateKey);
     }
     return settings;
   }
 
   private async keyFiles(settings: PiSettings): Promise<PiKeyFiles> {
+    // ssh_agent mode never touches the key file — the agent holds the identity.
     const keyFile = piKeyFile(this.options.paths);
-    if (settings.privateKey) await writePrivate(keyFile, settings.privateKey);
+    if (settings.privateKey && settings.authMode === "stored_key") {
+      await writePrivate(keyFile, settings.privateKey);
+    }
     // A missing known_hosts fails StrictHostKeyChecking loudly (the tool says
     // so) rather than silently trusting a new host — pin via Settings first.
     const knownHostsFile = piKnownHostsFile(this.options.paths);

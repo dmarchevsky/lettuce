@@ -207,11 +207,16 @@ Sub-decisions, resolved:
 1. **Transcript collection** — the BFF-captured stdout jsonl is the run record (viewer
    never touches the remote); the remote session file stays the durable conversation store
    and a repair fallback via `ssh cat` (both spike-proven, § 3.3).
-2. **Settings shape** (`bff/src/pi/settings.ts`, modeled on `bff/src/codex/settings.ts`):
-   `enabled`, `host`, `port`, `user`, private key (stored server-side under the state dir,
-   never returned to a browser — the `apiKey` precedent), `pathPrepend` (the PATH prefix §
-   3.1 proved mandatory), `workdir`, optional `model`; `known_hosts` pinned with a
-   first-connect TOFU affordance, `StrictHostKeyChecking=yes` + `BatchMode=yes` always.
+2. **Settings shape** (`bff/src/pi/settings.ts`, modeled on `bff/src/codex/settings.ts`) —
+   **auth is agent-first**: `authMode: "ssh_agent"` (default) means ssh signs through an
+   ssh-agent socket (`identityAgent`, defaulting to the BFF's own `SSH_AUTH_SOCK`) and
+   **lettuce stores zero secret material** — re-proved 2026-10-06 by running the whole
+   spike auth path with the private key generated in tmpfs, `ssh-add`ed, then shredded.
+   `authMode: "stored_key"` keeps the unencrypted PEM server-side under the state dir
+   (0600, the `apiKey` precedent) for hosts without an agent. Plus `enabled`, `host`,
+   `port`, `user`, `pathPrepend` (the PATH prefix § 3.1 proved mandatory), `workdir`,
+   optional `model`; `known_hosts` pinned with a first-connect TOFU affordance,
+   `StrictHostKeyChecking=yes` + `BatchMode=yes` always.
 3. **Feature gate**: a `pi` virtual compose profile token, effective-enabled = token AND
    stored switch, exactly like `codex`/`claude` (Settings save route 404s while off).
    Unlike codex/claude, nothing needs baking into the *app-server* image — the transport
@@ -263,7 +268,9 @@ For the operator to settle before implementation:
 
 - **Real distance**: loopback proved the auth/exec path, not a network hop. Should
   milestone 1 be validated against a genuinely remote host before merge?
-- **Key custody**: an unencrypted dedicated deploy key stored server-side under the state
-  dir (0600, the `apiKey` precedent) vs an ssh-agent — § 4 assumes the former.
+- **Key custody** — **resolved**: ssh-agent mode is the default (`identityAgent` or the
+  BFF's inherited `SSH_AUTH_SOCK`), so nothing secret is stored; the server-stored PEM
+  remains an explicit `stored_key` fallback. For unattended operation the agent must be
+  running on the BFF host with the key loaded (a systemd user service is the natural home).
 - **`pi_stop` scope**: is detach-only acceptable at launch, or does the operator want the
   explicit remote-kill slice in v1?
