@@ -68,6 +68,26 @@ async function open(browser: Browser, viewport: { width: number; height: number 
 }
 
 /**
+ * The BFF's profile-gated features, read through the page's own session.
+ * Settings sections hide per token (web/google/codex/claude/pi), so any
+ * section-list assertion must derive what it expects instead of hardcoding —
+ * which stack is up varies between CI and a developer's docker/.env.
+ */
+async function readFeatures(page: Page): Promise<Record<string, boolean>> {
+  return page.evaluate(async () => {
+    const response = await fetch("/api/status");
+    if (!response.ok) return {};
+    const body = (await response.json()) as { features?: Record<string, boolean> };
+    // An absent flag means everything is on — the same rule the UI applies.
+    return body.features ?? {};
+  });
+}
+
+function featureOn(features: Record<string, boolean>, name: string): boolean {
+  return features[name] !== false;
+}
+
+/**
  * Elements the user can never reach, because they extend past the viewport and
  * nothing between them and the root scrolls.
  *
@@ -765,13 +785,15 @@ try {
     const phoneChips = (
       await page.locator(".settings-screen .section-tabs button").allInnerTexts()
     ).map((t) => t.trim());
+    const features = await readFeatures(page);
     const expectedPhoneChips = [
       "Models",
-      "Web",
+      ...(featureOn(features, "web") ? ["Web"] : []),
       "MCP",
-      "Google",
-      "Codex",
-      "Claude",
+      ...(featureOn(features, "google") ? ["Google"] : []),
+      ...(featureOn(features, "codex") ? ["Codex"] : []),
+      ...(featureOn(features, "claude") ? ["Claude"] : []),
+      ...(featureOn(features, "pi") ? ["Remote pi"] : []),
       "Skills",
       "Push",
       "About",
@@ -971,10 +993,14 @@ try {
     // from the BFF.
     await page.locator('.section-tabs button:text-is("Tools")').click();
     await page.locator('.pane label:has-text("Codex workers") select').waitFor({ timeout: 10_000 });
+    const toolsFeatures = await readFeatures(page);
     check(
       "agent tools shows Google, Codex and Claude access, Save idle until changed",
       (await page.locator('.pane label:has-text("Google") select').count()) === 1 &&
         (await page.locator('.pane label:has-text("Claude Code workers") select').count()) === 1 &&
+        (featureOn(toolsFeatures, "pi")
+          ? (await page.locator('.pane label:has-text("Remote pi worker") select').count()) === 1
+          : true) &&
         (await page.locator('.pane button:text-is("Save")').isDisabled()),
     );
 
@@ -1043,13 +1069,15 @@ try {
       (await page.locator(".settings-nav .menu-row.selected").count()) === 1 &&
         (await page.locator(".settings-nav .menu-row-check").count()) === 0,
     );
+    const desktopFeatures = await readFeatures(page);
     const expectedRows = [
       "Providers & models",
-      "Web search",
+      ...(featureOn(desktopFeatures, "web") ? ["Web search"] : []),
       "MCP servers",
-      "Google",
-      "Codex workers",
-      "Claude Code workers",
+      ...(featureOn(desktopFeatures, "google") ? ["Google"] : []),
+      ...(featureOn(desktopFeatures, "codex") ? ["Codex workers"] : []),
+      ...(featureOn(desktopFeatures, "claude") ? ["Claude Code workers"] : []),
+      ...(featureOn(desktopFeatures, "pi") ? ["Remote pi worker"] : []),
       "Global skills",
       "Notifications",
       "About",
@@ -1102,6 +1130,16 @@ try {
       (await page.locator('.menu-row:has-text("Allow Claude Code workers")').count()) === 1,
       await page.locator(".settings-content").innerText(),
     );
+
+    if (featureOn(desktopFeatures, "pi")) {
+      // Same for the remote pi worker (GET /api/pi/settings).
+      await openSection("Remote pi worker");
+      check(
+        "remote pi section loads its settings",
+        (await page.locator('.menu-row:has-text("Allow remote pi runs")').count()) === 1,
+        await page.locator(".settings-content").innerText(),
+      );
+    }
 
     // Google loads its status from the BFF (GET /api/google). Under dev bypass
     // the form must also say it is locked, not just grey its inputs out.
