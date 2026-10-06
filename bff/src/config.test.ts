@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { assertSessionSecretIsStrong, hasProfile, loadConfig, parseAllowedUsers } from "./config";
+import {
+  assertSessionSecretIsStrong,
+  enabledFeatureNames,
+  hasProfile,
+  loadConfig,
+  parseAllowedUsers,
+} from "./config";
 
 describe("hasProfile", () => {
   test("matches whole comma-delimited tokens, ignoring surrounding space", () => {
@@ -251,5 +257,24 @@ describe("loadConfig session secret", () => {
     withEnv({ ...base, SESSION_SECRET: undefined }, () => {
       expect(loadConfig).toThrow(/Missing required environment variable SESSION_SECRET/);
     });
+  });
+});
+
+describe("enabledFeatureNames", () => {
+  test("names every feature that is on, `pi` included", () => {
+    expect(
+      enabledFeatureNames({ web: true, google: true, codex: false, claude: false, pi: true }),
+    ).toEqual(["web", "google", "pi"]);
+  });
+
+  test("no feature token means no names at all", () => {
+    expect(
+      enabledFeatureNames({ web: false, google: false, codex: false, claude: false, pi: false }),
+    ).toEqual([]);
+  });
+
+  test("every FeatureFlags key is nameable, so the boot log cannot drop one", () => {
+    const all = { web: true, google: true, codex: true, claude: true, pi: true };
+    expect(enabledFeatureNames(all).sort()).toEqual(Object.keys(all).sort());
   });
 });

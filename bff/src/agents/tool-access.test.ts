@@ -40,6 +40,31 @@ describe("AgentToolAccessStore", () => {
     });
   });
 
+  test("a pi-only flip persists, and flipping it back clears the entry", async () => {
+    const file = fileIn();
+    const store = new AgentToolAccessStore(file, () => {});
+    // The Agent → Tools pi row saves the whole object with only `pi` changed.
+    // `set()` once compared only codex/claude/google, so that flip was dropped:
+    // the row could not block an agent, and could never un-block one whose
+    // stored entry said `pi: false`.
+    expect(store.set("agent-a", { codex: true, claude: true, google: "full", pi: false })).toBe(
+      true,
+    );
+    expect(store.all()).toEqual({
+      "agent-a": { codex: true, claude: true, google: "full", pi: false },
+    });
+    expect(store.set("agent-a", { codex: true, claude: true, google: "full", pi: false })).toBe(
+      false,
+    );
+    // The mod hides the pi tools from exactly this set.
+    expect(agentsWhere(store.all(), (a) => a.pi === false)).toEqual(["agent-a"]);
+    expect(store.set("agent-a", { codex: true, claude: true, google: "full", pi: true })).toBe(
+      true,
+    );
+    await store.drain();
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({});
+  });
+
   test("a damaged file or entry falls back to the default", () => {
     const file = fileIn();
     writeFileSync(

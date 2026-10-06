@@ -47,7 +47,13 @@ import {
   suggestedCodexBaseUrl,
 } from "./codex/service.ts";
 import { InvalidCodexSettingsError, toPublicCodexSettings } from "./codex/settings.ts";
-import { type BffConfig, googleWritesAllowed, isAllowedUser, loadConfig } from "./config.ts";
+import {
+  type BffConfig,
+  enabledFeatureNames,
+  googleWritesAllowed,
+  isAllowedUser,
+  loadConfig,
+} from "./config.ts";
 import { errorMessage } from "./errors.ts";
 import { contentDisposition } from "./files/content-disposition.ts";
 import { inlineContentType } from "./files/content-type.ts";
@@ -1828,9 +1834,7 @@ const server = Bun.serve<SocketData>({
 });
 
 log(`Mode: ${config.mode}`);
-const featureNames = (["web", "google", "codex", "claude"] as const).filter(
-  (name) => config.features[name],
-);
+const featureNames = enabledFeatureNames(config.features);
 log(
   `Features: ${
     featureNames.length > 0 ? featureNames.join(", ") : "(none — no feature token in LETTA_MODE)"

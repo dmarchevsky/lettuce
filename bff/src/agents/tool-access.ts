@@ -102,10 +102,16 @@ export class AgentToolAccessStore {
   set(agentId: string, access: AgentToolAccess): boolean {
     if (!isAgentId(agentId)) throw new Error("Not an agent id");
     const current = this.get(agentId);
+    // Every field counts in the comparison. `pi` was left out when it landed,
+    // which made the Agent → Tools pi row a no-op: a pi-only flip never
+    // persisted, and an entry holding `pi: false` (written whenever it arrived
+    // beside a codex/claude/google change) could never be cleared — the mod
+    // kept hiding the pi tools while the UI said the agent had them.
     if (
       current.codex === access.codex &&
       current.claude === access.claude &&
-      current.google === access.google
+      current.google === access.google &&
+      current.pi === access.pi
     )
       return false;
     if (isDefault(access)) this.entries.delete(agentId);

@@ -6,6 +6,8 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 ## [Unreleased]
 
 ### Fixed
+- The **Remote pi** row in Agent → Tools takes effect, and can be turned back on. Flipping it alone was discarded — so an agent that had once been blocked from pi kept not seeing the `pi_*` tools while the switch showed it allowed, and no amount of toggling from the UI fixed it.
+- The BFF's startup line `Features:` can name `pi`. It listed from a hand-written set of feature names that never grew the newest one, so a `COMPOSE_PROFILES` that contained `pi` logged as if the token had not landed.
 - Fix a deploy aborting before a single container was created: the image build demanded git metadata in its build context, and a deploy manager (Dockhand) builds from its own copy of the tree, which has none. Such a build now succeeds and Settings → About says `+unknown` rather than a commit — which commit was deployed is in the deploy manager's record, and `bun run deploy-check <origin> --allow-unstamped` checks it.
 
 ### Added

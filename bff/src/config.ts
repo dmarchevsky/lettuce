@@ -349,6 +349,20 @@ function readFeatures(): FeatureFlags {
   };
 }
 
+/**
+ * The features that are on, by name — what the boot log prints as `Features:`.
+ *
+ * Derived from the flag record rather than a hand-written list of names:
+ * `pi` was absent from that list, so the one line an operator reads to confirm
+ * a compose token landed claimed the token was off while `config.features.pi`
+ * was true. A new flag now shows up here without anyone remembering to say so.
+ */
+export function enabledFeatureNames(features: FeatureFlags): string[] {
+  return Object.entries(features)
+    .filter(([, on]) => on)
+    .map(([name]) => name);
+}
+
 /** `SESSION_SECRET`, read and checked in one place so no path skips the floor. */
 function readSessionSecret(): string {
   const secret = required("SESSION_SECRET");
