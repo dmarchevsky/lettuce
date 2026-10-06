@@ -350,7 +350,9 @@ domains fail it; use RFC 5737's `192.0.2.0/24` in examples and tests).
 
 Order, once confirmed: `git push origin main` → `dockhand.sh deploy letta letta-code-ui-prod --confirm`
 → `dockhand.sh verify letta letta-code-ui-prod --since <printed time>` → the BFF log must show
-`Upstream connected: letta-code <pinned version>` → tag `main`'s HEAD with the tag `VERSION` names and
+`Upstream connected: letta-code <pinned version>` (prod's image is built where there is no git
+metadata, so its `/versionz` says `+unknown` and the commit is Dockhand's own record) → tag
+`main`'s HEAD with the tag `VERSION` names and
 push it, under the same confirmation and never before verify is green. A version other than the pin
 means Dockhand's stored stack variables override it. On any failure, stop and report — no retry, no
 rollback, no restart without the user choosing it.

@@ -240,3 +240,34 @@ pin check now prints a warning for exactly this case.
 Branching inside the main checkout is not a stylistic slip: two sessions sharing it collide —
 one switched the checkout to its branch mid-work and `deploy-check`'s clean-tree and
 on-`main` assertions then failed on the other's uncommitted changes.
+
+## Dockhand builds without git
+
+**A deploy manager does not build from its clone, so the build context has no `.git` — and a
+Dockerfile that needs one aborts the whole deploy.** On 2026-10-05 a manual prod deploy of
+`main` died exactly this way. The commit-stamping buildinfo stage did
+`COPY .git/ ./gitmeta`, on the reasoning that Dockhand deploys with a plain `compose up` and
+passes no build args, so the refs in the context were the only source left. The reasoning was
+half right: Dockhand passes no build args **and has no git metadata in the context either.**
+It clones the repository into its own `git-repos/<env>/<stack>/` directory, *copies the
+checked-out files* into `stacks/<env>/<stack>/`, and runs `docker compose -f
+stacks/…/compose.yml up -d` with that copy as the working directory — a file copy whose
+enumeration never includes `.git` (which is also why `.git/*` appears in no deploy's
+file-change list). Our `bff.build.context: ..` therefore points at a tree with no `.git`,
+and BuildKit refuses a `COPY` of a path that is not in the context:
+`failed to compute cache key: … "/.git": not found`. Because the bake is one operation, the
+failure cancelled the other targets and the deploy stopped before a single container was
+created — prod kept serving the previous revision.
+
+Two things made this survive every gate we had. The stamping stage had never run in prod (the
+deploy log listed `bff/src/build-info.ts` as *added*), and every builder we exercise does have
+`.git`: `bun run build:bff`, a bare `docker compose build bff`, and the CI image job, which
+passes `GIT_SHA` anyway. The check that would have caught it — building from a context with no
+`.git` at all — is now a step in the CI `image` job.
+
+**So an unstamped build is a supported outcome, not a defect.** `docker/bff.Dockerfile` copies
+the tree and reads `ctx/.git` if it is there: a checkout still stamps its own commit, a
+deploy manager's build stamps `+unknown`, and `bun run deploy-check <origin>
+--allow-unstamped` accepts `+unknown` for the release tag being checked. Which commit a
+deploy manager actually deployed is in *its* record — Dockhand's stack deploy log — because no
+image built that way can name it.

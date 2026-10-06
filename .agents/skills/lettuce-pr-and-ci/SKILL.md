@@ -81,7 +81,7 @@ aggregate is what keeps a PR from waiting forever on a job a path filter skipped
 | `lint-and-types`, `test`, `build` | `biome`, typecheck (the protocol-drift detector), `bun test`, the SPA build |
 | `hygiene` | `check-version-pin`, `check-docs`, `check-prod-info`, and `check-release-hygiene --pr` fed with the PR's labels and title |
 | `compose-config` | `docker compose config` bare and with every profile token |
-| `image` | builds `docker/bff.Dockerfile` with a layer cache, pushes nothing, and asserts the image can name its commit |
+| `image` | builds `docker/bff.Dockerfile` twice with a layer cache and pushes nothing: once stamped (asserts the image names this commit) and once from an export with **no `.git`** (asserts it succeeds and stamps `+unknown`) |
 | `actionlint` | the workflows themselves, from the pinned image |
 | `secrets-scan` | gitleaks, `continue-on-error` until it has been quiet on this history |
 
@@ -90,6 +90,14 @@ Hard rules about the file itself:
 - **No job gets a secret.** Fork `pull_request` runs get a read-only token and none of the repo's
   secrets, so the tier has to stay runnable under that. Anything needing a credential
   (`smoke`, anything Dockhand, anything Google) is not in here.
+- **CI builds the image the way prod does, and prod's builder is not a checkout.** Dockhand
+  copies the tree into its stack directory and builds there, and that copy carries no `.git`
+  — a `COPY .git/` in the Dockerfile aborted a whole prod deploy that way (2026-10-05,
+  docs/upstream-notes.md#dockhand-builds-without-git). So the `image` job also exports the tree
+  with `git archive`, builds it with `GIT_SHA=` and asserts `BUILD_INFO` names no commit. Any
+  Dockerfile change that makes the image depend on git metadata has to pass that shape too, and
+  a deployment whose image cannot name its commit is checked with
+  `bun run deploy-check <origin> --allow-unstamped`.
 - **Actions are pinned to commit SHAs** with the tag in a trailing comment. Get the SHA with
   `gh api repos/<owner>/<repo>/git/ref/tags/<tag> --jq .object.sha`.
 - Validate the file locally before pushing:

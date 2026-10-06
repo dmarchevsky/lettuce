@@ -5,6 +5,9 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Fixed
+- Fix a deploy aborting before a single container was created: the image build demanded git metadata in its build context, and a deploy manager (Dockhand) builds from its own copy of the tree, which has none. Such a build now succeeds and Settings → About says `+unknown` rather than a commit — which commit was deployed is in the deploy manager's record, and `bun run deploy-check <origin> --allow-unstamped` checks it.
+
 ### Added
 - **Remote pi worker** (`pi` compose profile token): agents dispatch coding tasks to a [`pi`](https://github.com/earendil-works/pi) install on another host over SSH — `pi_run` starts a background run, `pi_send` iterates on the same pi session, `pi_status`/`pi_stop` follow it; Settings → Remote pi worker holds the host and the host-key pin and **generates its own deploy key** — Settings shows the public half to paste into the remote's `authorized_keys`, with one-click rotation (pasting an existing PEM also works); Tasks lists every run with its full captured transcript. Nothing is installed on the remote host beyond pi. Design and spike evidence: `docs/remote-pi-plan.md`.
 - Settings → About names the exact commit the running build came from (`v0.6.1-letta_0.34.1+9400080`), so a build between releases is no longer indistinguishable from the last release.

@@ -19,10 +19,14 @@
  * points at a tag object, and objects are deliberately not in the build context.
  *
  * The SHA has to be decided at *build* time: `.dockerignore` keeps git objects out
- * of the image context and the runtime image has no repository to ask. What it does
- * copy is git metadata — `HEAD`, `refs/`, `packed-refs` — enough to resolve the
- * commit with no `git` binary and no cooperation from whoever runs the build,
- * because Dockhand deploys with a plain `compose up` and passes no build args.
+ * of the image context and the runtime image has no repository to ask. A builder
+ * that has git metadata in its context — a checkout, a CI runner — gets its commit
+ * with no `git` binary and no cooperation from whoever runs the build, because what
+ * is copied is metadata (`HEAD`, `refs/`, `packed-refs`), which is enough to resolve
+ * it. A builder that has none is a supported case, not a failure: a deploy manager
+ * builds from a copy of the tree that carries no `.git` at all, so `+unknown` is the
+ * honest answer and the deployed commit lives in that manager's own record rather
+ * than in the image. See docs/upstream-notes.md#dockhand-builds-without-git.
  *
  * The CLI that prints or bakes this lives in `scripts/build-info.ts`.
  */
@@ -62,6 +66,12 @@ export function decodeBuildInfo(text: string): BuildInfo | null {
  * Resolve HEAD from *copied git metadata* — no objects, no `git` binary. `HEAD` is
  * either a SHA (detached checkout) or a `ref:` pointer into a loose ref or
  * `packed-refs`.
+ *
+ * Everything it cannot resolve answers `null`, which is what makes an unstamped
+ * build a supported outcome rather than a broken one: a tree with no `.git`, an
+ * empty `HEAD`, or a linked worktree's `.git` *file* (which points outside any
+ * build context) all mean "this builder could not know", and the version says
+ * `+unknown`.
  */
 export function resolveFromGitMeta(gitDir: string): { sha: string | null } {
   let head: string;

@@ -73,3 +73,19 @@ test("detached HEAD is still a commit", () => {
 test("no metadata means unknown, not a wrong answer", () => {
   expect(resolveFromGitMeta(gitDir(() => {}))).toEqual({ sha: null });
 });
+
+test("no .git at all means unknown — the deploy manager's build", () => {
+  // Dockhand builds from its copy of the tree, so `ctx/.git` is simply absent and
+  // the Dockerfile points --gitmeta at a path that does not exist.
+  const dir = gitDir(() => {});
+  expect(resolveFromGitMeta(join(dir, "does-not-exist"))).toEqual({ sha: null });
+  cleanup(dir);
+});
+
+test("a linked worktree's .git is a file, and still says unknown", () => {
+  const dir = gitDir((d) =>
+    writeFileSync(join(d, ".git"), "gitdir: /somewhere/.git/worktrees/x\n"),
+  );
+  expect(resolveFromGitMeta(join(dir, ".git"))).toEqual({ sha: null });
+  cleanup(dir);
+});

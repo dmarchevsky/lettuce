@@ -6,13 +6,20 @@
  * the previous SPA. That is exactly how a change was once reported as shipped
  * while the browser still had the old bundle. This asserts otherwise.
  *
- * Usage: bun run deploy-check [bffOrigin]
+ * Usage: bun run deploy-check [bffOrigin] [--allow-unstamped]
+ *
+ * `--allow-unstamped` is for a target whose builder had no git metadata to stamp
+ * with — a deploy manager builds from its own copy of the tree, which has no
+ * `.git`, so the image can only say `+unknown`. With the flag, that counts as a
+ * match as long as the release tag agrees. The default stays strict.
  */
 
 import { readFileSync } from "node:fs";
 import { readBuildInfo, versionString } from "../bff/src/build-info.ts";
 
-const ORIGIN = process.argv[2] ?? "http://127.0.0.1:8090";
+const argv = process.argv.slice(2);
+const ALLOW_UNSTAMPED = argv.includes("--allow-unstamped");
+const ORIGIN = argv.find((arg) => !arg.startsWith("--")) ?? "http://127.0.0.1:8090";
 const ROOT = new URL("..", import.meta.url).pathname;
 
 let failures = 0;
@@ -23,6 +30,10 @@ function check(label: string, ok: boolean, detail?: unknown): void {
     failures += 1;
     if (detail !== undefined) console.log(`        ${detail}`);
   }
+}
+
+function note(text: string): void {
+  console.log(`  NOTE  ${text}`);
 }
 
 function section(title: string): void {
@@ -182,7 +193,9 @@ section("Build identity");
  * `/versionz` answers with what the image was built from (`vX.Y.Z-letta_A.B.C+sha`);
  * the local side resolves it the same way from this checkout. The `-dirty` suffix
  * is ignored on both sides: an image build cannot see a dirty working tree, so only
- * a `bun run build:bff` of a dirty checkout can produce it.
+ * a `bun run build:bff` of a dirty checkout can produce it. `--allow-unstamped`
+ * accepts `+unknown` for the tag, because a deploy manager's build cannot know its
+ * own commit and the tag is all that image can be held to.
  */
 const expectedBuild = versionString(readBuildInfo(ROOT)).replace(/-dirty$/, "");
 let servedVersion: string | null = null;
@@ -193,16 +206,31 @@ try {
   check(`${ORIGIN}/versionz is reachable`, false, cause instanceof Error ? cause.message : cause);
 }
 if (servedVersion !== null) {
-  const matches = servedVersion.replace(/-dirty$/, "") === expectedBuild;
-  check(
-    `served build matches this checkout (${expectedBuild})`,
-    matches,
-    matches
-      ? undefined
-      : `serving ${servedVersion}. "+unknown" or an older sha means the image predates your last ` +
-          "commit: `bun run build:bff` then `docker compose -f docker/compose.yml up -d bff`. " +
-          "An HTTP 404 means the running image predates /versionz.",
-  );
+  const served = servedVersion.replace(/-dirty$/, "");
+  const expectedBase = expectedBuild.split("+")[0] ?? expectedBuild;
+  if (served === expectedBuild) {
+    check(`served build matches this checkout (${expectedBuild})`, true);
+  } else if (ALLOW_UNSTAMPED && served === `${expectedBase}+unknown`) {
+    // The whole point of accepting it: the tag is verifiable, the commit is not, and
+    // pretending otherwise would make a deploy-manager build impossible to check.
+    check(`served build is on this release tag (${expectedBase}) and unstamped`, true);
+    note(
+      "an unstamped image names no commit because its builder had no git metadata — " +
+        "which commit a deploy manager put there is in its own record (Dockhand: the " +
+        "stack's deploy log), not in the image. " +
+        "See docs/upstream-notes.md#dockhand-builds-without-git.",
+    );
+  } else {
+    check(
+      `served build matches this checkout (${expectedBuild})`,
+      false,
+      `serving ${served}. An older sha means the image predates your last commit: run ` +
+        "`bun run build:bff`, then `docker compose -f docker/compose.yml up -d bff`. " +
+        "A `+unknown` means the image was built where there was no git metadata to read " +
+        "— if that target is a deploy manager's build, re-run with --allow-unstamped. " +
+        "An HTTP 404 means the running image predates /versionz.",
+    );
+  }
 }
 
 // ── 4. The stack is healthy ─────────────────────────────────────────────────

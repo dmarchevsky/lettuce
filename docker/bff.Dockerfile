@@ -39,17 +39,22 @@ WORKDIR /app
 COPY bff/src/build-info.ts ./bff/src/build-info.ts
 COPY scripts/build-info.ts ./scripts/build-info.ts
 COPY VERSION               ./VERSION
-# Git *metadata*, not the repository: .dockerignore keeps only HEAD, refs and
-# packed-refs out of .git, so this is a few kilobytes with no objects and no
-# history. That is enough to resolve the commit, and it means the SHA is right no
-# matter who runs the build: Dockhand deploys with a plain `compose up` and passes
-# no build args. A linked git worktree is the exception — its `.git` is a file
-# pointing outside the build context — which is what `bun run build:bff` is for.
-COPY .git/                   ./gitmeta
-# Optional override for a builder with no .git in its context (CI passing
-# github.sha). Empty means: derive it from gitmeta.
+# The whole tree, never `.git` itself, because a deploy manager does not build
+# from its clone. Dockhand clones the repo, copies the checked-out files into its
+# stack directory and runs a plain `compose up` there, and that copy has no
+# `.git` at all — `COPY .git/` aborted the whole bake with `"/.git": not found`
+# and the prod deploy with it. So read the refs from wherever they happen to be:
+# a real checkout still stamps its own commit (.dockerignore keeps HEAD, refs and
+# packed-refs out of .git — metadata, never objects or history), and a builder
+# with none stamps `+unknown` and leaves "which commit" to the deploy manager's
+# record (docs/upstream-notes.md#dockhand-builds-without-git). A linked git
+# worktree is the other none: its `.git` is a file pointing outside the context,
+# which is what `bun run build:bff` is for.
+COPY .                     ./ctx
+# Optional override for a builder with no refs to read (CI passing
+# github.sha). Empty means: derive it from ctx/.git, else `+unknown`.
 ARG GIT_SHA=""
-RUN bun scripts/build-info.ts --emit BUILD_INFO --gitmeta gitmeta --git-sha "$GIT_SHA"
+RUN bun scripts/build-info.ts --emit BUILD_INFO --gitmeta ctx/.git --git-sha "$GIT_SHA"
 
 # ── Stage 3: runtime ─────────────────────────────────────────────────────────
 FROM deps AS runtime

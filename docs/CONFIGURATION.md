@@ -435,6 +435,16 @@ letta-code checkout, no pre-built images.
 Optional: the three `PUSH_VAPID_*` values, `BFF_PORT`,
 `SESSION_TTL_SECONDS`, `FRAME_BUFFER_SIZE`, `CF_ACCESS_ISSUER`.
 
+**A build made by the deploy manager cannot name its commit, and says so.**
+Compose builds the `bff` image from Dockhand's own copy of the tree, and that
+copy has no `.git`, so Settings → About and `/versionz` report the release tag
+with `+unknown` (e.g. `v0.6.1-letta_0.34.1+unknown`). Which commit was deployed
+is in Dockhand's record for the stack, not in the image
+(`docs/upstream-notes.md#dockhand-builds-without-git`). Set `GIT_SHA` as a stack
+variable only if you mean it: a value nobody updates claims the wrong commit,
+which is worse than claiming none. From a machine with a real checkout, `bun run
+build:bff` passes the host's commit and stamps the image properly.
+
 ### Without Docker (development)
 
 Requires [Bun](https://bun.sh).

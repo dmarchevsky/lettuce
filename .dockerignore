@@ -13,7 +13,9 @@ web/dist/
 # Git: metadata only. The bff image's buildinfo stage reads HEAD and the refs to
 # stamp the build with its commit (docker/bff.Dockerfile), which needs the refs
 # and absolutely none of the objects — the history is not a build input and does
-# not belong in an image layer or an uploaded context.
+# not belong in an image layer or an uploaded context. That covers a build made
+# from a real checkout; a deploy manager's copy of the tree has no `.git` at all,
+# and its build is deliberately unstamped (`+unknown`).
 .git/**
 !.git/HEAD
 !.git/refs/**

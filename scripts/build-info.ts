@@ -6,6 +6,10 @@
  *   bun scripts/build-info.ts                                   # print it
  *   bun scripts/build-info.ts --emit BUILD_INFO [--git-sha X]   # what the image bakes
  *   bun scripts/build-info.ts --gitmeta <dir>                   # resolve from copied refs
+ *
+ * Nothing resolving is not an error. A builder with no git metadata anywhere — a
+ * deploy manager's copy of the tree, which has no `.git` — emits an empty sha and
+ * the version says `+unknown`; see `docker/bff.Dockerfile`.
  */
 
 import { writeFileSync } from "node:fs";

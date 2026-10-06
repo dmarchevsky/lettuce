@@ -136,8 +136,8 @@ jobs:
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       # Builds what ships; pushes nothing. The Dockerfile, the `COPY VERSION` and the
       # web-build stage are all things nothing checked until a deploy did. GIT_SHA is
-      # passed because a runner checkout can be shallow, where the build cannot read
-      # refs the way a clone can.
+      # passed so the answer is this workflow's commit no matter what the runner's
+      # checkout looks like (it can be shallow or detached).
       - name: Build the bff image
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
@@ -149,16 +149,44 @@ jobs:
             GIT_SHA=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      # Stamping is optional by design: this workflow lands before the commit-stamped
-      # build does, and a required check must not be red waiting for another PR. Once
-      # BUILD_INFO exists in the image this step becomes a real assertion.
       - name: The image names its commit
         run: |
-          if docker run --rm lettuce-ci:probe sh -c 'test -s BUILD_INFO'; then
-            docker run --rm lettuce-ci:probe cat BUILD_INFO
-          else
-            echo "::notice::no BUILD_INFO in this image yet — stamping arrives with the build-sha PR"
-          fi
+          set -euo pipefail
+          docker run --rm lettuce-ci:probe sh -c 'test -s BUILD_INFO'
+          docker run --rm lettuce-ci:probe cat BUILD_INFO | tee "$RUNNER_TEMP/BUILD_INFO"
+          head -n1 "$RUNNER_TEMP/BUILD_INFO" | grep -qx "sha=${GITHUB_SHA:0:8}"
+      # The deploy manager's build is a *different builder*, and the only one prod
+      # uses: Dockhand copies the checked-out tree into its stack directory and builds
+      # there, so that build context has no `.git` at all. `COPY .git/` used to abort it
+      # and the deploy with it (docs/upstream-notes.md#dockhand-builds-without-git), so
+      # reproduce that exact shape here: an export of the tree, no `.git`, and no
+      # commit handed in. An unstamped build is a supported outcome, so it has to
+      # succeed and say so rather than fail or claim a commit it cannot know.
+      - name: Export the tree the way a deploy manager copies it
+        run: |
+          set -euo pipefail
+          ctx="$RUNNER_TEMP/ctx-nogit"
+          mkdir -p "$ctx"
+          git archive --format=tar HEAD | tar -x -C "$ctx"
+          test ! -e "$ctx/.git"
+          test -s "$ctx/.dockerignore"
+      - name: Build the bff image with no git metadata
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: ${{ runner.temp }}/ctx-nogit
+          file: ${{ runner.temp }}/ctx-nogit/docker/bff.Dockerfile
+          load: true
+          tags: lettuce-ci:unstamped
+          build-args: |
+            GIT_SHA=
+          cache-from: type=gha
+          cache-to: type=gha,scope=unstamped,mode=max
+      - name: The build with no git metadata stamps +unknown
+        run: |
+          set -euo pipefail
+          docker run --rm lettuce-ci:unstamped sh -c 'test -s BUILD_INFO'
+          docker run --rm lettuce-ci:unstamped cat BUILD_INFO
+          test "$(docker run --rm lettuce-ci:unstamped cat BUILD_INFO | head -n1)" = "sha="
 
   actionlint:
     runs-on: ubuntu-latest

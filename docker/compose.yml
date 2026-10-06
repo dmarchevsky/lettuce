@@ -232,12 +232,16 @@ services:
   bff:
     build:
       # This repo's root — see the note at the top of this file. `.dockerignore`
-      # there keeps node_modules and .git out of the context.
+      # there keeps node_modules and the git objects out of the context; under a
+      # deploy manager this directory is its copy of the tree, which has no `.git`.
       context: ..
       dockerfile: docker/bff.Dockerfile
       # Optional: which commit to stamp the image with. Empty means the build
-      # derives it from the git refs in the context (the normal case, including
-      # Dockhand's plain `compose up`); CI can pass --build-arg GIT_SHA=$GITHUB_SHA.
+      # derives it from git metadata in the context — and stamps `+unknown` when the
+      # builder has none, which is every deploy-manager build: Dockhand builds from
+      # its copy of the tree, which carries no `.git`, so prod says `+unknown` and
+      # its commit is the deploy record. CI passes --build-arg GIT_SHA=$GITHUB_SHA
+      # and `bun run build:bff` passes it from the host checkout.
       args:
         GIT_SHA: ${GIT_SHA:-}
     depends_on:
