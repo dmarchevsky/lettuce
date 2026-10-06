@@ -14,6 +14,19 @@ import { dirname } from "node:path";
 import type { ToolAnswer, ToolHandler, ToolSpec } from "../internal-tools/types.ts";
 import { capText } from "../internal-tools/types.ts";
 import {
+  ago,
+  buildProbeRemoteCommand,
+  checkTargetKey,
+  classifyCheckOutput,
+  type PiCheck,
+  type PiCheckRecord,
+  type PiCheckTarget,
+  parseChecks,
+  pinnedHostKey,
+  renderChecks,
+} from "./check.ts";
+import {
+  buildSshArgs,
   DirPiRunStore,
   isPiSessionId,
   type PiKeyFiles,
@@ -31,6 +44,7 @@ import {
   renderPiSettings,
 } from "./settings.ts";
 
+export type { PiCheck, PiCheckRecord, PiCheckState, PiCheckTarget } from "./check.ts";
 export type { PiRunMeta } from "./runner.ts";
 export { DirPiRunStore, isPiSessionId, PiRunner, piAgentId } from "./runner.ts";
 export type { PiSettings, PublicPiSettings } from "./settings.ts";
@@ -41,7 +55,6 @@ export interface PiPaths {
   /** Directory on the bff-data volume, e.g. `/app/data/pi`. */
   dir: string;
 }
-
 export function piSettingsFile(paths: PiPaths): string {
   return `${paths.dir}/settings.json`;
 }
@@ -53,6 +66,10 @@ export function piKnownHostsFile(paths: PiPaths): string {
 }
 export function piRunsDir(paths: PiPaths): string {
   return `${paths.dir}/runs`;
+}
+/** Last check per `user@host:port` — see `pi/check.ts`. */
+export function piChecksFile(paths: PiPaths): string {
+  return `${paths.dir}/checks.json`;
 }
 
 async function readOrNull(path: string): Promise<string | null> {
@@ -106,6 +123,17 @@ export interface PiServiceOptions {
   now?: () => Date;
   log?: (message: string) => void;
 }
+
+/** How long a check waits for ssh before calling the host unreachable. */
+const PI_CHECK_TIMEOUT_MS = 15_000;
+
+/**
+ * What pinning came back as: written, or refused because a different key was
+ * already pinned (the caller asks the human, then retries with `force`).
+ */
+export type PiPinResult =
+  | { changed: false; lines: number; target: string; fingerprint: string | null }
+  | { changed: true; target: string; oldFingerprint: string | null; newFingerprint: string | null };
 
 export class PiService {
   private cached: { text: string | null; settings: PiSettings } | null = null;
@@ -226,40 +254,182 @@ export class PiService {
 
   /**
    * Pin the host's key the way TOFU works here: run `ssh-keyscan` (read-only,
-   * asks nothing) and append whatever it answers. The user pressed "Verify"
-   * in Settings; that human moment is the trust on first use.
+   * asks nothing) and append whatever it answers. The user pressed "Check &
+   * pin" in Settings; that human moment is the trust on first use.
+   *
+   * A *different* key already pinned for that host is never replaced silently:
+   * that is the one case TOFU exists to catch, so it comes back as
+   * `changed: true` with both fingerprints and the caller asks again.
    */
-  async pinHostKey(): Promise<{ lines: number; target: string }> {
+  async pinHost(
+    options: { host?: string; port?: number; force?: boolean } = {},
+  ): Promise<PiPinResult> {
     const settings = await this.load();
-    if (!settings.host) throw new Error("set a host first");
-    const portArg = settings.port === 22 ? "" : ` -p ${settings.port}`;
-    // ssh-keysearch… ssh-keyscan takes -p as an option before the host.
+    const host = (options.host ?? settings.host).trim();
+    const port = options.port ?? settings.port;
+    if (!host) throw new Error("set a host first");
     const result = Bun.spawnSync({
-      cmd: [
-        "ssh-keyscan",
-        ...(settings.port === 22 ? [] : ["-p", String(settings.port)]),
-        settings.host,
-      ],
+      cmd: ["ssh-keyscan", ...(port === 22 ? [] : ["-p", String(port)]), host],
       timeout: 15_000,
     });
-    const text = result.stdout.toString().trim();
-    void portArg;
-    if (result.exitCode !== 0 || !text) {
-      throw new Error(`ssh-keyscan ${settings.host} found no host key`);
+    const scanned = result.stdout
+      .toString()
+      .split("\n")
+      .filter((line) => line.trim() && !line.trim().startsWith("#"));
+    if (result.exitCode !== 0 || scanned.length === 0) {
+      throw new Error(`ssh-keyscan ${host} found no host key`);
     }
     const file = piKnownHostsFile(this.options.paths);
     const existing = (await readOrNull(file)) ?? "";
+    const pinned = pinnedHostKey(existing, host, port);
+    const newFingerprint = await this.fingerprint(scanned[0] ?? "");
+    if (pinned && !options.force) {
+      const oldFingerprint = await this.fingerprint(pinned);
+      if (oldFingerprint !== newFingerprint) {
+        return { changed: true, target: host, oldFingerprint, newFingerprint };
+      }
+    }
+    // Drop whatever this host had (any port form) and write what was scanned.
+    const pattern = port === 22 ? host : `[${host}]:${port}`;
     const kept = existing
       .split("\n")
-      .filter(
-        (line) =>
-          line.trim() &&
-          !line.includes(` ${settings.host} `) &&
-          !line.startsWith(`[${settings.host}`),
-      )
+      .filter((line) => {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) return false;
+        const first = trimmed.split(/\s+/)[0] ?? "";
+        return !first.split(/[,\s]/).includes(pattern);
+      })
       .join("\n");
-    await writePrivate(file, `${kept}${kept ? "\n" : ""}${text}\n`);
-    return { lines: text.split("\n").filter(Boolean).length, target: settings.host };
+    await writePrivate(file, `${kept}${kept ? "\n" : ""}${scanned.join("\n")}\n`);
+    return {
+      changed: false,
+      lines: scanned.length,
+      target: host,
+      fingerprint: newFingerprint,
+    };
+  }
+
+  /** `ssh-keygen -lf` over one key line, through a 0600 temp file. */
+  private async fingerprint(keyLine: string): Promise<string | null> {
+    if (!keyLine.trim()) return null;
+    const tmp = `${piKnownHostsFile(this.options.paths)}.${randomUUID()}.fp`;
+    try {
+      await writePrivate(tmp, `${keyLine.trim()}\n`);
+      const res = Bun.spawnSync({ cmd: ["ssh-keygen", "-lf", tmp], stdin: "ignore" });
+      // "256 SHA256:xxxx comment (ED25519)"
+      const match = /SHA256:\S+/.exec(res.stdout.toString());
+      return res.exitCode === 0 && match ? match[0] : null;
+    } catch {
+      return null;
+    } finally {
+      await rm(tmp, { force: true }).catch(() => {});
+    }
+  }
+
+  // ── checking a host ───────────────────────────────────────────────────────
+
+  /** Everything the checks file holds, keyed by `user@host:port`. */
+  async checks(): Promise<PiCheckRecord> {
+    return parseChecks(await readOrNull(piChecksFile(this.options.paths)));
+  }
+
+  /** The last check for a target, or null when it has never been checked. */
+  async lastCheck(target: PiCheckTarget): Promise<PiCheck | null> {
+    return (await this.checks())[checkTargetKey(target)] ?? null;
+  }
+
+  /**
+   * Ask the host the question a run will ask: is it pinned, does it take our
+   * key, is `pi` on the PATH a run gets, does the workdir exist. The draft may
+   * hold unsaved form values — checking before saving is the point.
+   */
+  async checkHost(draft: Partial<PiSettings> = {}): Promise<PiCheck> {
+    const stored = await this.load();
+    const settings: PiSettings = {
+      ...stored,
+      host: (draft.host ?? stored.host).trim(),
+      user: (draft.user ?? stored.user).trim(),
+      port: Number.isFinite(Number(draft.port)) ? Number(draft.port) : stored.port,
+      pathPrepend: draft.pathPrepend ?? stored.pathPrepend,
+      workdir: draft.workdir ?? stored.workdir,
+    };
+    const key = checkTargetKey(settings);
+    const clock = this.options.now ?? (() => new Date());
+    const at = clock().toISOString();
+    const finish = async (check: Omit<PiCheck, "target" | "at">): Promise<PiCheck> => {
+      const full: PiCheck = { ...check, target: key, at };
+      const record = await this.checks();
+      record[key] = full;
+      await writePrivate(piChecksFile(this.options.paths), renderChecks(record));
+      return full;
+    };
+    if (!settings.host || !settings.user) {
+      return finish({
+        state: "unreachable",
+        ok: false,
+        detail: "Set a host and a user first.",
+        piVersion: null,
+        pinnedFingerprint: null,
+      });
+    }
+    const knownHosts = (await readOrNull(piKnownHostsFile(this.options.paths))) ?? "";
+    const pinned = pinnedHostKey(knownHosts, settings.host, settings.port);
+    const pinnedFingerprint = pinned ? await this.fingerprint(pinned) : null;
+    if (!settings.privateKey) {
+      return finish({
+        state: "no_key",
+        ok: false,
+        detail: "No deploy key yet — generate one or paste a private key.",
+        piVersion: null,
+        pinnedFingerprint,
+      });
+    }
+    if (!pinned) {
+      return finish({
+        state: "unpinned",
+        ok: false,
+        detail: `No host key pinned for ${key} — runs would be refused. Check & pin host key.`,
+        piVersion: null,
+        pinnedFingerprint: null,
+      });
+    }
+    const files = await this.keyFiles(settings);
+    const remote = buildProbeRemoteCommand(settings);
+    const args = buildSshArgs(settings, files, remote);
+    let stdout = "";
+    let stderr = "";
+    const child = (this.options.spawner ?? sshSpawner)(
+      args,
+      (chunk) => {
+        stdout += chunk;
+      },
+      (chunk) => {
+        stderr += chunk;
+      },
+    );
+    const killer = setTimeout(() => child.kill(), PI_CHECK_TIMEOUT_MS);
+    let code: number | null = null;
+    try {
+      code = (await child.exited).code;
+    } catch (error) {
+      stderr += String(error);
+    } finally {
+      clearTimeout(killer);
+    }
+    const verdict = classifyCheckOutput({ code, stdout, stderr });
+    return finish({
+      state: verdict.state,
+      ok: verdict.state === "ready",
+      detail: verdict.detail,
+      piVersion: verdict.piVersion,
+      pinnedFingerprint,
+    });
+  }
+
+  /** One line a UI can show for a stored check, with the time made relative. */
+  static describeCheck(check: PiCheck | null): string {
+    if (!check) return "Never checked.";
+    return `${check.detail} · ${check.target} · ${ago(check.at)}`;
   }
 
   /** Boot reconciliation: runs still marked running are orphans of the old BFF. */

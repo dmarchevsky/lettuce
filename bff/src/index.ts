@@ -1329,10 +1329,28 @@ app.get("/api/claude/runs/:sessionId", async (c) => {
 // the BFF's own ssh spawns. No upstream file channel, no app-server involved.
 // See `pi/` and docs/remote-pi-plan.md.
 
+/** A body may carry form values that are not saved yet — a check tests those. */
+function piDraftFromBody(body: unknown): Partial<Record<string, unknown>> {
+  if (!body || typeof body !== "object") return {};
+  const r = body as Record<string, unknown>;
+  const draft: Partial<Record<string, unknown>> = {};
+  for (const field of ["host", "user", "pathPrepend", "workdir"] as const) {
+    if (typeof r[field] === "string") draft[field] = r[field];
+  }
+  if (r.port !== undefined) draft.port = r.port;
+  return draft;
+}
+
 app.get("/api/pi/settings", async (c) => {
   if (!c.get("session")) return c.text("Unauthorized", 401);
   if (!config.features.pi) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
-  return c.json({ settings: toPublicPiSettings(await piService.load()) });
+  const settings = await piService.load();
+  return c.json({
+    settings: toPublicPiSettings(settings),
+    // What the last check said about the saved target, or null. The UI adds
+    // "changed since the last check" itself; the BFF only remembers facts.
+    check: await piService.lastCheck(settings),
+  });
 });
 
 app.put("/api/pi/settings", async (c) => {
@@ -1342,19 +1360,49 @@ app.put("/api/pi/settings", async (c) => {
   try {
     const saved = await piService.save(body);
     const mod = await resyncMods("Settings → Remote pi", { refreshCatalog: false });
-    return c.json({ settings: toPublicPiSettings(saved), mod });
+    // Save answers the question automatically, because an unpinned or
+    // unreachable host is otherwise discovered by an agent's failed run. A
+    // check that cannot run never fails the save.
+    const check = await piService.checkHost(saved).catch(() => null);
+    return c.json({ settings: toPublicPiSettings(saved), mod, check });
   } catch (error) {
     if (error instanceof InvalidPiSettingsError) return c.text(error.message, 400);
     return c.text(errorMessage(error), 502);
   }
 });
 
-/** TOFU pin: ssh-keyscan the configured host and append what it answers. */
+/** Check the host — saved values, or the form's, when they are not saved yet. */
+app.post("/api/pi/check", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!config.features.pi) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
+  const body = await c.req.json().catch(() => null);
+  try {
+    return c.json({ check: await piService.checkHost(piDraftFromBody(body) as never) });
+  } catch (error) {
+    return c.text(errorMessage(error), 502);
+  }
+});
+
+/**
+ * TOFU pin: ssh-keyscan a host and write what it answers. A different key
+ * already pinned for that host is a 409 with both fingerprints — replacing it
+ * is a second, deliberate click.
+ */
 app.post("/api/pi/pin-host", async (c) => {
   if (!c.get("session")) return c.text("Unauthorized", 401);
   if (!config.features.pi) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
+  const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+  const options = {
+    ...(typeof body?.host === "string" ? { host: body.host } : {}),
+    ...(Number.isFinite(Number(body?.port)) && body?.port !== undefined && body?.port !== ""
+      ? { port: Number(body.port) }
+      : {}),
+    ...(body?.force === true ? { force: true } : {}),
+  };
   try {
-    return c.json({ pinned: await piService.pinHostKey() });
+    const pinned = await piService.pinHost(options);
+    if (pinned.changed) return c.json({ pinned }, 409);
+    return c.json({ pinned });
   } catch (error) {
     return c.text(errorMessage(error), 400);
   }

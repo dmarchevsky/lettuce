@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  ago,
+  checkPiHost,
   fetchPiSettings,
   generatePiKey,
+  type PiCheck,
   type PiSettings,
   type PiSettingsUpdate,
   pinPiHostKey,
@@ -49,6 +52,36 @@ function isDirty(draft: Draft, settings: PiSettings): boolean {
   );
 }
 
+/** `SHA256:abcdef…uvwxyz` — a fingerprint you can read at a glance. */
+function shortFingerprint(value: string | null): string {
+  if (!value) return "none";
+  const hex = value.replace(/^SHA256:/, "");
+  return hex.length <= 12 ? value : `${hex.slice(0, 6)}…${hex.slice(-4)}`;
+}
+
+/**
+ * The one line that says whether this host would work. "Saved" is not that
+ * answer: every run pins, so a saved-but-unpinned host fails silently inside an
+ * agent's run. The pill goes stale with the form on purpose — editing a field
+ * after a good check means the good check is about another host.
+ */
+function statusPill(
+  check: PiCheck | null,
+  stale: boolean,
+): { cls: "ok" | "warn" | "bad"; text: string } {
+  if (stale) return { cls: "warn", text: "Changed since the last check" };
+  if (!check) return { cls: "warn", text: "Never checked — an unpinned host fails every run" };
+  const pinned = check.pinnedFingerprint
+    ? ` · pinned ${shortFingerprint(check.pinnedFingerprint)}`
+    : "";
+  if (check.ok)
+    return {
+      cls: "ok",
+      text: `${check.detail} · ${check.target}${pinned} · checked ${ago(check.at)}`,
+    };
+  return { cls: "bad", text: `${check.detail} · ${check.target} · ${ago(check.at)}` };
+}
+
 /**
  * Settings → Remote Pi: where agents reach a pi installed on another host, over
  * SSH only (see bff/src/pi/ and docs/remote-pi-plan.md).
@@ -71,6 +104,11 @@ export function PiSection() {
   const [generating, setGenerating] = useState(false);
   const [rotateArmed, setRotateArmed] = useState(false);
   const [copied, setCopied] = useState(false);
+  /** The last word the BFF had about this host, and the form's staleness. */
+  const [check, setCheck] = useState<PiCheck | null>(null);
+  const [checking, setChecking] = useState(false);
+  /** A host key that does not match the pinned one needs a second, explicit click. */
+  const [pinArmed, setPinArmed] = useState(false);
   /** Which key flow the form shows: lettuce's, or the operator's own PEM. */
   const [keyChoice, setKeyChoice] = useState<"generated" | "pasted">("generated");
 
@@ -80,6 +118,7 @@ export function PiSection() {
       setSettings(loaded.settings);
       setDraft(draftOf(loaded.settings));
       setKeyChoice(loaded.settings.keySource);
+      setCheck(loaded.check);
       setStatus(null);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
@@ -105,10 +144,17 @@ export function PiSection() {
     setSaving(true);
     try {
       const saved = await savePiSettings(update);
-      setSettings(saved);
-      setDraft(draftOf(saved));
-      setKeyChoice(saved.keySource);
-      setStatus("Saved. Agents get the pi tools from their next turn.");
+      setSettings(saved.settings);
+      setDraft(draftOf(saved.settings));
+      setKeyChoice(saved.settings.keySource);
+      // Save answers the host question itself — the server checked on the way by.
+      setCheck(saved.check);
+      setPinArmed(false);
+      setStatus(
+        saved.check?.ok
+          ? "Saved. Agents get the pi tools from their next turn."
+          : "Saved, but the host check below is not clean yet.",
+      );
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
     } finally {
@@ -116,11 +162,53 @@ export function PiSection() {
     }
   };
 
-  const pin = async () => {
+  /** The values a check or a pin should use: the form's, saved or not. */
+  const targetOf = (from: Draft) => ({
+    host: from.host.trim(),
+    port: Number(from.port) || 22,
+    user: from.user.trim(),
+    pathPrepend: from.pathPrepend.trim(),
+    workdir: from.workdir.trim(),
+  });
+
+  const runCheck = async () => {
+    const form = draft;
+    if (!form) return;
+    setChecking(true);
+    try {
+      setCheck(await checkPiHost(targetOf(form)));
+      setStatus(null);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  /**
+   * Pin, then check, in the one action the form offers: the two are always both
+   * wanted, and pinning alone tells you nothing about whether a run would work.
+   * A mismatched host key is refused (409) and needs a second click.
+   */
+  const pinAndCheck = async (force = false) => {
+    const form = draft;
+    if (!form) return;
     setPinning(true);
     try {
-      const pinned = await pinPiHostKey();
-      setStatus(`Pinned ${pinned.lines} host key(s) for ${pinned.target}.`);
+      const { host, port } = targetOf(form);
+      const pinned = await pinPiHostKey({ host, port, force });
+      if (pinned.changed) {
+        setPinArmed(true);
+        setStatus(
+          `${pinned.target} presents a different host key than the pinned one (${shortFingerprint(
+            pinned.oldFingerprint,
+          )} → ${shortFingerprint(pinned.newFingerprint)}). Press again only if the host really changed.`,
+        );
+        return;
+      }
+      setPinArmed(false);
+      setCheck(await checkPiHost(targetOf(form)));
+      setStatus(`Pinned ${pinned.target} (${shortFingerprint(pinned.fingerprint)}).`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
     } finally {
@@ -183,9 +271,16 @@ export function PiSection() {
     );
   }
 
-  const set = (patch: Partial<Draft>) => setDraft({ ...draft, ...patch });
+  const set = (patch: Partial<Draft>) => {
+    setDraft({ ...draft, ...patch });
+    setPinArmed(false);
+  };
   const off = !draft.enabled;
   const dirty = isDirty(draft, settings);
+  const pill = statusPill(check, dirty);
+  const hostTyped = draft.host.trim() !== "";
+  const needsPin = !check || check.state === "unpinned";
+  const busy = checking || pinning;
 
   return (
     <>
@@ -383,19 +478,11 @@ export function PiSection() {
               </button>
             )
           ) : null}
-          <button
-            type="button"
-            className="button ghost"
-            disabled={pinning || !draft.host.trim()}
-            onClick={() => void pin()}
-          >
-            {pinning ? "Pinning…" : "Verify & pin host key"}
-          </button>
         </div>
-        <p className="muted small">
-          Pin the host key after first setup or whenever the host or port changes — runs only accept
-          pinned hosts.
-        </p>
+
+        <div className="button-row">
+          <span className={`pill ${pill.cls}`}>{pill.text}</span>
+        </div>
 
         <div className="button-row">
           <button
@@ -406,8 +493,26 @@ export function PiSection() {
           >
             {saving ? "Saving…" : "Save"}
           </button>
+          <button
+            type="button"
+            className="button ghost"
+            disabled={busy || !hostTyped}
+            onClick={() => void (needsPin ? pinAndCheck(pinArmed) : runCheck())}
+          >
+            {busy
+              ? "Checking…"
+              : needsPin
+                ? pinArmed
+                  ? "Replace pinned key & check"
+                  : "Check & pin host key"
+                : "Check host"}
+          </button>
           {dirty && !saving ? <span className="muted small">Unsaved changes</span> : null}
         </div>
+        <p className="muted small">
+          Checking runs a real ssh: it pins the host key the first time, then asks the remote for
+          its pi version with the same PATH a run gets. Runs only ever accept a pinned host.
+        </p>
       </div>
     </>
   );

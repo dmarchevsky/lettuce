@@ -1,6 +1,15 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile, stat } from "node:fs/promises";
+import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import {
+  buildProbeRemoteCommand,
+  classifyCheckOutput,
+  hostIsPinned,
+  type PiCheckRecord,
+  parseChecks,
+  pinnedHostKey,
+  renderChecks,
+} from "./check.ts";
 import {
   buildPiRemoteCommand,
   buildSshArgs,
@@ -145,6 +154,8 @@ class FakeChild implements PiProcess {
   emit(chunk: string): void {
     this.stdout += chunk;
   }
+  /** Wired by the harness that cares about stderr (the host check). */
+  emitErr?: (chunk: string) => void;
   finish(code: number): void {
     this.settle({ code });
   }
@@ -374,4 +385,169 @@ test("a pasted PEM keeps its derived public half, garbage loses it", async () =>
   expect(pasted.keySource).toBe("pasted");
   // Rotating replaces the pasted key, so custody really is lettuce's again.
   expect((await service.generateKeyPair()).keySource).toBe("generated");
+});
+
+// ── checking a host ──────────────────────────────────────────────────────────
+
+test("known_hosts pinning is per host and per port", () => {
+  const hosts =
+    "pi.example.invalid ssh-ed25519 AAAAone\n[pi.example.invalid]:2222 ssh-ed25519 AAAAtwo\n# comment\n";
+  expect(hostIsPinned(hosts, "pi.example.invalid", 22)).toBe(true);
+  expect(hostIsPinned(hosts, "pi.example.invalid", 2222)).toBe(true);
+  expect(hostIsPinned(hosts, "pi.example.invalid", 2223)).toBe(false);
+  expect(hostIsPinned("", "pi.example.invalid", 22)).toBe(false);
+  expect(pinnedHostKey(hosts, "pi.example.invalid", 22)).toContain("AAAAone");
+});
+
+test("a check is classified into something the form can act on", () => {
+  expect(classifyCheckOutput({ code: 0, stdout: "pi v0.9.1\n", stderr: "" }).state).toBe("ready");
+  expect(classifyCheckOutput({ code: 0, stdout: "pi v0.9.1\n", stderr: "" }).piVersion).toBe(
+    "0.9.1",
+  );
+  expect(
+    classifyCheckOutput({ code: 0, stdout: "lettuce: pi not on PATH", stderr: "" }).state,
+  ).toBe("no_pi");
+  expect(
+    classifyCheckOutput({ code: 0, stdout: "lettuce: no such workdir", stderr: "" }).state,
+  ).toBe("no_workdir");
+  expect(
+    classifyCheckOutput({
+      code: 255,
+      stdout: "",
+      stderr: "worker@h: Permission denied (publickey).\n",
+    }).state,
+  ).toBe("auth_failed");
+  expect(
+    classifyCheckOutput({
+      code: 255,
+      stdout: "",
+      stderr: "ssh: connect to host h port 22: Connection refused\n",
+    }).state,
+  ).toBe("unreachable");
+  // A changed host key is the one answer that must not be silently retried.
+  expect(
+    classifyCheckOutput({
+      code: 255,
+      stdout: "",
+      stderr: "WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!\n",
+    }).detail,
+  ).toMatch(/matches the pinned/);
+});
+
+test("the probe asks about workdir, PATH and pi in one ssh", () => {
+  const withPrepend = buildProbeRemoteCommand({
+    workdir: "/home/w/pi",
+    pathPrepend: "/opt/pi/bin",
+  });
+  expect(withPrepend).toContain(`[ -d '/home/w/pi' ]`);
+  expect(withPrepend).toContain("lettuce: no such workdir");
+  expect(withPrepend).toContain("env PATH='/opt/pi/bin:$PATH'");
+  expect(withPrepend).toContain("pi --version");
+  expect(buildProbeRemoteCommand({ workdir: "", pathPrepend: "" })).not.toContain("env PATH=");
+});
+
+test("checks persist per target and a damaged record is no record", () => {
+  const one: PiCheckRecord = {
+    "worker@h:22": {
+      target: "worker@h:22",
+      state: "ready",
+      ok: true,
+      detail: "pi v0.9.1",
+      at: "2026-01-01T00:00:00.000Z",
+      piVersion: "0.9.1",
+      pinnedFingerprint: "SHA256:abc",
+    },
+  };
+  expect(parseChecks(renderChecks(one))).toEqual(one);
+  expect(parseChecks("{not json")).toEqual({});
+  expect(parseChecks('{"worker@h:22": {"nonsense": 1}}')).toEqual({});
+});
+
+async function checkHarness() {
+  const dir = await mkdtemp(`${tmpdir()}/pi-check-`);
+  const spawned: { args: readonly string[]; child: FakeChild }[] = [];
+  // The check awaits its files before it spawns, so tests take the child from a
+  // promise instead of reaching for a spawn that has not happened yet.
+  const waiting: ((entry: { args: readonly string[]; child: FakeChild }) => void)[] = [];
+  const nextChild = async () => {
+    const last = spawned.at(-1);
+    if (last) return last;
+    return new Promise<{ args: readonly string[]; child: FakeChild }>((resolve) =>
+      waiting.push(resolve),
+    );
+  };
+  const spawner = (
+    args: readonly string[],
+    onStdout: (chunk: string) => void,
+    onStderr: (chunk: string) => void,
+  ): PiProcess => {
+    const child = new FakeChild();
+    const entry = { args, child };
+    spawned.push(entry);
+    const waiter = waiting.shift();
+    if (waiter) waiter(entry);
+    child.emit = (chunk: string) => onStdout(chunk);
+    child.emitErr = (chunk: string) => onStderr(chunk);
+    return child;
+  };
+  const service = new PiService({ paths: { dir }, featureEnabled: () => true, spawner });
+  await service.save({
+    enabled: true,
+    host: "pi.example.invalid",
+    user: "worker",
+    workdir: "/home/worker/pi",
+    privateKey: VALID_KEY,
+  });
+  return { dir, service, spawned, nextChild };
+}
+
+test("an unpinned host is reported unpinned without ever reaching ssh", async () => {
+  const { service, spawned } = await checkHarness();
+  const check = await service.checkHost();
+  expect(check.state).toBe("unpinned");
+  expect(check.ok).toBe(false);
+  expect(spawned.length).toBe(0);
+  // Remembered, because the phone must show what the laptop learned.
+  expect(
+    (await service.lastCheck({ host: "pi.example.invalid", port: 22, user: "worker" }))?.state,
+  ).toBe("unpinned");
+});
+
+test("a pinned host is probed with the run's own ssh flags and PATH", async () => {
+  const { dir, service, nextChild } = await checkHarness();
+  await writeFile(`${dir}/known_hosts`, "pi.example.invalid ssh-ed25519 AAAAone\n", "utf8");
+  // The PATH prefix from the form is the one the probe must use, since it is
+  // the same prefix a run gets.
+  const pending = service.checkHost({ pathPrepend: "/opt/pi/bin" });
+  const { args, child } = await nextChild();
+  child.emit("pi v0.9.1\n");
+  child.finish(0);
+  const check = await pending;
+  expect(check.state).toBe("ready");
+  expect(check.piVersion).toBe("0.9.1");
+  expect(check.target).toBe("worker@pi.example.invalid:22");
+  const joined = args.join(" ");
+  expect(joined).toContain("-o StrictHostKeyChecking=yes");
+  expect(joined).toContain("env PATH='/opt/pi/bin:$PATH'");
+});
+
+test("an unsaved form is checked, and a refused key is named as such", async () => {
+  const { dir, service, spawned, nextChild } = await checkHarness();
+  await writeFile(`${dir}/known_hosts`, "pi.example.invalid ssh-ed25519 AAAAone\n", "utf8");
+  const pending = service.checkHost({ port: 2222, pathPrepend: "/opt/pi/bin" });
+  // Port 2222 is not pinned, so the answer is still "unpinned" — checking the
+  // form's values means checking exactly those values.
+  const unpinned = await pending;
+  expect(unpinned.target).toBe("worker@pi.example.invalid:2222");
+  expect(unpinned.state).toBe("unpinned");
+  expect(spawned.length).toBe(0);
+
+  await writeFile(`${dir}/known_hosts`, "[pi.example.invalid]:2222 ssh-ed25519 AAAAone\n", "utf8");
+  const retry = service.checkHost({ port: 2222 });
+  const { child } = await nextChild();
+  child.emitErr?.("worker@pi.example.invalid: Permission denied (publickey).\n");
+  child.finish(255);
+  const refused = await retry;
+  expect(refused.state).toBe("auth_failed");
+  expect(refused.detail).toMatch(/authorized_keys/);
 });

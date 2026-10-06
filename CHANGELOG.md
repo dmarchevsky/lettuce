@@ -5,6 +5,9 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Added
+- **Settings → Remote Pi checks the host.** Pressing **Check & pin host key** pins the host key and probes the machine in one action, **Save** re-checks on its way by, and a line under the buttons says what a run would find: `pi v0.9.1 · worker@host:22 · pinned SHA256:ab12… · checked 4 min ago` — or exactly what is broken: host not pinned, deploy key refused, `pi` not on the PATH a run gets, workdir missing. Checks are remembered per `user@host:port` on the server, so the phone shows what the laptop just checked; editing a field marks the answer stale instead of deleting it, and a *different* host key than the pinned one needs a second deliberate click naming both fingerprints.
+
 ### Changed
 - **Settings → Remote Pi** (was "Remote pi worker"): with the switch off every field is read-only instead of waiting to be filled in wrongly, the two ways of getting a deploy key are now one choice — a lettuce-generated pair *or* a private key you paste — instead of a paste box appearing under a key you already generated, the public key copies from a small button inside its own field, and **Save** waits until something actually changed.
 
