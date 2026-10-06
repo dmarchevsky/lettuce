@@ -417,9 +417,21 @@ function PiPane({
           it.
         </p>
       ) : null}
-      {!globalConfigured ? (
+      {/* Off and unset are different problems, and only one of them is fixable
+          from this pane: an override saved while the global switch is off is
+          inert, so say that instead of letting a saved form imply it runs. */}
+      {!global.enabled ? (
         <p className="muted small">
-          There is no global Remote Pi setup, so there is no host or deploy key to inherit.{" "}
+          Remote Pi is switched off for every agent, so nothing here runs yet — whatever is saved
+          waits for the switch.{" "}
+          <button type="button" className="link inline" onClick={() => onOpenGlobalSettings("pi")}>
+            Settings → Remote Pi
+          </button>
+          .
+        </p>
+      ) : !globalConfigured ? (
+        <p className="muted small">
+          There is no global host or deploy key to inherit yet.{" "}
           <button type="button" className="link inline" onClick={() => onOpenGlobalSettings("pi")}>
             Set it up in Settings → Remote Pi
           </button>
