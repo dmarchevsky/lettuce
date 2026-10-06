@@ -109,6 +109,16 @@ Confirmed decisions (operator, 2026-10-05):
 - Virtual compose profile tokens (`codex`, `claude`) are the precedent for gating a worker
   feature; a `pi` token would follow `AGENTS.md` "Compose profiles are the one feature
   list".
+- **Exactly one ssh implementation, and it is a binary, not a library.** Inventory
+  (2026-10-06): the lettuce dependency graph carries **no JS ssh library at all**
+  (`ssh2`/`node-ssh`/`sshpk` absent from `bun.lock`); this feature's `Bun.spawn(["ssh", …])`
+  in `bff/src/pi/service.ts` is lettuce's only ssh use, and upstream letta-code likewise
+  only ever shells the system OpenSSH (`GIT_SSH_COMMAND="ssh -o BatchMode=yes"` for git).
+  Image inventory: app-server and channel-gateway (`letta/letta` base) ship `/usr/bin/ssh`;
+  `bff` gains `openssh-client` via apt on this branch; `google-mcp` and `ddg-mcp` have none
+  (measured). Decision: the spawned OpenSSH client stays the one transport — a JS library
+  would re-implement BatchMode, pinned-host verification and agent signing while losing
+  `SSH_AUTH_SOCK` inheritance and `IdentityAgent`/`ControlMaster` for free.
 - SSH hardening baseline (client-side only, standard OpenSSH): key-only auth
   (`BatchMode=yes`, no passphrase agent — a dedicated unencrypted deploy key or ssh-agent
   decision in § 4), pinned `known_hosts` (`StrictHostKeyChecking=yes`), no password auth,
