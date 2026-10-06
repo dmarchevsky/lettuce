@@ -65,7 +65,7 @@ function shortFingerprint(value: string | null): string {
  * agent's run. The pill goes stale with the form on purpose — editing a field
  * after a good check means the good check is about another host.
  */
-function statusPill(
+export function piStatusPill(
   check: PiCheck | null,
   stale: boolean,
 ): { cls: "ok" | "warn" | "bad"; text: string } {
@@ -111,6 +111,8 @@ export function PiSection() {
   const [pinArmed, setPinArmed] = useState(false);
   /** Which key flow the form shows: lettuce's, or the operator's own PEM. */
   const [keyChoice, setKeyChoice] = useState<"generated" | "pasted">("generated");
+  /** Agents that point at a host or folder of their own (Tools → Remote Pi). */
+  const [ownAgents, setOwnAgents] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -119,6 +121,7 @@ export function PiSection() {
       setDraft(draftOf(loaded.settings));
       setKeyChoice(loaded.settings.keySource);
       setCheck(loaded.check);
+      setOwnAgents((loaded.agents ?? []).filter((a) => a.mode === "own").map((a) => a.agentId));
       setStatus(null);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
@@ -277,7 +280,7 @@ export function PiSection() {
   };
   const off = !draft.enabled;
   const dirty = isDirty(draft, settings);
-  const pill = statusPill(check, dirty);
+  const pill = piStatusPill(check, dirty);
   const hostTyped = draft.host.trim() !== "";
   const needsPin = !check || check.state === "unpinned";
   const busy = checking || pinning;
@@ -290,6 +293,16 @@ export function PiSection() {
         transcripts appear under Tasks. Nothing is installed on the remote host beyond pi itself.
       </p>
       {status ? <p className="muted small pad">{status}</p> : null}
+
+      {ownAgents.length ? (
+        <p className="muted small pad">
+          {ownAgents.length === 1
+            ? "One agent has its own Remote Pi settings"
+            : `${ownAgents.length} agents have their own Remote Pi settings`}
+          {" — "}their host or working folder is set per agent under Tools. This page is the default
+          they inherit and the key they all use: switching it off here stops every one of them.
+        </p>
+      ) : null}
 
       <div className="pad-x">
         <ToggleRow

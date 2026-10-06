@@ -40,6 +40,7 @@ import { AgentTab } from "./tabs/AgentTab.tsx";
 import { FilesTab } from "./tabs/FilesTab.tsx";
 import { MemoryTab } from "./tabs/MemoryTab.tsx";
 import { TasksTab } from "./tabs/TasksTab.tsx";
+import { ToolsTab } from "./tabs/ToolsTab.tsx";
 
 interface Status {
   authenticated: boolean;
@@ -51,7 +52,7 @@ interface Status {
   features?: FeatureFlags;
 }
 
-const TABS = ["Chat", "Files", "Tasks", "Memory", "Agent"] as const;
+const TABS = ["Chat", "Files", "Tasks", "Memory", "Tools", "Agent"] as const;
 type Tab = (typeof TABS)[number];
 
 /**
@@ -508,6 +509,14 @@ function Workspace({ status }: { status: Status }) {
           />
         ) : tab === "Memory" ? (
           <MemoryTab session={session} agentId={agents.agentId} />
+        ) : tab === "Tools" ? (
+          <ToolsTab
+            agents={agents}
+            features={status.features}
+            onOpenGlobalSettings={(section) =>
+              setGlobalSettings({ section: section as GlobalSection })
+            }
+          />
         ) : (
           <AgentTab
             session={session}
@@ -515,7 +524,6 @@ function Workspace({ status }: { status: Status }) {
             conversationId={agents.conversationId}
             cwd={conversation.cwd}
             skillsVersion={conversation.skillsVersion}
-            features={status.features}
             onOpenGlobalSettings={(section) => setGlobalSettings({ section })}
           />
         )}

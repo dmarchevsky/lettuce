@@ -253,6 +253,7 @@ test("boot reconciliation detaches orphaned runs", async () => {
   const orphan: PiRunMeta = {
     runId: "11111111-2222-3333-4444-555555555555",
     kind: "run",
+    agentId: null,
     session: SESSION,
     prompt: "old",
     model: null,
@@ -281,6 +282,7 @@ test("the parser turns a captured stream into steps", () => {
   const meta: PiRunMeta = {
     runId: "r",
     kind: "run",
+    agentId: null,
     session: SESSION,
     prompt: "do it",
     model: null,

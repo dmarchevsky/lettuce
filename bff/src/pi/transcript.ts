@@ -25,6 +25,8 @@ export type PiRunStep =
 
 export interface PiRunSummary {
   runId: string;
+  /** Which agent started it — the host follows from that. */
+  agentId: string | null;
   session: string | null;
   target: string;
   kind: "run" | "send";
@@ -43,6 +45,7 @@ export interface PiRun extends PiRunSummary {
 export function summarizePiRun(meta: PiRunMeta): PiRunSummary {
   return {
     runId: meta.runId,
+    agentId: meta.agentId ?? null,
     session: meta.session,
     target: meta.target,
     kind: meta.kind,

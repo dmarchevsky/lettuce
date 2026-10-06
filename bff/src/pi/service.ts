@@ -13,6 +13,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { ToolAnswer, ToolHandler, ToolSpec } from "../internal-tools/types.ts";
 import { capText } from "../internal-tools/types.ts";
+import { effectivePiSettings, PiAgentSettingsStore } from "./agent-settings.ts";
 import {
   ago,
   buildProbeRemoteCommand,
@@ -44,6 +45,15 @@ import {
   renderPiSettings,
 } from "./settings.ts";
 
+export {
+  assertEffectiveUsable,
+  DEFAULT_PI_AGENT_SETTINGS,
+  effectivePiSettings,
+  InvalidPiAgentSettingsError,
+  isDefaultPiAgentSettings,
+  type PiAgentSettings,
+  parsePiAgentSettings,
+} from "./agent-settings.ts";
 export type { PiCheck, PiCheckRecord, PiCheckState, PiCheckTarget } from "./check.ts";
 export type { PiRunMeta } from "./runner.ts";
 export { DirPiRunStore, isPiSessionId, PiRunner, piAgentId } from "./runner.ts";
@@ -66,6 +76,10 @@ export function piKnownHostsFile(paths: PiPaths): string {
 }
 export function piRunsDir(paths: PiPaths): string {
   return `${paths.dir}/runs`;
+}
+/** Per-agent overrides (workdir, host) — see `pi/agent-settings.ts`. */
+export function piAgentSettingsFile(paths: PiPaths): string {
+  return `${paths.dir}/agents.json`;
 }
 /** Last check per `user@host:port` — see `pi/check.ts`. */
 export function piChecksFile(paths: PiPaths): string {
@@ -140,10 +154,24 @@ export class PiService {
 
   readonly store: DirPiRunStore;
   readonly runner: PiRunner;
+  /** What each agent does differently (its own workdir, its own host). */
+  readonly agentSettings: PiAgentSettingsStore;
 
   constructor(private readonly options: PiServiceOptions) {
     this.store = new DirPiRunStore(piRunsDir(options.paths));
     this.runner = new PiRunner(this.store, options.spawner ?? sshSpawner, options.now);
+    this.agentSettings = new PiAgentSettingsStore(piAgentSettingsFile(options.paths), () => {});
+  }
+
+  /**
+   * The connection one agent will actually use: the global record with its own
+   * fields laid over it. `agentId` is what the mod sent in `x-letta-agent-id`;
+   * null (a curl from an agent shell, a test) means the global record.
+   */
+  async settingsFor(agentId: string | null): Promise<PiSettings & { source: "global" | "agent" }> {
+    const global = await this.load();
+    if (!agentId) return { ...global, source: "global" };
+    return effectivePiSettings(global, this.agentSettings.get(agentId));
   }
 
   get featureEnabled(): boolean {
@@ -262,9 +290,9 @@ export class PiService {
    * `changed: true` with both fingerprints and the caller asks again.
    */
   async pinHost(
-    options: { host?: string; port?: number; force?: boolean } = {},
+    options: { host?: string; port?: number; force?: boolean; agentId?: string | null } = {},
   ): Promise<PiPinResult> {
-    const settings = await this.load();
+    const settings = await this.settingsFor(options.agentId ?? null);
     const host = (options.host ?? settings.host).trim();
     const port = options.port ?? settings.port;
     if (!host) throw new Error("set a host first");
@@ -343,8 +371,11 @@ export class PiService {
    * key, is `pi` on the PATH a run gets, does the workdir exist. The draft may
    * hold unsaved form values — checking before saving is the point.
    */
-  async checkHost(draft: Partial<PiSettings> = {}): Promise<PiCheck> {
-    const stored = await this.load();
+  async checkHost(
+    draft: Partial<PiSettings> = {},
+    agentId: string | null = null,
+  ): Promise<PiCheck> {
+    const stored = await this.settingsFor(agentId);
     const settings: PiSettings = {
       ...stored,
       host: (draft.host ?? stored.host).trim(),
@@ -456,21 +487,39 @@ export class PiService {
     return null;
   }
 
-  private async startRun(kind: "run" | "send", args: Record<string, unknown>): Promise<ToolAnswer> {
+  private async startRun(
+    kind: "run" | "send",
+    args: Record<string, unknown>,
+    callerAgentId: string | null,
+  ): Promise<ToolAnswer> {
     const off = this.guard();
     if (off) return off;
-    const settings = await this.load();
+    const settings = await this.settingsFor(callerAgentId);
     if (!piConfigured(settings)) return { text: this.disabledReason(), isError: true };
 
     const prompt = typeof args.prompt === "string" ? args.prompt.trim() : "";
     if (!prompt) return { text: "`prompt` is required", isError: true };
     let session: string | undefined;
+    // A follow-up goes where the session was made: a pi session id is a file on
+    // one host, so asking another agent's host about it cannot work. The origin
+    // wins over whoever is asking; an unseen session falls back and says so.
+    let sessionNote = "";
     if (kind === "send") {
       const raw = typeof args.session === "string" ? args.session.trim() : "";
       if (!isPiSessionId(raw)) {
         return { text: "`session` must be the pi session id from a previous run", isError: true };
       }
       session = raw;
+      const origin = await this.store.findBySession(raw);
+      if (origin?.agentId && origin.agentId !== callerAgentId) {
+        const from = await this.settingsFor(origin.agentId);
+        if (piConfigured(from)) {
+          Object.assign(settings, from);
+          sessionNote = ` (session started by agent ${origin.agentId})`;
+        }
+      } else if (!origin) {
+        sessionNote = " (session unknown to lettuce — using this agent's host)";
+      }
     }
     const model = typeof args.model === "string" && args.model.trim() ? args.model.trim() : null;
 
@@ -481,6 +530,7 @@ export class PiService {
         prompt,
         session,
         model,
+        agentId: callerAgentId,
       });
       // Give the session header a moment: it is the first record of the stream
       // and the caller needs it to follow up (§ 3.2).
@@ -498,12 +548,14 @@ export class PiService {
       }
       const agentId = observed.session ? piAgentId(observed.session) : null;
       return {
+        // Naming the host is what makes per-agent hosts usable: the model can
+        // say where a task went instead of guessing.
         text:
-          `Started remote-pi ${kind} ${observed.runId}` +
+          `Started remote-pi ${kind} ${observed.runId} on ${observed.target}` +
           (observed.session
             ? ` on session ${observed.session} (agent ${agentId})`
             : " — session id not yet visible") +
-          `. Poll with pi_status {run:"${observed.runId}"}.`,
+          `${sessionNote}. Poll with pi_status {run:"${observed.runId}"}.`,
         isError: false,
       };
     } catch (error) {
@@ -515,10 +567,12 @@ export class PiService {
   }
 
   /** pi_run: start a fresh pi session on the remote host. */
-  readonly piRun: ToolHandler = (args) => this.startRun("run", args);
+  readonly piRun: ToolHandler = (args, context) =>
+    this.startRun("run", args, context?.agentId ?? null);
 
   /** pi_send: follow up on an existing session (spike-proven iteration, § 3.3). */
-  readonly piSend: ToolHandler = (args) => this.startRun("send", args);
+  readonly piSend: ToolHandler = (args, context) =>
+    this.startRun("send", args, context?.agentId ?? null);
 
   /** pi_status: state of one run, with the tail of its last assistant text. */
   readonly piStatus: ToolHandler = async (args) => {
@@ -651,6 +705,8 @@ export const PI_TOOL_SPECS: readonly ToolSpec[] = [
     name: "pi_run",
     description:
       "Dispatch a task to the remote pi coding agent over SSH and start it now. " +
+      "It starts in the working folder configured for this agent, on the host configured for it " +
+      "(one agent may point at a different folder or machine than another). " +
       "Returns a run id and a pi session id immediately; the run continues in the background. " +
       "Poll with pi_status, continue the conversation with pi_send.",
     parameters: RUN_PARAMETERS,

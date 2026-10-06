@@ -32,6 +32,13 @@ export type PiRunState = "running" | "completed" | "detached" | "failed";
 export interface PiRunMeta {
   runId: string;
   kind: "run" | "send";
+  /**
+   * Which agent started it, when the call came from one. Per-agent hosts make
+   * this load-bearing rather than cosmetic: a follow-up has to go to the host
+   * that made the session, and runs are listed for every agent. Old run files
+   * simply read as null.
+   */
+  agentId: string | null;
   /** Filled from the json session header shortly after start. */
   session: string | null;
   prompt: string;
@@ -189,6 +196,18 @@ export class DirPiRunStore implements PiRunStore {
     }
     return metas.sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1)).slice(0, Math.max(0, limit));
   }
+  /**
+   * The run that created a pi session, newest first. A follow-up must reach the
+   * host that made the session — a pi session id means nothing on another
+   * machine — so the send path looks the origin up instead of trusting the
+   * agent that happens to be asking.
+   */
+  async findBySession(session: string): Promise<PiRunMeta | null> {
+    for (const meta of await this.list(500)) {
+      if (meta.session === session) return meta;
+    }
+    return null;
+  }
   async readEventsTail(runId: string, maxChars: number): Promise<string | null> {
     const fs = await import("node:fs/promises");
     try {
@@ -228,13 +247,20 @@ export class PiRunner {
   async start(
     settings: PiSettings,
     files: PiKeyFiles,
-    options: { kind: "run" | "send"; prompt: string; session?: string; model?: string | null },
+    options: {
+      kind: "run" | "send";
+      prompt: string;
+      session?: string;
+      model?: string | null;
+      agentId?: string | null;
+    },
   ): Promise<PiRunMeta> {
     const remote = buildPiRemoteCommand(settings, options);
     const args = buildSshArgs(settings, files, remote);
     const meta: PiRunMeta = {
       runId: randomUUID(),
       kind: options.kind,
+      agentId: options.agentId ?? null,
       session: options.session ?? null,
       prompt: options.prompt,
       model: options.model ?? settings.model,

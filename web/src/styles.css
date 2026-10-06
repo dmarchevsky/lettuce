@@ -112,11 +112,13 @@ pre {
 }
 .tabs button {
   flex: 1;
-  min-width: 72px;
+  /* Six tabs have to fit a 390px phone without scrolling: Chat is the longest
+     name at 62, so this is what is left over. */
+  min-width: 58px;
   background: none;
   border: none;
   color: var(--muted);
-  padding: 8px 10px;
+  padding: 8px 8px;
   border-radius: 0;
   font-size: 14px;
   font-weight: 500;
@@ -2198,6 +2200,58 @@ p.warning code {
   border-color: var(--accent);
   color: var(--text);
 }
+/* Tools: a family's chip is its on/off box and its name, welded into one pill so
+   the box reads as part of the chip and not as a third chip. The box is a button
+   with role=checkbox (MenuRow's box, same tint) — the platform checkbox is out. */
+.tool-chips .chip-pair {
+  display: inline-flex;
+  align-items: stretch;
+}
+.tool-chips .chip-pair .chip-check {
+  min-width: 34px;
+  padding: 0 9px;
+  display: grid;
+  place-items: center;
+  border-right: none;
+}
+.tool-chips .chip-pair .chip-check.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0b1020;
+}
+.tool-chips .chip-pair .chip-check.on + button {
+  border-left-color: var(--accent);
+}
+.tool-chips .chip-pair .icon {
+  width: 15px;
+  height: 15px;
+}
+/* Tools tab: each family is a chip that carries its own on/off box — the box
+   allows or blocks the family for this agent, the name opens its pane. Two
+   buttons, styled to read as one control (there is no platform checkbox here). */
+.tool-chips .chip-pair {
+  display: inline-flex;
+  align-items: stretch;
+}
+.tool-chips .chip-check {
+  width: 30px;
+  min-width: 30px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-right: none;
+}
+/* Filled the same way as every other checkbox box in the app (.menu-row-box). */
+.tool-chips .chip-check.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0b1020;
+}
+.tool-chips .chip-check .icon {
+  width: 16px;
+  height: 16px;
+}
+
 /* Under Settings' chips: who the section's settings apply to. */
 .scope-line {
   margin: 0;
