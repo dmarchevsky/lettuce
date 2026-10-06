@@ -241,8 +241,8 @@ export function PiSection() {
               onFocus={(event) => event.currentTarget.select()}
             />
             <span className="muted small">
-              Optionally prefix it with restrictions such as from="&lt;this server&gt;",no-pty.
-              The private half never leaves this server.
+              Optionally prefix it with restrictions such as from="&lt;this server&gt;",no-pty. The
+              private half never leaves this server.
             </span>
           </div>
         ) : settings.hasKey ? (
@@ -281,8 +281,8 @@ export function PiSection() {
               onChange={(event) => set({ privateKey: event.target.value })}
             />
             <span className="muted small">
-              Only if you must reuse an existing key — generating stores a fresh, single-purpose
-              one instead. A pasted key replaces any stored key on save.
+              Only if you must reuse an existing key — generating stores a fresh, single-purpose one
+              instead. A pasted key replaces any stored key on save.
             </span>
           </label>
         ) : (
