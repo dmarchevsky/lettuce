@@ -2584,6 +2584,10 @@ p.warning code {
   gap: 8px;
   margin: 8px 0;
 }
+/* Fixed-width glyphs for pasted keys and ids (Settings → Remote pi worker). */
+textarea.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
 /* A response in progress with no row to mark — the agent's unlisted default
    conversation, or one the list has not caught up with. See lib/activity.ts. */
 .activity-note {

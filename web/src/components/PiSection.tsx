@@ -51,6 +51,7 @@ export function PiSection() {
   const [generating, setGenerating] = useState(false);
   const [rotateArmed, setRotateArmed] = useState(false);
   const [pasteOpen, setPasteOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -101,6 +102,21 @@ export function PiSection() {
       setStatus(error instanceof Error ? error.message : String(error));
     } finally {
       setPinning(false);
+    }
+  };
+
+  /** Clipboard first; if the browser refuses (insecure origin), the textarea
+   * still select-on-focus, so the key is never un-copyable. */
+  const copyKey = async () => {
+    if (!settings || !settings.publicKey) return;
+    try {
+      await navigator.clipboard.writeText(settings.publicKey);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setStatus(
+        "Clipboard blocked by the browser — tap the public-key box to select it, then copy.",
+      );
     }
   };
 
@@ -235,41 +251,27 @@ export function PiSection() {
           <div className="field">
             Public key — add this line to the remote host’s ~/.ssh/authorized_keys
             <textarea
-              rows={3}
+              className="mono"
+              rows={2}
               readOnly
               value={settings.publicKey}
               onFocus={(event) => event.currentTarget.select()}
             />
-            <span className="muted small">
-              Optionally prefix it with restrictions such as from="&lt;this server&gt;",no-pty. The
-              private half never leaves this server.
-            </span>
+            <div className="button-row">
+              <button type="button" className="button ghost" onClick={() => void copyKey()}>
+                {copied ? "Copied" : "Copy public key"}
+              </button>
+              <span className="muted small">
+                The private half never leaves this server. Optionally prefix the line with
+                restrictions such as from="&lt;this server&gt;",no-pty.
+              </span>
+            </div>
           </div>
         ) : settings.hasKey ? (
           <p className="muted small pad">
             Private key stored — its public part could not be derived from the stored PEM.
           </p>
         ) : null}
-
-        {settings.hasKey ? (
-          <button
-            type="button"
-            className="button ghost"
-            disabled={generating}
-            onClick={() => void generate()}
-          >
-            {generating ? "Generating…" : rotateArmed ? "Confirm rotation" : "Rotate key pair"}
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="button"
-            disabled={generating}
-            onClick={() => void generate()}
-          >
-            {generating ? "Generating…" : "Generate key pair"}
-          </button>
-        )}
 
         {!settings.hasKey || pasteOpen ? (
           <label className="field">
@@ -291,22 +293,45 @@ export function PiSection() {
           </button>
         )}
 
-        <button
-          type="button"
-          className="button ghost"
-          disabled={pinning || !draft.host.trim()}
-          onClick={() => void pin()}
-        >
-          {pinning ? "Pinning…" : "Verify & pin host key"}
-        </button>
-        <span className="muted small">
-          {" "}
-          Run this after changing host/port, or on first setup — runs only accept pinned hosts.
-        </span>
+        <div className="button-row">
+          {settings.hasKey ? (
+            <button
+              type="button"
+              className="button ghost"
+              disabled={generating}
+              onClick={() => void generate()}
+            >
+              {generating ? "Generating…" : rotateArmed ? "Confirm rotation" : "Rotate key pair"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="button"
+              disabled={generating}
+              onClick={() => void generate()}
+            >
+              {generating ? "Generating…" : "Generate key pair"}
+            </button>
+          )}
+          <button
+            type="button"
+            className="button ghost"
+            disabled={pinning || !draft.host.trim()}
+            onClick={() => void pin()}
+          >
+            {pinning ? "Pinning…" : "Verify & pin host key"}
+          </button>
+        </div>
+        <p className="muted small">
+          Pin the host key after first setup or whenever the host or port changes — runs only accept
+          pinned hosts.
+        </p>
 
-        <button type="button" className="button" disabled={saving} onClick={() => void save()}>
-          {saving ? "Saving…" : "Save"}
-        </button>
+        <div className="button-row">
+          <button type="button" className="button" disabled={saving} onClick={() => void save()}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
       </div>
     </>
   );
