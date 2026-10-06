@@ -1,6 +1,7 @@
 /**
  * Remove merged worktrees and local branches — the half of the PR lifecycle that used to be
- * manual bookkeeping (see the `lettuce-pr-and-ci` skill and `AGENTS.md` hard rule 8).
+ * manual bookkeeping (see the `lettuce-pr-and-ci` skill and `AGENTS.md`'s rule against removing a
+ * worktree by hand).
  *
  * Default mode is a report. Nothing is deleted without `--apply`, and nothing is deleted that
  * fails a preflight, which is printed as a reason rather than a warning:
