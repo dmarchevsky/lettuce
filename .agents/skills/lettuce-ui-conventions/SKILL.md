@@ -46,6 +46,9 @@ Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `
   pane. The box writes the access record immediately — a toggle has no other fields to wait for —
   while a pane with several fields (Remote Pi's own host/workdir) has its own **Save**. Both halves
   of the pair are `<button>`s: nothing in the app uses `<input type="checkbox">` (the platform box
-  renders in its own colour and size), so state is `aria-pressed` plus `.menu-row-box` or
-  `.chip-check.on` — `ui-check` counts native checkboxes anywhere in the DOM and the Agent tab's
-  chip list is exactly `General/Secrets/Reflection/Skills` since Tools moved out.
+  renders in its own colour and size), so state is a boolean ARIA attribute plus a CSS class —
+  `aria-pressed` with `.menu-row-box.on` for a menu row, `role="checkbox"` + `aria-checked` with
+  `.chip-check.on` for a chip box, which is what `ui-check` counts (`input[type=checkbox]` must be
+  0 anywhere in the DOM). The Agent tab's chip list is exactly
+  `General/Secrets/Reflection/Skills` since Tools moved out, and `GlobalSettings`'s
+  `SHARED_NOTE` has to name **both** per-agent tabs.
