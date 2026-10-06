@@ -143,7 +143,9 @@ the app-server image contains. **Sidecars are opt-in: `google-mcp` has `profiles
 `COMPOSE_PROFILES=cloudflared,google,search,codex,claude`. Nothing `depends_on` a sidecar, and without
 their token the integration is off wholesale — the BFF treats the stored Settings switch as disabled
 whatever it says — so dropping the profile is the whole off switch. Removal is
-`--profile <p> rm -sf …`.
+`--profile <p> rm -sf …`. To test a profile locally **without editing `docker/.env`**, prefix the
+command — `COMPOSE_PROFILES=<…,pi> docker compose -f docker/compose.yml up -d bff`: shell env beats
+the `.env` file, `LETTA_MODE` carries the string to the BFF, and the next un-prefixed `up` reverts it.
 
 Two tokens are **virtual**: `codex` and `claude` are declared by no service, start no container, and
 instead decide what the app-server *image* contains. Every token is matched as an exact
