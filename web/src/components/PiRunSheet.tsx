@@ -101,7 +101,7 @@ export function PiRunSheet({ runId, onClose }: Props) {
   }
 
   return (
-    <Sheet title="Remote pi run" onClose={onClose} size="spacious" fill status={error}>
+    <Sheet title="Remote Pi run" onClose={onClose} size="spacious" fill status={error}>
       <div className="codex-run">
         {run ? <p className="muted small">{facts.join(" · ")}</p> : null}
         {!run && !error ? <p className="muted">Loading…</p> : null}

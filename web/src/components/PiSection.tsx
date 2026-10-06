@@ -21,6 +21,7 @@ interface Draft {
   privateKey: string;
 }
 
+/** What the server holds, as an editable draft. */
 function draftOf(settings: PiSettings): Draft {
   return {
     enabled: settings.enabled,
@@ -34,13 +35,32 @@ function draftOf(settings: PiSettings): Draft {
   };
 }
 
+/** Whether the draft differs from what is stored — Save is dead until it does. */
+function isDirty(draft: Draft, settings: PiSettings): boolean {
+  return (
+    draft.enabled !== settings.enabled ||
+    draft.host.trim() !== settings.host ||
+    draft.port !== String(settings.port) ||
+    draft.user.trim() !== settings.user ||
+    draft.pathPrepend.trim() !== settings.pathPrepend ||
+    draft.workdir.trim() !== settings.workdir ||
+    draft.model.trim() !== (settings.model ?? "") ||
+    draft.privateKey.trim() !== ""
+  );
+}
+
 /**
- * Settings → Remote pi worker: where agents reach a pi installed on another
- * host, over SSH only (see bff/src/pi/ and docs/remote-pi-plan.md). The
- * private key is lettuce-generated (or pasted once) and never returns to this
- * page; Settings shows only its PUBLIC half — the line to paste into the
- * remote's authorized_keys. The host key is pinned from this page (trust on
- * first use) because runs always demand `StrictHostKeyChecking=yes`.
+ * Settings → Remote Pi: where agents reach a pi installed on another host, over
+ * SSH only (see bff/src/pi/ and docs/remote-pi-plan.md).
+ *
+ * Two things shape this form. The switch gates the fields, because a form you
+ * can fill in while it cannot be used is a form whose mistakes are discovered
+ * by an agent's failed run. And the two ways to get a deploy key are rendered
+ * as alternatives, never stacked: lettuce generating a pair (the operator only
+ * ever copies the PUBLIC half) or pasting a private key you already have. The
+ * private half never returns to this page, so `hasKey` and the public line are
+ * all the UI has to say about the key — and `keySource` says who made it, so
+ * the generated-key branch cannot claim credit for a pasted one.
  */
 export function PiSection() {
   const [settings, setSettings] = useState<PiSettings | null>(null);
@@ -50,14 +70,16 @@ export function PiSection() {
   const [pinning, setPinning] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [rotateArmed, setRotateArmed] = useState(false);
-  const [pasteOpen, setPasteOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  /** Which key flow the form shows: lettuce's, or the operator's own PEM. */
+  const [keyChoice, setKeyChoice] = useState<"generated" | "pasted">("generated");
 
   const load = useCallback(async () => {
     try {
       const loaded = await fetchPiSettings();
       setSettings(loaded.settings);
       setDraft(draftOf(loaded.settings));
+      setKeyChoice(loaded.settings.keySource);
       setStatus(null);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
@@ -85,6 +107,7 @@ export function PiSection() {
       const saved = await savePiSettings(update);
       setSettings(saved);
       setDraft(draftOf(saved));
+      setKeyChoice(saved.keySource);
       setStatus("Saved. Agents get the pi tools from their next turn.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
@@ -105,7 +128,7 @@ export function PiSection() {
     }
   };
 
-  /** Clipboard first; if the browser refuses (insecure origin), the textarea
+  /** Clipboard first; if the browser refuses (insecure origin), the input
    * still select-on-focus, so the key is never un-copyable. */
   const copyKey = async () => {
     if (!settings || !settings.publicKey) return;
@@ -136,6 +159,7 @@ export function PiSection() {
       const next = await generatePiKey();
       setSettings(next);
       setDraft(draftOf(next));
+      setKeyChoice("generated");
       setStatus(
         "Generated a fresh key pair. Add the public key below to the remote host's ~/.ssh/authorized_keys before the next run.",
       );
@@ -160,6 +184,8 @@ export function PiSection() {
   }
 
   const set = (patch: Partial<Draft>) => setDraft({ ...draft, ...patch });
+  const off = !draft.enabled;
+  const dirty = isDirty(draft, settings);
 
   return (
     <>
@@ -172,11 +198,16 @@ export function PiSection() {
 
       <div className="pad-x">
         <ToggleRow
-          title="Allow remote pi runs"
+          title="Allow Remote Pi"
           description="Agents may dispatch coding tasks to the remote pi agent"
           checked={draft.enabled}
           onChange={(enabled) => set({ enabled })}
         />
+        {off ? (
+          <p className="muted small">
+            Off — every field below is read-only, and no agent gets the pi tools.
+          </p>
+        ) : null}
 
         <label className="field">
           Host
@@ -184,6 +215,8 @@ export function PiSection() {
             value={draft.host}
             placeholder="pi.example.com"
             autoComplete="off"
+            spellCheck={false}
+            disabled={off}
             onChange={(event) => set({ host: event.target.value })}
           />
         </label>
@@ -195,6 +228,7 @@ export function PiSection() {
             placeholder="22"
             inputMode="numeric"
             autoComplete="off"
+            disabled={off}
             onChange={(event) => set({ port: event.target.value })}
           />
         </label>
@@ -205,6 +239,8 @@ export function PiSection() {
             value={draft.user}
             placeholder="worker"
             autoComplete="off"
+            spellCheck={false}
+            disabled={off}
             onChange={(event) => set({ user: event.target.value })}
           />
         </label>
@@ -215,6 +251,8 @@ export function PiSection() {
             value={draft.workdir}
             placeholder="/home/worker/pi"
             autoComplete="off"
+            spellCheck={false}
+            disabled={off}
             onChange={(event) => set({ workdir: event.target.value })}
           />
           <span className="muted small">
@@ -229,6 +267,8 @@ export function PiSection() {
             value={draft.pathPrepend}
             placeholder="/opt/node/bin:/opt/pi/bin"
             autoComplete="off"
+            spellCheck={false}
+            disabled={off}
             onChange={(event) => set({ pathPrepend: event.target.value })}
           />
           <span className="muted small">
@@ -243,76 +283,106 @@ export function PiSection() {
             value={draft.model}
             placeholder="Optional — the remote pi's own default if empty"
             autoComplete="off"
+            spellCheck={false}
+            disabled={off}
             onChange={(event) => set({ model: event.target.value })}
           />
         </label>
 
-        {settings.publicKey ? (
-          <div className="field">
-            Public key — add this line to the remote host’s ~/.ssh/authorized_keys
-            <textarea
-              className="mono"
-              rows={2}
-              readOnly
-              value={settings.publicKey}
-              onFocus={(event) => event.currentTarget.select()}
-            />
-            <div className="button-row">
-              <button type="button" className="button ghost" onClick={() => void copyKey()}>
-                {copied ? "Copied" : "Copy public key"}
-              </button>
+        <label className="field">
+          Deploy key
+          <select
+            value={keyChoice}
+            disabled={off}
+            onChange={(event) => {
+              setKeyChoice(event.target.value as "generated" | "pasted");
+              setRotateArmed(false);
+            }}
+          >
+            <option value="generated">Lettuce-generated key pair (recommended)</option>
+            <option value="pasted">A private key I already have</option>
+          </select>
+          <span className="muted small">
+            {keyChoice === "generated"
+              ? "Lettuce makes and keeps the private half — you only ever copy the public line to the remote host."
+              : "Paste an existing OpenSSH private key; it replaces whatever is stored when you save."}
+          </span>
+        </label>
+
+        {keyChoice === "generated" ? (
+          settings.publicKey ? (
+            <div className="field">
+              Public key — add this line to the remote host’s ~/.ssh/authorized_keys
+              <div className="field-inline">
+                <input
+                  className="mono-input"
+                  readOnly
+                  value={settings.publicKey}
+                  title={settings.publicKey}
+                  spellCheck={false}
+                  onFocus={(event) => event.currentTarget.select()}
+                />
+                <button
+                  type="button"
+                  className="button compact ghost"
+                  onClick={() => void copyKey()}
+                >
+                  {copied ? "Copied" : "Copy"}
+                </button>
+              </div>
               <span className="muted small">
-                The private half never leaves this server. Optionally prefix the line with
-                restrictions such as from="&lt;this server&gt;",no-pty.
+                The private half never leaves this server
+                {settings.keySource === "pasted" ? " (this key is the one you pasted)" : ""}.
+                Optionally prefix the line with restrictions such as from="&lt;this
+                server&gt;",no-pty.
               </span>
             </div>
-          </div>
-        ) : settings.hasKey ? (
-          <p className="muted small pad">
-            Private key stored — its public part could not be derived from the stored PEM.
-          </p>
-        ) : null}
-
-        {!settings.hasKey || pasteOpen ? (
+          ) : settings.hasKey ? (
+            <p className="muted small pad">
+              Private key stored — its public part could not be derived from the stored PEM.
+            </p>
+          ) : null
+        ) : (
           <label className="field">
-            …or paste an existing private key
+            Private key (PEM)
             <textarea
+              className="mono"
               rows={4}
               value={draft.privateKey}
-              placeholder="Paste the OpenSSH private key (-----BEGIN …)"
+              placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+              disabled={off}
               onChange={(event) => set({ privateKey: event.target.value })}
             />
             <span className="muted small">
-              Only if you must reuse an existing key — generating stores a fresh, single-purpose one
-              instead. A pasted key replaces any stored key on save.
+              {settings.hasKey
+                ? "A key is already stored; pasting replaces it when you save."
+                : "Nothing is stored yet — the agent cannot run until a key is here."}
             </span>
           </label>
-        ) : (
-          <button type="button" className="button ghost" onClick={() => setPasteOpen(true)}>
-            Use an existing private key instead…
-          </button>
         )}
 
         <div className="button-row">
-          {settings.hasKey ? (
-            <button
-              type="button"
-              className="button ghost"
-              disabled={generating}
-              onClick={() => void generate()}
-            >
-              {generating ? "Generating…" : rotateArmed ? "Confirm rotation" : "Rotate key pair"}
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="button"
-              disabled={generating}
-              onClick={() => void generate()}
-            >
-              {generating ? "Generating…" : "Generate key pair"}
-            </button>
-          )}
+          {keyChoice === "generated" ? (
+            settings.hasKey ? (
+              <button
+                type="button"
+                className="button ghost"
+                disabled={generating || off}
+                onClick={() => void generate()}
+              >
+                {generating ? "Generating…" : rotateArmed ? "Confirm rotation" : "Rotate key pair"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="button"
+                disabled={generating || off}
+                onClick={() => void generate()}
+              >
+                {generating ? "Generating…" : "Generate key pair"}
+              </button>
+            )
+          ) : null}
           <button
             type="button"
             className="button ghost"
@@ -328,9 +398,15 @@ export function PiSection() {
         </p>
 
         <div className="button-row">
-          <button type="button" className="button" disabled={saving} onClick={() => void save()}>
+          <button
+            type="button"
+            className="button"
+            disabled={saving || !dirty}
+            onClick={() => void save()}
+          >
             {saving ? "Saving…" : "Save"}
           </button>
+          {dirty && !saving ? <span className="muted small">Unsaved changes</span> : null}
         </div>
       </div>
     </>

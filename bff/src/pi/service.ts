@@ -195,7 +195,12 @@ export class PiService {
       await writePrivate(keyFile, pem);
       // Generate straight onto the settings record (no applyPiSettingsUpdate:
       // rotating a key must not require the rest of the config to be complete).
-      const settings: PiSettings = { ...(await this.load()), privateKey: pem, publicKey: pub };
+      const settings: PiSettings = {
+        ...(await this.load()),
+        privateKey: pem,
+        publicKey: pub,
+        keySource: "generated",
+      };
       this.cached = null;
       await writePrivate(piSettingsFile(this.options.paths), renderPiSettings(settings));
       return settings;

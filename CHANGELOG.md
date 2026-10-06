@@ -5,6 +5,9 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Changed
+- **Settings → Remote Pi** (was "Remote pi worker"): with the switch off every field is read-only instead of waiting to be filled in wrongly, the two ways of getting a deploy key are now one choice — a lettuce-generated pair *or* a private key you paste — instead of a paste box appearing under a key you already generated, the public key copies from a small button inside its own field, and **Save** waits until something actually changed.
+
 ### Fixed
 - The **Remote pi** row in Agent → Tools takes effect, and can be turned back on. Flipping it alone was discarded — so an agent that had once been blocked from pi kept not seeing the `pi_*` tools while the switch showed it allowed, and no amount of toggling from the UI fixed it.
 - The BFF's startup line `Features:` can name `pi`. It listed from a hand-written set of feature names that never grew the newest one, so a `COMPOSE_PROFILES` that contained `pi` logged as if the token had not landed.

@@ -50,7 +50,7 @@ export const GLOBAL_SECTION_GROUPS: { label: string; sections: SectionInfo[] }[]
       { id: "google", label: "Google", short: "Google" },
       { id: "codex", label: "Codex workers", short: "Codex" },
       { id: "claude", label: "Claude Code workers", short: "Claude" },
-      { id: "pi", label: "Remote pi worker", short: "Remote pi" },
+      { id: "pi", label: "Remote Pi", short: "Remote Pi" },
     ],
   },
   {

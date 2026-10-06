@@ -37,6 +37,18 @@ const VALID_KEY = "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaA\n";
 
 // ── settings ─────────────────────────────────────────────────────────────────
 
+test("key custody is recorded, never guessed", () => {
+  // Nothing stored and nothing generated: the generated flow is what the form
+  // may offer, and a damaged file cannot claim custody for a paste.
+  expect(parsePiSettings(null).keySource).toBe("generated");
+  expect(parsePiSettings('{"keySource": 7}').keySource).toBe("generated");
+  // Pasting a PEM says who supplied the key…
+  const pasted = applyPiSettingsUpdate(DEFAULT_PI_SETTINGS, { privateKey: VALID_KEY });
+  expect(pasted.keySource).toBe("pasted");
+  // …and a later save that never touches the key must not rewrite that.
+  expect(applyPiSettingsUpdate({ ...pasted, host: "h" }, { host: "h2" }).keySource).toBe("pasted");
+});
+
 test("defaults are disabled and public shape never carries the key", () => {
   const publicSettings = toPublicPiSettings(parsePiSettings(null));
   expect(publicSettings.enabled).toBe(false);
@@ -353,9 +365,13 @@ test("a pasted PEM keeps its derived public half, garbage loses it", async () =>
   });
   const generated = await service.generateKeyPair();
   expect(generated.publicKey).toMatch(/^ssh-ed25519 /);
+  expect(generated.keySource).toBe("generated");
   // VALID_KEY is not a real PEM: ssh-keygen -y fails and we report no public
   // key rather than keeping the generated one as a lie.
   const pasted = await service.save({ privateKey: VALID_KEY });
   expect(pasted.privateKey).toBe(`${VALID_KEY.trimEnd()}\n`);
   expect(pasted.publicKey).toBe(null);
+  expect(pasted.keySource).toBe("pasted");
+  // Rotating replaces the pasted key, so custody really is lettuce's again.
+  expect((await service.generateKeyPair()).keySource).toBe("generated");
 });

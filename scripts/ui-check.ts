@@ -793,7 +793,7 @@ try {
       ...(featureOn(features, "google") ? ["Google"] : []),
       ...(featureOn(features, "codex") ? ["Codex"] : []),
       ...(featureOn(features, "claude") ? ["Claude"] : []),
-      ...(featureOn(features, "pi") ? ["Remote pi"] : []),
+      ...(featureOn(features, "pi") ? ["Remote Pi"] : []),
       "Skills",
       "Push",
       "About",
@@ -999,7 +999,7 @@ try {
       (await page.locator('.pane label:has-text("Google") select').count()) === 1 &&
         (await page.locator('.pane label:has-text("Claude Code workers") select').count()) === 1 &&
         (featureOn(toolsFeatures, "pi")
-          ? (await page.locator('.pane label:has-text("Remote pi worker") select').count()) === 1
+          ? (await page.locator('.pane label:has-text("Remote Pi") select').count()) === 1
           : true) &&
         (await page.locator('.pane button:text-is("Save")').isDisabled()),
     );
@@ -1077,7 +1077,7 @@ try {
       ...(featureOn(desktopFeatures, "google") ? ["Google"] : []),
       ...(featureOn(desktopFeatures, "codex") ? ["Codex workers"] : []),
       ...(featureOn(desktopFeatures, "claude") ? ["Claude Code workers"] : []),
-      ...(featureOn(desktopFeatures, "pi") ? ["Remote pi worker"] : []),
+      ...(featureOn(desktopFeatures, "pi") ? ["Remote Pi"] : []),
       "Global skills",
       "Notifications",
       "About",
@@ -1132,11 +1132,11 @@ try {
     );
 
     if (featureOn(desktopFeatures, "pi")) {
-      // Same for the remote pi worker (GET /api/pi/settings).
-      await openSection("Remote pi worker");
+      // Same for Remote Pi (GET /api/pi/settings).
+      await openSection("Remote Pi");
       check(
         "remote pi section loads its settings",
-        (await page.locator('.menu-row:has-text("Allow remote pi runs")').count()) === 1,
+        (await page.locator('.menu-row:has-text("Allow Remote Pi")').count()) === 1,
         await page.locator(".settings-content").innerText(),
       );
     }

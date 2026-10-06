@@ -167,7 +167,7 @@ export function AgentToolsSection({ agentId, features, onOpenGlobalSettings }: P
 
         {showPi ? (
           <label className="field">
-            Remote pi worker
+            Remote Pi
             <select
               value={access.pi ? "on" : "off"}
               onChange={(event) => setAccess({ ...access, pi: event.target.value === "on" })}

@@ -52,7 +52,7 @@ export function PiRunsList({ refreshKey }: { refreshKey: string }) {
 
   return (
     <>
-      <p className="section-note">Remote pi runs</p>
+      <p className="section-note">Remote Pi runs</p>
       {error ? <p className="small bad pad">{error}</p> : null}
       <ul className="list">
         {runs.map((run) => (

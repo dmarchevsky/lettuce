@@ -2584,7 +2584,34 @@ p.warning code {
   gap: 8px;
   margin: 8px 0;
 }
-/* Fixed-width glyphs for pasted keys and ids (Settings → Remote pi worker). */
+/* A section whose switch is off keeps its fields on screen but unusable: the
+   shape of the setup stays visible, and a mistake cannot be typed in. */
+.field input:disabled,
+.field select:disabled,
+.field textarea:disabled {
+  background: var(--surface);
+  color: var(--muted);
+  opacity: 0.62;
+}
+/* One line of a value with its own action inside the control (Remote Pi's public
+   key + Copy), so the row costs no height and the button cannot be missed. */
+.field-inline {
+  position: relative;
+  display: flex;
+}
+.field-inline input {
+  width: 100%;
+  padding-right: 74px;
+  text-overflow: ellipsis;
+}
+.field-inline .button.compact {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+/* Fixed-width glyphs for pasted keys and ids (Settings → Remote Pi). */
 textarea.mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }

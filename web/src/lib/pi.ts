@@ -1,5 +1,5 @@
 /**
- * The remote pi worker, as the browser sees it: Settings → Remote pi worker
+ * The remote pi worker, as the browser sees it: Settings → Remote Pi
  * and the run viewer. Everything goes through the BFF's /api/pi routes — the
  * private key and the captured run streams live on the BFF's own volume and
  * never cross to the browser; the browser sees only `hasKey` and the PUBLIC
@@ -15,6 +15,8 @@ export interface PiSettings {
   user: string;
   /** Public half of the stored key — safe to show; the private one never comes. */
   publicKey: string | null;
+  /** Who made the stored key, so the form shows the flow that is true. */
+  keySource: "generated" | "pasted";
   pathPrepend: string;
   workdir: string;
   model: string | null;
