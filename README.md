@@ -109,9 +109,10 @@ before exposing anything.
 - **Subagents.** Fan work out to a parallel agent and watch it report back.
 - **Codex workers.** Hand a coding job to a Codex CLI worker and follow its
   run from the transcript.
-- **Remote pi worker.** Dispatch a coding task to a [`pi`](https://github.com/earendil-works/pi)
+- **Remote Pi.** Dispatch a coding task to a [`pi`](https://github.com/earendil-works/pi)
   agent on another host over SSH, iterate on the same session, read the full
-  transcript under Tasks.
+  transcript under Tasks — and give each agent its own working folder or host for it
+  under Tools.
 - **Skills.** Reusable instructions at global, agent and project scope, with
   the ones the stack needs shipped in the image.
 

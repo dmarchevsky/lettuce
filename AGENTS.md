@@ -157,7 +157,7 @@ comma-delimited entry (`bff/src/config.ts` `hasProfile`: `searchy` ≠ `search`)
   settings, and the codex/claude connect-time reapply writes `enabled: false` into `lettuce.json` so
   the shims refuse (the stored endpoint/model/key survive, so re-enabling is one switch flip). The four
   Settings save routes answer 404 while their token is off, and `web/` hides the matching sections,
-  Tasks run lists and Agent → Tools rows from `features` in `/api/status` (absent = all on).
+  Tasks run lists and Tools tab rows from `features` in `/api/status` (absent = all on).
 - The coding tokens and the image marker (`CODING_FEATURES`, `/opt/lettuce/features`,
   `coding_installed`) are the `lettuce-coding-workers` skill: toggling one needs an app-server rebuild,
   because the image tag does not change with the token list. A Compose warning about unknown profiles is
@@ -176,7 +176,7 @@ working in that area.
 | `bff/src/skills/`, `docker/agent-skills/`, Settings → Global skills, `skill_enable` | `lettuce-skill-discovery` |
 | `docker/codex/`, `bff/src/codex/`, `bff/src/claude/`, Settings → Codex / Claude Code workers | `lettuce-coding-workers` |
 | `bff/src/google/`, `docker/google-mcp/`, OAuth scopes, Settings → Google | `lettuce-google-integration` |
-| `bff/src/agents/tool-access.ts`, the policy mod, Agent → Tools | `lettuce-per-agent-tool-access` |
+| `bff/src/agents/tool-access.ts`, the policy mod, the Tools tab, `bff/src/pi/agent-settings.ts` | `lettuce-per-agent-tool-access` |
 | `web/src/lib/messages.ts`, question/approval cards, `turn-errors.ts`, `turn-usage.ts`, `push/turn-watcher.ts` | `lettuce-transcript-and-streaming` |
 | LLM timeout env, agent app ports, failing subagent spawns | `lettuce-runtime-and-ops` |
 | Memory tab, `persona.md`, "the system prompt did not update" | `lettuce-memory-and-system-prompt` |

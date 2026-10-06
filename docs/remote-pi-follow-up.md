@@ -1,9 +1,9 @@
 # Remote Pi follow-up — per-agent settings and the Settings/Agent UI pass
 
-Plan for the branch `fix/pi-follow-up`. The first commit on this branch was the prod
-investigation fix (`Features:` log, the Agent → Tools pi flip being dropped). This document
-covers the work the operator asked for after it. Screenshots of the current screens:
-`.ui-check/` before-shots (`before-pi-global-*`, `before-agent-tools-*`).
+Plan for the branch `fix/pi-follow-up`, written before the work. The first commit on this branch
+was the prod investigation fix (`Features:` log, the Agent → Tools pi flip being dropped).
+**§ 8 records what actually shipped and where it departs from this plan** — read § 8 first, then
+§ 1–5 for the reasoning. Before-shots: `.ui-check/` (`before-pi-global-*`, `before-agent-tools-*`).
 
 ## 1. What is being asked, and the decisions inside it
 
@@ -19,9 +19,9 @@ covers the work the operator asked for after it. Screenshots of the current scre
 
 ## 2. Per-agent settings (the only part with new state)
 
-**Where it lives.** Under **Agent → Tools**, on the Remote Pi row — the same place the agent is
-already told whether it gets the pi tools at all, and already keyed by `agent_id`, which is what
-`AGENTS.md` ("a new setting goes where its backend key is") asks for. The row becomes:
+**Where it lives** (as proposed here; § 8 moved it to a top-level **Tools** tab). The same place
+the agent is already told whether it gets the pi tools at all, and already keyed by `agent_id`,
+which is what `AGENTS.md` ("a new setting goes where its backend key is") asks for. The row:
 
 ```
 Remote Pi
@@ -152,15 +152,50 @@ but to make the pair impossible to get wrong:
 | --- | --- | --- |
 | A | Rename + disable-when-off + deploy-key select + in-field Copy + dirty Save | `verify`, `ui-check`, screenshots |
 | B | `checks.json`, probe, pin mismatch handling, status pills, Save-then-check | `verify`, live check against a real host |
-| C | `agent-overrides.ts`, effective merge, routes, `pi_send` session-host rule, run meta, Agent → Tools form | `verify` + live per-agent run |
+| C | `agent-settings.ts`, effective merge, routes, `pi_send` session-host rule, run meta, the new top-level **Tools** tab | `verify` + live per-agent run |
 | D | Docs (README, CONFIGURATION), ui-check assertions for the new controls, final screenshots | `verify`, `check-docs` |
 
 `bump:minor` for the branch as a whole (new user-facing capability). One PR, operator container
 test before it is pushed, per `AGENTS.md`.
 
-## 7. Open questions for the operator
+## 7. Decisions the operator made
 
-1. Per-agent form: inside **Agent → Tools** (proposed, no new tab) or its own **Agent → Remote Pi**
-   chip?
-2. Per-agent **deploy key** in scope, or one lettuce key for every host (proposed)?
-3. Is "fields disabled while the switch is off" wanted for Codex/Claude/Google too, now or later?
+1. **Per-agent form placement:** neither proposal — make **Tools** its own top-level tab, one chip
+   per family, the chip carrying an on/off box and opening a pane of that family's per-agent
+   settings. (§ 8.)
+2. **Deploy key custody:** one lettuce key shared by every host. No per-agent key.
+3. **Save vs check:** Save auto-checks afterwards and the status pill reports the result.
+4. **Branch scope:** all four commits, one PR.
+
+## 8. What shipped, and where it departs from the plan
+
+**Tools became a top-level tab** (`web/src/tabs/ToolsTab.tsx`), between Memory and Agent, instead
+of staying a section inside Agent. Each family that this deployment offers is a `.chip-pair`: a box
+that allows or blocks it for the selected agent, then a chip that opens its pane. The box writes
+`agent-tool-access.json` immediately — an access toggle has no other field to wait for — while the
+Remote Pi pane keeps a **Save**, because it is a real form. The Agent tab is now
+`General / Secrets / Reflection / Skills`, and `components/AgentToolsSection.tsx` is gone.
+
+That placement is what makes the two-store rule load-bearing: enable/disable lives *only* in
+`agent-tool-access.json` (written by the chip box) and the connection lives *only* in
+`$PI_DIR/agents.json` (`bff/src/pi/agent-settings.ts`), so the two controls cannot disagree.
+`mode` is `global | own` — no `off`, because that would be a second switch.
+
+Naming and shapes as built, against the names planned above:
+
+| Planned | Built |
+| --- | --- |
+| `bff/src/pi/agent-overrides.ts`, `PiAgentOverride` | `bff/src/pi/agent-settings.ts`, `PiAgentSettings` (same field-by-field inherit-when-blank merge, `mode: "global" \| "own"`) |
+| `GET\|PUT /api/pi/agents/:agentId` | `GET\|PUT\|DELETE /api/pi/agent/:agentId` (singular, like the tool-access routes) |
+| `PiRunMeta.host` | `PiRunMeta.agentId` only — the host already lived in `target`, and the agent is what resolves it |
+| Tasks rows show agent and host | Tasks rows already showed the host; the run detail carries `agentId` |
+
+`effectivePiSettings` lives in `agent-settings.ts`, not `settings.ts`, because it is the per-agent
+file's merge and `settings.ts` stays the global record alone. `PiRunSummary` and `summarizePiRun`
+carry `agentId` (old run files read it as `null`). A follow-up (`pi_send`) resolves the host from
+the run that created the session — `DirPiRunStore.findBySession` — and a session lettuce never saw
+falls back to the asking agent's host and says so in the answer. `pi_run`'s answer names the host
+it went to, and its description says the folder and host are configured per agent.
+
+Settings → Remote Pi now says how many agents have their own settings, since the page is their
+inheritable default; `GET /api/pi/settings` grows `agents: [{ agentId, mode }]`.

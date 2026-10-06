@@ -56,7 +56,7 @@ Other profiles are orthogonal to the mode:
 | `telegram` | the messaging channel gateway |
 | `codex` | virtual: installs the Codex CLI into the app-server image + Settings → Codex workers |
 | `claude` | virtual: installs the Claude Code CLI + Settings → Claude Code workers |
-| `pi` | virtual: Settings → Remote pi worker — agents dispatch coding tasks to a `pi` install on another host over SSH (nothing installs on that host) |
+| `pi` | virtual: Settings → Remote Pi — agents dispatch coding tasks to a `pi` install on another host over SSH (nothing installs on that host); Tools gives an agent its own folder or host |
 
 Combine them with commas and keep any profile you already have when adding
 another: `COMPOSE_PROFILES=cloudflared,google,search,codex,claude,pi`.

@@ -1,18 +1,18 @@
 ---
 name: lettuce-per-agent-tool-access
-description: 'lettuce per-agent tool access mechanics: agent-tool-access.json on bff-data, and the three letta-code hooks that carry it — mod `isEnabled(ctx)` to hide a tool, `letta.permissions.register` to deny Task/Agent with subagent_type codex or claude-code and SendAgentMessage follow-ups, and the x-letta-agent-id header every mod call sends. Read before touching bff/src/agents/tool-access.ts, the policy mod, the MCP bridge''s per-agent filtering, or the Agent → Tools tab. Availability, not isolation — agent shells are unconfined.'
+description: 'lettuce per-agent tool access mechanics: agent-tool-access.json on bff-data, and the three letta-code hooks that carry it — mod `isEnabled(ctx)` to hide a tool, `letta.permissions.register` to deny Task/Agent with subagent_type codex or claude-code and SendAgentMessage follow-ups, and the x-letta-agent-id header every mod call sends. Read before touching bff/src/agents/tool-access.ts, the policy mod, the MCP bridge''s per-agent filtering, or the Tools tab. Availability, not isolation — agent shells are unconfined.'
 ---
 
-# Per-agent tool access (Agent → Tools)
+# Per-agent tool access (the Tools tab)
 
 Loaded from `AGENTS.md`. Settings decide what exists; this narrows who is offered it.
 
 Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `docs/upstream-notes.md` pointers working.
 
-- **Per-agent tool access (Agent → Tools) narrows Codex, Claude Code and Google through the
-  mods, with no upstream change.** Settings → Codex workers, → Claude Code workers and → Google
-  decide what exists; each agent can be cut down from there (Google full / read-only / off,
-  Codex and Claude Code allowed / blocked). The BFF
+- **Per-agent tool access (the Tools tab) narrows Google, Codex, Claude Code and Remote Pi through
+  the mods, with no upstream change.** Settings → Codex workers, → Claude Code workers, → Google and
+  → Remote Pi decide what exists; each agent can be cut down from there (Google full / read-only /
+  off, Codex, Claude Code and Remote Pi allowed / blocked). The BFF
   keeps it in `agent-tool-access.json` on `bff-data` (`bff/src/agents/tool-access.ts`, only
   non-default entries), and a save re-renders the mods and sends one `reload`. Three upstream
   hooks carry it (0.33.3):
@@ -38,3 +38,14 @@ Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `
   The skill
   wrapper is also global and cannot be narrowed per agent. Entries of deleted agents are not
   pruned, like pins; they are harmless.
+- **Enable/disable has exactly one home: `agent-tool-access.json`.** The Tools tab's chip box is the
+  only thing that writes it, so a pane and a checkbox can never disagree about whether an agent gets
+  a family. Anything else per-agent is a *different* record with its own file, and must not grow an
+  `enabled` field of its own. Remote Pi's is `$PI_DIR/agents.json`
+  (`bff/src/pi/agent-settings.ts`): `{ agentId: { mode, host, port, user, pathPrepend, workdir,
+  model } }`, only non-default entries, merged over the global pi record at tool-call time by
+  `PiService.settingsFor(agentId)` from the same `x-letta-agent-id`. So a `pi_run` needs the global
+  switch on and its own agent not blocked, and then works in *its* folder on *its* host with the
+  global deploy key — the key is never per-agent, and `pi_send` resolves the host from the run that
+  made the session (`DirPiRunStore.findBySession`, recorded as `PiRunMeta.agentId`), because a pi
+  session id is a file on one machine.

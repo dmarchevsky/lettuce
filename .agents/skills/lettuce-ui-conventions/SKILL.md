@@ -1,6 +1,6 @@
 ---
 name: lettuce-ui-conventions
-description: 'lettuce UI conventions that are ours, not the protocol''s: pin and archive lists kept in the BFF (pinned-agents.json / archived-agents.json, /api/agents/flags, archive only hides), the single AgentMenu fixed to the viewport because both agent lists scroll in boxes that clip, the two sidebar lists and the .agent-row language with the 3px active bar, useAgentStats only at the desktop width, the Agent-tab vs global-Settings split and what each holds (General/Tools/Secrets/Reflection/Skills versus providers/search/MCP/Google/workers/global skills, chips on a phone and the grouped list on desktop), and ui-check reading the open agent from .agent-row.active[data-agent-id]. Read before touching web/src/components/AgentMenu, web/src/tabs/AgentTab.tsx, components/GlobalSettings.tsx, the sidebar agent/conversation lists, use-agents, or bff/src/agents/id-list.ts.'
+description: 'lettuce UI conventions that are ours, not the protocol''s: pin and archive lists kept in the BFF (pinned-agents.json / archived-agents.json, /api/agents/flags, archive only hides), the single AgentMenu fixed to the viewport because both agent lists scroll in boxes that clip, the two sidebar lists and the .agent-row language with the 3px active bar, useAgentStats only at the desktop width, the three-way split of settings (Agent tab: General/Secrets/Reflection/Skills; Tools tab: per-agent tool families with the on/off box on each chip; global Settings: providers/search/MCP/Google/workers/global skills), the rule that nothing uses a native checkbox (aria-pressed plus .menu-row-box / .chip-check instead), and ui-check reading the open agent from .agent-row.active[data-agent-id]. Read before touching web/src/components/AgentMenu, web/src/tabs/AgentTab.tsx, web/src/tabs/ToolsTab.tsx, components/GlobalSettings.tsx, the sidebar agent/conversation lists, use-agents, or bff/src/agents/id-list.ts.'
 ---
 
 # Agent list and sidebar UI conventions
@@ -30,7 +30,9 @@ Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `
   phone. ui-check reads the open agent from `.agent-row.active[data-agent-id]`.
 - **Settings are split by scope, and the split is the UI's only statement of it.** The **Agent** tab
   (`web/src/tabs/AgentTab.tsx`) holds what belongs to the selected agent: General (name, model, base
-  system prompt, delete), Tools, Secrets, Reflection, and the Skills it sees. **Settings**, the top
+  system prompt, delete), Secrets, Reflection, and the Skills it sees. The **Tools** tab
+  (`web/src/tabs/ToolsTab.tsx`) holds which shared tool families that agent is offered and what each
+  one points at *for it*. **Settings**, the top
   bar's gear (`components/GlobalSettings.tsx`, full screen; wrapping chips with short names on a
   phone, the grouped list beside the section on desktop), holds what every agent shares — providers,
   web search, MCP servers, Google, Codex/Claude workers, global skills — plus this device's
@@ -39,3 +41,11 @@ Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `
   scope → next to the conversation (the composer). Feature-gated sections (web search, Google, the
   coding workers) render from `features` in `/api/status`, so a compose token that is off hides the
   whole section rather than showing a disabled one.
+- **The Tools tab is chips-with-a-box, not a form.** Each family (Google, Codex, Claude, Remote Pi)
+  is a `.chip-pair`: a small box button that allows or blocks the family, then a chip that opens its
+  pane. The box writes the access record immediately — a toggle has no other fields to wait for —
+  while a pane with several fields (Remote Pi's own host/workdir) has its own **Save**. Both halves
+  of the pair are `<button>`s: nothing in the app uses `<input type="checkbox">` (the platform box
+  renders in its own colour and size), so state is `aria-pressed` plus `.menu-row-box` or
+  `.chip-check.on` — `ui-check` counts native checkboxes anywhere in the DOM and the Agent tab's
+  chip list is exactly `General/Secrets/Reflection/Skills` since Tools moved out.
