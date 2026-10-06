@@ -1,47 +1,69 @@
 ---
 name: lettuce-pr-and-ci
-description: 'lettuce PR and CI mechanics: worktree → PR → squash merge instead of a local fast-forward, which branch protections are on and which are deliberately not yet, the bump:minor / bump:patch / bump:none labels and how a missing one is derived, the Tier A job list in .github/workflows/ci.yml, the advisory Tier B live stack in .github/workflows/live.yml, and why no job gets a secret, why a PR branch only runs checks if it contains the workflow file, why `git push` inside a `&&` chain kills the whole command, why feature branches get `main` merged into them instead of rebased, and the rule that an agent merges only after the operator confirms that specific PR. Read before opening, reviewing, updating or merging a PR, or before touching `.github/workflows/` or the guard rules around merges.'
+description: 'lettuce PR and CI mechanics: worktree → local container test → PR → squash merge (the human test happens before the branch is pushed), which branch protections are on and which are deliberately not yet, the bump:minor / bump:patch / bump:none labels and how a missing one is derived, the Tier A job list in .github/workflows/ci.yml, the advisory Tier B live stack in .github/workflows/live.yml, the gates that stay local because CI has no stack and no secret, and why no job gets a secret, why a PR branch only runs checks if it contains the workflow file, why `git push` inside a `&&` chain kills the whole command, why feature branches get `main` merged into them instead of rebased, and the rule that an agent merges only after the operator confirms that specific PR. Read before opening, reviewing, updating or merging a PR, or before touching `.github/workflows/` or the guard rules around merges.'
 ---
 
 # PR flow and CI
 
-Loaded from `AGENTS.md`. The short version: work happens in a worktree, lands on `main` through a
-squash-merged PR, and prod moves only when a release says so. Landing is not shipping.
+Loaded from `AGENTS.md`. The short version: work happens in a worktree, the operator tests it there,
+and only then does it become a PR that squash-merges into `main`. Landing is not shipping.
 
 ## The lifecycle
 
 ```
-.worktrees/<branch>              the PR                          main
-─────────────────              ────────                        ────
-branch + worktree  ──push──▶  PR opens (template filled)
-verify green                   │
-build + run locally            ├─ CI Tier A (`.github/workflows/ci.yml`)
-user tests it in the browser   ├─ human review = the container test
-                               └─ squash merge ────────────────────▶ main
+.worktrees/<branch>                       main
+─────────────────                        ────
+branch + worktree
+verify green
+build + run locally
+user tests it in the browser  ←── the gate, and it happens here, before any push
+  │
+  └──push──▶  PR opens (template filled, test already recorded)
+              ├─ CI Tier A (`.github/workflows/ci.yml`)
+              ├─ human review
+              └─ squash merge ───────────────────────▶ main
 release PR (`bun run release --pr`) → merge → `bun run release --deploy` → tag
 ```
 
+The order is the point: **untested code never leaves the machine.** The PR is the record of a change
+the operator already verified, so Tier A is an independent re-check of something already proven, not
+the verifier. A red CI check after the human gate means environment drift — or the branch-only-
+workflow-file trap below.
+
 1. **Branch and worktree** as usual (`git worktree add .worktrees/<name> -b <branch>` from the main
    checkout). Never branch in the main checkout.
-2. **Commit, then `git push -u origin <branch>`** — a feature-branch push is routine and the guard
-   does not gate it. Push and commit must be **separate commands**: the guard blocks an entire
-   compound command line that contains `git push`, so `git add … && git commit … && git push` runs
-   *none* of it and the commit silently never happened.
-3. **Open the PR** with `gh pr create` and fill in `.github/pull_request_template.md` — the
-   "how I tested it in the container" section is the part a reviewer refuses if it is empty.
-   Note `gh` bodies are scanned by the guard too: a body that *quotes* `git branch -D` gets the
-   `gh pr create` call blocked, so pass long bodies with `--body-file`.
-4. **CI green**, then the human tests it and approves. **An agent merges only after the operator
-   confirms that specific PR** — "continue" or a standing approval is not that confirmation. The
-   guard asks for confirmation on `gh pr merge` and `gh pr review --approve` to make that hard to
-   get wrong; a reviewer's `Approved` review is their decision, not permission to click merge.
-5. **Merge = squash** (`gh pr merge <n> --squash`), which is what keeps history linear with one
+2. **Commit on the branch.** Commit and push are separate commands — the guard blocks a compound line
+   containing `git push`, so `git add … && git commit … && git push` runs *none* of it and the commit
+   silently never happened.
+3. **Build and run it locally, then stop for the container test.** Say what to click and what should
+   happen and wait. Nothing replaces it: no type check, no unit test, no CI job. A failed test goes
+   back to `bun run verify` and no PR is opened.
+4. **Then push (`git push -u origin <branch>`) and open the PR** with `gh pr create`, filling in
+   `.github/pull_request_template.md` — its container-test section records who ran it and what they
+   answered, which is a precondition of the PR rather than a review checkbox. Note `gh` bodies are
+   scanned by the guard too: a body that *quotes* `git branch -D` gets the `gh pr create` call
+   blocked, so pass long bodies with `--body-file`.
+5. **CI green**, then the human merges. **An agent merges only after the operator confirms that
+   specific PR** — "continue" or a standing approval is not that confirmation. The guard asks for
+   confirmation on `gh pr merge` and `gh pr review --approve` to make that hard to get wrong; a
+   reviewer's `Approved` review is their decision, not permission to click merge.
+6. **Merge = squash** (`gh pr merge <n> --squash`), which is what keeps history linear with one
    commit per PR — squash discards the branch's own history, so nothing is lost by the merge shape
    below. Report the worktree as merged and safe to remove; never remove it yourself.
-6. **Updating a PR branch with `main`:** merge `main` in (`git merge main` in the worktree), do not
+7. **Updating a PR branch with `main`:** merge `main` in (`git merge main` in the worktree), do not
    rebase and force-push — `--force` is blocked outright and `gh pr update-branch` does nothing on
    the `gh` version installed here. A merge commit on a PR branch is harmless because the merge to
    `main` squashes it away.
+
+## What CI cannot do, so the machine still does
+
+Tier A is everything that needs no running stack and no secret; Tier B (`live.yml`) boots the shipped
+compose file on a runner. Everything else stays local by construction: **the operator's container
+test** (step 3 above), `bun run deploy-check` (it asserts against the running prod-shaped stack and
+needs `origin` reachable), the real `bun run ui-check` (needs agents, which a fresh CI stack has not
+got), `bun run smoke` (mutates live state), and anything Dockhand, Google or `smoke`-shaped that
+would need a credential. `check-worktree` is a `verify` stage but exits 0 under `CI=true` — the rule
+protects a dev box, not a runner.
 
 ## Why a PR reports no checks
 
@@ -159,8 +181,8 @@ remember, each one a way to eat someone's work:
 - **A dirty tree is a refusal.** A follow-up fix made only in the worktree is exactly what a
   merge-triggered auto-delete would lose. Untracked files count as dirty.
 - **A live process with its cwd inside is a refusal** (read from `/proc/*/cwd`; unknown is treated
-  as occupied, not empty). This is the case rule 8 was written for — another session sitting in the
-  worktree — and nothing about the PR being merged tells you.
+  as occupied, not empty). This is the case the hand-removal rule exists for — another session sitting
+  in the worktree — and nothing about the PR being merged tells you.
 
 A branch some worktree holds is normally that worktree's decision and never touched separately —
 unless that worktree is being removed in the same pass, in which case one run finishes the job

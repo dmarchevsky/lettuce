@@ -26,8 +26,8 @@ v<MAJOR>.<MINOR>.<PATCH>-letta_<LETTA_CODE_VERSION>     e.g. v0.1.0-letta_0.33.7
 - The `letta_<version>` suffix is read from the pin at tag time (`docker/compose.yml`,
   proven consistent by `check-version-pin`), never from memory. It never resets the
   semver part; a letta bump riding along with a feature just changes that tag's suffix.
-- A tag is created **only after the prod deploy is verified** (Definition of done 7b)
-  and pushed with `git push origin <tag>`. A failed deploy is never tagged.
+- A tag is created **only after the prod deploy is verified** (AGENTS.md's "Stop before releasing to
+  prod") and pushed with `git push origin <tag>`. A failed deploy is never tagged.
 - Before running it, make the release-time **docs sync** commit on `main` if the
   `[Unreleased]` range changed anything `README.md` or `docs/CONFIGURATION.md` describes
   (see "Docs sync"). `release.ts` only stages `VERSION` and `CHANGELOG.md`.

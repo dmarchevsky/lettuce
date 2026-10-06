@@ -25,6 +25,7 @@
     "ui-check": "bun scripts/ui-check.ts",
     "deploy-check": "bun scripts/deploy-check.ts",
     "check-version-pin": "bun scripts/check-version-pin.ts",
+    "check-worktree": "bun scripts/check-worktree.ts",
     "cleanup": "bun scripts/cleanup-merged.ts",
     "migrate-state": "bash scripts/migrate-volumes-to-host.sh",
     "sync-upstream": "bash scripts/sync-upstream.sh",

@@ -76,14 +76,14 @@ if (failed) {
 
 console.log(`\n✓ verify passed — ${STAGES.map((s) => s.name).join(", ")}`);
 console.log(`
-  This is NOT done yet. Still required (see AGENTS.md → Definition of done):
+  This is NOT done yet. AGENTS.md → "Definition of done" still requires:
 
-    2. commit on the feature branch, then build and run it locally from the worktree
-    3. STOP — let the user test it; merge to main only after they say it works
-    4. docker compose -f docker/compose.yml build bff && ... up -d   (from main, unscoped)
-    5. bun run deploy-check
-    6. bun run smoke        (only if BFF session/protocol/settings changed)
-    7. git push             <- STOP. Ask for confirmation first, every time.
+    3. build, deploy and run it locally from the worktree (copy docker/.env in first)
+    4. STOP — the operator tests it in the container and says it works
+    5. only then: push the branch and open the PR (fill in the template)
+    6. the human merges it (squash)
+    7. after the merge, from main: build bff, bun run deploy-check, ui-check / smoke where they apply
+    8. git push / tag / prod deploy   <- STOP. Ask for confirmation first, every time.
 
   Report your worktree as merged and safe to remove; never remove it or its branch yourself.
 `);

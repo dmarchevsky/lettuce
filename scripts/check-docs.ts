@@ -25,13 +25,14 @@ const ROOT = resolve(new URL("..", import.meta.url).pathname);
 
 /**
  * The always-loaded guide's budget. It moved ~46 KB of task-scoped mechanics to
- * `.agents/skills/` on 2026-10-02 (from 81 KB to ~35 KB); this number is that
- * state plus room to grow, not a target to fill. Raise it deliberately and say
- * what you added.
+ * `.agents/skills/` on 2026-10-02 (from 81 KB to ~35 KB), and on 2026-10-05 the prose that
+ * duplicated a skill description, an incident narrative already in `docs/upstream-notes.md`, or a
+ * gate that already enforces the rule came down to ~28 KB. This number is that state plus room to
+ * grow, not a target to fill. Raise it deliberately and say what you added.
  */
-// The always-loaded guide's context budget. ~9.8k tokens; raise only by deleting
-// something else, not by declaring the new size acceptable.
-const SIZE_BUDGET_BYTES = 40_000;
+// The always-loaded guide's context budget. ~7k tokens; raise only by deleting something else,
+// not by declaring the new size acceptable.
+const SIZE_BUDGET_BYTES = 30_000;
 
 const GUIDE = "AGENTS.md";
 
@@ -72,6 +73,8 @@ const ABSENT_OK = [
   ".pi/sessions/",
   ".pi/settings.json",
   ".pi/skills/",
+  ".pi/goals/",
+  ".pi/plans/",
   ".claude/",
 ];
 
@@ -268,6 +271,34 @@ for (const from of SCANNED) {
     if (!name) continue;
     check(scripts.has(name), `${from}: bun run ${name} is a real script`);
   }
+}
+
+/**
+ * The other direction: a real script the guide never mentions.
+ *
+ * `bun run check-release-hygiene` enforced the changelog rule for weeks before `AGENTS.md` named
+ * it, which is how a gate becomes folklore — the rule survives in prose while nobody reads the
+ * tool that enforces it. The self-explanatory ones are exempt because a row would only restate the
+ * name; everything else owes one.
+ */
+const COMMANDS_EXEMPT = new Set([
+  "lint",
+  "format",
+  "typecheck",
+  "test",
+  "build",
+  "dev",
+  "build-info",
+  "screenshots",
+]);
+for (const name of scripts) {
+  if (COMMANDS_EXEMPT.has(name)) continue;
+  check(
+    guideText.includes(name),
+    `${GUIDE}: mentions bun run ${name}`,
+    "add a row to the Commands table, or add the name to COMMANDS_EXEMPT in scripts/check-docs.ts " +
+      "if the name says everything",
+  );
 }
 
 // ------------------------------------------------------------------- skills

@@ -1,6 +1,6 @@
 ---
 name: lettuce-ui-conventions
-description: 'lettuce UI conventions that are ours, not the protocol''s: pin and archive lists kept in the BFF (pinned-agents.json / archived-agents.json, /api/agents/flags, archive only hides), the single AgentMenu fixed to the viewport because both agent lists scroll in boxes that clip, the two sidebar lists and the .agent-row language with the 3px active bar, useAgentStats only at the desktop width, and ui-check reading the open agent from .agent-row.active[data-agent-id]. Read before touching web/src/components/AgentMenu, the sidebar agent/conversation lists, use-agents, or bff/src/agents/id-list.ts.'
+description: 'lettuce UI conventions that are ours, not the protocol''s: pin and archive lists kept in the BFF (pinned-agents.json / archived-agents.json, /api/agents/flags, archive only hides), the single AgentMenu fixed to the viewport because both agent lists scroll in boxes that clip, the two sidebar lists and the .agent-row language with the 3px active bar, useAgentStats only at the desktop width, the Agent-tab vs global-Settings split and what each holds (General/Tools/Secrets/Reflection/Skills versus providers/search/MCP/Google/workers/global skills, chips on a phone and the grouped list on desktop), and ui-check reading the open agent from .agent-row.active[data-agent-id]. Read before touching web/src/components/AgentMenu, web/src/tabs/AgentTab.tsx, components/GlobalSettings.tsx, the sidebar agent/conversation lists, use-agents, or bff/src/agents/id-list.ts.'
 ---
 
 # Agent list and sidebar UI conventions
@@ -28,3 +28,14 @@ Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `
   Both mark the open row with a 3px left bar. Counts for other agents come from `useAgentStats`,
   fetched only at the desktop width (`useWide`) — the sidebar stays mounted, hidden, on a
   phone. ui-check reads the open agent from `.agent-row.active[data-agent-id]`.
+- **Settings are split by scope, and the split is the UI's only statement of it.** The **Agent** tab
+  (`web/src/tabs/AgentTab.tsx`) holds what belongs to the selected agent: General (name, model, base
+  system prompt, delete), Tools, Secrets, Reflection, and the Skills it sees. **Settings**, the top
+  bar's gear (`components/GlobalSettings.tsx`, full screen; wrapping chips with short names on a
+  phone, the grouped list beside the section on desktop), holds what every agent shares — providers,
+  web search, MCP servers, Google, Codex/Claude workers, global skills — plus this device's
+  notifications and an About. Where a new setting goes is decided by its backend key, not by taste:
+  keyed by `agent_id` → Agent tab; a BFF file or an app-server-wide command → Settings; `runtime`
+  scope → next to the conversation (the composer). Feature-gated sections (web search, Google, the
+  coding workers) render from `features` in `/api/status`, so a compose token that is off hides the
+  whole section rather than showing a disabled one.

@@ -7,16 +7,18 @@ failed gate, not a shortcut. See AGENTS.md → Definition of done.
 
 One paragraph. If it is a fix, name the symptom a user would see.
 
-## How I tested it in the container
+## Container test (done before this PR was opened)
 
-The only gate that proves it works. CI cannot do this part.
+This is the gate that proves it works, and CI cannot do it. The branch is only pushed once the
+operator has run it in the container and said it works — so this section records a verdict, it is
+not a checkbox to complete during review.
 
 - [ ] `bun run verify` green in this worktree
 - `docker compose -f docker/compose.yml build bff && docker compose -f docker/compose.yml up -d`
   (unscoped, from this worktree — copy `docker/.env` in first)
-- **What to click:**
-- **What should happen:**
-- Tested by (who ran it, and their answer):
+- **What was clicked:**
+- **What happened:**
+- **Tested by (who ran it, and their answer):**
 
 ## Release hygiene
 

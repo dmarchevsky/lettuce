@@ -99,22 +99,25 @@ export const RULES: Rule[] = [
     pattern: /\bgh\b[^\n]*\brelease\s+create\b/,
     title: "gh release create",
     message:
-      "AGENTS.md: a published release comes after the prod deploy is verified (definition of " +
-      "done 7b), and only on the operator's confirmation for that specific change.",
+      'AGENTS.md: a published release comes after the prod deploy is verified — see its "Stop ' +
+      "before releasing to prod\" steps — and only on the operator's confirmation for that " +
+      "specific change.",
   },
   {
     pattern: /\bgit\b[^\n]*\btag\b[^\n]*-a(?!\w)/,
     title: "git tag -a",
     message:
-      "AGENTS.md: a tag is created only after the prod deploy is verified (definition of done 7b).",
+      'AGENTS.md: a tag is created only after the prod deploy is verified — see its "Stop before ' +
+      'releasing to prod" steps.',
   },
   {
     pattern: /\bgit\b[^\n]*\bworktree remove\b/,
     title: "git worktree remove",
     message:
-      "AGENTS.md hard rule 8: `bun run cleanup` is the supported path — it checks the PR state, " +
-      "the tree and live sessions first. Confirm a manual removal only because the operator asked " +
-      "for this specific worktree; another session may be sitting in it with uncommitted work.",
+      'AGENTS.md ("Never remove a worktree or delete a branch by hand"): `bun run cleanup` is the ' +
+      "supported path — it checks the PR state, the tree and live sessions first. Confirm a " +
+      "manual removal only because the operator asked for this specific worktree; another session " +
+      "may be sitting in it with uncommitted work.",
   },
   {
     pattern: /\bgit\b[^\n]*\bworktree\s+prune\b/,

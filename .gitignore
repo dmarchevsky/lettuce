@@ -9,6 +9,7 @@ docker/secrets/
 .ui-check/
 .mockups/
 .kilo/
+.pendant/
 
 # One worktree per feature branch, inside the checkout (see AGENTS.md → Workflow).
 .worktrees/
@@ -18,3 +19,6 @@ docker/secrets/
 .pi/sessions/
 .pi/remote-pi/
 .pi/settings.json
+.pi/goals/
+.pi/.goals-pool-snapshot.json
+.pi/plans/
