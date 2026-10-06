@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   fetchPiSettings,
-  type PiAuthMode,
+  generatePiKey,
   type PiSettings,
   type PiSettingsUpdate,
   pinPiHostKey,
@@ -14,8 +14,6 @@ interface Draft {
   host: string;
   port: string;
   user: string;
-  authMode: PiAuthMode;
-  identityAgent: string;
   pathPrepend: string;
   workdir: string;
   model: string;
@@ -29,8 +27,6 @@ function draftOf(settings: PiSettings): Draft {
     host: settings.host,
     port: String(settings.port),
     user: settings.user,
-    authMode: settings.authMode,
-    identityAgent: settings.identityAgent ?? "",
     pathPrepend: settings.pathPrepend,
     workdir: settings.workdir,
     model: settings.model ?? "",
@@ -40,11 +36,11 @@ function draftOf(settings: PiSettings): Draft {
 
 /**
  * Settings → Remote pi worker: where agents reach a pi installed on another
- * host, over SSH only (see bff/src/pi/ and docs/remote-pi-plan.md). By default
- * an ssh-agent on the BFF host signs and nothing secret is stored here; the
- * stored-key mode keeps the PEM server-side and it never returns to this page.
- * The host key is pinned from this page (trust on first use) because runs
- * always demand `StrictHostKeyChecking=yes`.
+ * host, over SSH only (see bff/src/pi/ and docs/remote-pi-plan.md). The
+ * private key is lettuce-generated (or pasted once) and never returns to this
+ * page; Settings shows only its PUBLIC half — the line to paste into the
+ * remote's authorized_keys. The host key is pinned from this page (trust on
+ * first use) because runs always demand `StrictHostKeyChecking=yes`.
  */
 export function PiSection() {
   const [settings, setSettings] = useState<PiSettings | null>(null);
@@ -52,6 +48,9 @@ export function PiSection() {
   const [status, setStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [pinning, setPinning] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [rotateArmed, setRotateArmed] = useState(false);
+  const [pasteOpen, setPasteOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -75,8 +74,6 @@ export function PiSection() {
       host: draft.host.trim(),
       port: Number(draft.port) || 22,
       user: draft.user.trim(),
-      authMode: draft.authMode,
-      identityAgent: draft.identityAgent.trim() || null,
       pathPrepend: draft.pathPrepend.trim(),
       workdir: draft.workdir.trim(),
       model: draft.model.trim() || null,
@@ -104,6 +101,32 @@ export function PiSection() {
       setStatus(error instanceof Error ? error.message : String(error));
     } finally {
       setPinning(false);
+    }
+  };
+
+  /** Generate (first key) or rotate (two-click confirm) the lettuce-held pair. */
+  const generate = async () => {
+    if (!settings) return;
+    if (settings.hasKey && !rotateArmed) {
+      setRotateArmed(true);
+      setStatus(
+        "Click again to rotate. The new public key must be added on the remote host, and the old line removed there.",
+      );
+      return;
+    }
+    setRotateArmed(false);
+    setGenerating(true);
+    try {
+      const next = await generatePiKey();
+      setSettings(next);
+      setDraft(draftOf(next));
+      setStatus(
+        "Generated a fresh key pair. Add the public key below to the remote host's ~/.ssh/authorized_keys before the next run.",
+      );
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setGenerating(false);
     }
   };
 
@@ -208,51 +231,64 @@ export function PiSection() {
           />
         </label>
 
-        <label className="field">
-          Auth
-          <select
-            value={draft.authMode}
-            onChange={(event) => set({ authMode: event.target.value as PiAuthMode })}
-          >
-            <option value="ssh_agent">ssh-agent — no key stored here (default)</option>
-            <option value="stored_key">Stored private key — PEM kept on the server</option>
-          </select>
-        </label>
-
-        {draft.authMode === "ssh_agent" ? (
-          <label className="field">
-            Agent socket
-            <input
-              value={draft.identityAgent}
-              placeholder="Empty — the server's own SSH_AUTH_SOCK"
-              autoComplete="off"
-              onChange={(event) => set({ identityAgent: event.target.value })}
+        {settings.publicKey ? (
+          <div className="field">
+            Public key — add this line to the remote host’s ~/.ssh/authorized_keys
+            <textarea
+              rows={3}
+              readOnly
+              value={settings.publicKey}
+              onFocus={(event) => event.currentTarget.select()}
             />
             <span className="muted small">
-              An ssh-agent reachable from the BFF must already hold a key the remote host
-              accepts (<code>ssh-add -l</code>). Lettuce stores no key material in this mode.
+              Optionally prefix it with restrictions such as from="&lt;this server&gt;",no-pty.
+              The private half never leaves this server.
             </span>
-          </label>
+          </div>
+        ) : settings.hasKey ? (
+          <p className="muted small pad">
+            Private key stored — its public part could not be derived from the stored PEM.
+          </p>
+        ) : null}
+
+        {settings.hasKey ? (
+          <button
+            type="button"
+            className="button ghost"
+            disabled={generating}
+            onClick={() => void generate()}
+          >
+            {generating ? "Generating…" : rotateArmed ? "Confirm rotation" : "Rotate key pair"}
+          </button>
         ) : (
+          <button
+            type="button"
+            className="button"
+            disabled={generating}
+            onClick={() => void generate()}
+          >
+            {generating ? "Generating…" : "Generate key pair"}
+          </button>
+        )}
+
+        {!settings.hasKey || pasteOpen ? (
           <label className="field">
-            SSH private key
+            …or paste an existing private key
             <textarea
               rows={4}
               value={draft.privateKey}
-              disabled={settings.hasKey}
-              placeholder={
-                settings.hasKey
-                  ? "Saved — never shown again"
-                  : "Paste the OpenSSH private key (-----BEGIN …)"
-              }
+              placeholder="Paste the OpenSSH private key (-----BEGIN …)"
               onChange={(event) => set({ privateKey: event.target.value })}
             />
             <span className="muted small">
-              Key-only auth, unencrypted, stored on the server and never shown to the browser
-              again. Prefer the ssh-agent mode above if you can.
-              {settings.hasKey ? " Clear it from the settings file to replace it." : ""}
+              Only if you must reuse an existing key — generating stores a fresh, single-purpose
+              one instead. A pasted key replaces any stored key on save.
             </span>
           </label>
+        ) : (
+          <button type="button" className="button ghost" onClick={() => setPasteOpen(true)}>
+            Use an existing private key instead…
+          </button>
         )}
 
         <button

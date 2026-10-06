@@ -1,22 +1,20 @@
 /**
  * The remote pi worker, as the browser sees it: Settings → Remote pi worker
- * and the run viewer. Everything goes through the BFF's /api/pi routes — in
- * `stored_key` mode the key and the captured run streams live on the BFF's own
- * volume and never cross to the browser; in `ssh_agent` mode (the default)
- * there is no stored key at all. The types mirror `bff/src/pi/`; the two
- * packages cannot import from each other.
+ * and the run viewer. Everything goes through the BFF's /api/pi routes — the
+ * private key and the captured run streams live on the BFF's own volume and
+ * never cross to the browser; the browser sees only `hasKey` and the PUBLIC
+ * half (`publicKey`), the line to paste into the remote's authorized_keys.
+ * The types mirror `bff/src/pi/`; the two packages cannot import from each
+ * other.
  */
-
-export type PiAuthMode = "ssh_agent" | "stored_key";
 
 export interface PiSettings {
   enabled: boolean;
   host: string;
   port: number;
   user: string;
-  authMode: PiAuthMode;
-  /** ssh-agent socket path; null inherits the server's SSH_AUTH_SOCK. */
-  identityAgent: string | null;
+  /** Public half of the stored key — safe to show; the private one never comes. */
+  publicKey: string | null;
   pathPrepend: string;
   workdir: string;
   model: string | null;
@@ -25,7 +23,9 @@ export interface PiSettings {
 }
 
 /** A save. `privateKey`: absent or "" keeps the stored key. */
-export type PiSettingsUpdate = Partial<Omit<PiSettings, "hasKey">> & { privateKey?: string };
+export type PiSettingsUpdate = Partial<Omit<PiSettings, "hasKey" | "publicKey">> & {
+  privateKey?: string;
+};
 
 export type PiRunStatus = "running" | "completed" | "detached" | "failed";
 
@@ -80,6 +80,12 @@ export async function savePiSettings(update: PiSettingsUpdate): Promise<PiSettin
       body: JSON.stringify(update),
     }),
   );
+  return ((await response.json()) as { settings: PiSettings }).settings;
+}
+
+/** Generate or rotate the lettuce-held deploy key; only the public half returns. */
+export async function generatePiKey(): Promise<PiSettings> {
+  const response = await ok(await fetch("/api/pi/generate-key", { method: "POST" }));
   return ((await response.json()) as { settings: PiSettings }).settings;
 }
 

@@ -1354,6 +1354,18 @@ app.post("/api/pi/pin-host", async (c) => {
   }
 });
 
+/** Generate or rotate the lettuce-held deploy key; only the public half is served. */
+app.post("/api/pi/generate-key", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!config.features.pi) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
+  try {
+    const settings = await piService.generateKeyPair();
+    return c.json({ settings: toPublicPiSettings(settings) });
+  } catch (error) {
+    return c.text(errorMessage(error), 502);
+  }
+});
+
 app.get("/api/pi/runs", async (c) => {
   if (!c.get("session")) return c.text("Unauthorized", 401);
   const limit = Math.min(Math.max(Number(c.req.query("limit")) || 10, 1), 30);

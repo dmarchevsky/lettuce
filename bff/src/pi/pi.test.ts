@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import {
   buildPiRemoteCommand,
@@ -51,42 +51,28 @@ test("a stored key survives an update that does not mention it", () => {
   expect(next.host).toBe("other.example.invalid");
 });
 
-test("enabling requires a complete configuration", () => {
-  // ssh_agent (the default) mode needs no stored key at all…
-  const agentOk = applyPiSettingsUpdate(
-    { ...DEFAULT_PI_SETTINGS },
-    { enabled: true, host: "h", user: "u", workdir: "/w" },
-  );
-  expect(piConfigured(agentOk)).toBe(true);
-  // …stored_key demands one.
+test("enabling requires a complete configuration including a key", () => {
   expect(() =>
     applyPiSettingsUpdate(
       { ...DEFAULT_PI_SETTINGS },
-      { enabled: true, host: "h", user: "u", workdir: "/w", authMode: "stored_key" },
+      { enabled: true, host: "h", user: "u", workdir: "/w" },
     ),
-  ).toThrow(/stored_key/);
+  ).toThrow(/key/);
   const ok = applyPiSettingsUpdate(
     { ...DEFAULT_PI_SETTINGS },
-    {
-      enabled: true,
-      host: "h",
-      user: "u",
-      workdir: "/w",
-      authMode: "stored_key",
-      privateKey: VALID_KEY,
-    },
+    { enabled: true, host: "h", user: "u", workdir: "/w", privateKey: VALID_KEY },
   );
   expect(ok.enabled).toBe(true);
   expect(piConfigured(ok)).toBe(true);
   expect(piConfigured({ ...DEFAULT_PI_SETTINGS })).toBe(false);
 });
 
-test("identityAgent must be an absolute socket path or empty", () => {
-  expect(() =>
-    applyPiSettingsUpdate({ ...BASE }, { identityAgent: "relative/sock" }),
-  ).toThrow(/socket/);
-  const cleared = applyPiSettingsUpdate({ ...BASE, identityAgent: "/run/s" }, { identityAgent: "" });
-  expect(cleared.identityAgent).toBe(null);
+test("a replaced PEM clears the stale public half", () => {
+  const hadPub = { ...BASE, privateKey: VALID_KEY, publicKey: "ssh-ed25519 AAAA old" };
+  const replaced = applyPiSettingsUpdate(hadPub, { privateKey: `${VALID_KEY}x` });
+  expect(replaced.publicKey).toBe(null);
+  const untouched = applyPiSettingsUpdate(hadPub, { host: "other.example.invalid" });
+  expect(untouched.publicKey).toBe("ssh-ed25519 AAAA old");
 });
 
 test("workdir must be absolute and keys must be PEM", () => {
@@ -121,7 +107,7 @@ test("session resume passes --session and rejects non-UUIDs", () => {
   expect(() => buildPiRemoteCommand(BASE, { prompt: "x", session: "'; rm -rf / #" })).toThrow();
 });
 
-test("ssh argv is hardened and auth mode decides how ssh finds the identity", () => {
+test("ssh argv is hardened and the key file is the one identity", () => {
   const args = buildSshArgs(BASE, { keyFile: "/k", knownHostsFile: "/kh" }, "true");
   const joined = args.join(" ");
   expect(joined).toContain("-o BatchMode=yes");
@@ -129,28 +115,11 @@ test("ssh argv is hardened and auth mode decides how ssh finds the identity", ()
   expect(joined).toContain("-o UserKnownHostsFile=/kh");
   expect(joined).toContain("-p 22");
   expect(args.at(-2)).toBe("worker@pi.example.invalid");
-  // ssh_agent with no explicit socket: no key file in argv at all, ssh inherits
-  // SSH_AUTH_SOCK from the BFF process.
-  expect(args).not.toContain("-i");
-  expect(joined).not.toContain("IdentityFile");
+  // IdentityFile + IdentitiesOnly always: the stored key is THE identity, and
+  // no agent that happens to be reachable may substitute another.
+  expect(joined).toContain("-o IdentityFile=/k");
+  expect(joined).toContain("-o IdentitiesOnly=yes");
   expect(joined).not.toContain("IdentityAgent");
-
-  const agentSock = buildSshArgs(
-    { ...BASE, identityAgent: "/run/user/1000/agent" },
-    { keyFile: "/k", knownHostsFile: "/kh" },
-    "true",
-  ).join(" ");
-  expect(agentSock).toContain("-o IdentityAgent=/run/user/1000/agent");
-  expect(agentSock).not.toContain("IdentityFile");
-
-  const stored = buildSshArgs(
-    { ...BASE, authMode: "stored_key" },
-    { keyFile: "/k", knownHostsFile: "/kh" },
-    "true",
-  ).join(" ");
-  expect(stored).toContain("-o IdentityFile=/k");
-  expect(stored).toContain("-o IdentitiesOnly=yes");
-  expect(stored).not.toContain("IdentityAgent");
 });
 
 // ── runner ───────────────────────────────────────────────────────────────────
@@ -346,4 +315,47 @@ test("the service stores settings privately, gates on the token, and answers wit
   const { stat } = await import("node:fs/promises");
   expect(((await stat(piKeyFile({ dir }))).mode & 0o777).toString(8)).toBe("600");
   expect((await stat(piSettingsFile({ dir }))).mode.toString(8).slice(-3)).toBe("600");
+});
+
+test("generateKeyPair stores a fresh pair and serves only the public half", async () => {
+  const dir = await mkdtemp(`${tmpdir()}/pi-gen-`);
+  const service = new PiService({
+    paths: { dir },
+    featureEnabled: () => true,
+    spawner: () => new FakeChild(),
+  });
+  await service.save({ host: "h", user: "u", workdir: "/w" }); // incomplete is fine pre-enable
+  const generated = await service.generateKeyPair();
+  expect(generated.privateKey).toContain("BEGIN OPENSSH PRIVATE KEY");
+  expect(generated.publicKey).toMatch(/^ssh-ed25519 \S+ lettuce-pi-worker$/);
+
+  const served = toPublicPiSettings(generated);
+  expect(served.hasKey).toBe(true);
+  expect(served.publicKey).toBe(generated.publicKey);
+  expect("privateKey" in served).toBe(false);
+
+  const onDisk = await readFile(piKeyFile({ dir }), "utf8");
+  expect(onDisk === generated.privateKey).toBe(true);
+  expect(((await stat(piKeyFile({ dir }))).mode & 0o777).toString(8)).toBe("600");
+
+  // Rotation replaces the pair outright (old public half must be re-pasted).
+  const rotated = await service.generateKeyPair();
+  expect(rotated.publicKey).not.toBe(generated.publicKey);
+  expect((await service.load()).publicKey).toBe(rotated.publicKey);
+});
+
+test("a pasted PEM keeps its derived public half, garbage loses it", async () => {
+  const dir = await mkdtemp(`${tmpdir()}/pi-pub-`);
+  const service = new PiService({
+    paths: { dir },
+    featureEnabled: () => true,
+    spawner: () => new FakeChild(),
+  });
+  const generated = await service.generateKeyPair();
+  expect(generated.publicKey).toMatch(/^ssh-ed25519 /);
+  // VALID_KEY is not a real PEM: ssh-keygen -y fails and we report no public
+  // key rather than keeping the generated one as a lie.
+  const pasted = await service.save({ privateKey: VALID_KEY });
+  expect(pasted.privateKey).toBe(`${VALID_KEY.trimEnd()}\n`);
+  expect(pasted.publicKey).toBe(null);
 });

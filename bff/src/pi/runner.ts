@@ -100,7 +100,13 @@ export function buildSshArgs(
   files: PiKeyFiles,
   remoteCommand: string,
 ): string[] {
-  const args = [
+  return [
+    "-o",
+    `IdentityFile=${files.keyFile}`,
+    // The key file is the one identity: an agent on the path must not quietly
+    // substitute another one.
+    "-o",
+    "IdentitiesOnly=yes",
     "-p",
     String(settings.port),
     "-o",
@@ -113,17 +119,9 @@ export function buildSshArgs(
     "ConnectTimeout=10",
     "-o",
     "ServerAliveInterval=15",
+    piTarget(settings),
+    remoteCommand,
   ];
-  if (settings.authMode === "stored_key") {
-    // ssh reads the key straight from the file; IdentitiesOnly keeps a running
-    // agent from quietly substituting a different identity.
-    args.push("-o", `IdentityFile=${files.keyFile}`, "-o", "IdentitiesOnly=yes");
-  } else if (settings.identityAgent) {
-    args.push("-o", `IdentityAgent=${settings.identityAgent}`);
-  }
-  // ssh_agent with no explicit socket: ssh inherits SSH_AUTH_SOCK from the BFF.
-  args.push(piTarget(settings), remoteCommand);
-  return args;
 }
 
 /** The per-run files: `<dir>/<runId>.json` (meta) and `<dir>/<runId>.jsonl` (captured stream). */

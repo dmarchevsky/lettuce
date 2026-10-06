@@ -9,7 +9,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { ToolAnswer, ToolHandler, ToolSpec } from "../internal-tools/types.ts";
 import { capText } from "../internal-tools/types.ts";
@@ -144,20 +144,72 @@ export class PiService {
 
   async save(body: unknown): Promise<PiSettings> {
     const settings = applyPiSettingsUpdate(await this.load(), body);
-    await writePrivate(piSettingsFile(this.options.paths), renderPiSettings(settings));
     this.cached = null;
-    if (settings.privateKey && settings.authMode === "stored_key") {
+    if (settings.privateKey) {
       await writePrivate(piKeyFile(this.options.paths), settings.privateKey);
+      // Keep the served public half honest: always re-derived from the key we
+      // just stored, null when it cannot be parsed (a hand-edited PEM is then
+      // simply shown as no-public-key rather than lying with a stale one).
+      settings.publicKey = await this.derivePublicKey();
+    } else {
+      settings.publicKey = null;
     }
+    await writePrivate(piSettingsFile(this.options.paths), renderPiSettings(settings));
     return settings;
   }
 
-  private async keyFiles(settings: PiSettings): Promise<PiKeyFiles> {
-    // ssh_agent mode never touches the key file — the agent holds the identity.
-    const keyFile = piKeyFile(this.options.paths);
-    if (settings.privateKey && settings.authMode === "stored_key") {
-      await writePrivate(keyFile, settings.privateKey);
+  /** `ssh-keygen -y` on the stored key; lenient (null on anything unusable). */
+  private async derivePublicKey(): Promise<string | null> {
+    try {
+      const res = Bun.spawnSync({
+        cmd: ["ssh-keygen", "-y", "-f", piKeyFile(this.options.paths)],
+        stdin: "ignore",
+      });
+      const out = res.stdout.toString().trim();
+      return res.exitCode === 0 && out.startsWith("ssh-") ? out : null;
+    } catch {
+      return null;
     }
+  }
+
+  /**
+   * Generate (or rotate) the lettuce-held deploy key: the operator never
+   * handles a private key — only the PUBLIC half is shown in Settings to paste
+   * into the remote's `authorized_keys`. Rotation is always allowed; removing
+   * the old line on the remote stays a manual step (the UI says so, and runs
+   * keep working with whichever key the remote still trusts).
+   */
+  async generateKeyPair(): Promise<PiSettings> {
+    const keyFile = piKeyFile(this.options.paths);
+    const tmp = `${keyFile}.${randomUUID()}.gen`;
+    try {
+      const res = Bun.spawnSync({
+        cmd: ["ssh-keygen", "-t", "ed25519", "-N", "", "-C", "lettuce-pi-worker", "-f", tmp],
+        stdin: "ignore",
+      });
+      if (res.exitCode !== 0) {
+        throw new Error(`ssh-keygen failed: ${res.stderr.toString().trim() || res.exitCode}`);
+      }
+      const pem = `${(await readFile(tmp, "utf8")).trimEnd()}\n`;
+      const pub = (await readFile(`${tmp}.pub`, "utf8")).trim();
+      await writePrivate(keyFile, pem);
+      // Generate straight onto the settings record (no applyPiSettingsUpdate:
+      // rotating a key must not require the rest of the config to be complete).
+      const settings: PiSettings = { ...(await this.load()), privateKey: pem, publicKey: pub };
+      this.cached = null;
+      await writePrivate(piSettingsFile(this.options.paths), renderPiSettings(settings));
+      return settings;
+    } finally {
+      // The tmpfs-free sibling case: the private half lands on the volume only
+      // via writePrivate (0600); shred the scratch copies best-effort.
+      await rm(tmp, { force: true }).catch(() => {});
+      await rm(`${tmp}.pub`, { force: true }).catch(() => {});
+    }
+  }
+
+  private async keyFiles(settings: PiSettings): Promise<PiKeyFiles> {
+    const keyFile = piKeyFile(this.options.paths);
+    if (settings.privateKey) await writePrivate(keyFile, settings.privateKey);
     // A missing known_hosts fails StrictHostKeyChecking loudly (the tool says
     // so) rather than silently trusting a new host — pin via Settings first.
     const knownHostsFile = piKnownHostsFile(this.options.paths);
