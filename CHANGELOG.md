@@ -5,6 +5,8 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.8.0-letta_0.34.1] - 2026-10-07
+
 ### Added
 - **The composer's working line says what the agent is doing.** In place of "Agent is working": the action in flight, in whole and without truncation — `Read docker/compose.yml`, `Run docker compose build`, `Codex worker: fix flaky test` — `Thinking` and `Writing` when no tool is running, and an elapsed since the turn started pinned to the right edge at every width so it never moves. The generation rate (`24 tok/s`) appears only while the model is generating and never while a tool runs, so a frozen counter cannot read as a hang; `step N`, `+Nk tok` and `queue +N` join on desktop. A full minute of silence with nothing running turns the line amber — `No activity 1:30 · last: web_search` — with **Stop** beside it, so "is it hung?" finally has a visible answer.
 
