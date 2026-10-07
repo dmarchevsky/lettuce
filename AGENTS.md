@@ -23,7 +23,9 @@ narratives in `docs/upstream-notes.md`, pointed at as `docs/upstream-notes.md#<a
 5. **Never push `main`, tag, or redeploy prod without asking, every time.** A feature-branch push is
    routine; a `main`/tag push *is* the release. `.pi/extensions/guard.ts` enforces that split.
 6. **Done means the operator tested it in the container** — see "Definition of done". Typecheck and
-   tests passing is not done. A **docs-only** change stops at `bun run check-docs`.
+   tests passing is not done. A **docs-only** change stops at `bun run check-docs`. **UI changes**
+   carry two more gates — approved target-state mockups (desktop + phone) before implementing, a
+   holistic visual pass after: `lettuce-ui-verification`.
 7. **Feature work happens in a worktree on a feature branch** under `.worktrees/`; the main checkout
    stays on `main` with a clean tree and only takes merged PRs (docs-only changes excepted).
 8. **Never remove a worktree or delete a branch by hand** — `bun run cleanup` does it once a PR is
@@ -95,20 +97,19 @@ Corollaries — do not break these:
   when a tab was away longer than the buffer.
 
 **A `bff` redeploy is the one time the connection does close — so shutdown drains first.**
-`bff/src/shutdown.ts` holds SIGTERM until `ActivityTracker` reports no turn in progress, up to
-`SHUTDOWN_DRAIN_TIMEOUT_SECONDS` (default 9 min), while still serving browsers; a second signal skips
-the wait. `stop_grace_period: 10m` in `docker/compose.yml` is what lets it — Docker's default 10 s
-SIGKILLs the drain — and both must stay inside Dockhand's 900 s `compose up` timeout. Without the drain
-the cancel cannot reach llama.cpp; the signature is an error push five minutes after a BFF restart
+`bff/src/shutdown.ts` holds SIGTERM until `ActivityTracker` reports no turn in progress (up to
+`SHUTDOWN_DRAIN_TIMEOUT_SECONDS`, 9 min default; a second signal skips the wait), and
+`stop_grace_period: 10m` in `docker/compose.yml` is what lets it — Docker's default 10 s SIGKILLs the
+drain. Both must stay inside Dockhand's 900 s `compose up` timeout. Without the drain the cancel
+cannot reach llama.cpp; the signature is an error push five minutes after a BFF restart
 (`BUSY_RUN_WAIT_TIMEOUT_MS`): docs/upstream-notes.md#bff-redeploy-drain.
 
 The same permanent connection is also what boots the cron scheduler and Telegram adapters: app-server
 process services start on *first client attach* (`listener/lifecycle.ts` →
 `startConnectedListenerRuntime`), so with no client ever connected, crons never fire.
 
-**`web/dist` is baked into the bff image, never mounted** — `bff.Dockerfile` builds the SPA in its
-`web-build` stage and copies it in, and the BFF's only mounts are `bff-data` and read-only state views
-(`/work`, `/root/.letta`, the memfs root). So `docker compose up -d` alone serves a months-old UI and a
+**`web/dist` is baked into the bff image, never mounted** — the image builds the SPA in its
+`web-build` stage and copies it in. So `docker compose up -d` alone serves a months-old UI and a
 local `bun run build` changes nothing the container sees: step 7 builds the image and `bun run
 deploy-check` compares the served `assets/index-*.js` with the local one.
 
@@ -140,9 +141,9 @@ Every optional piece of the stack hangs off `COMPOSE_PROFILES`, and each token t
 the app-server image contains. **Sidecars are opt-in: `google-mcp` has `profiles: ["google"]`,
 `searxng` and `ddg-mcp` share `["search"]`, `channel-gateway` has `["telegram"]`
 (`lettuce-telegram-channels`), `cloudflared` has `["cloudflared"]`.** Prod runs
-`COMPOSE_PROFILES=cloudflared,google,search,codex,claude`. Nothing `depends_on` a sidecar, and without
-their token the integration is off wholesale — the BFF treats the stored Settings switch as disabled
-whatever it says — so dropping the profile is the whole off switch. Removal is
+`COMPOSE_PROFILES=cloudflared,google,search,codex,claude`. Nothing `depends_on` a sidecar, and
+without its token the integration is off wholesale whatever the stored Settings switch says —
+dropping the profile is the whole off switch. Removal is
 `--profile <p> rm -sf …`. To test a profile locally **without editing `docker/.env`**, prefix the
 command — `COMPOSE_PROFILES=<…,pi> docker compose -f docker/compose.yml up -d bff`: shell env beats
 the `.env` file, `LETTA_MODE` carries the string to the BFF, and the next un-prefixed `up` reverts it.
@@ -181,19 +182,19 @@ working in that area.
 | LLM timeout env, agent app ports, failing subagent spawns | `lettuce-runtime-and-ops` |
 | Memory tab, `persona.md`, "the system prompt did not update" | `lettuce-memory-and-system-prompt` |
 | `AgentMenu`, the sidebar agent list, pin/archive lists, Settings vs Agent tab layout | `lettuce-ui-conventions` |
+| Any `web/` UI change: mockups before implementing, visual pass after | `lettuce-ui-verification` |
 | PRs, `.github/workflows/`, `bump:*` labels, branch protection, CI tiers | `lettuce-pr-and-ci` |
 | `bun run sync-upstream`, `LETTA_CODE_VERSION` | `lettuce-upstream-sync` |
 | `VERSION`, `CHANGELOG.md`, tagging, `bun run release` | `lettuce-releasing` |
 
 ## Facts that are easy to get wrong
 
-Cross-cutting protocol and product facts that apply to almost every task. Anything that matters in
-only one area lives in a skill — the table above says which, and pi always has the descriptions, so
-there is no reason to restate a trap here.
+Cross-cutting protocol and product facts that apply to almost every task. Anything area-specific
+lives in a skill — the table above says which.
 
-- **Browsers cannot reach the app-server directly.** Auth is `Authorization: Bearer` only, which a
-  browser cannot set on a WebSocket, and unauthenticated upgrades carrying `Origin` are rejected
-  outright. The BFF is mandatory, not a convenience.
+- **Browsers cannot reach the app-server directly.** Auth is `Authorization: Bearer` only —
+  unsettable on a browser WebSocket — and unauthenticated upgrades carrying `Origin` are rejected
+  outright; the BFF is mandatory.
 - **No per-user isolation, and `ALLOWED_USERS` therefore stays a list.** One process-wide runtime;
   every socket sees every event; v1 is single-user by decision, so keep agent-id filtering in the BFF
   frame router. `ALLOWED_USERS` is env-only, required exactly when Access is the live gate
@@ -229,15 +230,14 @@ there is no reason to restate a trap here.
 
 Worktrees per branch, then a **PR into `main`, squash-merged** (one commit per PR, no merge commits).
 Nothing lands on `main` except through a merged PR — a release included. **An agent merges only after
-the operator confirms that specific PR.** Mechanics — updating a branch without force-pushing, why a
-PR can report no checks, `bump:*` labels, branch protection, and which gate runs in CI versus on the
-machine: **`lettuce-pr-and-ci`**.
+the operator confirms that specific PR.** Mechanics, labels, protection and CI tiers:
+**`lettuce-pr-and-ci`**.
 
 **The main checkout stays on `main` with a clean tree — only merge bookkeeping happens there.** All
-feature work happens in a worktree under `.worktrees/` (`git worktree add .worktrees/<name> -b
-<branch>`; git- and docker-ignored). Branching in the main checkout lets two sessions collide and
-breaks `deploy-check`'s clean-tree and on-`main` assertions; `bun run check-worktree` (a `verify`
-stage) refuses it. Story: docs/upstream-notes.md#main-checkout-collision-story-2026-09-29.
+feature work happens in a worktree under `.worktrees/` (git- and docker-ignored). Branching in the
+main checkout lets two sessions collide and breaks `deploy-check`'s clean-tree and on-`main`
+assertions; `bun run check-worktree` (a `verify` stage) refuses it.
+Story: docs/upstream-notes.md#main-checkout-collision-story-2026-09-29.
 
 **Every change touching `bff/`, `web/` or `docker/` is a PR** — a new capability, a new sidecar, or
 anything spanning more than one of them. The PR body (`.github/pull_request_template.md`) is the gate
@@ -266,16 +266,15 @@ bump labels and the docs-sync duty: **`lettuce-releasing`**.
 
 `bun run sync-upstream v<version>` moves the upstream checkout to a **published release tag** (never
 `main` — nothing to pin), reports protocol and behavioural drift, re-pins every version site and
-typechecks. Behavioural drift — upstream files whose changes `bun run typecheck` cannot see — is what
-bites; the file list, the version literal sites, the stale-pin precedence trap and the full-redeploy
-rule are in **`lettuce-upstream-sync`**. Read it before running the command.
+typechecks. Behavioural drift is what bites; the file list, version literal sites, stale-pin trap and
+full-redeploy rule are in **`lettuce-upstream-sync`** — read it before running the command.
 
 ## Definition of done
 
-The ordered shape of a change **and** the checklist each step has to satisfy. Work is **not done**, and
-must not be reported as done, until every step passes. Typecheck is not done. Tests are not done.
-**Running in the container is done.** Origin story:
-docs/upstream-notes.md#definition-of-done-origin-story. A **docs-only** change stops after step 2.
+The ordered shape of a change **and** the checklist each step has to satisfy. Work is not done until
+every step passes. Typecheck is not done. Tests are not done. **Running in the container is done.**
+Origin story: docs/upstream-notes.md#definition-of-done-origin-story. A **docs-only** change stops
+after step 2.
 
 1. **Worktree.** `git worktree add .worktrees/<name> -b <branch>` from the main checkout — never branch
    in the main checkout. Already sitting in someone else's worktree? Use it; the gate only cares that
@@ -284,8 +283,7 @@ docs/upstream-notes.md#definition-of-done-origin-story. A **docs-only** change s
    prod-info, release hygiene, docs, lint, typecheck, tests, build), failing fast. The `CHANGELOG.md`
    `[Unreleased]` entry, any `README.md` / `docs/CONFIGURATION.md` update and the `bump:*` label go in
    the same commit; the **release commit** itself comes from `bun run release --pr`, never a feature
-   branch. Commit and push are separate commands: the guard blocks a compound line containing
-   `git push`, so `git add && git commit && git push` does none of it.
+   branch.
 3. **Build, deploy and run it locally from the worktree.** Copy the gitignored env in first
    (`cp ../../docker/.env docker/.env`) or the state-dir default lands inside `.worktrees/`, then
    `bun run build:bff && docker compose -f docker/compose.yml up -d` (unscoped — hard rule 4). The
@@ -307,12 +305,18 @@ docs/upstream-notes.md#definition-of-done-origin-story. A **docs-only** change s
    green: clean tree on `main`, served bundle byte-identical to `web/dist`, `VERSION` agreeing with the
    tag at `HEAD`, `/readyz` and the upstream connection healthy. Then `bun run ui-check` for any `web/`
    change and `bun run smoke` for BFF session/protocol/settings changes — both need the live stack, and
-   `smoke` mutates real state and needs an agent to exist. Then `bun run cleanup`, which removes only a
-   worktree whose PR merged with a clean tree and no process inside it.
+   `smoke` mutates real state and needs an agent to exist. Then `bun run cleanup`.
 8. **Release — only after asking.** `bun run release --auto --pr` opens the release PR, the human
    merges it, `bun run release --deploy` runs deploy-check → Dockhand plan → the one confirmation →
    deploy → verify → tag. Never push `main`, deploy prod or tag without the confirmation in
    "Stop before releasing to prod"; a failed deploy is never tagged.
+
+**UI changes carry two extra gates.** *Before* implementing (during steps 1–2): mock the target state
+of every changed surface at phone (390px) and desktop width and get the mockups approved — a static
+page linking `web/src/styles.css`, screenshotted with Playwright, is the proven method. *After*
+(before step 4): `bun run ui-check`'s screenshots plus a live look at both widths, reviewed
+holistically — task accomplishable, reads like its neighbours, nothing clipped or overflowing, no
+stray scrollbars; not pixel accuracy. Mechanics: `lettuce-ui-verification`.
 
 ### Stop before releasing to prod
 
