@@ -48,9 +48,9 @@ interface Metric {
  * boundary and two usage samples cannot be taken while the rate is real.
  * What does arrive per token is the stream itself, so the estimate is
  * characters-of-streamed-output over time, divided by the usual rule of four.
- * Null until two samples are at least 1.5 s and ~10 tokens apart — a rate
- * invented from one sample would bounce, and a bouncing rate reads as a bug
- * rather than as a model.
+ * Null until two samples are at least 0.5 s and ~10 tokens apart — from a
+ * shorter window the chunk-delivery jitter dominates and the number bounces
+ * hard before the rolling window steadies it.
  *
  * Not a hook: it takes a caller-owned store, so the component keeps its
  * `useRef` calls unconditional.
@@ -97,7 +97,7 @@ function sampleSpeed(
   if (!first || !last || store.samples.length < 2) return null;
   const dt = (last.t - first.t) / 1000;
   const dTok = (last.chars - first.chars) / CHARS_PER_TOKEN;
-  if (dt < 1.5 || dTok < 10) return null;
+  if (dt < 0.5 || dTok < 10) return null;
   return dTok / dt;
 }
 
