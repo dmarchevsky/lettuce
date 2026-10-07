@@ -2200,56 +2200,51 @@ p.warning code {
   border-color: var(--accent);
   color: var(--text);
 }
-/* Tools: a family's chip is its on/off box and its name, welded into one pill so
-   the box reads as part of the chip and not as a third chip. The box is a button
-   with role=checkbox (MenuRow's box, same tint) — the platform checkbox is out. */
+/* Tools: a family's chip is its on/off box and its name, welded into one pill so the
+   box reads as part of the chip and not as a third chip. The box is a `<button
+   role="checkbox">` — nothing in the app uses a platform checkbox — and it draws its own
+   15px plate inside a 28px hit area: the name is what you read first, so the box stays
+   small. The plate keeps a grey outline when unchecked rather than going empty, because
+   "chip with no glyph" and "chip whose glyph you have not looked at" are indistinguishable.
+   React renders no tick when unchecked, so the outline plate stands alone. */
 .tool-chips .chip-pair {
   display: inline-flex;
   align-items: stretch;
 }
 .tool-chips .chip-pair .chip-check {
-  min-width: 34px;
-  padding: 0 9px;
+  width: 28px;
+  min-width: 28px;
+  padding: 0;
   display: grid;
   place-items: center;
+  background: none;
   border-right: none;
 }
+.tool-chips .chip-pair .chip-check::before,
+.tool-chips .chip-pair .chip-check .icon {
+  grid-area: 1 / 1;
+}
+.tool-chips .chip-pair .chip-check::before {
+  content: "";
+  width: 15px;
+  height: 15px;
+  border: 2px solid color-mix(in srgb, var(--muted) 55%, transparent);
+  box-sizing: border-box;
+}
 .tool-chips .chip-pair .chip-check.on {
+  border-color: var(--border);
+  color: #0b1020;
+}
+.tool-chips .chip-pair .chip-check.on::before {
   background: var(--accent);
   border-color: var(--accent);
-  color: #0b1020;
 }
 .tool-chips .chip-pair .chip-check.on + button {
   border-left-color: var(--accent);
 }
-.tool-chips .chip-pair .icon {
-  width: 15px;
-  height: 15px;
-}
-/* Tools tab: each family is a chip that carries its own on/off box — the box
-   allows or blocks the family for this agent, the name opens its pane. Two
-   buttons, styled to read as one control (there is no platform checkbox here). */
-.tool-chips .chip-pair {
-  display: inline-flex;
-  align-items: stretch;
-}
-.tool-chips .chip-check {
-  width: 30px;
-  min-width: 30px;
-  padding: 0;
-  display: grid;
-  place-items: center;
-  border-right: none;
-}
-/* Filled the same way as every other checkbox box in the app (.menu-row-box). */
-.tool-chips .chip-check.on {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #0b1020;
-}
-.tool-chips .chip-check .icon {
-  width: 16px;
-  height: 16px;
+.tool-chips .chip-pair .chip-check .icon {
+  width: 11px;
+  height: 11px;
 }
 
 /* Under Settings' chips: who the section's settings apply to. */
