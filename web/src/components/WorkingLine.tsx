@@ -41,30 +41,55 @@ interface Metric {
 }
 
 /**
- * Generation speed, in completion tokens per second, from the usage samples
- * the BFF's per-step refresh produces. Null until two samples are at least
- * 1.5 s and 10 tokens apart — a rate invented from one sample would bounce,
- * and a bouncing rate reads as a bug rather than as a model.
+ * Generation speed, in tokens per second, estimated from the streamed text.
+ *
+ * The usage the BFF folds arrives once per model step — so mid-step, which is
+ * the whole of a `Writing` phase, `completionTokens` is frozen at the last
+ * boundary and two usage samples cannot be taken while the rate is real.
+ * What does arrive per token is the stream itself, so the estimate is
+ * characters-of-streamed-output over time, divided by the usual rule of four.
+ * Null until two samples are at least 1.5 s and ~10 tokens apart — a rate
+ * invented from one sample would bounce, and a bouncing rate reads as a bug
+ * rather than as a model.
  *
  * Not a hook: it takes a caller-owned store, so the component keeps its
  * `useRef` calls unconditional.
  */
+const CHARS_PER_TOKEN = 4;
+
+/** Total length of this turn's still-streaming text; subagents excluded. */
+function streamingChars(entries: readonly TranscriptEntry[]): number {
+  let chars = 0;
+  for (const entry of entries) {
+    if (!entry.streaming || entry.subagentId) continue;
+    if (entry.kind === "assistant" || entry.kind === "reasoning") chars += entry.text.length;
+  }
+  return chars;
+}
+
 function sampleSpeed(
-  store: { samples: { t: number; tok: number }[]; lastTok: number },
-  tokens: number,
+  store: { samples: { t: number; chars: number }[]; lastChars: number },
+  chars: number,
   generating: boolean,
 ): number | null {
-  if (generating && tokens !== store.lastTok) {
-    store.lastTok = tokens;
-    store.samples.push({ t: Date.now(), tok: tokens });
+  if (!generating) {
+    store.samples = [];
+    store.lastChars = -1;
+    return null;
+  }
+  // A drop means the streamed message ended or switched (reasoning → answer);
+  // the old samples measure a rate that no longer exists.
+  if (chars < store.lastChars) store.samples = [];
+  if (chars !== store.lastChars) {
+    store.lastChars = chars;
+    store.samples.push({ t: Date.now(), chars });
     if (store.samples.length > 8) store.samples.shift();
   }
-  if (!generating) store.samples = [];
   const first = store.samples[0];
   const last = store.samples[store.samples.length - 1];
   if (!first || !last || store.samples.length < 2) return null;
   const dt = (last.t - first.t) / 1000;
-  const dTok = last.tok - first.tok;
+  const dTok = (last.chars - first.chars) / CHARS_PER_TOKEN;
   if (dt < 1.5 || dTok < 10) return null;
   return dTok / dt;
 }
@@ -105,7 +130,7 @@ export function WorkingLine({
   onAbort,
 }: Props) {
   const [now, setNow] = useState(() => Date.now());
-  const speedStoreRef = useRef({ samples: [] as { t: number; tok: number }[], lastTok: -1 });
+  const speedStoreRef = useRef({ samples: [] as { t: number; chars: number }[], lastChars: -1 });
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
@@ -125,7 +150,9 @@ export function WorkingLine({
   if (!snap) return null;
 
   const generating = snap.state === "thinking" || snap.state === "writing";
-  const speed = sampleSpeed(speedStoreRef.current, usage?.completionTokens ?? 0, generating);
+  const speed = generating
+    ? sampleSpeed(speedStoreRef.current, streamingChars(entries), true)
+    : null;
   const elapsed = formatElapsed(now - (turnStartedAt ?? now));
   const queued = drainingQueueCount(queue);
 
