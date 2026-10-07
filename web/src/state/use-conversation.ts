@@ -147,6 +147,18 @@ export interface ConversationApi {
    * same numbers; null until it has seen a turn. See `lib/usage.ts`.
    */
   turnUsage: TurnUsage | null;
+  /**
+   * When the turn now running started (wall clock); null while idle. Counts
+   * from turn start, not phase start — the composer's working line shows an
+   * elapsed that never resets when the phase changes.
+   */
+  turnStartedAt: number | null;
+  /**
+   * When the last frame for this conversation arrived. The working line's
+   * stall watch: a minute of silence while nothing runs is what "is it hung?"
+   * is answered with.
+   */
+  lastActivityAt: number | null;
 }
 
 /**
@@ -320,6 +332,10 @@ export function useConversation(
   const [availableToolsets, setAvailableToolsets] = useState<ToolsetSummary[]>([]);
   const [backgroundProcesses, setBackgroundProcesses] = useState<BackgroundProcessSummary[]>([]);
   const [turnUsage, setTurnUsage] = useState<TurnUsage | null>(null);
+  const [turnStartedAt, setTurnStartedAt] = useState<number | null>(null);
+  const [lastActivityAt, setLastActivityAt] = useState<number | null>(null);
+  /** Mirrors the last frame time; published to render state on every flush. */
+  const lastActivityRef = useRef<number | null>(null);
   /** The conversation `refreshUsage` fetches for; a stale answer is dropped. */
   const usageScopeRef = useRef<RuntimeScope | null>(null);
   /** One usage fetch at a time; a request during one runs once more after it. */
@@ -354,6 +370,7 @@ export function useConversation(
     flushHandleRef.current = requestAnimationFrame(() => {
       flushHandleRef.current = null;
       setEntries(sortedEntries(transcriptRef.current));
+      setLastActivityAt(lastActivityRef.current);
     });
   }, []);
 
@@ -363,10 +380,22 @@ export function useConversation(
       flushHandleRef.current = null;
     }
     setEntries(sortedEntries(transcriptRef.current));
+    setLastActivityAt(lastActivityRef.current);
   }, []);
 
   useEffect(() => {
     processingRef.current = processing;
+  }, [processing]);
+
+  // The turn clock starts when work starts and resets when it ends; the
+  // queue pump keeps `processing` up across the seam, so a queued follow-up
+  // re-arms it for its own turn.
+  useEffect(() => {
+    if (processing) {
+      setTurnStartedAt((prev) => prev ?? Date.now());
+    } else {
+      setTurnStartedAt(null);
+    }
   }, [processing]);
 
   // Do not leave a frame scheduled against an unmounted conversation.
@@ -448,7 +477,9 @@ export function useConversation(
     transcriptRef.current = new Map();
     streamIndexRef.current = createStreamIndex();
     seqRef.current = 0;
+    lastActivityRef.current = null;
     setEntries([]);
+    setTurnStartedAt(null);
     setQueue([]);
     queueRef.current = [];
     expectResentTurnRef.current = false;
@@ -456,6 +487,7 @@ export function useConversation(
     setStopping(false);
     usageScopeRef.current = scope;
     setTurnUsage(null);
+    setLastActivityAt(null);
 
     setScopes([scope]);
     void (async () => {
@@ -505,6 +537,10 @@ export function useConversation(
 
       // Ignore traffic for other conversations sharing the app-server.
       if (runtime && scope && runtime.conversation_id !== scope.conversation_id) return;
+
+      // Any frame is activity; the stall watch only looks at how long it has
+      // been since the last one, so one timestamp covers every frame kind.
+      lastActivityRef.current = Date.now();
 
       const seq = frameSeq(frame);
       if (seq !== null) seqRef.current = Math.max(seqRef.current, seq);
@@ -978,6 +1014,8 @@ export function useConversation(
     backgroundProcesses,
     stopMonitor,
     turnUsage,
+    turnStartedAt,
+    lastActivityAt,
   };
 }
 

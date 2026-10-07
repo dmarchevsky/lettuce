@@ -944,19 +944,23 @@ pre {
 
 /* ── Queue + composer ────────────────────────────────────────────────────── */
 
-/* Why the button is split: three agent-green dots and a label, above the box
-   where the thumb is, so it stays visible even scrolled up the transcript. */
+/* Why the button is split, and what the agent is doing: three agent-green
+   dots, a fixed icon slot, a bright activity phrase, and right-aligned
+   stats — elapsed last so its digits sit still at any width. Segments and
+   drop order are specified in `lib/working.ts`. */
 .working-line {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   font-size: 12px;
   color: var(--muted);
   padding: 0 2px;
+  min-width: 0;
 }
 .working-dots {
   display: inline-flex;
   gap: 3px;
+  flex: 0 0 auto;
 }
 .working-dots i {
   width: 5px;
@@ -970,6 +974,78 @@ pre {
 }
 .working-dots i:nth-child(3) {
   animation-delay: 0.3s;
+}
+/* Stopping: the turn is unwinding, so the pulse freezes and greys. */
+.working-dots.still i {
+  animation: none;
+  background: var(--muted);
+  opacity: 0.7;
+}
+/* The stall's amber triangle, in the dots' slot. */
+.working-line .wl-glyph {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+.working-line .wl-glyph .icon {
+  width: 13px;
+  height: 13px;
+}
+/* Fixed icon slot — the activity text starts in the same place whether or
+   not the phase has a glyph, so it never jumps sideways between phases. */
+.working-line .wl-ico {
+  width: 13px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--agent);
+}
+.working-line .wl-ico .icon {
+  width: 13px;
+  height: 13px;
+}
+.working-line .wl-act {
+  color: var(--text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.working-line .wl-obj.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+}
+.working-line .wl-sep {
+  color: var(--border);
+}
+.working-line .wl-stat {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* The stats cluster rides the right edge at every width, elapsed last. */
+.working-line .wl-right {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+/* Stall: amber, and Stop is the line's only control. */
+.working-line.warn {
+  color: var(--warn);
+}
+.working-line.warn .wl-act {
+  color: var(--warn);
+}
+.working-line .wl-stop {
+  margin-left: auto;
+  border: 1px solid color-mix(in srgb, var(--warn) 50%, transparent);
+  background: none;
+  color: var(--warn);
+  font-size: 11px;
+  padding: 0 8px;
+  cursor: pointer;
+}
+.working-line .wl-stop:hover {
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
 }
 
 .queue {

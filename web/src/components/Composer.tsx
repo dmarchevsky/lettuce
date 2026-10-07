@@ -9,8 +9,10 @@ import {
   historyUp,
 } from "../lib/input-history.ts";
 import { enterSends } from "../lib/input-mode.ts";
-import type { FilterGroup } from "../lib/messages.ts";
+import type { FilterGroup, TranscriptEntry } from "../lib/messages.ts";
+import type { QueuedItem } from "../lib/queue-actions.ts";
 import { parseResponseFormat, type ResponseFormat } from "../lib/structured-output.ts";
+import type { TurnUsage } from "../lib/usage.ts";
 import {
   matchSlashCommands,
   PERMISSION_MODES,
@@ -20,6 +22,17 @@ import {
 } from "../lib/workspace.ts";
 import { FilterSheet, PermissionSheet, StructuredOutputSheet } from "./ComposerSheets.tsx";
 import { Icon } from "./Icon.tsx";
+import { WorkingLine } from "./WorkingLine.tsx";
+
+/** Everything the working line reads; see `lib/working.ts`. */
+export interface TurnSnapshot {
+  entries: readonly TranscriptEntry[];
+  queue: readonly QueuedItem[];
+  cwd: string | null;
+  turnStartedAt: number | null;
+  lastActivityAt: number | null;
+  usage: TurnUsage | null;
+}
 
 interface Props {
   disabled: boolean;
@@ -52,6 +65,8 @@ interface Props {
   onAbort: () => void;
   /** A stop was accepted but the turn has not ended yet. */
   stopping: boolean;
+  /** Live turn state behind the working line; see `WorkingLine.tsx`. */
+  turn: TurnSnapshot;
   filters: ReadonlySet<FilterGroup>;
   onToggleFilter: (group: FilterGroup) => void;
   onClearFilters: () => void;
@@ -110,6 +125,7 @@ export function Composer({
   onSend,
   onAbort,
   stopping,
+  turn,
   filters,
   onToggleFilter,
   onClearFilters,
@@ -420,15 +436,18 @@ export function Composer({
 
         {processing ? (
           // Above the box, not in the transcript: the transcript's own dots
-          // scroll away, this one explains why the button is split.
-          <div className="working-line" role="status">
-            <span className="working-dots" aria-hidden="true">
-              <i />
-              <i />
-              <i />
-            </span>
-            Agent is working
-          </div>
+          // scroll away, this one explains why the button is split — and now
+          // says what the agent is doing, how long, and how fast.
+          <WorkingLine
+            entries={turn.entries}
+            queue={turn.queue}
+            cwd={turn.cwd}
+            stopping={stopping}
+            turnStartedAt={turn.turnStartedAt}
+            lastActivityAt={turn.lastActivityAt}
+            usage={turn.usage}
+            onAbort={onAbort}
+          />
         ) : null}
 
         <div className="composer-box">

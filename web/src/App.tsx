@@ -477,6 +477,14 @@ function Workspace({ status }: { status: Status }) {
               }}
               onAbort={() => void conversation.abort()}
               stopping={conversation.stopping}
+              turn={{
+                entries: conversation.entries,
+                queue: conversation.queue,
+                cwd: conversation.cwd,
+                turnStartedAt: conversation.turnStartedAt,
+                lastActivityAt: conversation.lastActivityAt,
+                usage: conversation.turnUsage,
+              }}
               filters={filters}
               onToggleFilter={toggleFilter}
               onClearFilters={() => setFilters(new Set())}

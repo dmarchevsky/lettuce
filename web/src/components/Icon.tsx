@@ -45,6 +45,8 @@ export type IconName =
   | "back"
   | "more"
   | "search"
+  | "terminal"
+  | "globe"
   | "pin"
   | "trash"
   | "attach";
@@ -110,6 +112,12 @@ const PATHS: Record<IconName, string> = {
   // Three dots in a row: a row's menu (rename, archive, edit).
   more: "M6 12h.01M12 12h.01M18 12h.01",
   search: "M11 18a7 7 0 100-14 7 7 0 000 14zM20 20l-4-4",
+  // Angle brackets and a prompt line: a shell command is running (the working
+  // line's Bash verb). Path from Lucide's "terminal" — ISC License.
+  terminal: "M4 17l6-6-6-6M12 19h8",
+  // Meridian globe: fetching a web page, distinct from the magnifier's search.
+  globe:
+    "M12 3a9 9 0 100 18 9 9 0 000-18M3 12h18M12 3c2.5 2.6 4 5.6 4 9s-1.5 6.4-4 9c-2.5-2.6-4-5.6-4-9s1.5-6.4 4-9z",
   // Paper clip: attach an image to the message. Path from Lucide's
   // "paperclip" icon — ISC License, Copyright (c) Lucide Contributors.
   attach:
