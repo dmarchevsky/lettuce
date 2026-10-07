@@ -82,8 +82,15 @@ function sampleSpeed(
   if (chars < store.lastChars) store.samples = [];
   if (chars !== store.lastChars) {
     store.lastChars = chars;
-    store.samples.push({ t: Date.now(), chars });
-    if (store.samples.length > 8) store.samples.shift();
+    const t = Date.now();
+    const last = store.samples[store.samples.length - 1];
+    // The stream re-renders every frame, so one sample per render would cap
+    // the window at ~8 frames — far under the minimum below and the rate
+    // would never appear. Keep one sample per half second: the newest count
+    // lives on the last row, the window holds the last few seconds.
+    if (!last || t - last.t >= 500) store.samples.push({ t, chars });
+    else last.chars = chars;
+    while (store.samples.length > 2 && t - store.samples[0]!.t > 4000) store.samples.shift();
   }
   const first = store.samples[0];
   const last = store.samples[store.samples.length - 1];
