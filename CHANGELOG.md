@@ -5,6 +5,8 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.7.0-letta_0.34.1] - 2026-10-07
+
 ### Added
 - **The composer's working line says what the agent is doing.** In place of "Agent is working": the action in flight, in whole and without truncation — `Read docker/compose.yml`, `Run docker compose build`, `Codex: fix flaky test` — `Thinking` and `Writing` when no tool is running, and an elapsed since the turn started pinned to the right edge so it never moves. The generation rate (`24 tok/s`) appears only while the model is generating and never while a tool runs, so a frozen counter cannot read as a hang; `step N`, `+Nk tok` and `queue +N` join on desktop. A full minute of silence with nothing running turns the line amber — `No activity 1:30 · last: web_search` — with **Stop** beside it, so "is it hung?" finally has a visible answer.
 - **Each agent can work in its own folder on the remote pi.** Tools → Remote Pi gives an agent **its own settings**, filled in field by field over the global ones: leave a field empty and it keeps the global value, so "this agent works in `/home/worker/research`" is one field, and a completely different host is a few. Follow-ups stay on the host that started the session however, and one lettuce deploy key still reaches every host — the key and the on/off switch are never per-agent. Settings → Remote Pi says how many agents point somewhere of their own.
