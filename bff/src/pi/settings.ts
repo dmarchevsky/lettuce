@@ -18,8 +18,21 @@
  * `pathPrepend` is not cosmetic: a non-interactive remote shell gets a minimal
  * PATH that usually misses pi and node entirely (spike finding,
  * docs/remote-pi-plan.md § 3.1), so the dispatch command carries a PATH
- * prefix.
+ * prefix. It is normalized on the way in and on the way out because a trailing
+ * slash is a natural thing to type and a *program* can see it: PATH search
+ * composes `$dir/pi`, and a launcher that finds its own install directory by
+ * stripping path elements off `$0` lands one level off (`bin//pi` → `bin`
+ * instead of `agent`) and fails naming a file nobody asked for.
  */
+
+/** Collapse a typed PATH prefix to what a PATH search should actually use. */
+export function normalizePathPrepend(value: string): string {
+  return value
+    .split(":")
+    .map((entry) => entry.trim().replace(/\/+$/, ""))
+    .filter((entry) => entry !== "")
+    .join(":");
+}
 
 export interface PiSettings {
   /** Whether the pi tools exist at all (the `pi` profile token must also be on). */
@@ -91,7 +104,7 @@ export function parsePiSettings(text: string | null): PiSettings {
     privateKey: typeof r.privateKey === "string" && r.privateKey ? r.privateKey : null,
     keySource: r.keySource === "pasted" ? "pasted" : "generated",
     publicKey: typeof r.publicKey === "string" && r.publicKey ? r.publicKey : null,
-    pathPrepend: typeof r.pathPrepend === "string" ? r.pathPrepend : "",
+    pathPrepend: typeof r.pathPrepend === "string" ? normalizePathPrepend(r.pathPrepend) : "",
     workdir: typeof r.workdir === "string" ? r.workdir : "",
     model: typeof r.model === "string" && r.model ? r.model : null,
   };
@@ -129,7 +142,7 @@ export function applyPiSettingsUpdate(current: PiSettings, body: unknown): PiSet
   if ("pathPrepend" in r) {
     if (typeof r.pathPrepend !== "string")
       throw new InvalidPiSettingsError("`pathPrepend` must be a string");
-    next.pathPrepend = r.pathPrepend.trim();
+    next.pathPrepend = normalizePathPrepend(r.pathPrepend);
   }
   if ("workdir" in r) {
     if (typeof r.workdir !== "string")

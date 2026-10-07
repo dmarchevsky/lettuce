@@ -25,6 +25,7 @@ import { lastAssistantText, PiService, piKeyFile, piSettingsFile } from "./servi
 import {
   applyPiSettingsUpdate,
   DEFAULT_PI_SETTINGS,
+  normalizePathPrepend,
   type PiSettings,
   parsePiSettings,
   piConfigured,
@@ -111,9 +112,65 @@ test("shq survives single quotes", () => {
 
 test("the remote command cd's, prepends PATH, and quotes the prompt", () => {
   const cmd = buildPiRemoteCommand(BASE, { prompt: "review 'my' code" });
-  expect(cmd).toContain("cd '/home/worker/pi' && env PATH='/opt/node/bin:/opt/pi/bin:$PATH'");
+  expect(cmd).toContain(
+    String.raw`cd '/home/worker/pi' && env PATH='/opt/node/bin:/opt/pi/bin':"$PATH"`,
+  );
   expect(cmd).toContain("pi --mode json");
   expect(cmd).toContain(`'review '\\''my'\\'' code'`);
+});
+
+test("the PATH prepend hands $PATH to the remote shell", () => {
+  // `PATH='<x>:$PATH'` looks right and is not: the remote shell never expands a
+  // quoted `$PATH`, so env gets a PATH of one directory plus five literal
+  // characters, and the run dies naming the program env could not find.
+  for (const cmd of [
+    buildPiRemoteCommand(BASE, { prompt: "x" }),
+    buildProbeRemoteCommand({ workdir: "/home/w/pi", pathPrepend: "/opt/pi/bin" }),
+  ]) {
+    expect(cmd).not.toContain(":$PATH'");
+    expect(cmd).toContain(String.raw`:"$PATH"`);
+  }
+});
+
+test("the probe's PATH assignment actually finds the shell it runs", () => {
+  // Run for real, locally: /bin/sh must be reachable through the PATH the probe
+  // builds. A prepend naming no real directory is the strictest case — with a
+  // quoted `$PATH` this answers "No such file or directory" instead.
+  const command = buildProbeRemoteCommand({
+    workdir: "",
+    pathPrepend: "/nonexistent-lettuce-test-dir",
+  });
+  const result = Bun.spawnSync(["sh", "-c", command]);
+  const text = result.stdout.toString() + result.stderr.toString();
+  // Whether pi is installed here is not the point (this box has it, CI may not);
+  // the point is that /bin/sh was found through the PATH we built.
+  expect(result.exitCode).toBe(0);
+  expect(text).not.toMatch(/No such file or directory/);
+  expect(text).toMatch(/lettuce: pi not on PATH|\d+\.\d+/);
+});
+
+test("a PATH prefix is normalized before it can reach a PATH search", () => {
+  // `/home/worker/.pi/agent/bin/` is what a person pastes, and the trailing
+  // slash is visible to the program found through it: `$dir/pi` becomes
+  // `bin//pi`, and pi's own launcher, which walks path elements off `$0` to find
+  // its install directory, then reads `bin/install/current-version` and fails.
+  expect(normalizePathPrepend("  /home/w/.pi/agent/bin/ ")).toBe("/home/w/.pi/agent/bin");
+  expect(normalizePathPrepend("/a//:/b/")).toBe("/a:/b");
+  expect(normalizePathPrepend("::")).toBe("");
+  expect(normalizePathPrepend("")).toBe("");
+  const stored = parsePiSettings(
+    JSON.stringify({ ...DEFAULT_PI_SETTINGS, pathPrepend: "/opt/pi/bin/" }),
+  );
+  expect(stored.pathPrepend).toBe("/opt/pi/bin");
+  // A saved record keeps its old shape until a save normalizes it; both paths work.
+  expect(
+    applyPiSettingsUpdate(DEFAULT_PI_SETTINGS, { pathPrepend: "/opt/pi/bin/" }).pathPrepend,
+  ).toBe("/opt/pi/bin");
+  // And the command is built from the normalized value even if a record kept
+  // the old shape.
+  const cmd = buildPiRemoteCommand({ ...BASE, pathPrepend: "/opt/pi/bin/" }, { prompt: "x" });
+  expect(cmd).toContain(`env PATH='/opt/pi/bin':"$PATH"`);
+  expect(cmd).not.toContain("//");
 });
 
 test("empty pathPrepend emits no env PATH at all", () => {
@@ -436,6 +493,36 @@ test("a check is classified into something the form can act on", () => {
   ).toMatch(/matches the pinned/);
 });
 
+test("a pi that is installed but cannot start is named for what is wrong", () => {
+  // pi prints a module stack in this case (a `node` too old for it is the usual
+  // cause), and the first line of a stack is not an explanation. The probe names
+  // the failure and reports the node version, so the pill can say what to change.
+  const broken = [
+    "lettuce: pi failed",
+    "file:///home/w/.pi/agent/install/releases/1.0.4/cli.js:2",
+    'import { createRequire, enableCompileCache } from "node:module";',
+    "SyntaxError: The requested module 'node:module' does not provide an export named 'enableCompileCache'",
+    "lettuce: node v20.19.2",
+    "",
+  ].join("\n");
+  const check = classifyCheckOutput({ code: 0, stdout: broken, stderr: "" });
+  expect(check.state).toBe("no_pi");
+  expect(check.detail).toContain("cannot run");
+  expect(check.detail).toContain("enableCompileCache");
+  expect(check.detail).toContain("node v20.19.2");
+  // And a pi that answers with a bare version — which is what pi actually
+  // prints — is ready, not "no pi".
+  expect(classifyCheckOutput({ code: 0, stdout: "lettuce: pi 1.0.4\n", stderr: "" })).toMatchObject(
+    {
+      state: "ready",
+      piVersion: "1.0.4",
+    },
+  );
+  expect(
+    classifyCheckOutput({ code: 0, stdout: "lettuce: pi not on PATH\n", stderr: "" }),
+  ).toMatchObject({ state: "no_pi" });
+});
+
 test("the probe asks about workdir, PATH and pi in one ssh", () => {
   const withPrepend = buildProbeRemoteCommand({
     workdir: "/home/w/pi",
@@ -443,9 +530,11 @@ test("the probe asks about workdir, PATH and pi in one ssh", () => {
   });
   expect(withPrepend).toContain(`[ -d '/home/w/pi' ]`);
   expect(withPrepend).toContain("lettuce: no such workdir");
-  expect(withPrepend).toContain("env PATH='/opt/pi/bin:$PATH'");
+  expect(withPrepend).toContain(`env PATH='/opt/pi/bin':"$PATH" /bin/sh -c`);
   expect(withPrepend).toContain("pi --version");
-  expect(buildProbeRemoteCommand({ workdir: "", pathPrepend: "" })).not.toContain("env PATH=");
+  const plain = buildProbeRemoteCommand({ workdir: "", pathPrepend: "" });
+  expect(plain).not.toContain("env PATH=");
+  expect(plain).toContain("/bin/sh -c");
 });
 
 test("checks persist per target and a damaged record is no record", () => {
@@ -530,7 +619,7 @@ test("a pinned host is probed with the run's own ssh flags and PATH", async () =
   expect(check.target).toBe("worker@pi.example.invalid:22");
   const joined = args.join(" ");
   expect(joined).toContain("-o StrictHostKeyChecking=yes");
-  expect(joined).toContain("env PATH='/opt/pi/bin:$PATH'");
+  expect(joined).toContain(String.raw`env PATH='/opt/pi/bin':"$PATH" /bin/sh -c`);
 });
 
 test("an unsaved form is checked, and a refused key is named as such", async () => {

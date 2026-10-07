@@ -13,7 +13,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { type PiSettings, piTarget } from "./settings.ts";
+import { normalizePathPrepend, type PiSettings, piTarget } from "./settings.ts";
 
 /** pi session ids are plain UUIDs (docs/session-format.md). */
 const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -82,14 +82,22 @@ export function shq(value: string): string {
  * The remote command: cd into the workdir, give a non-interactive PATH what it
  * misses (spike finding § 3.1), and run pi in json mode. Empty `pathPrepend`
  * must NOT emit `env PATH=:$PATH` — an empty PATH entry means the cwd.
+ *
+ * The PATH assignment is `PATH='<prepend>':"$PATH"` and not `'<prepend>:$PATH'`:
+ * the `$PATH` has to survive to the *remote* shell, and a value that quotes it
+ * keeps the five characters literally. env then looks up the program with that
+ * broken PATH in hand, and the whole run dies with `env: 'sh': No such file or
+ * directory` — an operator-visible failure from a field that looks correct.
+ * Two adjacent quoted segments concatenate, so the prepend stays quoted and
+ * `$PATH` still expands, spaces in the inherited PATH included.
  */
 export function buildPiRemoteCommand(
   settings: PiSettings,
   options: { prompt: string; session?: string; model?: string | null },
 ): string {
   const parts = ["cd", shq(settings.workdir), "&&"];
-  const prepend = settings.pathPrepend.trim();
-  if (prepend) parts.push("env", `PATH=${shq(`${prepend}:$PATH`)}`);
+  const prepend = normalizePathPrepend(settings.pathPrepend);
+  if (prepend) parts.push("env", `PATH=${shq(prepend)}:"$PATH"`);
   parts.push("pi", "--mode", "json");
   if (options.session) {
     if (!isPiSessionId(options.session)) throw new Error("not a pi session id");

@@ -13,7 +13,7 @@
  * read-only side: is the host pinned, is the key accepted, is pi reachable.
  */
 
-import type { PiSettings } from "./settings.ts";
+import { normalizePathPrepend, type PiSettings } from "./settings.ts";
 
 /** What a check concluded. Every state is something the form can act on. */
 export type PiCheckState =
@@ -141,6 +141,28 @@ export function classifyCheckOutput(args: {
       piVersion: null,
     };
   }
+  if (/lettuce: pi failed/.test(text)) {
+    // Installed, wrong environment. The first line that reads like a reason beats
+    // the first line of a stack, and the node version is the thing to change.
+    const lines = text.split("\n").map((l) => l.trim());
+    const reason =
+      lines.find(
+        (l) => /Error|error|Cannot|not provide|No such file/.test(l) && !l.startsWith("lettuce:"),
+      ) ??
+      lines[lines.indexOf("lettuce: pi failed") + 1] ??
+      "it refused to run";
+    const node = /lettuce: node (.+)/.exec(text);
+    return {
+      state: "no_pi",
+      detail: `pi is installed but cannot run: ${reason.slice(0, 160)}${node ? ` · node ${node[1]}` : ""}`,
+      piVersion: null,
+    };
+  }
+  const marked = /^lettuce: pi (.+)$/m.exec(text);
+  if (marked && args.code === 0) {
+    const value = (marked[1] ?? "").trim().replace(/^v/, "");
+    return { state: "ready", detail: `pi v${value}`, piVersion: value || null };
+  }
   const version = /^pi v?([0-9][^\s]*)/m.exec(args.stdout);
   if (args.code === 0 && version) {
     return {
@@ -194,13 +216,33 @@ export function buildProbeRemoteCommand(settings: {
   if (settings.workdir) {
     parts.push(`[ -d ${quote(settings.workdir)} ] || echo 'lettuce: no such workdir';`);
   }
-  const prepend = settings.pathPrepend.trim();
-  const inner =
-    "command -v pi >/dev/null 2>&1 || { echo 'lettuce: pi not on PATH'; exit 0; }; pi --version 2>&1 | head -1";
+  const prepend = normalizePathPrepend(settings.pathPrepend);
+  // The probe speaks its own markers, because pi's own output cannot be trusted
+  // to be readable: `pi --version` prints a bare `1.0.4`, and a pi that is
+  // installed but cannot start (the usual cause being a `node` on PATH too old
+  // for it) prints a module stack that says nothing to an operator. So: ask, and
+  // name the answer. On failure the raw output and the node version come back too,
+  // because "pi is there and broken · node v20.19.2" is actionable and a stack
+  // line is not.
+  const inner = [
+    "command -v pi >/dev/null 2>&1 || { echo 'lettuce: pi not on PATH'; exit 0; };",
+    "pi_out=$(pi --version 2>&1); pi_rc=$?;",
+    'if [ "$pi_rc" -eq 0 ]; then',
+    "  printf 'lettuce: pi %s\\n' \"$(printf '%s\\n' \"$pi_out\" | head -1)\";",
+    "else",
+    "  echo 'lettuce: pi failed';",
+    "  printf '%s\\n' \"$pi_out\" | head -4;",
+    "  printf 'lettuce: node %s\\n' \"$(node -v 2>&1 | head -1)\";",
+    "fi",
+  ].join(" ");
+  // PATH='<prepend>':"$PATH" for the reason spelled out in runner.ts — the
+  // `$PATH` belongs to the remote shell, not to us. And the shell is named by
+  // absolute path, so even a PATH that turns out to be broken cannot make the
+  // probe fail with something the operator reads as "the server is broken".
   parts.push(
     prepend
-      ? `env PATH=${quote(`${prepend}:$PATH`)} sh -c ${quote(inner)}`
-      : `sh -c ${quote(inner)}`,
+      ? `env PATH=${quote(prepend)}:"$PATH" /bin/sh -c ${quote(inner)}`
+      : `/bin/sh -c ${quote(inner)}`,
   );
   return parts.join(" ");
 }

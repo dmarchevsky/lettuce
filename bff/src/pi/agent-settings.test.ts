@@ -43,6 +43,12 @@ describe("parsePiAgentSettings", () => {
     });
   });
 
+  test("a PATH prefix arrives normalized, like the global one", () => {
+    expect(parsePiAgentSettings({ pathPrepend: "/home/w/.pi/bin/:/opt/x//" })?.pathPrepend).toBe(
+      "/home/w/.pi/bin:/opt/x",
+    );
+  });
+
   test("junk is refused, not coerced", () => {
     expect(parsePiAgentSettings(null)).toBe(null);
     expect(parsePiAgentSettings("nope")).toBe(null);

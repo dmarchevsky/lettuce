@@ -23,7 +23,7 @@
 
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { isAgentId } from "../agents/id-list.ts";
-import type { PiSettings } from "./settings.ts";
+import { normalizePathPrepend, type PiSettings } from "./settings.ts";
 
 export interface PiAgentSettings {
   /** "global" inherits everything; "own" fills the fields below over it. */
@@ -62,7 +62,9 @@ export function parsePiAgentSettings(value: unknown): PiAgentSettings | null {
   };
   const host = text("host");
   const user = text("user");
-  const pathPrepend = text("pathPrepend");
+  const prepend = text("pathPrepend");
+  // A typed PATH prefix loses its trailing slashes here too — see settings.ts.
+  const pathPrepend = prepend === null ? null : normalizePathPrepend(prepend);
   const workdir = text("workdir");
   if (host === null || user === null || pathPrepend === null || workdir === null) return null;
   const rawPort = r.port;
