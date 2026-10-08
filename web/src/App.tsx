@@ -430,7 +430,7 @@ function Workspace({ status }: { status: Status }) {
                   <span key={item.id} className={`queued${item.paused ? " paused" : ""}`}>
                     <span className="queued-dot" aria-hidden="true" />
                     <span className="queued-text" title={item.content}>
-                      {item.content}
+                      <span>{item.content}</span>
                     </span>
                     {item.source === "user" ? (
                       // Steer: upstream has no promote command, so this stops

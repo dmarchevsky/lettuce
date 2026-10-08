@@ -358,6 +358,10 @@ export function Composer({
     if (!textarea) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
+    // Release the auto-grow clamp the moment the grip is held — it would
+    // otherwise pin a drag at 160px — and take the scroll back from the page.
+    textarea.style.maxHeight = "none";
+    textarea.style.overflowY = "auto";
     resizeDragRef.current = { startY: event.clientY, startHeight: textarea.offsetHeight };
   };
 
@@ -395,6 +399,7 @@ export function Composer({
     writeComposerHeight(null);
     const textarea = textareaRef.current;
     if (!textarea) return;
+    textarea.style.maxHeight = "";
     textarea.style.height = "auto";
     requestAnimationFrame(() => fitToContent(textarea, false));
   };

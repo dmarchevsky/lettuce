@@ -1085,15 +1085,20 @@ pre {
   background: var(--muted);
 }
 /* Fixed-width text column — the same object for every chip, tail-truncated
-   because the head identifies the message. */
+   because the head identifies the message. The ellipsis needs a real block
+   inside the flex row: a text node directly in `queued-text` is an anonymous
+   flex item, which no browser will clip with an ellipsis. */
 .queued-text {
   flex: 0 0 240px;
   min-width: 0;
-  display: inline-flex;
+  display: flex;
   align-items: center;
   padding: 4px 4px 4px 8px;
-  white-space: nowrap;
+}
+.queued-text > span {
+  min-width: 0;
   overflow: hidden;
+  white-space: nowrap;
   text-overflow: ellipsis;
 }
 .queued-act {
@@ -1206,9 +1211,12 @@ pre {
   overflow-y: hidden;
 }
 /* A manually sized box holds its height and scrolls inside; auto-fit is back
-   the moment the grip is double-clicked (see Composer.tsx). */
+   the moment the grip is double-clicked (see Composer.tsx). The auto-grow
+   `max-height` no longer applies — the drag's own clamp (half the viewport)
+   owns the range instead. */
 .composer textarea.manual {
   overflow-y: auto;
+  max-height: none;
 }
 .composer textarea:focus {
   outline: none;
