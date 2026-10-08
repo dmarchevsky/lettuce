@@ -5,6 +5,8 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.9.0-letta_0.34.1] - 2026-10-08
+
 ### Added
 - **The composer's one button follows the box.** A blue circle with an up-arrow sends whenever the box holds something: with the agent idle it sends now, and mid-turn it queues what was typed — the message waits in the queue strip and says so. With the box empty while the agent works, the same circle is red and **stops** the turn; while a stop unwinds it pulses instead of offering a second abort. The split square send/stop is gone — one button, a size smaller than the squares it replaces, and what you typed is what decides which it is.
 - **The queue strip runs on pills and one yellow Steer.** Queued messages are rounded pills that take only the width their text needs (capped, truncated, whole message on hover), each carrying **edit** — pull the text back into the input box to change and resend — and **delete**. Steering is one amber **Steer** pill at the strip's left edge: it stops the current turn and starts the queue from its head, the rest following in order. A waiting message lives *only* in its pill: no transcript bubble until it is actually routed into the conversation.
