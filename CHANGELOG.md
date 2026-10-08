@@ -12,6 +12,7 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ### Fixed
 - **No more phantom “No activity” after a clean finish.** Steering a queued message raced with a turn that ended on its own: the steer armed the seam that holds the working indicator open for the replacement turn even when there was nothing left to stop, so the indicator was left waiting for a turn end that had already passed — and a minute later the amber `No activity` line lit up beside an answer that had completed fine. The seam is now armed only when the stop actually interrupts a running turn. The stall line also dropped a duplicate warning triangle it drew on its left.
+- **A phone that slept through a turn no longer stalls on its finished answer.** Coming back after the replay buffer had rolled over reloaded the transcript but kept the optimistic working state across the gap, so a completed answer stayed “working” and the amber warning lit minutes later. A resync reload now also has the app-server re-emit live state (a forced status sync, observer only), so the working line, queue and status say what actually happened while the device was away.
 
 ## [v0.8.0-letta_0.34.1] - 2026-10-07
 

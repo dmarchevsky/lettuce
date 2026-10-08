@@ -25,6 +25,7 @@ import { frameSeq, type RuntimeScope, type SequencedFrame, scopeKey } from "../l
 import { planForceSend, type QueuedItem, readQueue } from "../lib/queue-actions.ts";
 import { type ResponseFormat, validateResponseFormat } from "../lib/structured-output.ts";
 import { pickTurnUsage, type TurnUsage } from "../lib/usage.ts";
+import { STALL_AFTER_MS } from "../lib/working.ts";
 import {
   agentWorkspace,
   isPermissionMode,
@@ -442,6 +443,61 @@ export function useConversation(
       });
   }, []);
 
+  /**
+   * Ask the app-server to re-emit this conversation's live state.
+   *
+   * An observer `sync` (never the owner's `resume_interrupted_turn` — the BFF
+   * owns recovery) with `force_device_status` makes the app-server re-emit
+   * device status and queue on the BFF's connection; the frame router fans
+   * them out here, and the normal status handlers re-prime everything the
+   * client keeps live-only: `processing`, the queue, the status pill. The
+   * client's `processing` is optimistic from the send — a client bug or a lost
+   * frame can strand it true on a finished conversation — and this is the
+   * cheap way back to the app-server's truth, which holds turn state anyway.
+   */
+  const reprimeLiveState = useCallback(() => {
+    if (!agentId || !conversationId) return;
+    void request("sync", {
+      runtime: { agent_id: agentId, conversation_id: conversationId },
+      force_device_status: true,
+    }).catch(() => {
+      // A dead socket rejects; the reconnect resyncs and reprimes anyway.
+    });
+  }, [agentId, conversationId, request]);
+
+  /**
+   * The stall watchdog's once-per-turn flag: the reconciliation probe fires
+   * again only after `processing` has been false since the last one.
+   */
+  const stallProbedRef = useRef(false);
+
+  /**
+   * Belt over every stranding path, known or not.
+   *
+   * The stall warning is client inference — "we claim a turn, and this client
+   * has heard nothing for a minute". Every bug that ever strands `processing`
+   * true ends up painting that warning over a finished conversation. So when
+   * it is about to light, ask the app-server once (per turn, per episode) to
+   * re-emit what it believes: a client-side stranding self-heals seconds
+   * after the warning would appear, while a genuinely hung turn is reported
+   * truthfully and keeps the warning — the probe answers "is it hung?" with
+   * the only opinion that can say.
+   */
+  useEffect(() => {
+    if (!processing) {
+      stallProbedRef.current = false;
+      return;
+    }
+    const timer = setInterval(() => {
+      if (stallProbedRef.current || stopping) return;
+      const last = lastActivityRef.current;
+      if (last === null || Date.now() - last < STALL_AFTER_MS + 15_000) return;
+      stallProbedRef.current = true;
+      reprimeLiveState();
+    }, 5_000);
+    return () => clearInterval(timer);
+  }, [processing, stopping, reprimeLiveState]);
+
   const loadHistory = useCallback(
     async (afterResync = false) => {
       if (!conversationId) return;
@@ -464,12 +520,22 @@ export function useConversation(
         // number that would otherwise flip the link back to "live" on its
         // own — see session-client.ts's markResynced. Only relevant when this
         // reload was resync-triggered; an ordinary load has nothing to un-stick.
-        if (afterResync) markResynced();
+        if (afterResync) {
+          markResynced();
+          // The reload fixed the transcript; it cannot fix turn state.
+          // `processing` is optimistic from the send, and every frame that
+          // would have corrected it died in the gap this resync is the answer
+          // to: a phone that slept through a turn's completion wakes to a
+          // finished answer still shown as working, and the stall line lights
+          // on a conversation that ended minutes ago.
+          setStopping(false);
+          reprimeLiveState();
+        }
       } catch (cause) {
         setError(errorMessage(cause));
       }
     },
-    [agentId, conversationId, request, flush, markResynced, refreshUsage],
+    [agentId, conversationId, request, flush, markResynced, refreshUsage, reprimeLiveState],
   );
 
   // Start (or resume) the runtime for this conversation, then load its history.
