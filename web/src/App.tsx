@@ -412,8 +412,28 @@ function Workspace({ status }: { status: Status }) {
 
             {conversation.queue.length > 0 ? (
               <div className="queue">
-                {/* No “Queued”/“Paused” label: the amber/grey dot and the
-                    Resume button already say which state the strip is in. */}
+                {/* No “Queued”/“Paused” label and no per-chip steer: one
+                    yellow pill at the strip's left edge stops the turn and
+                    starts the queue from its head — the rest follow in
+                    order (upstream has no per-item promote, so “make THIS
+                    next” for a later item is still what edit + delete are
+                    for). A parked queue shows Resume instead. */}
+                {conversation.queue.some((item) => item.source === "user" && !item.paused) ? (
+                  <button
+                    type="button"
+                    className="queued steer-pill"
+                    title="Steer — stop this turn and start the queued messages now"
+                    onClick={() => {
+                      const target = conversation.queue.find(
+                        (item) => item.source === "user" && !item.paused,
+                      );
+                      if (target) void conversation.forceSend(target.id);
+                    }}
+                  >
+                    <Icon name="send" />
+                    Steer
+                  </button>
+                ) : null}
                 {conversation.queue.some((item) => item.paused) ? (
                   <button
                     type="button"
@@ -427,26 +447,9 @@ function Workspace({ status }: { status: Status }) {
                 ) : null}
                 {conversation.queue.map((item) => (
                   <span key={item.id} className={`queued${item.paused ? " paused" : ""}`}>
-                    <span className="queued-dot" aria-hidden="true" />
                     <span className="queued-text" title={item.content}>
                       <span>{item.content}</span>
                     </span>
-                    {item.source === "user" ? (
-                      // Steer: upstream has no promote command, so this stops
-                      // the turn and resends the queue with this message at
-                      // the head — the honest form of “make this the next
-                      // thing said”. Only user items offer it; a system item
-                      // (cron, task notice) must not be resent as a user.
-                      <button
-                        type="button"
-                        className="queued-act steer"
-                        title="Steer — stop this turn and send this next"
-                        onClick={() => void conversation.forceSend(item.id)}
-                        aria-label={`Steer queued message: ${item.content.slice(0, 40)}`}
-                      >
-                        <Icon name="send" />
-                      </button>
-                    ) : null}
                     {item.source === "user" ? (
                       // Edit: out of the queue, back into the input box — the
                       // same affordance as “Edit” on a sent message. Text

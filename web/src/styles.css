@@ -1056,33 +1056,43 @@ pre {
   overflow-x: auto;
   flex-shrink: 0;
 }
-/* A queued message: one chip per item, three actions on user items —
-   steer, edit, delete — and delete alone on system items. The chip is the
+/* A queued message: one pill per item, edit + delete on user items and
+   delete alone on system items — steering the queue is one yellow pill at
+   the strip's left edge, not a per-message action. The chip is the
    container; the buttons inside are transparent so it reads as a single
-   object. Square, like everything else. A chip takes only the width its text
-   needs, capped so long texts still align and the strip scrolls sideways
-   rather than shrinking a chip into its actions. */
+   object. A chip takes only the width its text needs, capped so long texts
+   still align and the strip scrolls sideways rather than shrinking a chip
+   into its actions. */
 .queued {
   display: inline-flex;
   align-items: stretch;
   background: var(--surface-2);
   border: 1px solid var(--border);
+  border-radius: 999px;
   color: var(--muted);
   font-size: 12px;
   overflow: hidden;
   flex-shrink: 0;
 }
-/* Amber while it will drain, muted once an interrupt parked it. */
-.queued-dot {
-  width: 6px;
-  height: 6px;
-  align-self: center;
-  margin-left: 10px;
-  flex-shrink: 0;
+/* The one queue verb: amber, like the working line's — it interrupts, so it
+   borrows the color that already means “acting on the turn”. */
+.steer-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 11px;
   background: var(--warn);
+  border: none;
+  color: #221607;
+  font-weight: 600;
+  cursor: pointer;
 }
-.queued.paused .queued-dot {
-  background: var(--muted);
+.steer-pill:hover {
+  filter: brightness(1.12);
+}
+.steer-pill .icon {
+  width: 12px;
+  height: 12px;
 }
 /* Text fits its content up to the cap, tail-truncated because the head
    identifies the message. The ellipsis needs a real block inside the flex
@@ -1112,16 +1122,13 @@ pre {
   cursor: pointer;
 }
 /* One divider only: between the text and the actions. The actions themselves
-   sit bare — three glyphs with air between them read as one group. */
+   sit bare — the glyphs with air between them read as one group. */
 .queued-act:first-of-type {
   border-left: 1px solid var(--border);
 }
 .queued-act:hover {
   color: var(--text);
   background: var(--surface-2);
-}
-.queued-act.steer {
-  color: var(--accent);
 }
 .queued-act .icon {
   width: 13px;
@@ -1581,8 +1588,8 @@ pre {
    like the square it replaces: it must stay reachable however far the chips
    scroll. */
 .glyph-btn {
-  width: 30px;
-  height: 30px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
   border: none;
   flex-shrink: 0;
@@ -1599,8 +1606,8 @@ pre {
   touch-action: manipulation;
 }
 .glyph-btn .icon {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
 }
 .glyph-btn.go {
   background: #2e7df6;
@@ -2065,14 +2072,15 @@ p.warning code {
     height: 44px;
     font-size: 16px;
   }
-  /* The round action button grows to the fingertip box like its neighbours. */
+  /* The round action button stays a fingertip target, just lighter than the
+     squares it replaced. */
   .composer-row .glyph-btn {
-    width: 44px;
-    height: 44px;
+    width: 40px;
+    height: 40px;
   }
   .composer-row .glyph-btn .icon {
-    width: 22px;
-    height: 22px;
+    width: 20px;
+    height: 20px;
   }
   /* Same chips at phone: a tighter cap keeps a long message clear of the
      strip's right edge for longer. */

@@ -376,14 +376,23 @@ try {
       // centre: six 44px buttons fill most of a phone row.
       const gap = (row.querySelector(".spacer") as HTMLElement).getBoundingClientRect().left;
       const buttons = [...row.querySelectorAll("button")].filter((b) => b.offsetParent !== null);
+      // The round send/stop control is its own fingertip floor (40px) — it is
+      // deliberately a size under its flat neighbours — so it is checked
+      // against that floor instead of the row-wide 44px.
+      const round = buttons.find((b) => b.classList.contains("glyph-btn"));
+      const roundOk =
+        !round ||
+        (round.getBoundingClientRect().width >= 40 && round.getBoundingClientRect().height >= 40);
       return {
         small: buttons
+          .filter((b) => !b.classList.contains("glyph-btn"))
           .map((b) => ({
             name: b.getAttribute("aria-label"),
             ...b.getBoundingClientRect().toJSON(),
           }))
           .filter((b) => b.width < 44 || b.height < 44)
           .map((b) => `${b.name} ${Math.round(b.width)}x${Math.round(b.height)}`),
+        roundOk,
         left: buttons
           .filter((b) => b.getBoundingClientRect().right <= gap)
           .map((b) => b.getAttribute("aria-label")),
@@ -391,6 +400,7 @@ try {
       };
     });
     check("composer buttons are at least 44px", controls.small.length === 0, controls.small);
+    check("the round send/stop is at least 40px", controls.roundOk, controls.roundOk);
     check(
       "only the switcher is on the left",
       controls.left.length === 1 && controls.left[0] === "Agents and conversations",
