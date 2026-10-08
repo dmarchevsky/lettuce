@@ -412,9 +412,8 @@ function Workspace({ status }: { status: Status }) {
 
             {conversation.queue.length > 0 ? (
               <div className="queue">
-                <span className="tag">
-                  {conversation.queue.some((item) => item.paused) ? "Paused" : "Queued"}
-                </span>
+                {/* No “Queued”/“Paused” label: the amber/grey dot and the
+                    Resume button already say which state the strip is in. */}
                 {conversation.queue.some((item) => item.paused) ? (
                   <button
                     type="button"

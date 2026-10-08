@@ -312,6 +312,10 @@ export function useConversation(
   const [queue, setQueue] = useState<QueuedItem[]>([]);
   /** Mirror of `queue` for callbacks that must read the live snapshot. */
   const queueRef = useRef<QueuedItem[]>([]);
+  /** Ids exempt from the queue's echo erase (the `update_queue` case): a
+   * question answer's answered-card state renders from its echo, so that
+   * echo survives waiting in the queue. */
+  const keepEchoRef = useRef(new Set<string>());
   /** Mirror of `processing`, so `forceSend` can decide whether to abort. */
   const processingRef = useRef(false);
   /**
@@ -663,6 +667,26 @@ export function useConversation(
           const items = readQueue((frame as { queue?: unknown }).queue);
           queueRef.current = items;
           setQueue(items);
+          // A user message that is in the queue is not in the conversation —
+          // yet. Its optimistic echo retires here and the app-server's dequeue
+          // echo creates the transcript entry when the message is actually
+          // routed, so a waiting message lives only in its chip. The erase
+          // mirrors `dropLocalEcho` (declared below) inline: only the local
+          // echo ever goes, a server-echoed entry is the real record. Question
+          // answers keep their echo (their card state rides it) — `keepEchoRef`.
+          for (const item of items) {
+            const queuedId = item.clientMessageId;
+            if (
+              item.source === "user" &&
+              queuedId &&
+              !keepEchoRef.current.has(queuedId) &&
+              transcriptRef.current.get(queuedId)?.local
+            ) {
+              transcriptRef.current.delete(queuedId);
+              streamIndexRef.current.byOtid.delete(queuedId);
+              flushSync();
+            }
+          }
           break;
         }
         case "control_request": {
@@ -704,7 +728,10 @@ export function useConversation(
       // when it was queued behind a busy agent, so on the ordinary path no
       // frame ever arrives and the transcript would show the reply without the
       // question. The id doubles as the otid, so a queued echo merges into this
-      // entry rather than duplicating it.
+      // entry rather than duplicating it. A send that turns out to be queued
+      // loses this echo again when the `update_queue` snapshot carries the
+      // item — see `keepEchoRef` — so the chip is the queued message's only
+      // place on screen.
       seqRef.current += 1;
       addLocalUserMessage(
         transcriptRef.current,
@@ -738,7 +765,15 @@ export function useConversation(
   );
 
   const sendMessage = useCallback(
-    async (text: string, responseFormat?: ResponseFormat | null, images?: PreparedImage[]) => {
+    async (
+      text: string,
+      responseFormat?: ResponseFormat | null,
+      images?: PreparedImage[],
+      /** A send whose echo must survive the queue — a question answer, whose
+       * answered card state `splitInjectedBlocks` renders from the echo. The
+       * card must flip the moment you answer, not when the queue drains. */
+      opts?: { keepLocalEcho?: boolean },
+    ) => {
       const hasImages = Boolean(images && images.length > 0);
       if (!scope || (!text.trim() && !hasImages)) return;
 
@@ -763,7 +798,8 @@ export function useConversation(
         // is the honest outcome: a server-side normalization failure surfaces
         // as a `loop_error` in the transcript rather than silently vanishing.
         const raw = hasImages ? buildMessageContent(text, images ?? []) : text;
-        sendContent(raw, text, responseFormat, images);
+        const clientMessageId = sendContent(raw, text, responseFormat, images);
+        if (opts?.keepLocalEcho) keepEchoRef.current.add(clientMessageId);
       } catch (cause) {
         setProcessing(false);
         setError(errorMessage(cause));
@@ -869,10 +905,14 @@ export function useConversation(
 
   const answerQuestions = useCallback(
     (response: AskUserQuestionResponse) => {
-      // A question answer is just a message: same send path, same queueing,
-      // same optimistic echo — `splitInjectedBlocks` renders the echo as the
-      // answered state of the card, not as a raw XML bubble.
-      void sendMessage(prepareAskUserQuestionNotif(response));
+      // A question answer is just a message: same send path, same queueing —
+      // but its echo stays even when the answer waits in the queue, because
+      // `splitInjectedBlocks` renders the answered state of the card from
+      // the echo. The card must flip the moment you answer, not when the
+      // queue drains.
+      void sendMessage(prepareAskUserQuestionNotif(response), null, undefined, {
+        keepLocalEcho: true,
+      });
     },
     [sendMessage],
   );
