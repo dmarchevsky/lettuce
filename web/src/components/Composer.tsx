@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { MAX_IMAGES_PER_MESSAGE, type PreparedImage, prepareImages } from "../lib/attachments.ts";
+import {
+  clampComposerHeight,
+  readComposerHeight,
+  writeComposerHeight,
+} from "../lib/composer-height.ts";
 import { clearDraft, readDraft, writeDraft } from "../lib/draft.ts";
 import {
   AT_DRAFT,
@@ -100,12 +105,18 @@ type OpenSheet = "filters" | "permissions" | "structured" | null;
 const MAX_TEXTAREA_HEIGHT = 160;
 
 /**
- * Size the box to its text. `scrollHeight` is rounded to a whole pixel while the
- * content is not (16px × 1.4 lines plus padding is 30.4px), so a box sized to it
- * sits a fraction short — and with `overflow-y: auto` that drew a scrollbar on a
- * single line. It scrolls only once it has stopped growing.
+ * Size the box to its text — unless the user has pinned a height by dragging
+ * the grip, in which case the box holds that height and scrolls inside.
+ * `scrollHeight` is rounded to a whole pixel while the content is not (16px ×
+ * 1.4 lines plus padding is 30.4px), so a box sized to it sits a fraction
+ * short — and with `overflow-y: auto` that drew a scrollbar on a single line.
+ * It scrolls only once it has stopped growing.
  */
-function fitToContent(textarea: HTMLTextAreaElement): void {
+function fitToContent(textarea: HTMLTextAreaElement, manual: boolean): void {
+  if (manual) {
+    textarea.style.overflowY = "auto";
+    return;
+  }
   textarea.style.height = "auto";
   const height = textarea.scrollHeight;
   textarea.style.height = `${Math.min(height, MAX_TEXTAREA_HEIGHT)}px`;
@@ -156,6 +167,16 @@ export function Composer({
   const [dismissed, setDismissed] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const suggestionListRef = useRef<HTMLUListElement>(null);
+  /**
+   * A height pinned by dragging the box's top grip, in CSS pixels; `null` is
+   * auto-fit. Reflected in state only to restyle the textarea, and remembered
+   * on the device (see `lib/composer-height.ts`) — a resize is ergonomic
+   * preference, not conversation state.
+   */
+  const [manualHeight, setManualHeight] = useState<number | null>(() => readComposerHeight());
+  const manualRef = useRef<number | null>(manualHeight);
+  /** Live drag state: where the pointer and the box were when the grip bit. */
+  const resizeDragRef = useRef<{ startY: number; startHeight: number } | null>(null);
   /**
    * Position in `history`. A ref: moving through history re-renders through
    * `value` anyway. The saved draft lives here, not in draft storage, so the
@@ -235,11 +256,13 @@ export function Composer({
     setDismissed(false);
     const textarea = textareaRef.current;
     if (!textarea) return;
-    textarea.style.height = "auto";
+    // A remembered manual height survives a conversation switch; only the
+    // auto-fit box re-fits to the restored text.
+    textarea.style.height = manualRef.current === null ? "auto" : `${manualRef.current}px`;
     // The restored value has not hit the DOM yet; grow to fit it after paint,
     // the same clamp `onChange` uses, so a multi-line draft is not squashed.
     const frame = requestAnimationFrame(() => {
-      fitToContent(textarea);
+      fitToContent(textarea, manualRef.current !== null);
     });
     return () => cancelAnimationFrame(frame);
   }, [draftKey]);
@@ -258,7 +281,7 @@ export function Composer({
     if (!textarea) return;
     textarea.focus();
     requestAnimationFrame(() => {
-      fitToContent(textarea);
+      fitToContent(textarea, manualRef.current !== null);
       textarea.setSelectionRange(prefill.length, prefill.length);
     });
   }, [prefill]);
@@ -284,10 +307,7 @@ export function Composer({
     setHighlight(0);
     setDismissed(false);
     const textarea = textareaRef.current;
-    if (textarea) {
-      textarea.style.height = "auto";
-      textarea.style.overflowY = "";
-    }
+    if (textarea) fitToContent(textarea, manualRef.current !== null);
   };
 
   /**
@@ -302,7 +322,7 @@ export function Composer({
     const textarea = textareaRef.current;
     if (!textarea) return;
     requestAnimationFrame(() => {
-      fitToContent(textarea);
+      fitToContent(textarea, manualRef.current !== null);
       textarea.setSelectionRange(next.length, next.length);
     });
   };
@@ -326,6 +346,57 @@ export function Composer({
     }
     onRunCommand(command.id);
     reset();
+  };
+
+  /**
+   * Drag the box's top grip to pin a height. Up is taller — the box grows by
+   * however far the pointer moved up, clamped between one line and half the
+   * viewport. The height commits (and is remembered) on release, not per move.
+   */
+  const beginResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    resizeDragRef.current = { startY: event.clientY, startHeight: textarea.offsetHeight };
+  };
+
+  const dragResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = resizeDragRef.current;
+    const textarea = textareaRef.current;
+    if (!drag || !textarea) return;
+    const next = clampComposerHeight(
+      drag.startHeight + (drag.startY - event.clientY),
+      window.innerHeight,
+    );
+    textarea.style.height = `${next}px`;
+    textarea.style.overflowY = "auto";
+  };
+
+  const endResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = resizeDragRef.current;
+    resizeDragRef.current = null;
+    if (!drag) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const height = clampComposerHeight(textarea.offsetHeight, window.innerHeight);
+    manualRef.current = height;
+    setManualHeight(height);
+    writeComposerHeight(height);
+  };
+
+  /** Double-click the grip: forget the height and let auto-fit have the box back. */
+  const resetManualHeight = () => {
+    manualRef.current = null;
+    setManualHeight(null);
+    writeComposerHeight(null);
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    requestAnimationFrame(() => fitToContent(textarea, false));
   };
 
   /**
@@ -369,12 +440,11 @@ export function Composer({
   };
 
   /**
-   * While a turn runs and there is text, the button is split: the blue field
-   * queues what is typed (upstream queues anything that arrives mid-turn), the
-   * red corner stops the agent. Both are real buttons — no long-press gesture,
-   * so keyboard users get both actions and a queue press can never abort.
+   * Whether the box holds something sendable. While the agent works this is
+   * the whole button decision: empty box → the button stops the turn; text →
+   * the button sends it, and upstream queues whatever arrives mid-turn.
    */
-  const queueMode = processing && !stopping && (value.trim().length > 0 || attachments.length > 0);
+  const hasContent = value.trim().length > 0 || attachments.length > 0;
 
   const modeLabel =
     PERMISSION_MODES.find((mode) => mode.id === permissionMode)?.label ?? "Permissions";
@@ -436,8 +506,8 @@ export function Composer({
 
         {processing ? (
           // Above the box, not in the transcript: the transcript's own dots
-          // scroll away, this one explains why the button is split — and now
-          // says what the agent is doing, how long, and how fast.
+          // scroll away, this one says what the agent is doing, how long, and
+          // how fast — and why the button under it is red.
           <WorkingLine
             entries={turn.entries}
             queue={turn.queue}
@@ -451,6 +521,22 @@ export function Composer({
         ) : null}
 
         <div className="composer-box">
+          {/* The box's top border doubles as the resize grip: drag for a
+              pinned height, double-click for auto-fit. Pointer-only by
+              design — auto-fit already serves anyone who never touches it,
+              so it stays hidden from assistive tech. */}
+          <div
+            className="composer-resize"
+            aria-hidden="true"
+            title="Drag to resize · double-click for auto-fit"
+            onPointerDown={beginResize}
+            onPointerMove={dragResize}
+            onPointerUp={endResize}
+            onPointerCancel={endResize}
+            onDoubleClick={resetManualHeight}
+          >
+            <i />
+          </div>
           {/* Above the textarea so the images you are about to send sit between
               you and the agent, not under the keyboard. */}
           {attachments.length > 0 || preparing || attachErrors.length > 0 ? (
@@ -489,6 +575,7 @@ export function Composer({
             ref={textareaRef}
             value={value}
             rows={1}
+            className={manualHeight !== null ? "manual" : undefined}
             placeholder={disabled ? "Select a conversation" : "Message the agent…"}
             disabled={disabled}
             onPaste={(event) => {
@@ -507,7 +594,7 @@ export function Composer({
               remember(event.target.value);
               setHighlight(0);
               setDismissed(false);
-              fitToContent(event.target);
+              fitToContent(event.target, manualRef.current !== null);
             }}
             onKeyDown={(event) => {
               // An IME mid-composition owns every key; the send button is still
@@ -687,49 +774,36 @@ export function Composer({
             </button>
 
             {processing ? (
-              // A second abort while the first is still unwinding is a guaranteed
-              // no-op upstream (`handleAbortMessageInput` returns early once the
-              // turn lifecycle is `cancelling`), so the button stops offering it.
-              stopping ? (
+              hasContent ? (
+                // Text in the box while the agent works: send stays send — it
+                // queues (upstream drains whatever arrives mid-turn) and the
+                // queue chip grows steer / edit / delete actions.
+                <button
+                  type="submit"
+                  className="glyph-btn go"
+                  title="Queue this message"
+                  aria-label="Queue this message"
+                >
+                  <Icon name="up" />
+                </button>
+              ) : stopping ? (
+                // A second abort while the first is still unwinding is a
+                // guaranteed no-op upstream (`handleAbortMessageInput` returns
+                // early once the turn lifecycle is `cancelling`), so the button
+                // stops offering it and pulses instead.
                 <button
                   type="button"
-                  className="icon-button stop pending"
+                  className="glyph-btn halt pending"
                   disabled
                   title="Stopping…"
                   aria-label="Stopping"
                 >
                   <Icon name="stop" />
                 </button>
-              ) : queueMode ? (
-                // One 28px square, two hit areas. The stop button is clipped to
-                // the red triangle, and clip-path clips hit-testing too — so
-                // presses on the blue field fall through to the queue button
-                // underneath. Both are real buttons: tab reaches each, and a
-                // queue press can never abort by accident.
-                <span className="send-split">
-                  <button
-                    type="button"
-                    className="split-queue"
-                    onClick={submit}
-                    title="Queue this message"
-                    aria-label="Queue this message"
-                  >
-                    <Icon name="send" />
-                  </button>
-                  <button
-                    type="button"
-                    className="split-stop"
-                    onClick={onAbort}
-                    title="Stop the agent"
-                    aria-label="Stop the agent"
-                  >
-                    <Icon name="stop-solid" />
-                  </button>
-                </span>
               ) : (
                 <button
                   type="button"
-                  className="icon-button stop"
+                  className="glyph-btn halt"
                   onClick={onAbort}
                   title="Stop"
                   aria-label="Stop generating"
@@ -740,12 +814,12 @@ export function Composer({
             ) : (
               <button
                 type="submit"
-                className="icon-button send"
-                disabled={disabled || preparing || (!value.trim() && attachments.length === 0)}
+                className="glyph-btn go"
+                disabled={disabled || preparing || !hasContent}
                 title="Send"
                 aria-label="Send message"
               >
-                <Icon name="send" />
+                <Icon name="up" />
               </button>
             )}
           </div>

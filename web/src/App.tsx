@@ -429,29 +429,51 @@ function Workspace({ status }: { status: Status }) {
                 {conversation.queue.map((item) => (
                   <span key={item.id} className={`queued${item.paused ? " paused" : ""}`}>
                     <span className="queued-dot" aria-hidden="true" />
-                    <button
-                      type="button"
-                      className="queued-remove"
-                      title="Remove from queue"
-                      onClick={() => conversation.removeQueued(item.id)}
-                      aria-label={`Remove queued message: ${item.content.slice(0, 40)}`}
-                    >
-                      {item.content.slice(0, 40)}
-                      <Icon name="close" />
-                    </button>
+                    <span className="queued-text" title={item.content}>
+                      {item.content}
+                    </span>
                     {item.source === "user" ? (
-                      // Upstream has no promote command; this stops the turn
-                      // and resends the queue with this message at the head.
+                      // Steer: upstream has no promote command, so this stops
+                      // the turn and resends the queue with this message at
+                      // the head — the honest form of “make this the next
+                      // thing said”. Only user items offer it; a system item
+                      // (cron, task notice) must not be resent as a user.
                       <button
                         type="button"
-                        className="queued-force"
-                        title="Stop and send this now"
+                        className="queued-act steer"
+                        title="Steer — stop this turn and send this next"
                         onClick={() => void conversation.forceSend(item.id)}
-                        aria-label={`Force send queued message: ${item.content.slice(0, 40)}`}
+                        aria-label={`Steer queued message: ${item.content.slice(0, 40)}`}
                       >
                         <Icon name="send" />
                       </button>
                     ) : null}
+                    {item.source === "user" ? (
+                      // Edit: out of the queue, back into the input box — the
+                      // same affordance as “Edit” on a sent message. Text
+                      // returns; attached images do not survive the trip.
+                      <button
+                        type="button"
+                        className="queued-act"
+                        title="Edit — put it back in the input"
+                        onClick={() => {
+                          conversation.removeQueued(item.id);
+                          setPrefill(item.content);
+                        }}
+                        aria-label={`Edit queued message: ${item.content.slice(0, 40)}`}
+                      >
+                        <Icon name="edit" />
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="queued-act"
+                      title="Delete from queue"
+                      onClick={() => conversation.removeQueued(item.id)}
+                      aria-label={`Delete queued message: ${item.content.slice(0, 40)}`}
+                    >
+                      <Icon name="close" />
+                    </button>
                   </span>
                 ))}
               </div>

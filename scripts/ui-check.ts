@@ -428,6 +428,17 @@ try {
       "composer has a send button",
       (await page.locator('.composer-row button[aria-label="Send message"]').count()) === 1,
     );
+    // The composer's one action button is the round glyph button; the box's
+    // top border carries the resize grip (drag to pin a height, double-click
+    // for auto-fit — see `Composer.tsx`).
+    check(
+      "composer has one round action button",
+      (await page.locator(".composer-row .glyph-btn").count()) === 1,
+    );
+    check(
+      "composer has a resize grip",
+      (await page.locator(".composer-box .composer-resize").count()) === 1,
+    );
 
     // Every icon-only control must be nameable; today's regression was that
     // most glyph buttons had no accessible name at all.

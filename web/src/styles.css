@@ -944,10 +944,10 @@ pre {
 
 /* ── Queue + composer ────────────────────────────────────────────────────── */
 
-/* Why the button is split, and what the agent is doing: three agent-green
-   dots, a fixed icon slot, a bright activity phrase, and right-aligned
-   stats — elapsed last so its digits sit still at any width. Segments and
-   drop order are specified in `lib/working.ts`. */
+/* What the agent is doing, and why the button under it is red: three
+   agent-green dots, a fixed icon slot, a bright activity phrase, and
+   right-aligned stats — elapsed last so its digits sit still at any width.
+   Segments and drop order are specified in `lib/working.ts`. */
 .working-line {
   display: flex;
   align-items: center;
@@ -1056,9 +1056,12 @@ pre {
   overflow-x: auto;
   flex-shrink: 0;
 }
-/* A queued message: one chip, two actions — remove (the text) and force-send
-   (user items only). The chip is the container; the buttons inside are
-   transparent so it reads as a single object. Square, like everything else. */
+/* A queued message: one chip per item, three actions on user items —
+   steer, edit, delete — and delete alone on system items. The chip is the
+   container; the buttons inside are transparent so it reads as a single
+   object. Square, like everything else. Every chip carries the same fixed
+   text column, so chips are the same size whatever the text says — and the
+   strip scrolls sideways rather than shrinking a chip into its actions. */
 .queued {
   display: inline-flex;
   align-items: stretch;
@@ -1081,27 +1084,38 @@ pre {
 .queued.paused .queued-dot {
   background: var(--muted);
 }
-.queued-remove {
+/* Fixed-width text column — the same object for every chip, tail-truncated
+   because the head identifies the message. */
+.queued-text {
+  flex: 0 0 240px;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  background: none;
-  border: 0;
-  color: inherit;
-  font: inherit;
-  padding: 4px 6px 4px 8px;
+  padding: 4px 4px 4px 8px;
   white-space: nowrap;
-  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.queued-force {
+.queued-act {
   display: inline-flex;
   align-items: center;
   background: none;
   border: 0;
   border-left: 1px solid var(--border);
-  color: var(--accent);
-  padding: 4px 8px;
+  color: var(--muted);
+  padding: 4px 7px;
   cursor: pointer;
+}
+.queued-act:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+.queued-act.steer {
+  color: var(--accent);
+}
+.queued-act .icon {
+  width: 13px;
+  height: 13px;
 }
 .resume-queue {
   display: inline-flex;
@@ -1137,6 +1151,28 @@ pre {
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
+/* The box's top border doubles as the resize grip: drag it up for a taller
+   textarea, double-click it to give auto-fit back. The whole strip is the hit
+   area; the quiet bar is the affordance. `touch-action: none` so a drag on a
+   phone is a drag, not a page scroll. */
+.composer-resize {
+  height: 14px;
+  margin: -2px -6px 0;
+  display: grid;
+  place-items: center;
+  cursor: ns-resize;
+  touch-action: none;
+}
+.composer-resize i {
+  width: 40px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border);
+}
+.composer-box:hover .composer-resize i,
+.composer-resize:active i {
+  background: var(--muted);
+}
 /* The ring is box-shadow (no layout effect) and fits inside .composer's 12px
    inline padding. No `overflow` here: it would clip .composer-row's own
    horizontal scroll and the sticky send button. */
@@ -1168,6 +1204,11 @@ pre {
   max-height: 160px;
   /* Until it reaches max-height; see fitToContent in Composer.tsx. */
   overflow-y: hidden;
+}
+/* A manually sized box holds its height and scrolls inside; auto-fit is back
+   the moment the grip is double-clicked (see Composer.tsx). */
+.composer textarea.manual {
+  overflow-y: auto;
 }
 .composer textarea:focus {
   outline: none;
@@ -1291,15 +1332,8 @@ pre {
   font-size: 12px;
 }
 
-/* The send button must stay reachable however far the chips scroll. */
-.composer-row .icon-button.send,
-.composer-row .icon-button.stop {
-  width: 28px;
-  height: 28px;
-  font-size: 14px;
-  position: sticky;
-  right: 0;
-}
+/* The composer row's last control is the round action button (`.glyph-btn`),
+   sticky so it stays reachable however far the chips scroll. */
 .composer textarea:disabled {
   opacity: 0.5;
 }
@@ -1522,55 +1556,46 @@ pre {
   color: var(--text);
   font-size: 20px;
 }
-.icon-button.stop {
-  background: var(--bad);
-}
-/* The queue button: one square, two hit areas. The stop button is clipped to
-   the red triangle and clip-path clips hit-testing with it, so presses on the
-   blue field fall through to the queue button underneath. */
-.send-split {
-  width: 28px;
-  height: 28px;
+/* The composer's single action button: a glowing circle — blue for go (send,
+   or queue while a turn runs), red for stop — kept as a vector so it stays
+   crisp, glows in its own hue, and can pulse while stopping. Sticky like the
+   square it replaces: it must stay reachable however far the chips scroll. */
+.glyph-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: none;
   flex-shrink: 0;
-  border-radius: 4px;
-  overflow: hidden;
-  background: var(--accent);
-  position: sticky;
-  right: 0;
-}
-.send-split .split-queue {
-  position: absolute;
-  inset: 0;
-  border: 0;
-  /* Shift the plane up-left: at 28px its bounding box would otherwise reach
-     into the stop corner, and the two glyphs would touch. */
-  padding: 0 5px 5px 0;
-  background: none;
-  color: #000;
   display: grid;
   place-items: center;
+  color: #fff;
   cursor: pointer;
+  padding: 0;
+  position: sticky;
+  right: 0;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
 }
-.send-split .split-queue .icon {
-  width: 14px;
-  height: 14px;
+.glyph-btn .icon {
+  width: 16px;
+  height: 16px;
 }
-.send-split .split-stop {
-  position: absolute;
-  inset: 0;
-  border: 0;
-  padding: 0 3px 3px 0;
-  background: var(--bad);
-  color: #000;
-  clip-path: polygon(100% 0, 100% 100%, 38% 100%);
-  display: grid;
-  place-items: end end;
-  cursor: pointer;
+.glyph-btn.go {
+  background: #2e7df6;
+  box-shadow: 0 0 16px 2px rgba(46, 125, 246, 0.45);
 }
-.send-split .split-stop .icon {
-  width: 10px;
-  height: 10px;
+.glyph-btn.halt {
+  background: #f0463c;
+  box-shadow: 0 0 16px 2px rgba(240, 70, 60, 0.45);
 }
+.glyph-btn.go:disabled {
+  opacity: 0.35;
+  box-shadow: none;
+  cursor: default;
+}
+/* The round button replaces the flat send/stop squares entirely. */
 /* A long press must not select text or raise the callout menu on mobile. */
 .composer-row .icon-button {
   -webkit-user-select: none;
@@ -1580,17 +1605,17 @@ pre {
 }
 /* Stopping is a state, not a disabled control that failed — keep it legible
    rather than letting the generic :disabled fade hide it. */
-.icon-button.stop.pending:disabled {
+.glyph-btn.halt.pending:disabled {
   opacity: 0.75;
-  animation: stop-pending 1.2s ease-in-out infinite;
+  animation: halt-pending 1.2s ease-in-out infinite;
 }
-@keyframes stop-pending {
+@keyframes halt-pending {
   50% {
     opacity: 0.35;
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .icon-button.stop.pending:disabled,
+  .glyph-btn.halt.pending:disabled,
   .activity-dot {
     animation: none;
   }
@@ -2023,28 +2048,19 @@ p.warning code {
     height: 44px;
     font-size: 16px;
   }
-  .composer-row .icon-button.send,
-  .composer-row .icon-button.stop {
-    width: 52px;
-    height: 44px;
-    font-size: 17px;
-  }
-  /* The split queue button is a composer control too: same fingertip box, and
-     the bigger square gives the stop corner a pressable triangle. */
-  .send-split {
-    width: 52px;
+  /* The round action button grows to the fingertip box like its neighbours. */
+  .composer-row .glyph-btn {
+    width: 44px;
     height: 44px;
   }
-  .send-split .split-queue {
-    padding: 0 4px 4px 0;
-  }
-  .send-split .split-queue .icon {
+  .composer-row .glyph-btn .icon {
     width: 22px;
     height: 22px;
   }
-  .send-split .split-stop .icon {
-    width: 13px;
-    height: 13px;
+  /* Same-object chips at phone too: a narrower text column keeps the chip
+     clear of the strip's right edge for longer. */
+  .queued-text {
+    flex-basis: 150px;
   }
   .composer-row .icon-button .icon {
     width: 22px;

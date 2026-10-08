@@ -5,6 +5,11 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Added
+- **The composer's one button follows the box.** A blue circle with an up-arrow sends whenever the box holds something: with the agent idle it sends now, and mid-turn it queues what was typed — the message waits in the queue strip and says so. With the box empty while the agent works, the same circle is red and **stops** the turn; while a stop unwinds it pulses instead of offering a second abort. The split square send/stop is gone — one button, and what you typed is what decides which it is.
+- **Queued messages get three actions.** Each message waiting in the queue strip carries **steer** — stop the current turn and make this the next thing said —, **edit** — pull the text back into the input box to change and resend it — and **delete**. Queue chips share one fixed text column, so the queue reads as equal-size objects rather than a ragged row of half-visible sentences; long text truncates with the whole message on hover.
+- **Drag the input box taller.** The composer box's top border is a resize grip: drag it up to pin the box to any height up to half the screen — remembered on the device — and double-click it to hand the box back to the auto-grow that follows the text.
+
 ## [v0.8.0-letta_0.34.1] - 2026-10-07
 
 ### Added
