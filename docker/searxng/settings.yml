@@ -3,7 +3,7 @@
 # so the bot limiter (which needs Valkey and screens out non-browser clients) is
 # off and JSON output is on.
 #
-# Baked into the image, never bind-mounted (Dockhand builds from git; a relative
+# Baked into the image, never bind-mounted (the deploy manager builds from git; a relative
 # bind source mounts an empty directory). It lives outside /etc/searxng on
 # purpose: that path is a declared VOLUME, and compose carries an anonymous
 # volume across recreates, so a settings change there would never land.

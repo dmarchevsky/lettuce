@@ -61,7 +61,7 @@ Tier A is everything that needs no running stack and no secret; Tier B (`live.ym
 compose file on a runner. Everything else stays local by construction: **the operator's container
 test** (step 3 above), `bun run deploy-check` (it asserts against the running prod-shaped stack and
 needs `origin` reachable), the real `bun run ui-check` (needs agents, which a fresh CI stack has not
-got), `bun run smoke` (mutates live state), and anything Dockhand, Google or `smoke`-shaped that
+got), `bun run smoke` (mutates live state), and anything deploy-manager, Google or `smoke`-shaped that
 would need a credential. `check-worktree` is a `verify` stage but exits 0 under `CI=true` — the rule
 protects a dev box, not a runner.
 
@@ -89,11 +89,11 @@ Hard rules about the file itself:
 
 - **No job gets a secret.** Fork `pull_request` runs get a read-only token and none of the repo's
   secrets, so the tier has to stay runnable under that. Anything needing a credential
-  (`smoke`, anything Dockhand, anything Google) is not in here.
-- **CI builds the image the way prod does, and prod's builder is not a checkout.** Dockhand
-  copies the tree into its stack directory and builds there, and that copy carries no `.git`
+  (`smoke`, anything deploy-manager, anything Google) is not in here.
+- **CI builds the image the way prod does, and prod's builder is not a checkout.** The prod deploy
+  manager copies the tree into its stack directory and builds there, and that copy carries no `.git`
   — a `COPY .git/` in the Dockerfile aborted a whole prod deploy that way (2026-10-05,
-  docs/upstream-notes.md#dockhand-builds-without-git). So the `image` job also exports the tree
+  docs/upstream-notes.md#prod-builds-without-git). So the `image` job also exports the tree
   with `git archive`, builds it with `GIT_SHA=` and asserts `BUILD_INFO` names no commit. Any
   Dockerfile change that makes the image depend on git metadata has to pass that shape too, and
   a deployment whose image cannot name its commit is checked with

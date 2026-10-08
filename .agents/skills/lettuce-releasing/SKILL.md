@@ -1,6 +1,6 @@
 ---
 name: lettuce-releasing
-description: 'Cutting a lettuce release: the `v<MAJOR>.<MINOR>.<PATCH>-letta_<version>` tag format and what bumps MINOR versus PATCH, creating a tag only after the prod deploy verifies, `bun run release` as gated commands (`--pr` to open the release PR, `--deploy` to ship and tag it, or the one-shot), the VERSION file as the only machine-readable record (and why no package.json version exists), the CHANGELOG.md [Unreleased] voice and section rules, and the README / docs/CONFIGURATION.md docs-sync duty on the feature branch and at release time. Read when bumping VERSION, tagging, writing a changelog entry, or running release.'
+description: 'Cutting a lettuce release: the `v<MAJOR>.<MINOR>.<PATCH>-letta_<version>` tag format and what bumps MINOR versus PATCH, tagging as part of the release, immediately after the release PR merges, `bun run release` as gated commands (`--pr` to open the release PR, `--deploy` to ship and tag it, or the one-shot), the VERSION file as the only machine-readable record (and why no package.json version exists), the CHANGELOG.md [Unreleased] voice and section rules, and the README / docs/CONFIGURATION.md docs-sync duty on the feature branch and at release time. Read when bumping VERSION, tagging, writing a changelog entry, or running release.'
 ---
 
 # Versioning, tags, changelog, docs sync
@@ -26,7 +26,7 @@ v<MAJOR>.<MINOR>.<PATCH>-letta_<LETTA_CODE_VERSION>     e.g. v0.1.0-letta_0.33.7
 - The `letta_<version>` suffix is read from the pin at tag time (`docker/compose.yml`,
   proven consistent by `check-version-pin`), never from memory. It never resets the
   semver part; a letta bump riding along with a feature just changes that tag's suffix.
-- A tag is created **only after the prod deploy is verified** (AGENTS.md's "Stop before releasing to
+- A tag is cut **as part of the release, immediately after the release PR merges** (AGENTS.md's "Stop before releasing to
   prod") and pushed with `git push origin <tag>`. A failed deploy is never tagged.
 - Before running it, make the release-time **docs sync** commit on `main` if the
   `[Unreleased]` range changed anything `README.md` or `docs/CONFIGURATION.md` describes
@@ -43,15 +43,14 @@ v<MAJOR>.<MINOR>.<PATCH>-letta_<LETTA_CODE_VERSION>     e.g. v0.1.0-letta_0.33.7
     A human merges it; merge it **last**, because anything merged after it would ship and get
     tagged with no changelog entry.
   - **`--deploy`** is the second half: it refuses unless `origin/main`'s tip *is* that release
-    commit and unless that tag does not already exist, then runs `deploy-check`, prints the
-    Dockhand plan, asks for the one confirmation, and does deploy → verify → upstream-log check →
-    tag → push tag.
-  - **`--minor` alone** is the original one-shot (release commit on `main` locally, then push →
-    deploy → verify → tag). Correct while `main` accepts direct pushes; it fails at the push
+    commit and unless that tag does not already exist, then runs `deploy-check`, asks for the one
+    confirmation, and tags immediately: tag → push tag. The prod redeploy from `origin/main` and
+    its verification are the operator's own, done after the tag.
+  - **`--minor` alone** is the original one-shot (release commit on `main` locally, then push → tag). Correct while `main` accepts direct pushes; it fails at the push
     once require-PR is on.
   - Confirmation is unchanged in every mode: type the tag exactly on a TTY, or
     `RELEASE_CONFIRM=<tag>` for a non-interactive caller that has asked the human. A failure
-    stops with no rollback, and a failed deploy is never tagged. Doing it by hand is still
+    stops with no rollback, and nothing is pushed or tagged before the confirmation. Doing it by hand is still
     allowed — this is the same order — but the hand version is what forgot the VERSION bump once.
 - **`VERSION` at the repo root is the machine-readable record** — the full tag string,
   one line, bumped in the same commit that is tagged. The bff image `COPY`s it and the

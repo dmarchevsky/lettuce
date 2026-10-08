@@ -26,7 +26,7 @@
  * it. A builder that has none is a supported case, not a failure: a deploy manager
  * builds from a copy of the tree that carries no `.git` at all, so `+unknown` is the
  * honest answer and the deployed commit lives in that manager's own record rather
- * than in the image. See docs/upstream-notes.md#dockhand-builds-without-git.
+ * than in the image. See docs/upstream-notes.md#prod-builds-without-git.
  *
  * The CLI that prints or bakes this lives in `scripts/build-info.ts`.
  */

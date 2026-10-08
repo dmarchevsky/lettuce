@@ -1,5 +1,5 @@
 ---
-description: The gated prod release — release PR, explicit confirmation, deploy, verify, tag
+description: The gated prod release — release PR, explicit confirmation, immediate tag, operator redeploy
 argument-hint: "--minor | --patch | --auto"
 ---
 You are about to release to production. Read the "Stop before releasing to prod" section of
@@ -17,20 +17,18 @@ You are about to release to production. Read the "Stop before releasing to prod"
    and tags nothing. Stop for the human to merge it: you do not merge a release PR on your own.
    Where `main` still takes direct pushes, the one-shot `bun run release --minor` is the same
    sequence in one command.
-4. After the release PR merges, re-read the target from `dockhand.sh stacks letta` — never from
-   memory — and compare it to the table in `AGENTS.md`. If it does not match, stop. Show the
-   human the preflight and ask for explicit confirmation: the commit range, whether
-   `docker/compose.yml` changed, which containers get recreated (call out an `app-server`
-   recreate: it kills every in-flight turn with no drain), and the previous deploy's duration.
-   The harness also blocks `git push` and `git tag -a` until the operator confirms. Never type
-   the confirmation yourself and never reuse an earlier yes.
-5. `bun run release --deploy`. It first resolves `dockhand.sh` (`$DOCKHAND_SH`, else `PATH`),
-   refuses unless `origin/main`'s tip is that release commit,
-   runs `deploy-check`, prints the Dockhand plan, asks for the exact tag, then deploys →
-   verifies → checks the BFF log for `Upstream connected: letta-code <pinned version>` → tags →
-   pushes the tag.
-6. If `dockhand.sh` is not on this machine, that first check fails and the release ends at the
-   push: report the pushed commit range and say the prod redeploy is theirs. Do not substitute
-   ad-hoc Dockhand API calls, and tag nothing that has not been verified.
+4. After the release PR merges, the tag is cut immediately, as part of the release. Before running
+   anything, show the human the preflight and ask for explicit confirmation: the commit range,
+   whether `docker/compose.yml` changed, and which containers get recreated (call out an
+   `app-server` recreate: it kills every in-flight turn with no drain). The harness also blocks
+   `git push` and `git tag -a` until the operator confirms. Never type the confirmation yourself
+   and never reuse an earlier yes.
+5. `bun run release --deploy`. It refuses unless `origin/main`'s tip is that release commit, runs
+   `deploy-check`, asks for the exact tag, then pushes `main` (one-shot mode) and the tag.
+   The prod redeploy from `origin/main` and its verification are the operator's own, done with
+   their deploy tooling after the tag is out; the BFF log there must show
+   `Upstream connected: letta-code <pinned version>`.
+6. Do not substitute ad-hoc calls of the operator's deploy tooling, and never merge a release PR
+   yourself.
 7. On any failure, stop and report — no retry, no rollback, no restart without the user choosing
-   it. A failed deploy is never tagged.
+   it.

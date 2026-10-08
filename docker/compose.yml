@@ -180,8 +180,8 @@ services:
       # docker/.env, e.g. the server's LAN IP). Read by the serving-web-apps
       # skill, which is how agents learn about both. The BFF installs that skill
       # (docker/agent-skills) into /root/.letta/skills on every connect — never
-      # bind-mount repo files here: under Dockhand a relative source resolves
-      # inside Dockhand's container, and the daemon mounts an empty directory.
+      # bind-mount repo files here: under the deploy manager a relative source
+      # resolves inside its container, and the daemon mounts an empty directory.
       AGENT_APP_PORTS: "3000-3099"
       AGENT_APP_HOST: ${AGENT_APP_HOST:-}
       # Codex subagent workers (`subagent_type: "codex"`). Its home lives on the
@@ -238,7 +238,7 @@ services:
       dockerfile: docker/bff.Dockerfile
       # Optional: which commit to stamp the image with. Empty means the build
       # derives it from git metadata in the context — and stamps `+unknown` when the
-      # builder has none, which is every deploy-manager build: Dockhand builds from
+      # builder has none, which is every deploy-manager build: it builds from
       # its copy of the tree, which carries no `.git`, so prod says `+unknown` and
       # its commit is the deploy record. CI passes --build-arg GIT_SHA=$GITHUB_SHA
       # and `bun run build:bff` passes it from the host checkout.
@@ -256,7 +256,7 @@ services:
     # longer than the drain timeout. A redeploy while a turn runs therefore
     # takes up to this long to stop the old container.
     #
-    # And the pair must fit inside Dockhand's `compose up` timeout (900 s,
+    # And the pair must fit inside the deploy manager's `compose up` timeout (900 s,
     # COMPOSE_TIMEOUT), which also covers the image build: at 15m/16m a deploy
     # during a turn timed out, left the new container created but not started,
     # and prod had no bff once the old one drained (2026-09-29).

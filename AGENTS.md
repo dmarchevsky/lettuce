@@ -100,7 +100,7 @@ Corollaries — do not break these:
 `bff/src/shutdown.ts` holds SIGTERM until `ActivityTracker` reports no turn in progress (up to
 `SHUTDOWN_DRAIN_TIMEOUT_SECONDS`, 9 min default; a second signal skips the wait), and
 `stop_grace_period: 10m` in `docker/compose.yml` is what lets it — Docker's default 10 s SIGKILLs the
-drain. Both must stay inside Dockhand's 900 s `compose up` timeout. Without the drain the cancel
+drain. Both must stay inside the prod deploy manager's 900 s `compose up` timeout. Without the drain the cancel
 cannot reach llama.cpp; the signature is an error push five minutes after a BFF restart
 (`BUSY_RUN_WAIT_TIMEOUT_MS`): docs/upstream-notes.md#bff-redeploy-drain.
 
@@ -255,7 +255,7 @@ its own PR.**
 ### Versioning, tags, changelog — summary
 
 Releases are annotated tags on `main` shaped `v<MAJOR>.<MINOR>.<PATCH>-letta_<LETTA_CODE_VERSION>`, cut
-only after the prod deploy is verified. MINOR is new or changed user-facing functionality; PATCH is
+as part of the release, immediately after the release PR merges. MINOR is new or changed user-facing functionality; PATCH is
 everything else that ships. `VERSION` is the only machine-readable record and is bumped in the commit
 that gets tagged. A user-visible change carries its `CHANGELOG.md` `[Unreleased]` entry — plus any
 `README.md` / `docs/CONFIGURATION.md` update — in the same commit. `bun run release --auto --pr` opens
@@ -307,9 +307,9 @@ after step 2.
    change and `bun run smoke` for BFF session/protocol/settings changes — both need the live stack, and
    `smoke` mutates real state and needs an agent to exist. Then `bun run cleanup`.
 8. **Release — only after asking.** `bun run release --auto --pr` opens the release PR, the human
-   merges it, `bun run release --deploy` runs deploy-check → Dockhand plan → the one confirmation →
-   deploy → verify → tag. Never push `main`, deploy prod or tag without the confirmation in
-   "Stop before releasing to prod"; a failed deploy is never tagged.
+   merges it, `bun run release --deploy` runs deploy-check → the one confirmation → tag → push tag,
+   immediately after that merge; the prod redeploy from `origin/main` is the operator's own. Never
+   push `main` or tag without the confirmation in "Stop before releasing to prod".
 
 **UI changes carry two extra gates.** *Before* implementing (during steps 1–2): mock the target state
 of every changed surface at phone (390px) and desktop width and get the mockups approved — a static
@@ -327,39 +327,34 @@ one step that leaves this machine, and `origin` (`dmarchevsky/lettuce`, private)
 this project not on one laptop. `docker/.env` and `docker/secrets/` are gitignored and no secret values
 are in history — re-check that before pushing a configuration change.
 
-**Prod deploys from `origin`, not from this machine.** Dockhand (address and token live in the
-operator's own config, never a tracked file) builds from `dmarchevsky/lettuce` `main` at deploy time,
-so the push must land first. Every step goes through `dockhand.sh` (`$DOCKHAND_SH` or `PATH`) — `plan`,
-`deploy --confirm`, `verify` — never ad-hoc API calls, never the stop/down/delete/exec endpoints.
-**With no `dockhand.sh` here, `bun run release --deploy` pushes `main` and tags after the exact-tag
-confirmation; typing it asserts the operator redeployed prod from `origin/main` and verified.**
+**Prod deploys from `origin`, not from this machine.** The prod deploy manager (its address and token
+live in the operator's own config, never a tracked file) builds from `dmarchevsky/lettuce` `main` at
+deploy time, so the push must land first. It is the operator's own tooling: this repo keeps no
+commands, ids or addresses for it.
 
-The question **names the target exactly**, read live from `dockhand.sh stacks letta` — never from
-memory, never from a similar name (`duckduckgo` alone exists in three environments) — and it also states
-the commit range (`plan`: deployed commit → `origin/main`), whether `docker/compose.yml` changed,
-**which containers get recreated**, and the last deploy's duration. If the live target does not match
-this table, stop and ask rather than deploying:
+**`bun run release --deploy` cuts the release as part of the release, immediately after the release
+PR merged**: deploy-check → the exact-tag confirmation → push `main` (one-shot mode) → tag → push
+the tag.
 
-| | Prod target |
-|---|---|
-| Dockhand environment | `letta` |
-| Stack | `letta-code-ui-prod`, compose `docker/compose.yml` |
-| Containers | `letta-code-ui-prod-app-server-1`, `-bff-1`, `-channel-gateway-1`, `-cloudflared-1` |
+The release question **names the target exactly** — environment `letta`, stack `letta-code-ui-prod`
+(compose `docker/compose.yml`, containers `letta-code-ui-prod-app-server-1`, `-bff-1`,
+`-channel-gateway-1`, `-cloudflared-1`) — read live from the operator's tooling, never from memory,
+and states the commit range (`plan`: deployed commit → `origin/main`), whether `docker/compose.yml`
+changed, **which containers get recreated**, and the last deploy's duration. If the live target does
+not match this list, stop and ask rather than deploying.
 
-Call out an `app-server` recreate: Dockhand runs an unscoped `compose up`, so any image or compose
+Call out an `app-server` recreate: the prod deploy runs an unscoped `compose up`, so any image or compose
 change recreates it and kills every in-flight turn with no drain (the drain covers only `bff`), and a
-cron or Telegram turn does not show in the BFF log. **No prod hostnames, IP addresses or Dockhand ids
-are kept in this repo** — `bun run check-prod-info` enforces it (private IPv4 ranges and personal mail
-domains fail it; use RFC 5737's `192.0.2.0/24` in examples and tests).
+cron or Telegram turn does not show in the BFF log. **No prod hostnames, IP addresses or deploy-manager
+ids are kept in this repo** — `bun run check-prod-info` enforces it (private IPv4 ranges and personal
+mail domains fail it; use RFC 5737's `192.0.2.0/24` in examples and tests).
 
-Order, once confirmed: `git push origin main` → `dockhand.sh deploy letta letta-code-ui-prod --confirm`
-→ `dockhand.sh verify letta letta-code-ui-prod --since <printed time>` → the BFF log must show
-`Upstream connected: letta-code <pinned version>` (prod's image is built where there is no git
-metadata, so its `/versionz` says `+unknown` and the commit is Dockhand's own record) → tag
-`main`'s HEAD with the tag `VERSION` names and
-push it, under the same confirmation and never before verify is green. A version other than the pin
-means Dockhand's stored stack variables override it. On any failure, stop and report — no retry, no
-rollback, no restart without the user choosing it.
+Order, once confirmed: `bun run release --deploy` pushes `main` and the tag (the tag points at the
+release commit the moment the release PR merged) → the operator redeploys prod from `origin/main` and
+verifies: the BFF log must show `Upstream connected: letta-code <pinned version>` (prod's image is
+built where there is no git metadata, so its `/versionz` says `+unknown` and the commit is the deploy
+manager's own record). A version other than the pin means the stored stack variables override it. On
+any failure, stop and report — no retry, no rollback, no restart without the user choosing it.
 
 Only `bff` is rebuilt in step 7 — the only service carrying our code. Recreate `app-server` or
 `channel-gateway` only when `LETTA_CODE_VERSION` or their compose config changes, and a search or
@@ -382,12 +377,10 @@ Google sidecar only when its own pin or `docker/<name>/` changes. `bun run lint`
 | `bun run build:bff` | Rebuild the bff image (it bakes `web/dist`) — **required** to ship UI changes |
 | `bun run cleanup` | Report merged worktrees/branches; `--apply` removes ones merged, clean, unoccupied |
 | `bun run sync-upstream v<x.y.z>` | Move the upstream checkout to a release, report drift, re-pin |
-| `bun run release --minor\|--patch\|--auto` | Release commit on `main` via `--pr`, then gated push → deploy → verify → tag via `--deploy` |
+| `bun run release --minor\|--patch\|--auto` | Release commit on `main` via `--pr`, then gated push and tag via `--deploy` |
 | `bun run migrate-state` | Older installs only: copy the old `letta-home`/`letta-data` named volumes onto the host |
 | `docker compose -f docker/compose.yml up -d` | App-server + BFF; sidecars and `channel-gateway` only with their profiles |
-| `git push origin main` | Release, part 1 — **ask for confirmation first, every time** |
-| `$DOCKHAND_SH plan letta letta-code-ui-prod` | Prod preflight: commits, compose diff, what gets recreated (read-only). Only where `dockhand.sh` exists |
-| `… deploy letta letta-code-ui-prod --confirm` | Release, part 2 — prod redeploy via Dockhand, same confirmation as the push |
+| `git push origin main` | The release push — normally done by `bun run release --deploy`; **ask for confirmation first, every time** |
 
 The obvious ones are not listed: `lint`, `format`, `typecheck`, `test`, `build`, `dev`, `build-info`,
 `screenshots`. `check-docs` asserts every other `package.json` script appears here.

@@ -40,14 +40,14 @@ COPY bff/src/build-info.ts ./bff/src/build-info.ts
 COPY scripts/build-info.ts ./scripts/build-info.ts
 COPY VERSION               ./VERSION
 # The whole tree, never `.git` itself, because a deploy manager does not build
-# from its clone. Dockhand clones the repo, copies the checked-out files into its
+# from its clone. The prod deploy manager clones the repo, copies the checked-out files into its
 # stack directory and runs a plain `compose up` there, and that copy has no
 # `.git` at all — `COPY .git/` aborted the whole bake with `"/.git": not found`
 # and the prod deploy with it. So read the refs from wherever they happen to be:
 # a real checkout still stamps its own commit (.dockerignore keeps HEAD, refs and
 # packed-refs out of .git — metadata, never objects or history), and a builder
 # with none stamps `+unknown` and leaves "which commit" to the deploy manager's
-# record (docs/upstream-notes.md#dockhand-builds-without-git). A linked git
+# record (docs/upstream-notes.md#prod-builds-without-git). A linked git
 # worktree is the other none: its `.git` is a file pointing outside the context,
 # which is what `bun run build:bff` is for.
 COPY .                     ./ctx
@@ -87,8 +87,8 @@ COPY VERSION            ./VERSION
 # -dirty suffix here; deploy-check compares the SHA, not the suffix.
 COPY --from=buildinfo /app/BUILD_INFO ./BUILD_INFO
 # Skills the BFF installs into every agent's global skill directory on connect
-# (bff/src/agent-skills.ts). In the image, not a bind mount: under Dockhand a
-# relative mount source resolves inside Dockhand's container, not on the host.
+# (bff/src/agent-skills.ts). In the image, not a bind mount: under the deploy manager a
+# relative mount source resolves inside its container, not on the host.
 COPY docker/agent-skills ./docker/agent-skills
 
 # The BFF serves this build at / (see the static routes in bff/src/index.ts).

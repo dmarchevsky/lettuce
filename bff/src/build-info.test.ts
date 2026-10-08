@@ -75,7 +75,7 @@ test("no metadata means unknown, not a wrong answer", () => {
 });
 
 test("no .git at all means unknown — the deploy manager's build", () => {
-  // Dockhand builds from its copy of the tree, so `ctx/.git` is simply absent and
+  // The prod deploy manager builds from its copy of the tree, so `ctx/.git` is simply absent and
   // the Dockerfile points --gitmeta at a path that does not exist.
   const dir = gitDir(() => {});
   expect(resolveFromGitMeta(join(dir, "does-not-exist"))).toEqual({ sha: null });

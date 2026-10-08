@@ -146,8 +146,8 @@ export const RULES: Rule[] = [
     pattern: /\bdocker\b[^\n]*\bcompose\b[^\n]*\b(?:rm|down|stop|kill)\b/,
     title: "docker compose (destructive)",
     message:
-      "This stops or removes running containers. AGENTS.md: prod containers are Dockhand's " +
-      "business, and the app-server namespace also holds bff and channel-gateway.",
+      "This stops or removes running containers. AGENTS.md: prod containers are the deploy " +
+      "manager's business, and the app-server namespace also holds bff and channel-gateway.",
   },
   {
     pattern: /\bdocker\b[^\n]*\bcompose\b[^\n]*\brestart\b/,

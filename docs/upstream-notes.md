@@ -23,13 +23,13 @@ SIGKILLs the drain — and it must stay above the drain timeout. So a `bff` depl
 turn now takes until that turn ends to stop the old container. A turn longer than the cap
 still dies.
 
-**Both must also fit inside Dockhand's `compose up` timeout: 900 s (`COMPOSE_TIMEOUT`), image
-build included.** At 15 min / 16m a deploy during a turn (2026-09-29) hit it: Dockhand gave
+**Both must also fit inside the deploy manager's `compose up` timeout: 900 s (`COMPOSE_TIMEOUT`), image
+build included.** At 15 min / 16m a deploy during a turn (2026-09-29) hit it: the deploy manager gave
 up, the new `bff` stayed *created, not started*, and once the old one finished draining prod
 had no `bff` at all — down for six minutes until a second deploy (`--allow-unhealthy`,
 nothing left to drain) started it. The leftover container keeps compose's temporary name
 (`<hash>_letta-code-ui-prod-bff-1`) until the next deploy. Raising the drain means raising
-`COMPOSE_TIMEOUT` in Dockhand's stack variables first.
+`COMPOSE_TIMEOUT` in the deploy manager's stack variables first.
 
 ## Allowlist env-only story
 
@@ -241,14 +241,14 @@ Branching inside the main checkout is not a stylistic slip: two sessions sharing
 one switched the checkout to its branch mid-work and `deploy-check`'s clean-tree and
 on-`main` assertions then failed on the other's uncommitted changes.
 
-## Dockhand builds without git
+## Prod builds without git
 
 **A deploy manager does not build from its clone, so the build context has no `.git` — and a
 Dockerfile that needs one aborts the whole deploy.** On 2026-10-05 a manual prod deploy of
 `main` died exactly this way. The commit-stamping buildinfo stage did
-`COPY .git/ ./gitmeta`, on the reasoning that Dockhand deploys with a plain `compose up` and
+`COPY .git/ ./gitmeta`, on the reasoning that the deploy manager deploys with a plain `compose up` and
 passes no build args, so the refs in the context were the only source left. The reasoning was
-half right: Dockhand passes no build args **and has no git metadata in the context either.**
+half right: it passes no build args **and has no git metadata in the context either.**
 It clones the repository into its own `git-repos/<env>/<stack>/` directory, *copies the
 checked-out files* into `stacks/<env>/<stack>/`, and runs `docker compose -f
 stacks/…/compose.yml up -d` with that copy as the working directory — a file copy whose
@@ -269,5 +269,5 @@ passes `GIT_SHA` anyway. The check that would have caught it — building from a
 the tree and reads `ctx/.git` if it is there: a checkout still stamps its own commit, a
 deploy manager's build stamps `+unknown`, and `bun run deploy-check <origin>
 --allow-unstamped` accepts `+unknown` for the release tag being checked. Which commit a
-deploy manager actually deployed is in *its* record — Dockhand's stack deploy log — because no
+deploy manager actually deployed is in *its* record — the deploy manager's own deploy log — because no
 image built that way can name it.

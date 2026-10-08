@@ -32,7 +32,7 @@ Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `
   turns included, without touching anyone's memory. It ships in the **bff image** and
   `bff/src/agent-skills.ts` writes it into `/root/.letta/skills/` over the upstream connection
   on every connect (`write_file` creates the directories), overwriting any agent edit.
-  **Never bind-mount repo files into a service:** Dockhand runs compose inside its own
+  **Never bind-mount repo files into a service:** the prod deploy manager runs compose inside its own
   container, so a relative bind source (`./…`) names a path that does not exist on the host
   and the daemon mounts an empty directory — silently. Builds are fine (the context is
   streamed); anything from the repo must travel in an image. `AGENT_APP_PORTS` and

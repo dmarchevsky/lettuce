@@ -130,7 +130,7 @@ which drops the BFF's upstream connection, so run
 |---|---|---|
 | `SESSION_TTL_SECONDS` | `2592000` (30 days) | Session cookie lifetime. |
 | `FRAME_BUFFER_SIZE` | `5000` | Total streaming frames retained for session resume, across all conversations. |
-| `SHUTDOWN_DRAIN_TIMEOUT_SECONDS` | `540` (9 min) | How long `SIGTERM` waits for in-flight turns before closing upstream. Must stay below the container's `stop_grace_period` (10m), and drain + image build under Dockhand's 900 s `compose up` timeout. |
+| `SHUTDOWN_DRAIN_TIMEOUT_SECONDS` | `540` (9 min) | How long `SIGTERM` waits for in-flight turns before closing upstream. Must stay below the container's `stop_grace_period` (10m), and drain + image build under the deploy manager's 900 s `compose up` timeout. |
 
 ## Cloudflare Access (cloudflared mode)
 
@@ -277,7 +277,7 @@ channel configuration happens once inside the gateway container, and the
 web UI has no path to it at all.
 
 Turn the profile on by adding `telegram` to `COMPOSE_PROFILES` in
-`docker/.env` (or the Dockhand stack variables), keeping whatever is
+`docker/.env` (or the deploy manager's stack variables), keeping whatever is
 already there — e.g. `COMPOSE_PROFILES=cloudflared,telegram` — then
 `docker compose -f docker/compose.yml up -d`. To turn it off again, remove
 the profile **and** stop the container: `up -d` merely stops managing a
@@ -414,7 +414,7 @@ Two details that bite:
   app is matched before the catch-all one. A browser that fetches the
   manifest without a session gets the login redirect and gives up silently.
 
-### Production (Dockhand or any compose manager)
+### Production (any compose deploy manager)
 
 The host needs `git` + `docker` and a clone of this repo only — no Bun, no
 letta-code checkout, no pre-built images.
@@ -436,11 +436,11 @@ Optional: the three `PUSH_VAPID_*` values, `BFF_PORT`,
 `SESSION_TTL_SECONDS`, `FRAME_BUFFER_SIZE`, `CF_ACCESS_ISSUER`.
 
 **A build made by the deploy manager cannot name its commit, and says so.**
-Compose builds the `bff` image from Dockhand's own copy of the tree, and that
+Compose builds the `bff` image from the deploy manager's own copy of the tree, and that
 copy has no `.git`, so Settings → About and `/versionz` report the release tag
 with `+unknown` (e.g. `v0.6.1-letta_0.34.1+unknown`). Which commit was deployed
-is in Dockhand's record for the stack, not in the image
-(`docs/upstream-notes.md#dockhand-builds-without-git`). Set `GIT_SHA` as a stack
+is in the deploy manager's record for the stack, not in the image
+(`docs/upstream-notes.md#prod-builds-without-git`). Set `GIT_SHA` as a stack
 variable only if you mean it: a value nobody updates claims the wrong commit,
 which is worse than claiming none. From a machine with a real checkout, `bun run
 build:bff` passes the host's commit and stamps the image properly.

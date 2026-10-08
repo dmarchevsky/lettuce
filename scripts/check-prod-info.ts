@@ -1,10 +1,10 @@
 /**
  * The repo is public: prod is referred to by name only.
  *
- * Everything about the production host — its address, its Dockhand ids, the LAN address of a dev
+ * Everything about the production host — its address, its deploy-manager ids, the LAN address of a dev
  * box, the owner's mail address — is recon value for nobody who is already allowed in, and a
- * permanent leak once this tree is public. None of it belongs in a tracked file: `dockhand.sh
- * stacks letta` answers the prod questions at release time, and `docker/.env` (gitignored) is
+ * permanent leak once this tree is public. None of it belongs in a tracked file: the operator's
+ * deploy tooling answers the prod questions at release time, and `docker/.env` (gitignored) is
  * where any address or address-like value actually used at runtime lives.
  *
  * Two classes are fatal anywhere in the tree: RFC 1918 addresses (10/8, 172.16/12, 192.168/16) and
@@ -120,7 +120,7 @@ if (failures.length > 0) {
   if (failures.length > 30) console.error(`  … and ${failures.length - 30} more`);
   console.error(
     "\n  Values like these belong in docker/.env (gitignored) or in a live query\n" +
-      "  (`dockhand.sh stacks letta`). In docs and tests, use RFC 5737 documentation\n" +
+      "  (the operator's deploy tooling). In docs and tests, use RFC 5737 documentation\n" +
       "  ranges (192.0.2.0/24) instead of a real LAN address.\n",
   );
   process.exit(1);

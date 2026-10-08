@@ -48,7 +48,7 @@ export function readSkillTree(root: string): SkillFile[] {
  * Install the skills this repo ships into the app-server's global skills
  * directory, through the app-server itself.
  *
- * Not a bind mount: under Dockhand, compose runs inside Dockhand's own
+ * Not a bind mount: under the prod deploy manager, compose runs inside its own
  * container, so a relative bind source resolves to a path that exists there
  * but not on the host — the daemon mounted an empty directory and the skill
  * silently never reached any agent. Builds are unaffected (the context is

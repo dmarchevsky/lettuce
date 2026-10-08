@@ -216,9 +216,9 @@ if (servedVersion !== null) {
     check(`served build is on this release tag (${expectedBase}) and unstamped`, true);
     note(
       "an unstamped image names no commit because its builder had no git metadata — " +
-        "which commit a deploy manager put there is in its own record (Dockhand: the " +
-        "stack's deploy log), not in the image. " +
-        "See docs/upstream-notes.md#dockhand-builds-without-git.",
+        "which commit a deploy manager put there is in its own record (the deploy manager's " +
+        "deploy log of the stack), not in the image. " +
+        "See docs/upstream-notes.md#prod-builds-without-git.",
     );
   } else {
     check(

@@ -156,9 +156,9 @@ jobs:
           docker run --rm lettuce-ci:probe cat BUILD_INFO | tee "$RUNNER_TEMP/BUILD_INFO"
           head -n1 "$RUNNER_TEMP/BUILD_INFO" | grep -qx "sha=${GITHUB_SHA:0:8}"
       # The deploy manager's build is a *different builder*, and the only one prod
-      # uses: Dockhand copies the checked-out tree into its stack directory and builds
+      # uses: the prod deploy manager copies the checked-out tree into its stack directory and builds
       # there, so that build context has no `.git` at all. `COPY .git/` used to abort it
-      # and the deploy with it (docs/upstream-notes.md#dockhand-builds-without-git), so
+      # and the deploy with it (docs/upstream-notes.md#prod-builds-without-git), so
       # reproduce that exact shape here: an export of the tree, no `.git`, and no
       # commit handed in. An unstamped build is a supported outcome, so it has to
       # succeed and say so rather than fail or claim a commit it cannot know.
