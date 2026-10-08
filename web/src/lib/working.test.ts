@@ -187,6 +187,9 @@ describe("deriveWorking", () => {
     });
     expect(stalled?.state).toBe("stall");
     expect(stalled?.lastSeen).toBe("web_search");
+    // The stall branch of `WorkingLine` already draws the warning triangle in
+    // the leading slot; an icon here drew it a second time.
+    expect(stalled?.icon).toBeNull();
   });
 
   test("stopping the stall clock on any recent frame", () => {

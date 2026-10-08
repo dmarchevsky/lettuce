@@ -97,7 +97,8 @@ export interface ConversationApi {
     responseFormat?: ResponseFormat | null,
     images?: PreparedImage[],
   ) => Promise<void>;
-  abort: () => Promise<void>;
+  /** Resolves true when upstream confirmed a live turn was cancelled. */
+  abort: () => Promise<boolean>;
   respondToApproval: (requestId: string, approve: boolean, reason?: string) => void;
   /**
    * Answer (or dismiss) an async `AskUserQuestion` — letta-code 0.34.1+, where
@@ -826,8 +827,8 @@ export function useConversation(
     [flushSync],
   );
 
-  const abort = useCallback(async () => {
-    if (!scope) return;
+  const abort = useCallback(async (): Promise<boolean> => {
+    if (!scope) return false;
 
     // `send` was fire-and-forget, which threw away the only frame that says
     // whether anything was actually cancelled — and swallowed the "Not
@@ -840,7 +841,7 @@ export function useConversation(
 
       if (response?.success === false) {
         setError(response.error ?? "Could not stop the turn");
-        return;
+        return false;
       }
 
       if (response?.aborted === false) {
@@ -858,7 +859,7 @@ export function useConversation(
           seqRef.current,
         );
         flushSync();
-        return;
+        return false;
       }
 
       // Accepted, but NOT finished. The app-server flips its lifecycle to
@@ -879,8 +880,10 @@ export function useConversation(
         seqRef.current,
       );
       flushSync();
+      return true;
     } catch (cause) {
       setError(errorMessage(cause));
+      return false;
     }
   }, [scope, request, flush]);
 
@@ -959,7 +962,17 @@ export function useConversation(
       for (const item of plan.removed) dropLocalEcho(item.clientMessageId);
       if (processingRef.current) {
         expectResentTurnRef.current = true;
-        await abort();
+        const stopped = await abort();
+        // The steer race: the turn can end between our `processing` check and
+        // the abort landing — upstream answers "nothing was aborted" and its
+        // `turn_finished` has usually been delivered already, so nothing left
+        // will ever consume the seam. A live seam then swallows the RESENT
+        // turn's `turn_finished`, ignores every idle status beside it, and
+        // strands `processing` true on a completed conversation — the only
+        // sign being the amber stall line a minute later. Arm the seam only
+        // for an abort that actually cancelled something: an accepted abort is
+        // upstream's promise that a `turn_finished` is coming for it.
+        if (!stopped) expectResentTurnRef.current = false;
       }
       try {
         // Optimistic, like `sendMessage`: the queue was just emptied, so the

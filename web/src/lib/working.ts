@@ -266,7 +266,10 @@ export function deriveWorking(input: WorkingInput): WorkingSnapshot | null {
   if (silent && !tool && !streaming) {
     return {
       state: "stall",
-      icon: "warning",
+      // No icon for the fixed slot: the stall branch of the component already
+      // puts the warning triangle in the leading slot — setting one here
+      // drew the triangle twice.
+      icon: null,
       verb: "No activity",
       lastSeen: lastSeenLabel(input.entries),
     };
