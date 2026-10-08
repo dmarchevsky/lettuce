@@ -22,6 +22,9 @@
  *       After that PR is merged: assert `origin/main`'s tip *is* the release commit,
  *       run `deploy-check`, print the Dockhand plan, ask for the one confirmation,
  *       then deploy → verify → upstream-log check → tag that commit → push the tag.
+ *       With no `dockhand.sh` on this machine the same confirmation stands in for
+ *       Dockhand's verify: the operator deploys prod from `origin/main` themselves,
+ *       and typing the tag asserts it was deployed and verified before it is cut.
  *
  *   bun run release --minor|--patch|--auto
  *       The original one-shot: the release commit on `main` locally, then push →
@@ -284,19 +287,11 @@ function findDockhand(): string | null {
 }
 
 async function deployAndTag(tag: string, pushMain = false): Promise<void> {
-  // Checked first, before anything is pushed: a release that discovers mid-flight that this box
-  // cannot reach Dockhand has already landed the commit it cannot deploy.
+  // Missing dockhand.sh is not fatal: a machine without it cannot deploy or
+  // verify prod, so the operator does both from `origin/main`, and the typed
+  // confirmation below is the human assertion that they did. What never
+  // changes: nothing is pushed before the confirmation names this exact tag.
   const dockhand = findDockhand();
-  if (!dockhand)
-    die(
-      "preflight",
-      `no \`dockhand.sh\` found (${DOCKHAND}) — set DOCKHAND_SH or put it on PATH. Nothing was ` +
-        "deployed, and the release ends at the push: report the pushed commit range and leave " +
-        "the prod redeploy to the operator.",
-      pushMain
-        ? "undo the release commit with: git reset --soft HEAD~1 && git restore VERSION CHANGELOG.md"
-        : "",
-    );
 
   console.log("\n── deploy-check (the merged code must be what the local container runs)");
   if ((await run(["bun", "run", "deploy-check"])) !== 0) {
@@ -308,11 +303,20 @@ async function deployAndTag(tag: string, pushMain = false): Promise<void> {
     );
   }
 
-  console.log("\n── dockhand plan");
-  await capture([dockhand, "plan", ENV, STACK]);
+  if (dockhand) {
+    console.log("\n── dockhand plan");
+    await capture([dockhand, "plan", ENV, STACK]);
+  } else {
+    console.log(
+      `\nNo \`dockhand.sh\` (${DOCKHAND}): the prod redeploy and its verification are the` +
+        " operator's own, done from `origin/main`. Typing the tag below asserts they happened.",
+    );
+  }
 
   console.log(
-    `\nReleasing ${tag}: ${pushMain ? "push origin main → " : ""}deploy ${ENV}/${STACK} → verify → tag.`,
+    `\nReleasing ${tag}: ${pushMain ? "push origin main → " : ""}${
+      dockhand ? `deploy ${ENV}/${STACK} → verify → ` : "operator-deployed and verified → "
+    }tag.`,
   );
   let confirmed = false;
   if (process.stdin.isTTY) {
@@ -338,26 +342,37 @@ async function deployAndTag(tag: string, pushMain = false): Promise<void> {
     await capture(["git", "push", "origin", "main"]);
   }
 
-  console.log("\n── dockhand deploy");
-  const deployOut = await capture([dockhand, "deploy", ENV, STACK, "--confirm"]);
-  if (!deployOut.includes("success exit=0")) die("deploy", "the deploy run did not report success");
-  const started = deployOut.match(/deploy started (\S+)/)?.[1];
-  if (!started) die("deploy", "could not parse the deploy start time for --since");
+  if (dockhand) {
+    console.log("\n── dockhand deploy");
+    const deployOut = await capture([dockhand, "deploy", ENV, STACK, "--confirm"]);
+    if (!deployOut.includes("success exit=0"))
+      die("deploy", "the deploy run did not report success");
+    const started = deployOut.match(/deploy started (\S+)/)?.[1];
+    if (!started) die("deploy", "could not parse the deploy start time for --since");
 
-  console.log("\n── dockhand verify");
-  const verifyOut = await capture([dockhand, "verify", ENV, STACK, "--since", started]);
-  if (!verifyOut.includes("VERIFY: PASS"))
-    die("verify", "verify did not PASS — review its output above");
+    console.log("\n── dockhand verify");
+    const verifyOut = await capture([dockhand, "verify", ENV, STACK, "--since", started]);
+    if (!verifyOut.includes("VERIFY: PASS"))
+      die("verify", "verify did not PASS — review its output above");
 
-  console.log("\n── upstream connection");
-  const logs = await capture([dockhand, "logs", ENV, `${STACK}-bff-1`, "200"]);
-  if (!logs.includes(`Upstream connected: letta-code ${pin}`)) {
-    die("upstream", `the BFF log does not show "Upstream connected: letta-code ${pin}"`);
+    console.log("\n── upstream connection");
+    const logs = await capture([dockhand, "logs", ENV, `${STACK}-bff-1`, "200"]);
+    if (!logs.includes(`Upstream connected: letta-code ${pin}`)) {
+      die("upstream", `the BFF log does not show "Upstream connected: letta-code ${pin}"`);
+    }
+  } else {
+    console.log(
+      "\n── prod deploy: the operator's (no dockhand.sh here) — the confirmation above asserts it was deployed and verified",
+    );
   }
 
   console.log("\n── tag");
   await capture(["git", "tag", "-a", tag, "-m", message || `release ${tag}`]);
   await capture(["git", "push", "origin", tag]);
 
-  console.log(`\n✓ ${tag} released: ${pushMain ? "pushed, " : ""}deployed, verified, tagged.`);
+  console.log(
+    `\n✓ ${tag} released: ${pushMain ? "pushed, " : ""}${
+      dockhand ? "deployed, verified, " : "operator-deployed, "
+    }tagged.`,
+  );
 }

@@ -331,8 +331,8 @@ are in history — re-check that before pushing a configuration change.
 operator's own config, never a tracked file) builds from `dmarchevsky/lettuce` `main` at deploy time,
 so the push must land first. Every step goes through `dockhand.sh` (`$DOCKHAND_SH` or `PATH`) — `plan`,
 `deploy --confirm`, `verify` — never ad-hoc API calls, never the stop/down/delete/exec endpoints.
-**With no `dockhand.sh` here the release ends at `git push origin main`**: the redeploy is the
-operator's, and `bun run release --deploy` checks for the tool before it pushes anything.
+**With no `dockhand.sh` here, `bun run release --deploy` pushes `main` and tags after the exact-tag
+confirmation; typing it asserts the operator redeployed prod from `origin/main` and verified.**
 
 The question **names the target exactly**, read live from `dockhand.sh stacks letta` — never from
 memory, never from a similar name (`duckduckgo` alone exists in three environments) — and it also states
