@@ -327,4 +327,36 @@ describe("per-agent tools", () => {
     await handleInternalTools(request({ "x-letta-agent-id": "a b" }), "127.0.0.1", recording);
     expect(seen).toEqual(["agent-b", null, null]);
   });
+
+  test("the conversation header reaches the handler, junk dropped", async () => {
+    const seen: (string | null | undefined)[] = [];
+    const recording = () =>
+      new Map<string, ToolHandler>([
+        [
+          "gmail_search",
+          async (_args, context) => {
+            seen.push(context?.conversationId);
+            return { text: "ok", isError: false };
+          },
+        ],
+      ]);
+    const request = (headers: Record<string, string>) =>
+      new Request("http://127.0.0.1:8080/internal/tools/gmail_search", {
+        method: "POST",
+        headers,
+        body: "{}",
+      });
+    await handleInternalTools(
+      request({ "x-letta-conversation-id": "local-conv-120" }),
+      "127.0.0.1",
+      recording,
+    );
+    await handleInternalTools(
+      request({ "x-letta-conversation-id": "bad conv!" }),
+      "127.0.0.1",
+      recording,
+    );
+    await handleInternalTools(request({}), "127.0.0.1", recording);
+    expect(seen).toEqual(["local-conv-120", null, null]);
+  });
 });

@@ -263,8 +263,12 @@ export function deriveWorking(input: WorkingInput): WorkingSnapshot | null {
 
   // Silence while nothing runs — long prefills and stuck model calls. A tool
   // running with no frames (a slow build) is doing fine, so it never stalls.
-  const silent =
-    input.lastActivityAt !== null && input.now - input.lastActivityAt >= STALL_AFTER_MS;
+  // `lastActivityAt` can predate this turn (a conversation idle for minutes
+  // before a fresh send kept the previous turn's clock), which made that idle
+  // gap light the line amber the moment you sent the message; measure silence
+  // from the fresher of the two clocks so a new turn owns its own watch.
+  const lastBeat = Math.max(input.lastActivityAt ?? 0, input.turnStartedAt ?? 0);
+  const silent = lastBeat > 0 && input.now - lastBeat >= STALL_AFTER_MS;
   if (silent && !tool && !streaming) {
     return {
       state: "stall",

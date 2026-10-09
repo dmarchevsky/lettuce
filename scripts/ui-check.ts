@@ -154,6 +154,38 @@ try {
 
     check("all six tabs are reachable", (await page.locator("nav.tabs button").count()) === 6);
     check(
+      "the phone tab strip does not scroll (seven squeeze in at 390px)",
+      await page.evaluate(() => {
+        const strip = document.querySelector("nav.tabs");
+        return !!strip && strip.scrollWidth <= strip.clientWidth;
+      }),
+    );
+    // The Runs tab (worker runs; it hides when every worker token is off).
+    const runsTab = page.locator('nav.tabs button:text-is("Runs")');
+    if ((await runsTab.count()) > 0) {
+      await runsTab.click();
+      const runsBox = await overflow(page);
+      check("the Runs tab has nothing clipped", runsBox.clipped.length === 0, runsBox);
+      // A run transcript must be scrollable inside the sheet; it used to be
+      // clipped by the fill sheet with no scroll region at all.
+      const firstRun = page.locator(".list .task button.row").first();
+      if ((await firstRun.count()) > 0) {
+        await firstRun.click();
+        await page.waitForSelector(".sheet-panel.fill .codex-run", { timeout: 5000 });
+        const scroller = await page.evaluate(() => {
+          const el = document.querySelector<HTMLElement>(".sheet-panel.fill .codex-run");
+          if (!el) return "missing";
+          const style = getComputedStyle(el);
+          return style.overflowY === "auto" ? "yes" : `overflow=${style.overflowY}`;
+        });
+        check("the run transcript scrolls inside its sheet", scroller === "yes", scroller);
+        // The phone sheet is full-screen, so the scrim has no exposed area.
+        await page.locator(".sheet-panel .sheet-close").click();
+        await page.waitForTimeout(200);
+      }
+      await page.locator('nav.tabs button:text-is("Chat")').click();
+    }
+    check(
       "the top bar names the agent",
       (await page.locator(".topbar .where-agent").innerText()).trim() !== "",
     );
@@ -969,7 +1001,7 @@ try {
     // The Agent tab holds the selected agent's settings and nothing shared.
     await page.locator('nav.tabs button:text-is("Agent")').click();
     await page.waitForTimeout(500);
-    const expectedChips = ["General", "Secrets", "Reflection", "Skills"];
+    const expectedChips = ["General", "Secrets", "Reflection", "Skills", "Memory"];
     const chipLabels = (await page.locator(".section-tabs button").allInnerTexts()).map((t) =>
       t.trim(),
     );
@@ -1396,7 +1428,9 @@ try {
     // A document sheet must actually be bigger than a form sheet, and must give
     // its height to the content: the memory editor used to scroll inside a
     // scrolling body, so a 5KB block showed about a dozen lines.
-    await page.locator('nav.tabs button:text-is("Memory")').click();
+    await page.locator('nav.tabs button:text-is("Agent")').click();
+    await page.waitForTimeout(400);
+    await page.locator('.section-tabs button:text-is("Memory")').click();
     await page.waitForTimeout(1500);
     const memoryBlocks = await page.locator(".pane .list > li button").count();
     if (memoryBlocks === 0) {

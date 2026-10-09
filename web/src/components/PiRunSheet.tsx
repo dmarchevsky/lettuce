@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { fetchPiRun, LIVE_POLL_MS, type PiRun, type PiRunStep, STATUS_LABELS } from "../lib/pi.ts";
+import { parseToolArgs, summarizeToolCall } from "../lib/tool-summary.ts";
 import { Icon } from "./Icon.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { Sheet } from "./Sheet.tsx";
@@ -9,35 +10,99 @@ interface Props {
   onClose: () => void;
 }
 
+function firstLine(text: string): string {
+  return (
+    (text || "")
+      .split("\n")
+      .find((line) => line.trim())
+      ?.trim() ?? ""
+  );
+}
+
+function prettyArgs(input: string): string {
+  try {
+    return JSON.stringify(JSON.parse(input), null, 2);
+  } catch {
+    return input;
+  }
+}
+
+/**
+ * One transcript row, in the main conversation's own visual language: Task is
+ * the user bubble, the agent's prose is the assistant bubble, Thinking and
+ * tool calls are the same collapsed disclosures chat uses (via <details>, so
+ * the sheet stays stateless). Tool previews come from the shared
+ * `summarizeToolCall` so they read exactly like chat's tool rows.
+ */
 function Step({ step }: { step: PiRunStep }) {
   if (step.kind !== "command") {
     if (step.kind === "prompt") {
       return (
-        <div className="codex-step codex-prompt">
-          <div className="muted small">Task</div>
-          <Markdown text={step.text} />
+        <div className="entry user">
+          <div className="role">
+            <span className="who">Task</span>
+          </div>
+          <div className="bubble">
+            <Markdown text={step.text} />
+          </div>
         </div>
       );
     }
     if (step.kind === "reasoning") {
-      return <p className="codex-step codex-reasoning muted small">{step.text}</p>;
+      return (
+        <details className="entry reasoning">
+          <summary className="tool-head">
+            <span className="step-name">Thinking</span>
+            <Icon name="chevron-right" className="chevron" />
+          </summary>
+          <div className="bubble thinking">
+            <Markdown text={step.text} />
+          </div>
+        </details>
+      );
     }
     return (
-      <div className="codex-step">
-        <Markdown text={step.text} />
+      <div className="entry assistant">
+        <div className="role">
+          <span className="who">Agent</span>
+        </div>
+        <div className="bubble">
+          <Markdown text={step.text} />
+        </div>
       </div>
     );
   }
+  const args = parseToolArgs(step.input);
+  // pi's tool names are lowercase (bash, read); the chat summarizer matches
+  // Letta's capitalized set, so normalize before asking for a headline.
+  const named = step.tool ? step.tool.charAt(0).toUpperCase() + step.tool.slice(1) : undefined;
+  const summary = summarizeToolCall(named, args, null);
+  const preview = summary?.headline || firstLine(step.input);
+  const running = step.output === null;
   return (
-    <details className="codex-step codex-command" open={step.output === null}>
-      <summary>
-        <Icon name="chevron-right" className="chevron" />
+    <details className={`entry tool${step.isError ? " error" : ""}`} open={running}>
+      <summary className="tool-head">
         <code>{step.tool}</code>
-        <span className="muted small one-line">{step.input}</span>
-        {step.output === null ? <span className="small muted"> running…</span> : null}
-        {step.isError ? <span className="small bad"> error</span> : null}
+        {preview ? (
+          <span className={`grow-text summary${(summary?.mono ?? true) ? " mono" : ""}`}>
+            {preview.slice(0, 200)}
+          </span>
+        ) : null}
+        {step.isError ? <span className="tag bad">error</span> : null}
+        {running ? <span className="tool-peek">Running…</span> : null}
+        <Icon name="chevron-right" className="chevron" />
       </summary>
-      {step.output ? <pre className="tool-args">{step.output}</pre> : null}
+      <div className="rail">
+        <span className="rail-label">In</span>
+        <pre className="tool-args">{prettyArgs(step.input)}</pre>
+        {!running && step.output ? (
+          <>
+            <span className="rail-label">Out</span>
+            <pre className="tool-args">{step.output}</pre>
+          </>
+        ) : null}
+        {running ? <span className="tool-peek">Running…</span> : null}
+      </div>
     </details>
   );
 }

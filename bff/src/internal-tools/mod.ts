@@ -22,6 +22,9 @@ export const MODS_DIR = "/root/.letta/mods";
 
 /** Header carrying the calling agent's id on every call (`ctx.agent.id`). */
 export const AGENT_ID_HEADER = "x-letta-agent-id";
+/** Header carrying the calling conversation's id (`ctx.sessionId` — upstream
+ * stamps the conversation as the mod context's session, AppCoordinator.tsx). */
+export const CONVERSATION_ID_HEADER = "x-letta-conversation-id";
 
 export function renderToolsMod(options: {
   /** First comment line — identifies the mod and its render version. */
@@ -63,6 +66,7 @@ function enabledFor(tool, ctx) {
 async function callBff(tool, ctx) {
   const headers = { "content-type": "application/json" };
   if (ctx.agent?.id) headers[${JSON.stringify(AGENT_ID_HEADER)}] = ctx.agent.id;
+  if (ctx.sessionId) headers[${JSON.stringify(CONVERSATION_ID_HEADER)}] = ctx.sessionId;
   let response;
   try {
     response = await fetch(ENDPOINT + "/" + tool, {
@@ -78,7 +82,26 @@ async function callBff(tool, ctx) {
   if (!body || typeof body.text !== "string") {
     return { status: "error", content: "The " + tool + " tool answered HTTP " + response.status + " with no result." };
   }
-  return body.isError ? { status: "error", content: body.text } : body.text;
+  if (body.isError) return { status: "error", content: body.text };
+  // pi_fetch {save}: the BFF has no path into /work — the mod runs there, so
+  // the bytes travel as base64 and land in this agent's own workspace.
+  if (body.content_b64 && typeof body.save_path === "string" && ctx.cwd) {
+    try {
+      const fs = await import("node:fs");
+      const path = await import("node:path");
+      const root = path.resolve(ctx.cwd);
+      const dest = path.resolve(root, body.save_path);
+      if (dest === root || !dest.startsWith(root + path.sep)) {
+        return body.text + "\\n(save refused: the destination left the workspace)";
+      }
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.writeFileSync(dest, Buffer.from(body.content_b64, "base64"));
+      return body.text + "\\nSaved to " + dest;
+    } catch (error) {
+      return body.text + "\\n(save failed: " + (error?.message ?? error) + ")";
+    }
+  }
+  return body.text;
 }
 
 export default function activate(letta) {

@@ -14,7 +14,7 @@
  */
 
 import { isAgentId } from "../agents/id-list.ts";
-import { AGENT_ID_HEADER } from "./mod.ts";
+import { AGENT_ID_HEADER, CONVERSATION_ID_HEADER } from "./mod.ts";
 import type { ToolAnswer, ToolHandler } from "./types.ts";
 
 export const INTERNAL_PREFIX = "/internal/tools/";
@@ -102,7 +102,14 @@ export async function handleInternalTools(
   inFlight += 1;
   try {
     const agentId = request.headers.get(AGENT_ID_HEADER);
-    return json(await handler(args, { agentId: isAgentId(agentId) ? agentId : null }));
+    const conversationId = request.headers.get(CONVERSATION_ID_HEADER);
+    return json(
+      await handler(args, {
+        agentId: isAgentId(agentId) ? agentId : null,
+        conversationId:
+          conversationId && /^[A-Za-z0-9_-]{1,128}$/.test(conversationId) ? conversationId : null,
+      }),
+    );
   } catch (error) {
     // Handlers are written not to throw; this is the backstop.
     return json({

@@ -196,6 +196,29 @@ describe("deriveWorking", () => {
     const fresh = deriveWorking({ ...base, entries: [], queue: [], lastActivityAt: 99_999 });
     expect(fresh?.state).toBe("thinking");
   });
+
+  test("a send onto an idle conversation does not inherit the idle gap as a stall", () => {
+    // The bug: the last frame was the previous turn's, minutes before this
+    // send; the stale clock lit `No activity 1:16` the moment the message
+    // went out, and only cleared when the model's first token arrived.
+    const justSent = deriveWorking({
+      ...base,
+      lastActivityAt: base.now - 76_000,
+      turnStartedAt: base.now - 5_000,
+      entries: [],
+      queue: [],
+    });
+    expect(justSent?.state).toBe("thinking");
+    // And once a minute of this turn really is silent, the watch lights again.
+    const reallyStuck = deriveWorking({
+      ...base,
+      lastActivityAt: base.now - 76_000,
+      turnStartedAt: base.now - 90_000,
+      entries: [],
+      queue: [],
+    });
+    expect(reallyStuck?.state).toBe("stall");
+  });
 });
 
 describe("drainingQueueCount", () => {
