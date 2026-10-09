@@ -1405,7 +1405,7 @@ export const PI_TOOL_SPECS: readonly ToolSpec[] = [
   {
     name: "pi_exec",
     description:
-      "Run one raw shell command in the remote pi's configured workdir over the same ssh channel — for trivial ops (git log, mv, cat) that do not need an agent turn. Output capped at 200 KB; not for autonomous work.",
+      "Run one raw shell command in the remote pi's configured workdir over the same ssh channel — for trivial ops (git log, mv, cat) that do not need an agent turn. Each command waits for a human approval — it is a remote shell. Output capped at 200 KB; not for autonomous work.",
     parameters: {
       type: "object",
       properties: {
@@ -1415,7 +1415,9 @@ export const PI_TOOL_SPECS: readonly ToolSpec[] = [
       required: ["command"],
       additionalProperties: false,
     },
-    approval: "auto",
+    // A raw /bin/sh on the worker is the widest door in the toolset; a
+    // prompt-injected agent must not walk through it unheard.
+    approval: "ask",
   },
 ];
 

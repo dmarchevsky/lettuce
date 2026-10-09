@@ -1219,6 +1219,15 @@ test("pi_fetch save carries base64 for the mod; the settle manifest lists touche
   expect(report).toContain("pi_fetch");
 });
 
+test("the event budget ships armed: absent in old settings means 200k, 0 stays off", async () => {
+  const { service } = await runHarness(); // save() writes without any budget field
+  const stored = await service.load();
+  expect(stored.maxEvents).toBe(200_000); // the net that catches an 8.2 M-event run
+  expect(stored.maxRuntimeMinutes).toBe(0); // runtime stays opt-in: quiet long runs survive
+  await service.save({ host: "pi.example.invalid", maxEvents: 0 });
+  expect((await service.load()).maxEvents).toBe(0); // an explicit 0 is still "off"
+});
+
 test("the run budget cancels a runaway: by events, and by wall clock", async () => {
   const { runner, children } = await freshRunner();
   const meta = await runner.start(

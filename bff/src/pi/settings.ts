@@ -79,7 +79,7 @@ export const DEFAULT_PI_SETTINGS: PiSettings = {
   pathPrepend: "",
   workdir: "",
   model: null,
-  maxEvents: 0,
+  maxEvents: 200_000,
   maxRuntimeMinutes: 0,
 };
 
@@ -112,7 +112,15 @@ export function parsePiSettings(text: string | null): PiSettings {
     pathPrepend: typeof r.pathPrepend === "string" ? normalizePathPrepend(r.pathPrepend) : "",
     workdir: typeof r.workdir === "string" ? r.workdir : "",
     model: typeof r.model === "string" && r.model ? r.model : null,
-    maxEvents: Number.isInteger(r.maxEvents) && Number(r.maxEvents) > 0 ? Number(r.maxEvents) : 0,
+    // Absent means "stored before budgets existed": ship armed — the 200k
+    // event net is what would have caught the 8.2 M-event incident.
+    // An explicit 0 is still the operator's "off".
+    maxEvents:
+      r.maxEvents === undefined
+        ? 200_000
+        : Number.isInteger(r.maxEvents) && Number(r.maxEvents) > 0
+          ? Number(r.maxEvents)
+          : 0,
     maxRuntimeMinutes:
       Number.isInteger(r.maxRuntimeMinutes) && Number(r.maxRuntimeMinutes) > 0
         ? Number(r.maxRuntimeMinutes)
