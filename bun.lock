@@ -6,7 +6,7 @@
       "name": "lettuce",
       "devDependencies": {
         "@biomejs/biome": "^2.5.9",
-        "@letta-ai/letta-code": "0.34.8",
+        "@letta-ai/letta-code": "0.34.9",
         "playwright": "^1.62.1",
         "typescript": "^5.6.0",
       },
@@ -14,7 +14,7 @@
     "bff": {
       "name": "@lettuce/bff",
       "dependencies": {
-        "@letta-ai/letta-code": "0.34.8",
+        "@letta-ai/letta-code": "0.34.9",
         "@modelcontextprotocol/sdk": "1.30.1",
         "hono": "^4.6.0",
         "jose": "^6.2.12",
@@ -31,7 +31,7 @@
     "web": {
       "name": "@lettuce/web",
       "dependencies": {
-        "@letta-ai/letta-code": "0.34.8",
+        "@letta-ai/letta-code": "0.34.9",
         "react": "^18.3.1",
         "react-dom": "^18.3.1",
         "react-markdown": "^10.1.0",
@@ -431,11 +431,11 @@
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
 
-    "@letta-ai/letta-agent-sdk": ["@letta-ai/letta-agent-sdk@0.8.24", "", { "dependencies": { "@letta-ai/letta-client": "^1.12.1", "@letta-ai/letta-code": "0.33.7", "ajv": "^8.20.0" } }, "sha512-ZwJtar/o7hNn6BX4qo7CN80FSdbnmiUXUmwVbkcvAfhLUTWe8ijObMGS8slwtD682KYVP0ZxoTxnVqDiob4cog=="],
+    "@letta-ai/letta-agent-sdk": ["@letta-ai/letta-agent-sdk@0.8.35", "", { "dependencies": { "@letta-ai/letta-client": "^1.12.1", "@letta-ai/letta-code": "0.34.8", "ajv": "^8.20.0" } }, "sha512-S6x8fiU/gjwT2/ldpqqYtlDcRYemq3AfIPnNViToZPc8P48cnJlsA87IvLrt9hoR7X9HyxV9KnJ6buQFWXeUdg=="],
 
     "@letta-ai/letta-client": ["@letta-ai/letta-client@1.12.1", "", {}, "sha512-rYjXMXpkfssj7VBBX3qCp6mdpNRv6YPNrliYsjkhWoQDqGg3J9bsgIQ28ZhQTddabYxRUIwcdzuaizFx8pvZ7A=="],
 
-    "@letta-ai/letta-code": ["@letta-ai/letta-code@0.34.8", "", { "dependencies": { "@earendil-works/pi-ai": "^0.99.1", "@janhapke/sharp-electron": "0.35.3-electron.1", "@letta-ai/letta-agent-sdk": "0.8.24", "@letta-ai/letta-client": "^1.10.2", "@letta-ai/trajectory": "0.2.0", "@modelcontextprotocol/sdk": "1.30.0", "@pierre/diffs": "1.2.2", "@scarf/scarf": "^1.4.0", "@shikijs/langs": "4.0.2", "cron-parser": "^5.6.1", "cross-spawn": "^7.0.6", "glob": "^13.0.0", "ink": "5.2.1", "ink-link": "^4.1.0", "node-pty": "^1.1.0", "open": "^10.2.0", "react": "18.2.0", "sharp": "^0.34.5", "shiki": "^4.0.2", "strip-ansi": "^7.2.0", "ws": "^8.19.0" }, "optionalDependencies": { "@vscode/ripgrep": "^1.17.0" }, "bin": { "letta": "letta.js" } }, "sha512-YVp/GH9N0I03ks9g3POw1aM9zrn7beewrm51G27cSjQSnLMU/gKtAdn5XyBp9yDYy9HeYz0mJ5afPFA2cvvqfA=="],
+    "@letta-ai/letta-code": ["@letta-ai/letta-code@0.34.9", "", { "dependencies": { "@earendil-works/pi-ai": "^0.99.1", "@janhapke/sharp-electron": "0.35.3-electron.1", "@letta-ai/letta-agent-sdk": "0.8.35", "@letta-ai/letta-client": "^1.10.2", "@letta-ai/trajectory": "0.2.0", "@modelcontextprotocol/sdk": "1.30.0", "@pierre/diffs": "1.2.2", "@scarf/scarf": "^1.4.0", "@shikijs/langs": "4.0.2", "cron-parser": "^5.6.1", "cross-spawn": "^7.0.6", "glob": "^13.0.0", "ink": "5.2.1", "ink-link": "^4.1.0", "node-pty": "^1.1.0", "open": "^10.2.0", "react": "18.2.0", "sharp": "^0.34.5", "shiki": "^4.0.2", "strip-ansi": "^7.2.0", "ws": "^8.19.0" }, "optionalDependencies": { "@vscode/ripgrep": "^1.17.0" }, "bin": { "letta": "letta.js" } }, "sha512-Bkfuj3Jha/yCrMj2sRFuocUbrdSqNa6TQD2TITRo6hzbDqDJLrNMmXTlFFq2WO9o1nUogvLc8NunPFhSTMDeQA=="],
 
     "@letta-ai/trajectory": ["@letta-ai/trajectory@0.2.0", "", {}, "sha512-biCyT0z8nh4Q8kIqBrPgmzoalacPmosmCpvEjdN9ILpL85+T75b8ahcN9MHPHQUVRj/J7UyQuRahJ4/JdrpCcA=="],
 
@@ -1655,7 +1655,7 @@
 
     "@janhapke/sharp-electron/sharp": ["sharp@0.35.3", "", { "dependencies": { "@img/colour": "^1.1.0", "detect-libc": "^2.1.2", "semver": "^7.8.5" }, "optionalDependencies": { "@img/sharp-darwin-arm64": "0.35.3", "@img/sharp-darwin-x64": "0.35.3", "@img/sharp-freebsd-wasm32": "0.35.3", "@img/sharp-libvips-darwin-arm64": "1.3.2", "@img/sharp-libvips-darwin-x64": "1.3.2", "@img/sharp-libvips-linux-arm": "1.3.2", "@img/sharp-libvips-linux-arm64": "1.3.2", "@img/sharp-libvips-linux-ppc64": "1.3.2", "@img/sharp-libvips-linux-riscv64": "1.3.2", "@img/sharp-libvips-linux-s390x": "1.3.2", "@img/sharp-libvips-linux-x64": "1.3.2", "@img/sharp-libvips-linuxmusl-arm64": "1.3.2", "@img/sharp-libvips-linuxmusl-x64": "1.3.2", "@img/sharp-linux-arm": "0.35.3", "@img/sharp-linux-arm64": "0.35.3", "@img/sharp-linux-ppc64": "0.35.3", "@img/sharp-linux-riscv64": "0.35.3", "@img/sharp-linux-s390x": "0.35.3", "@img/sharp-linux-x64": "0.35.3", "@img/sharp-linuxmusl-arm64": "0.35.3", "@img/sharp-linuxmusl-x64": "0.35.3", "@img/sharp-webcontainers-wasm32": "0.35.3", "@img/sharp-win32-arm64": "0.35.3", "@img/sharp-win32-ia32": "0.35.3", "@img/sharp-win32-x64": "0.35.3" } }, "sha512-ej0zVHuZGHCiABXcNxeYhpRnPNPAcvbG8RMdBAhDAxLKkCRVSpK3Iyu7qbqw3JMzoj0REeM6f3tJLtVwl0023Q=="],
 
-    "@letta-ai/letta-agent-sdk/@letta-ai/letta-code": ["@letta-ai/letta-code@0.33.7", "", { "dependencies": { "@earendil-works/pi-ai": "^0.87.1", "@janhapke/sharp-electron": "0.35.3-electron.1", "@letta-ai/letta-agent-sdk": "0.8.21", "@letta-ai/letta-client": "^1.10.2", "@letta-ai/trajectory": "0.2.0", "@modelcontextprotocol/sdk": "1.30.0", "@pierre/diffs": "1.2.2", "@scarf/scarf": "^1.4.0", "@shikijs/langs": "4.0.2", "cron-parser": "^5.6.1", "cross-spawn": "^7.0.6", "glob": "^13.0.0", "ink": "5.2.1", "ink-link": "^4.1.0", "node-pty": "^1.1.0", "open": "^10.2.0", "react": "18.2.0", "sharp": "^0.34.5", "shiki": "^4.0.2", "strip-ansi": "^7.2.0", "ws": "^8.19.0" }, "optionalDependencies": { "@vscode/ripgrep": "^1.17.0" }, "bin": { "letta": "letta.js" } }, "sha512-PkXdVNXwoKrMFuE08rfVKliKignpe4HUnq+bzs3EsgLfogm2m2oe7PFhmk8tb4VoCfc5oqqrwhtzuF+ur0PlFQ=="],
+    "@letta-ai/letta-agent-sdk/@letta-ai/letta-code": ["@letta-ai/letta-code@0.34.8", "", { "dependencies": { "@earendil-works/pi-ai": "^0.99.1", "@janhapke/sharp-electron": "0.35.3-electron.1", "@letta-ai/letta-agent-sdk": "0.8.24", "@letta-ai/letta-client": "^1.10.2", "@letta-ai/trajectory": "0.2.0", "@modelcontextprotocol/sdk": "1.30.0", "@pierre/diffs": "1.2.2", "@scarf/scarf": "^1.4.0", "@shikijs/langs": "4.0.2", "cron-parser": "^5.6.1", "cross-spawn": "^7.0.6", "glob": "^13.0.0", "ink": "5.2.1", "ink-link": "^4.1.0", "node-pty": "^1.1.0", "open": "^10.2.0", "react": "18.2.0", "sharp": "^0.34.5", "shiki": "^4.0.2", "strip-ansi": "^7.2.0", "ws": "^8.19.0" }, "optionalDependencies": { "@vscode/ripgrep": "^1.17.0" }, "bin": { "letta": "letta.js" } }, "sha512-YVp/GH9N0I03ks9g3POw1aM9zrn7beewrm51G27cSjQSnLMU/gKtAdn5XyBp9yDYy9HeYz0mJ5afPFA2cvvqfA=="],
 
     "@letta-ai/letta-code/@modelcontextprotocol/sdk": ["@modelcontextprotocol/sdk@1.30.0", "", { "dependencies": { "@hono/node-server": "^1.19.9 || ^2.0.5", "ajv": "^8.17.1", "ajv-formats": "^3.0.1", "content-type": "^1.0.5", "cors": "^2.8.5", "cross-spawn": "^7.0.5", "eventsource": "^3.0.2", "eventsource-parser": "^3.0.0", "express": "^5.2.1", "express-rate-limit": "^8.2.1", "hono": "^4.11.4", "jose": "^6.1.3", "json-schema-typed": "^8.0.2", "pkce-challenge": "^5.0.0", "raw-body": "^3.0.0", "zod": "^3.25 || ^4.0", "zod-to-json-schema": "^3.25.1" }, "peerDependencies": { "@cfworker/json-schema": "^4.1.1" }, "optionalPeers": ["@cfworker/json-schema"] }, "sha512-xKd8OIzlqNzcqcNumGAa6g+PW2kjD5vrpcKOnfldAUPP3j7lnqMPwlTXQm8gF+UwH72z0lqaRbjr9hqGz0eITA=="],
 
@@ -1773,9 +1773,7 @@
 
     "@janhapke/sharp-electron/sharp/@img/sharp-win32-x64": ["@img/sharp-win32-x64@0.35.3", "", { "os": "win32", "cpu": "x64" }, "sha512-D4y1vNeZrIIJCN+uHaWVtH86B+aCrdMYYjicy9pXHvbGZeGYLLSd3wdVuC37FxVXlU1ARsk84eKWfWMXGYEqvA=="],
 
-    "@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@earendil-works/pi-ai": ["@earendil-works/pi-ai@0.87.1", "", { "dependencies": { "@anthropic-ai/sdk": "0.124.0", "@aws-sdk/client-bedrock-runtime": "3.1127.0", "@earendil-works/pi-telemetry": "^0.87.1", "@google/genai": "2.21.0", "@smithy/node-http-handler": "4.12.1", "http-proxy-agent": "9.1.0", "https-proxy-agent": "9.1.0", "openai": "6.40.0", "partial-json": "0.1.7", "typebox": "1.3.27" }, "bin": { "pi-ai": "dist/cli.js" } }, "sha512-X/3PfQBnnoeVdO9Cv8zHghUMglzlgNZYGNzoPnbRoGnHl3Rw3TlA2UKSUB7BRHUOxMryHXYa8dnjWZlbRheDZA=="],
-
-    "@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@letta-ai/letta-agent-sdk": ["@letta-ai/letta-agent-sdk@0.8.21", "", { "dependencies": { "@letta-ai/letta-client": "^1.12.1", "@letta-ai/letta-code": "0.33.3", "ajv": "^8.20.0" } }, "sha512-eOTsakTURLhW0ad9YHydAKuWLaZGHmc/5Zzs6YycUzi9OLTIQLmPbTIGbhcruYYtTFS/iPECrXZFUzadEl8RkA=="],
+    "@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@letta-ai/letta-agent-sdk": ["@letta-ai/letta-agent-sdk@0.8.24", "", { "dependencies": { "@letta-ai/letta-client": "^1.12.1", "@letta-ai/letta-code": "0.33.7", "ajv": "^8.20.0" } }, "sha512-ZwJtar/o7hNn6BX4qo7CN80FSdbnmiUXUmwVbkcvAfhLUTWe8ijObMGS8slwtD682KYVP0ZxoTxnVqDiob4cog=="],
 
     "@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@modelcontextprotocol/sdk": ["@modelcontextprotocol/sdk@1.30.0", "", { "dependencies": { "@hono/node-server": "^1.19.9 || ^2.0.5", "ajv": "^8.17.1", "ajv-formats": "^3.0.1", "content-type": "^1.0.5", "cors": "^2.8.5", "cross-spawn": "^7.0.5", "eventsource": "^3.0.2", "eventsource-parser": "^3.0.0", "express": "^5.2.1", "express-rate-limit": "^8.2.1", "hono": "^4.11.4", "jose": "^6.1.3", "json-schema-typed": "^8.0.2", "pkce-challenge": "^5.0.0", "raw-body": "^3.0.0", "zod": "^3.25 || ^4.0", "zod-to-json-schema": "^3.25.1" }, "peerDependencies": { "@cfworker/json-schema": "^4.1.1" }, "optionalPeers": ["@cfworker/json-schema"] }, "sha512-xKd8OIzlqNzcqcNumGAa6g+PW2kjD5vrpcKOnfldAUPP3j7lnqMPwlTXQm8gF+UwH72z0lqaRbjr9hqGz0eITA=="],
 
@@ -1799,22 +1797,28 @@
 
     "terminal-link/ansi-escapes/type-fest": ["type-fest@1.4.0", "", {}, "sha512-yGSza74xk0UG8k+pLh5oeoYirvIiWo5t0/o3zHHAO2tRDiZcxWP7fywNlXhqb6/r6sWvwi+RsyQMWhVLe4BVuA=="],
 
-    "@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@earendil-works/pi-ai/@earendil-works/pi-telemetry": ["@earendil-works/pi-telemetry@0.87.1", "", {}, "sha512-MC6TRQH5lgMXpcN+Vku2WMI2T8BsiUPzMQHGo81uqFZD3/9O79WWJAysEDGuzduP6R4tvtgwMLwmqIxynM10JQ=="],
-
-    "@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@earendil-works/pi-ai/https-proxy-agent": ["https-proxy-agent@9.1.0", "", { "dependencies": { "agent-base": "9.0.0", "debug": "^4.3.4", "proxy-agent-negotiate": "1.1.0" } }, "sha512-ag87y7cJJ9/3+GxFr8Oy4O5faDsGRGnBGsJj/YjOSsSx/5eadKLYTMPlzuR6obgoCDDm0abAAZitXXQkMOPSpA=="],
-
-    "@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@earendil-works/pi-ai/openai": ["openai@6.40.0", "", { "peerDependencies": { "ws": "^8.18.0", "zod": "^3.25 || ^4.0" }, "optionalPeers": ["ws", "zod"] }, "sha512-MWtTjd/gQt4jpbji61NTgFWJLoY/PdRJ6wG9/ZDRMYNMlBKrCrSlkLI+KgHP1vR1qT6LKSAyAqIxno6lcK9JiA=="],
-
-    "@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@letta-ai/letta-agent-sdk/@letta-ai/letta-code": ["@letta-ai/letta-code@0.33.3", "", { "dependencies": { "@earendil-works/pi-ai": "^0.87.1", "@janhapke/sharp-electron": "0.35.3-electron.1", "@letta-ai/letta-agent-sdk": "^0.8.17", "@letta-ai/letta-client": "^1.10.2", "@letta-ai/trajectory": "0.2.0", "@modelcontextprotocol/sdk": "1.30.0", "@pierre/diffs": "1.2.2", "@scarf/scarf": "^1.4.0", "@shikijs/langs": "4.0.2", "cron-parser": "^5.6.1", "cross-spawn": "^7.0.6", "glob": "^13.0.0", "ink": "5.2.1", "ink-link": "^4.1.0", "node-pty": "^1.1.0", "open": "^10.2.0", "react": "18.2.0", "sharp": "^0.34.5", "shiki": "^4.0.2", "strip-ansi": "^7.2.0", "ws": "^8.19.0" }, "optionalDependencies": { "@vscode/ripgrep": "^1.17.0" }, "bin": { "letta": "letta.js" } }, "sha512-9h6dCnxnn0CMiUkYj9Qbx4KxR/DbYYDJN0BLo6iHvxQjuBsssCtriMbS2QSOKjKkfsPB91J2x/N68PzW3AmW5g=="],
+    "@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@letta-ai/letta-agent-sdk/@letta-ai/letta-code": ["@letta-ai/letta-code@0.33.7", "", { "dependencies": { "@earendil-works/pi-ai": "^0.87.1", "@janhapke/sharp-electron": "0.35.3-electron.1", "@letta-ai/letta-agent-sdk": "0.8.21", "@letta-ai/letta-client": "^1.10.2", "@letta-ai/trajectory": "0.2.0", "@modelcontextprotocol/sdk": "1.30.0", "@pierre/diffs": "1.2.2", "@scarf/scarf": "^1.4.0", "@shikijs/langs": "4.0.2", "cron-parser": "^5.6.1", "cross-spawn": "^7.0.6", "glob": "^13.0.0", "ink": "5.2.1", "ink-link": "^4.1.0", "node-pty": "^1.1.0", "open": "^10.2.0", "react": "18.2.0", "sharp": "^0.34.5", "shiki": "^4.0.2", "strip-ansi": "^7.2.0", "ws": "^8.19.0" }, "optionalDependencies": { "@vscode/ripgrep": "^1.17.0" }, "bin": { "letta": "letta.js" } }, "sha512-PkXdVNXwoKrMFuE08rfVKliKignpe4HUnq+bzs3EsgLfogm2m2oe7PFhmk8tb4VoCfc5oqqrwhtzuF+ur0PlFQ=="],
 
     "@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@modelcontextprotocol/sdk/jose": ["jose@6.2.9", "", {}, "sha512-XrchZOFZUl/T3vTwRe8XK+cJrGtMF4th1ARnDfwbBXFKThGhlsxEE4Zu03AD/bjJSt/9jT/mxrOCkJWOg77aPA=="],
 
     "filelist/minimatch/brace-expansion/balanced-match": ["balanced-match@1.0.2", "", {}, "sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw=="],
 
-    "@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@earendil-works/pi-ai/https-proxy-agent/agent-base": ["agent-base@9.0.0", "", {}, "sha512-TQf59BsZnytt8GdJKLPfUZ54g/iaUL2OWDSFCCvMOhsHduDQxO8xC4PNeyIkVcA5KwL2phPSv0douC0fgWzmnA=="],
+    "@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@earendil-works/pi-ai": ["@earendil-works/pi-ai@0.87.1", "", { "dependencies": { "@anthropic-ai/sdk": "0.124.0", "@aws-sdk/client-bedrock-runtime": "3.1127.0", "@earendil-works/pi-telemetry": "^0.87.1", "@google/genai": "2.21.0", "@smithy/node-http-handler": "4.12.1", "http-proxy-agent": "9.1.0", "https-proxy-agent": "9.1.0", "openai": "6.40.0", "partial-json": "0.1.7", "typebox": "1.3.27" }, "bin": { "pi-ai": "dist/cli.js" } }, "sha512-X/3PfQBnnoeVdO9Cv8zHghUMglzlgNZYGNzoPnbRoGnHl3Rw3TlA2UKSUB7BRHUOxMryHXYa8dnjWZlbRheDZA=="],
 
-    "@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@letta-ai/letta-agent-sdk": ["@letta-ai/letta-agent-sdk@0.8.18", "", { "dependencies": { "@letta-ai/letta-client": "^1.12.1", "@letta-ai/letta-code": "0.33.2", "ajv": "^8.20.0" } }, "sha512-3bGOr/5ooC1uxGlw9NUCkzcZiYV4ghHvsxsAkwsf8pR3RRwNwzkvtZ2uN2ByUPQLVNTIVBaqo2r+RxK0HAgOgQ=="],
+    "@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@letta-ai/letta-agent-sdk": ["@letta-ai/letta-agent-sdk@0.8.21", "", { "dependencies": { "@letta-ai/letta-client": "^1.12.1", "@letta-ai/letta-code": "0.33.3", "ajv": "^8.20.0" } }, "sha512-eOTsakTURLhW0ad9YHydAKuWLaZGHmc/5Zzs6YycUzi9OLTIQLmPbTIGbhcruYYtTFS/iPECrXZFUzadEl8RkA=="],
 
-    "@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@letta-ai/letta-agent-sdk/@letta-ai/letta-code": ["@letta-ai/letta-code@0.33.2", "", { "dependencies": { "@earendil-works/pi-ai": "^0.87.1", "@janhapke/sharp-electron": "0.35.3-electron.1", "@letta-ai/letta-agent-sdk": "^0.8.17", "@letta-ai/letta-client": "^1.10.2", "@letta-ai/trajectory": "0.2.0", "@modelcontextprotocol/sdk": "1.30.0", "@pierre/diffs": "1.2.2", "@scarf/scarf": "^1.4.0", "cron-parser": "^5.6.1", "cross-spawn": "^7.0.6", "glob": "^13.0.0", "ink": "5.2.1", "ink-link": "^4.1.0", "node-pty": "^1.1.0", "open": "^10.2.0", "react": "18.2.0", "sharp": "^0.34.5", "shiki": "^4.0.2", "strip-ansi": "^7.2.0", "ws": "^8.19.0" }, "optionalDependencies": { "@vscode/ripgrep": "^1.17.0" }, "bin": { "letta": "letta.js" } }, "sha512-qlSk9p8OJxUbx6u8fBscVj743sBpSbbyIwl2IvLCqiUbsCrKnUkr+wBJUUYTA7KQ2Nc41U+E6FkOXL7ehOOZwQ=="],
+    "@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@earendil-works/pi-ai/@earendil-works/pi-telemetry": ["@earendil-works/pi-telemetry@0.87.1", "", {}, "sha512-MC6TRQH5lgMXpcN+Vku2WMI2T8BsiUPzMQHGo81uqFZD3/9O79WWJAysEDGuzduP6R4tvtgwMLwmqIxynM10JQ=="],
+
+    "@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@earendil-works/pi-ai/https-proxy-agent": ["https-proxy-agent@9.1.0", "", { "dependencies": { "agent-base": "9.0.0", "debug": "^4.3.4", "proxy-agent-negotiate": "1.1.0" } }, "sha512-ag87y7cJJ9/3+GxFr8Oy4O5faDsGRGnBGsJj/YjOSsSx/5eadKLYTMPlzuR6obgoCDDm0abAAZitXXQkMOPSpA=="],
+
+    "@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@earendil-works/pi-ai/openai": ["openai@6.40.0", "", { "peerDependencies": { "ws": "^8.18.0", "zod": "^3.25 || ^4.0" }, "optionalPeers": ["ws", "zod"] }, "sha512-MWtTjd/gQt4jpbji61NTgFWJLoY/PdRJ6wG9/ZDRMYNMlBKrCrSlkLI+KgHP1vR1qT6LKSAyAqIxno6lcK9JiA=="],
+
+    "@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@letta-ai/letta-agent-sdk/@letta-ai/letta-code": ["@letta-ai/letta-code@0.33.3", "", { "dependencies": { "@earendil-works/pi-ai": "^0.87.1", "@janhapke/sharp-electron": "0.35.3-electron.1", "@letta-ai/letta-agent-sdk": "^0.8.17", "@letta-ai/letta-client": "^1.10.2", "@letta-ai/trajectory": "0.2.0", "@modelcontextprotocol/sdk": "1.30.0", "@pierre/diffs": "1.2.2", "@scarf/scarf": "^1.4.0", "@shikijs/langs": "4.0.2", "cron-parser": "^5.6.1", "cross-spawn": "^7.0.6", "glob": "^13.0.0", "ink": "5.2.1", "ink-link": "^4.1.0", "node-pty": "^1.1.0", "open": "^10.2.0", "react": "18.2.0", "sharp": "^0.34.5", "shiki": "^4.0.2", "strip-ansi": "^7.2.0", "ws": "^8.19.0" }, "optionalDependencies": { "@vscode/ripgrep": "^1.17.0" }, "bin": { "letta": "letta.js" } }, "sha512-9h6dCnxnn0CMiUkYj9Qbx4KxR/DbYYDJN0BLo6iHvxQjuBsssCtriMbS2QSOKjKkfsPB91J2x/N68PzW3AmW5g=="],
+
+    "@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@earendil-works/pi-ai/https-proxy-agent/agent-base": ["agent-base@9.0.0", "", {}, "sha512-TQf59BsZnytt8GdJKLPfUZ54g/iaUL2OWDSFCCvMOhsHduDQxO8xC4PNeyIkVcA5KwL2phPSv0douC0fgWzmnA=="],
+
+    "@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@letta-ai/letta-agent-sdk": ["@letta-ai/letta-agent-sdk@0.8.18", "", { "dependencies": { "@letta-ai/letta-client": "^1.12.1", "@letta-ai/letta-code": "0.33.2", "ajv": "^8.20.0" } }, "sha512-3bGOr/5ooC1uxGlw9NUCkzcZiYV4ghHvsxsAkwsf8pR3RRwNwzkvtZ2uN2ByUPQLVNTIVBaqo2r+RxK0HAgOgQ=="],
+
+    "@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@letta-ai/letta-agent-sdk/@letta-ai/letta-code/@letta-ai/letta-agent-sdk/@letta-ai/letta-code": ["@letta-ai/letta-code@0.33.2", "", { "dependencies": { "@earendil-works/pi-ai": "^0.87.1", "@janhapke/sharp-electron": "0.35.3-electron.1", "@letta-ai/letta-agent-sdk": "^0.8.17", "@letta-ai/letta-client": "^1.10.2", "@letta-ai/trajectory": "0.2.0", "@modelcontextprotocol/sdk": "1.30.0", "@pierre/diffs": "1.2.2", "@scarf/scarf": "^1.4.0", "cron-parser": "^5.6.1", "cross-spawn": "^7.0.6", "glob": "^13.0.0", "ink": "5.2.1", "ink-link": "^4.1.0", "node-pty": "^1.1.0", "open": "^10.2.0", "react": "18.2.0", "sharp": "^0.34.5", "shiki": "^4.0.2", "strip-ansi": "^7.2.0", "ws": "^8.19.0" }, "optionalDependencies": { "@vscode/ripgrep": "^1.17.0" }, "bin": { "letta": "letta.js" } }, "sha512-qlSk9p8OJxUbx6u8fBscVj743sBpSbbyIwl2IvLCqiUbsCrKnUkr+wBJUUYTA7KQ2Nc41U+E6FkOXL7ehOOZwQ=="],
   }
 }

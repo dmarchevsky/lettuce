@@ -28,7 +28,9 @@ Protocol drift shows up two ways:
    - `src/types/turn-finished-protocol.ts` (new since 0.34.2) — `input.terminal_consumer_id`,
      `turn_finished.terminal_consumer_ids` and a `turn_finished_ack` command: a durable, acked,
      fsynced terminal journal for clients that declare a consumer id. **Dormant for us** — the BFF
-     sends no `terminal_consumer_id`, and upstream sets it only when the client does.
+     sends no `terminal_consumer_id`, and upstream sets it only when the client does. That same
+     durable ledger capped an accepted input at 1 MiB until 0.34.9 raised it to 21 MiB: a queued
+     message carrying an inline base64 photo used to be dropped with no error at all.
    - `src/channels/gateway-supervisor.ts` and `src/channels/gateway-local.ts` — if the gateway
      ever gains `--ws-auth`, the shared-network-namespace workaround can be dropped.
    - `src/types/background-process-protocol.ts` — `readBackgroundProcesses` hand-parses these
