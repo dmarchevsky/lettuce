@@ -115,32 +115,29 @@ export function buildPiRemoteCommand(
   settings: PiSettings,
   options: { session?: string; model?: string | null },
 ): string {
-  const pi: string[] = [];
-  const prepend = normalizePathPrepend(settings.pathPrepend);
-  if (prepend) pi.push("env", `PATH=${shq(prepend)}:"$PATH"`);
   // C2: no prompt in argv. An argv prompt is world-readable in the remote's
   // `ps`, bounded by ARG_MAX, and quoted through two shells; pi reads the
   // message from stdin instead (proved against pi 1.1.0 before this shipped),
   // and the runner writes it into the ssh stdin and closes it.
-  pi.push("pi", "--mode", "json");
+  //
+  // The pid marker needs a trick: a `&`-backgrounded job gets its stdin
+  // redirected to /dev/null by POSIX shells when job control is off (caught
+  // live: the first stdin design ran `pi &` and pi saw an immediate EOF).
+  // So pi is `exec`'d inside an inner sh instead — stdin survives, the inner
+  // shell's $$ is pi's own pid after the exec replaces it, and the exec also
+  // passes pi's exit code through untouched.
+  const inner: string[] = ['echo "lettuce-remote-pid $$" >&2;', "exec", "pi", "--mode", "json"];
   if (options.session) {
     if (!isPiSessionId(options.session)) throw new Error("not a pi session id");
-    pi.push("--session", shq(options.session));
+    inner.push("--session", shq(options.session));
   }
   const model = options.model ?? settings.model;
-  if (model) pi.push("--model", shq(model));
-  return [
-    "cd",
-    shq(settings.workdir),
-    "&&",
-    "{",
-    ...pi,
-    "&",
-    "rp=$!;",
-    'echo "lettuce-remote-pid $rp" >&2;',
-    "wait $rp;",
-    "}",
-  ].join(" ");
+  if (model) inner.push("--model", shq(model));
+  const outer: string[] = ["cd", shq(settings.workdir), "&&"];
+  const prepend = normalizePathPrepend(settings.pathPrepend);
+  if (prepend) outer.push("env", `PATH=${shq(prepend)}:"$PATH"`);
+  outer.push("/bin/sh", "-c", shq(inner.join(" ")));
+  return outer.join(" ");
 }
 
 /**

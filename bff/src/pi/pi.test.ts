@@ -121,14 +121,14 @@ test("shq survives single quotes", () => {
 test("the remote command cd's and prepends PATH — the prompt is not in argv (C2)", () => {
   const cmd = buildPiRemoteCommand(BASE, {});
   expect(cmd).toContain(
-    String.raw`cd '/home/worker/pi' && { env PATH='/opt/node/bin:/opt/pi/bin':"$PATH"`,
+    String.raw`cd '/home/worker/pi' && env PATH='/opt/node/bin:/opt/pi/bin':"$PATH" /bin/sh -c`,
   );
   expect(cmd).toContain("pi --mode json");
   // The prompt travels via stdin (it must never be readable in the remote's ps).
   expect(cmd).not.toContain("review");
-  // The force-stop wrapper: pi's own pid (not a subshell's) reaches stderr,
-  // and `wait $rp` (not bare `wait`, which always exits 0) keeps pi's exit code.
-  expect(cmd).toContain(String.raw`& rp=$!; echo "lettuce-remote-pid $rp" >&2; wait $rp; }`);
+  // The pid marker: pi is exec'd, so the inner shell's $$ is pi's own pid —
+  // and the exec passes pi's exit code through untouched.
+  expect(cmd).toContain('echo "lettuce-remote-pid $$" >&2;');
 });
 
 test("the force-stop wrapper really passes the exit code through", () => {
@@ -152,6 +152,21 @@ test("the force-stop wrapper really passes the exit code through", () => {
     ),
   ]);
   expect(ok.exitCode).toBe(0);
+});
+
+test("the exec wrapper really carries stdin to the program (the & form cannot)", () => {
+  // The regression this shape exists for: a `&`-backgrounded job gets
+  // /dev/null stdin when job control is off, so the first stdin design made
+  // pi see an instant EOF. The exec'd program must read the piped prompt.
+  const cmd = buildPiRemoteCommand({ ...BASE, workdir: "/tmp", pathPrepend: "" }, {}).replace(
+    "exec pi --mode json",
+    "exec cat",
+  );
+  // `printf X | cd … && sh` would pipe into `cd` — the pipeline must feed the
+  // whole compound command, which is exactly what ssh stdin does for real.
+  const r = Bun.spawnSync(["sh", "-c", `printf PROMPT-VIA-STDIN | ( ${cmd} )`]);
+  expect(r.stdout.toString()).toContain("PROMPT-VIA-STDIN");
+  expect(r.stderr.toString()).toMatch(/lettuce-remote-pid \d+/);
 });
 
 test("the PATH prepend hands $PATH to the remote shell", () => {
@@ -216,7 +231,9 @@ test("empty pathPrepend emits no env PATH at all", () => {
 test("session resume passes --session and rejects non-UUIDs", () => {
   const session = "01a10e10-08ec-705d-a364-5cfa40e1a963";
   expect(isPiSessionId(session)).toBe(true);
-  expect(buildPiRemoteCommand(BASE, { session })).toContain(`--session '${session}'`);
+  expect(buildPiRemoteCommand(BASE, { session })).toContain(
+    `--session '\\''${session}'\\''`, // quoted once per shell it travels through
+  );
   expect(() => buildPiRemoteCommand(BASE, { session: "'; rm -rf / #" })).toThrow();
 });
 
