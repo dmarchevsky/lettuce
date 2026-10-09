@@ -821,9 +821,11 @@ pre {
   border-radius: 0;
   font-size: 12.5px;
   max-width: 100%;
-  overflow-x: auto;
-  white-space: pre-wrap;
+  /* Long tokens (paths, JSON strings) break instead of scrolling: no
+     horizontal scrollbars anywhere in a transcript. */
   overflow-wrap: anywhere;
+  overflow-x: hidden;
+  white-space: pre-wrap;
   max-height: 320px;
 }
 
@@ -3542,6 +3544,19 @@ button.link-dot.busy.warn {
   gap: 10px;
   padding: 12px 16px;
   min-width: 0;
+}
+/* The pi viewer reuses the conversation's entry classes as native <details>
+   rows: hide the browser marker, make the row read as a control, and turn
+   the chevron when open (chat swaps icons in state instead). */
+.codex-run summary.tool-head {
+  list-style: none;
+  cursor: pointer;
+}
+.codex-run summary.tool-head::-webkit-details-marker {
+  display: none;
+}
+.codex-run details[open] > summary .chevron {
+  transform: rotate(90deg);
 }
 .codex-step {
   min-width: 0;
