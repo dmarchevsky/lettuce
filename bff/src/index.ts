@@ -126,6 +126,7 @@ import {
 } from "./providers/vision.ts";
 import { AgentNames } from "./push/agent-names.ts";
 import { ApprovalWatcher } from "./push/approval-watcher.ts";
+import { notify } from "./push/notify.ts";
 import { configureWebPush, sendPush } from "./push/send.ts";
 import { PushSubscriptionStore } from "./push/store.ts";
 import { TurnOutcomeWatcher } from "./push/turn-watcher.ts";
@@ -447,10 +448,55 @@ const piService = new PiService({
   paths: { dir: config.piDir },
   featureEnabled: () => config.features.pi,
   log,
+  // Settle pushes: a finished remote run is exactly what a waiting human wants
+  // without an agent turn relaying it. Deep link lands on the Runs tab once
+  // that view ships; unknown query params are inert before then. And the
+  // dispatching conversation gets the same news as a <task-notification>, so
+  // the agent learns by event instead of a pi_wait/pi_status poll loop.
+  onSettle: (meta) => {
+    const verdict =
+      meta.state === "completed" || meta.state === "failed" || meta.state === "cancelled"
+        ? meta.state
+        : null;
+    if (!verdict) return;
+    if (pushStore)
+      void notify(
+        pushStore,
+        {
+          title: `Remote pi ${verdict}`,
+          body: meta.prompt.split("\n")[0]?.slice(0, 90) ?? meta.runId,
+          url: `/?tab=runs&run=${encodeURIComponent(meta.runId)}`,
+        },
+        verdict === "failed" ? "failed" : "completed",
+        log,
+      );
+    if (meta.agentId && meta.conversationId) {
+      void piService
+        .settleReport(meta)
+        .then((content) =>
+          upstream.send({
+            type: "input",
+            request_id: crypto.randomUUID(),
+            runtime: { agent_id: meta.agentId, conversation_id: meta.conversationId },
+            payload: { kind: "create_message", messages: [{ role: "user", content }] },
+          }),
+        )
+        .catch((error) => log(`Remote pi: settle report failed: ${errorMessage(error)}`));
+    }
+  },
 });
 void piService
   .reconcile()
   .catch((error) => log(`Remote pi: reconcile failed: ${errorMessage(error)}`));
+// Run captures only grow; sweep at boot and every 6 h (A8: newest 300 kept,
+// anything older than 14 days goes).
+setInterval(
+  () =>
+    void piService
+      .retentionSweep()
+      .catch((error) => log(`Remote pi: retention sweep failed: ${errorMessage(error)}`)),
+  6 * 3_600_000,
+).unref?.();
 const mcpCatalog = new McpCatalog({
   servers: () => loadMcpServers(mcpIo),
   client: mcpClient,
@@ -1518,6 +1564,67 @@ app.get("/api/pi/runs/:runId", async (c) => {
   if (!meta) return c.text("No such run", 404);
   const events = (await piService.store.readEventsTail(runId, 8_000_000)) ?? "";
   return c.json({ run: parsePiRun(meta, events), capturing: piService.runner.isRunning(runId) });
+});
+
+// Structured status for the in-transcript run card — the same facts pi_status
+// carries as prose, cheap enough to poll every few seconds.
+app.get("/api/pi/runs/:runId/status", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  const runId = c.req.param("runId");
+  if (!isPiRunId(runId)) return c.text("Not a run id", 400);
+  const status = await piService.statusFacts(runId);
+  if (!status) return c.text("No such run", 404);
+  return c.json({ status });
+});
+
+// The card's Stop / Force stop buttons; same paths as the pi_stop tool.
+app.post("/api/pi/runs/:runId/stop", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  const runId = c.req.param("runId");
+  if (!isPiRunId(runId)) return c.text("Not a run id", 400);
+  const body = (await c.req.json().catch(() => null)) as { force?: unknown } | null;
+  const answer = await piService.stopRun(runId, body?.force === true);
+  return c.json(answer, answer.isError ? 409 : 200);
+});
+
+// Artifacts a pi_fetch pulled in (C1): the card lists them, links open them.
+app.get("/api/pi/runs/:runId/files", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  const runId = c.req.param("runId");
+  if (!isPiRunId(runId)) return c.text("Not a run id", 400);
+  return c.json({ files: await piService.store.listFiles(runId) });
+});
+
+const PI_FILE_TYPES: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  pdf: "application/pdf",
+  json: "text/plain; charset=utf-8",
+  md: "text/plain; charset=utf-8",
+  txt: "text/plain; charset=utf-8",
+  csv: "text/plain; charset=utf-8",
+  log: "text/plain; charset=utf-8",
+  // html and svg would run scripts on our own origin; they come back as text.
+};
+
+app.get("/api/pi/runs/:runId/files/:name", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  const runId = c.req.param("runId");
+  if (!isPiRunId(runId)) return c.text("Not a run id", 400);
+  const bytes = await piService.store.readFile(runId, c.req.param("name"));
+  if (!bytes) return c.text("No such file", 404);
+  const ext = c.req.param("name").split(".").pop()?.toLowerCase() ?? "";
+  return new Response(bytes, {
+    headers: {
+      "content-type": PI_FILE_TYPES[ext] ?? "application/octet-stream",
+      "x-content-type-options": "nosniff",
+      "content-disposition": `inline; filename="${c.req.param("name")}"`,
+      "cache-control": "private, max-age=300",
+    },
+  });
 });
 
 // ── Google (Gmail / Calendar / Tasks) ───────────────────────────────────────

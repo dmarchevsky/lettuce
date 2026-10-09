@@ -5,6 +5,7 @@ import { SecretsSection } from "../components/SecretsSection.tsx";
 import { AgentSkills } from "../components/SkillsSections.tsx";
 import type { AgentsApi } from "../state/use-agents.ts";
 import type { SessionApi } from "../state/use-session.ts";
+import { MemoryTab } from "./MemoryTab.tsx";
 
 interface Props {
   session: SessionApi;
@@ -19,13 +20,14 @@ interface Props {
   onOpenGlobalSettings: (section?: "skills") => void;
 }
 
-export type AgentSection = "general" | "secrets" | "reflection" | "skills";
+export type AgentSection = "general" | "secrets" | "reflection" | "skills" | "memory";
 
 const SECTION_LABELS: Record<AgentSection, string> = {
   general: "General",
   secrets: "Secrets",
   reflection: "Reflection",
   skills: "Skills",
+  memory: "Memory",
 };
 
 /**
@@ -97,6 +99,9 @@ export function AgentTab({
           onOpenGlobal={() => onOpenGlobalSettings("skills")}
         />
       ) : null}
+      {/* The agent's own memory — persona.md and the rest — lives here, not in
+          the tab strip: it is per-agent through and through. */}
+      {section === "memory" ? <MemoryTab session={session} agentId={agentId} /> : null}
     </div>
   );
 }

@@ -11,6 +11,8 @@ import {
   renderChecks,
 } from "./check.ts";
 import {
+  buildPiFetchRemoteCommand,
+  buildPiLsRemoteCommand,
   buildPiRemoteCommand,
   buildSshArgs,
   DirPiRunStore,
@@ -21,7 +23,13 @@ import {
   piAgentId,
   shq,
 } from "./runner.ts";
-import { lastAssistantText, PiService, piKeyFile, piSettingsFile } from "./service.ts";
+import {
+  lastAssistantText,
+  PiService,
+  piKeyFile,
+  piKnownHostsFile,
+  piSettingsFile,
+} from "./service.ts";
 import {
   applyPiSettingsUpdate,
   DEFAULT_PI_SETTINGS,
@@ -110,13 +118,55 @@ test("shq survives single quotes", () => {
   expect(shq("it's")).toBe(`'it'\\''s'`);
 });
 
-test("the remote command cd's, prepends PATH, and quotes the prompt", () => {
-  const cmd = buildPiRemoteCommand(BASE, { prompt: "review 'my' code" });
+test("the remote command cd's and prepends PATH — the prompt is not in argv (C2)", () => {
+  const cmd = buildPiRemoteCommand(BASE, {});
   expect(cmd).toContain(
-    String.raw`cd '/home/worker/pi' && env PATH='/opt/node/bin:/opt/pi/bin':"$PATH"`,
+    String.raw`cd '/home/worker/pi' && env PATH='/opt/node/bin:/opt/pi/bin':"$PATH" /bin/sh -c`,
   );
   expect(cmd).toContain("pi --mode json");
-  expect(cmd).toContain(`'review '\\''my'\\'' code'`);
+  // The prompt travels via stdin (it must never be readable in the remote's ps).
+  expect(cmd).not.toContain("review");
+  // The pid marker: pi is exec'd, so the inner shell's $$ is pi's own pid —
+  // and the exec passes pi's exit code through untouched.
+  expect(cmd).toContain('echo "lettuce-remote-pid $$" >&2;');
+});
+
+test("the force-stop wrapper really passes the exit code through", () => {
+  // Run the generated shape locally: a failing program must exit non-zero and
+  // the pid marker must reach stderr — the two promises the wrapper makes.
+  const command = buildPiRemoteCommand(
+    { ...BASE, workdir: "/tmp", pathPrepend: "" },
+    {
+      model: null,
+    },
+  ).replace("pi --mode json", "false --mode json");
+  const failed = Bun.spawnSync(["sh", "-c", command]);
+  expect(failed.exitCode).not.toBe(0);
+  expect(failed.stderr.toString()).toMatch(/lettuce-remote-pid \d+/);
+  const ok = Bun.spawnSync([
+    "sh",
+    "-c",
+    buildPiRemoteCommand({ ...BASE, workdir: "/tmp", pathPrepend: "" }, {}).replace(
+      "pi --mode json",
+      "true --mode json",
+    ),
+  ]);
+  expect(ok.exitCode).toBe(0);
+});
+
+test("the exec wrapper really carries stdin to the program (the & form cannot)", () => {
+  // The regression this shape exists for: a `&`-backgrounded job gets
+  // /dev/null stdin when job control is off, so the first stdin design made
+  // pi see an instant EOF. The exec'd program must read the piped prompt.
+  const cmd = buildPiRemoteCommand({ ...BASE, workdir: "/tmp", pathPrepend: "" }, {}).replace(
+    "exec pi --mode json --approve",
+    "exec cat",
+  );
+  // `printf X | cd … && sh` would pipe into `cd` — the pipeline must feed the
+  // whole compound command, which is exactly what ssh stdin does for real.
+  const r = Bun.spawnSync(["sh", "-c", `printf PROMPT-VIA-STDIN | ( ${cmd} )`]);
+  expect(r.stdout.toString()).toContain("PROMPT-VIA-STDIN");
+  expect(r.stderr.toString()).toMatch(/lettuce-remote-pid \d+/);
 });
 
 test("the PATH prepend hands $PATH to the remote shell", () => {
@@ -124,7 +174,7 @@ test("the PATH prepend hands $PATH to the remote shell", () => {
   // quoted `$PATH`, so env gets a PATH of one directory plus five literal
   // characters, and the run dies naming the program env could not find.
   for (const cmd of [
-    buildPiRemoteCommand(BASE, { prompt: "x" }),
+    buildPiRemoteCommand(BASE, {}),
     buildProbeRemoteCommand({ workdir: "/home/w/pi", pathPrepend: "/opt/pi/bin" }),
   ]) {
     expect(cmd).not.toContain(":$PATH'");
@@ -168,21 +218,23 @@ test("a PATH prefix is normalized before it can reach a PATH search", () => {
   ).toBe("/opt/pi/bin");
   // And the command is built from the normalized value even if a record kept
   // the old shape.
-  const cmd = buildPiRemoteCommand({ ...BASE, pathPrepend: "/opt/pi/bin/" }, { prompt: "x" });
+  const cmd = buildPiRemoteCommand({ ...BASE, pathPrepend: "/opt/pi/bin/" }, {});
   expect(cmd).toContain(`env PATH='/opt/pi/bin':"$PATH"`);
   expect(cmd).not.toContain("//");
 });
 
 test("empty pathPrepend emits no env PATH at all", () => {
-  const cmd = buildPiRemoteCommand({ ...BASE, pathPrepend: "  " }, { prompt: "x" });
+  const cmd = buildPiRemoteCommand({ ...BASE, pathPrepend: "  " }, {});
   expect(cmd).not.toContain("env");
 });
 
 test("session resume passes --session and rejects non-UUIDs", () => {
   const session = "01a10e10-08ec-705d-a364-5cfa40e1a963";
   expect(isPiSessionId(session)).toBe(true);
-  expect(buildPiRemoteCommand(BASE, { prompt: "x", session })).toContain(`--session '${session}'`);
-  expect(() => buildPiRemoteCommand(BASE, { prompt: "x", session: "'; rm -rf / #" })).toThrow();
+  expect(buildPiRemoteCommand(BASE, { session })).toContain(
+    `--session '\\''${session}'\\''`, // quoted once per shell it travels through
+  );
+  expect(() => buildPiRemoteCommand(BASE, { session: "'; rm -rf / #" })).toThrow();
 });
 
 test("ssh argv is hardened and the key file is the one identity", () => {
@@ -206,6 +258,9 @@ class FakeChild implements PiProcess {
   stdout = "";
   stderr = "";
   killed = false;
+  /** What the runner wrote as the prompt through the ssh stdin (C2). */
+  stdinText: string | null = null;
+  stdinClosed = false;
   private settle!: (v: { code: number | null }) => void;
   readonly exited = new Promise<{ code: number | null }>((resolve) => (this.settle = resolve));
   emit(chunk: string): void {
@@ -220,6 +275,13 @@ class FakeChild implements PiProcess {
     this.killed = true;
     this.finish(255);
   }
+  sendStdin(text: string): void {
+    this.stdinText = text;
+    this.stdinClosed = true;
+  }
+  closeStdin(): void {
+    this.stdinClosed = true;
+  }
 }
 
 function only(children: FakeChild[]): FakeChild {
@@ -233,12 +295,13 @@ function harness() {
   const spawner = (
     _args: readonly string[],
     onStdout: (chunk: string) => void,
-    _onStderr: (chunk: string) => void,
+    onStderr: (chunk: string) => void,
   ): PiProcess => {
     const child = new FakeChild();
     children.push(child);
     // Fake delivery: the child's emit() pushes through this callback.
     child.emit = (chunk: string) => onStdout(chunk);
+    child.emitErr = (chunk: string) => onStderr(chunk);
     return child;
   };
   return { children, spawner };
@@ -311,6 +374,7 @@ test("boot reconciliation detaches orphaned runs", async () => {
     runId: "11111111-2222-3333-4444-555555555555",
     kind: "run",
     agentId: null,
+    conversationId: null,
     session: SESSION,
     prompt: "old",
     model: null,
@@ -322,11 +386,51 @@ test("boot reconciliation detaches orphaned runs", async () => {
     settled: false,
     eventCount: 3,
     lastEventAt: null,
+    bytesCaptured: 0,
+    remotePid: null,
     error: null,
   };
   await store.create(orphan);
   expect(await runner.reconcileOnBoot()).toBe(1);
   expect((await store.read(orphan.runId))?.state).toBe("detached");
+});
+
+test("progress reaches the store while the run streams — throttled, and never only in memory", async () => {
+  // The prod lesson in one test: a `send` run streams for minutes and read
+  // `events 0` the whole time, because the meta reached disk only at exit.
+  const { store, runner, children, setNow } = await freshRunner();
+  const meta = await runner.start(
+    BASE,
+    { keyFile: "/k", knownHostsFile: "/kh" },
+    { kind: "send", prompt: "plan it", session: SESSION },
+  );
+  const child = only(children);
+  for (let i = 0; i < 3; i += 1) child.emit(`{"type":"message_update","i":${i}}\n`);
+  await Bun.sleep(20);
+  // Under both thresholds: the deliberate cheapness — not a per-line write.
+  expect((await store.read(meta.runId))?.eventCount).toBe(0);
+  setNow(new Date("2026-10-05T12:00:03.000Z")); // past the flush interval
+  child.emit(`{"type":"message_update","i":3}\n`);
+  await Bun.sleep(20);
+  const disk = await store.read(meta.runId);
+  expect(disk?.eventCount).toBe(4);
+  expect(disk?.bytesCaptured).toBeGreaterThan(0);
+  expect(disk?.lastEventAt).not.toBeNull();
+  child.finish(0);
+});
+
+test("the remote pid captured from stderr reaches the durable meta", async () => {
+  const { store, runner, children } = await freshRunner();
+  const meta = await runner.start(
+    BASE,
+    { keyFile: "/k", knownHostsFile: "/kh" },
+    { kind: "run", prompt: "hi" },
+  );
+  const child = only(children);
+  child.emitErr?.("lettuce-remote-pid 4242\n");
+  await Bun.sleep(10);
+  expect((await store.read(meta.runId))?.remotePid).toBe(4242);
+  child.finish(255);
 });
 
 // ── transcript ───────────────────────────────────────────────────────────────
@@ -340,6 +444,7 @@ test("the parser turns a captured stream into steps", () => {
     runId: "r",
     kind: "run",
     agentId: null,
+    conversationId: null,
     session: SESSION,
     prompt: "do it",
     model: null,
@@ -351,6 +456,8 @@ test("the parser turns a captured stream into steps", () => {
     settled: true,
     eventCount: 4,
     lastEventAt: null,
+    bytesCaptured: 0,
+    remotePid: null,
     error: null,
   };
   const events = [
@@ -641,4 +748,510 @@ test("an unsaved form is checked, and a refused key is named as such", async () 
   const refused = await retry;
   expect(refused.state).toBe("auth_failed");
   expect(refused.detail).toMatch(/authorized_keys/);
+});
+
+// ── progress, waiting, and force-stop at the tool surface ────────────────────
+
+/** The nth spawned ssh child of a run harness, loudly (tests fail with a name). */
+function spawnedChild(spawned: { child: FakeChild }[], n: number): FakeChild {
+  const entry = spawned[n];
+  if (!entry) throw new Error(`expected ${n + 1} spawned ssh, saw ${spawned.length}`);
+  return entry.child;
+}
+
+/** Wait for the nth spawn instead of sleeping a fixed guess — a shared CI
+ *  runner delivers async spawns later than a laptop ever does. */
+async function waitForSpawns(spawned: { child: FakeChild }[], n: number): Promise<FakeChild> {
+  for (let i = 0; i < 300 && spawned.length < n; i += 1) await Bun.sleep(10);
+  return spawnedChild(spawned, n - 1);
+}
+
+async function runHarness() {
+  const dir = await mkdtemp(`${tmpdir()}/pi-runsvc-`);
+  const spawned: { args: readonly string[]; child: FakeChild }[] = [];
+  const settled: PiRunMeta[] = [];
+  const spawner = (
+    args: readonly string[],
+    onStdout: (chunk: string) => void,
+    onStderr: (chunk: string) => void,
+  ): PiProcess => {
+    const child = new FakeChild();
+    spawned.push({ args, child });
+    child.emit = (chunk: string) => onStdout(chunk);
+    child.emitErr = (chunk: string) => onStderr(chunk);
+    return child;
+  };
+  const service = new PiService({
+    paths: { dir },
+    featureEnabled: () => true,
+    spawner,
+    onSettle: (meta) => settled.push(meta),
+  });
+  await service.save({
+    enabled: true,
+    host: "pi.example.invalid",
+    user: "worker",
+    port: 22,
+    workdir: "/home/worker/pi",
+    privateKey: VALID_KEY,
+  });
+  await writeFile(`${dir}/known_hosts`, "pi.example.invalid ssh-ed25519 AAAAone\n", "utf8");
+  const files = {
+    keyFile: piKeyFile({ dir }),
+    knownHostsFile: piKnownHostsFile({ dir }),
+  };
+  return { dir, service, spawned, settled, files };
+}
+
+test("pi_run records the dispatching conversation and the settle report answers back", async () => {
+  const { service, spawned, settled } = await runHarness();
+  // Emit the session once the ssh really exists — a loaded CI runner can
+  // deliver the spawn later than any fixed timer assumes.
+  const started = service.piRun(
+    { prompt: "clone the repo" },
+    { agentId: "agent-local-0fefdba6", conversationId: "local-conv-120" },
+  );
+  (await waitForSpawns(spawned, 1)).emit(
+    `{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/w"}\n`,
+  );
+  const answer = await started;
+  expect(answer.isError).toBe(false);
+  expect(answer.text).toContain("do not poll"); // Option A: event, not polling
+  const runId = answer.text.match(/run ([0-9a-f-]{36})/)?.[1] ?? "";
+  expect(runId).not.toBe("");
+  const child = spawnedChild(spawned, 0);
+  child.emit(
+    `{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"cloned"}],"timestamp":1760000000000}}\n`,
+  );
+  child.emit('{"type":"agent_settled"}\n');
+  child.finish(0);
+  for (let i = 0; i < 200 && !settled.some((m) => m.runId === runId); i += 1) await Bun.sleep(10);
+  const done = settled.find((m) => m.runId === runId);
+  expect(done?.conversationId).toBe("local-conv-120");
+  const pending = service.settleReport(done!);
+  const findChild = await waitForSpawns(spawned, 2); // the manifest find must answer too
+  findChild.finish(0);
+  const report = await pending;
+  expect(report.startsWith("<task-notification>")).toBe(true);
+  expect(report).toContain("completed");
+  expect(report).toContain("clone the repo");
+  expect(report).toContain("cloned");
+  expect(report).toContain("Do not poll");
+});
+
+test("pi_wait returns when the run settles, and times out honestly", async () => {
+  const { service, spawned, settled, files } = await runHarness();
+  const meta = await service.runner.start(await service.load(), files, {
+    kind: "run",
+    prompt: "slow task",
+  });
+  const child = spawnedChild(spawned, 0);
+  expect(child.stdinText).toBe("slow task"); // C2: the prompt rode the stdin, not argv
+  child.emit(`{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/w"}\n`);
+  setTimeout(() => {
+    child.emit(`{"type":"agent_settled"}\n`);
+    child.finish(0);
+  }, 50);
+  const t0 = Date.now();
+  const waited = await service.piWait({ run: meta.runId, timeout_seconds: 5 });
+  expect(waited.isError).toBe(false);
+  expect(waited.text).toContain("completed");
+  expect(Date.now() - t0).toBeLessThan(4_000);
+  expect(settled.map((m) => m.runId)).toContain(meta.runId); // the push hook fired once
+
+  // A run that never settles times out — and says so instead of hanging.
+  const stuck = await service.runner.start(await service.load(), files, {
+    kind: "run",
+    prompt: "stuck task",
+  });
+  const slow = await service.piWait({ run: stuck.runId, timeout_seconds: 5 });
+  expect(slow.isError).toBe(false);
+  expect(slow.text).toContain("still running after 5s");
+  service.runner.stop(stuck.runId);
+}, 15_000); // the honest-timeout leg really waits the 5 s floor
+
+test("force stop kills the remote pi and records cancelled — later, never rewritten", async () => {
+  const { service, spawned, files } = await runHarness();
+  const meta = await service.runner.start(await service.load(), files, {
+    kind: "run",
+    prompt: "runaway",
+  });
+  const runChild = spawnedChild(spawned, 0);
+  runChild.emit(`{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/w"}\n`);
+  runChild.emitErr?.("lettuce-remote-pid 4711\n");
+  await Bun.sleep(20);
+
+  const stopping = service.piStop({ run: meta.runId, force: true });
+  const killChild = await waitForSpawns(spawned, 2); // the kill ssh spawns async
+  expect(spawned[1]!.args.join(" ")).toContain("kill 4711");
+  expect(spawned[1]!.args.join(" ")).toContain("-o StrictHostKeyChecking=yes");
+  killChild.finish(0);
+  const res = await stopping;
+  expect(res.isError).toBe(false);
+
+  const disk = await service.getRun(meta.runId);
+  expect(disk?.state).toBe("cancelled");
+  expect(disk?.error).toContain("force-stopped");
+  // The dying ssh's exit path runs late — it must not overwrite the verdict.
+  runChild.finish(255);
+  await Bun.sleep(20);
+  expect((await service.getRun(meta.runId))?.state).toBe("cancelled");
+});
+
+test("force stop without a recorded pid refuses and offers detach", async () => {
+  const { service, spawned, files } = await runHarness();
+  const meta = await service.runner.start(await service.load(), files, {
+    kind: "run",
+    prompt: "old style",
+  });
+  const res = await service.piStop({ run: meta.runId, force: true });
+  expect(res.isError).toBe(true);
+  expect(res.text).toContain("no recorded remote pid");
+  expect(spawned.length).toBe(1); // refused before reaching ssh
+  service.runner.stop(meta.runId);
+});
+
+test("a running-but-silent read says quiet, and names the step in flight", async () => {
+  const { dir, service, spawned, files } = await runHarness();
+  const meta = await service.runner.start(await service.load(), files, {
+    kind: "run",
+    prompt: "serve it",
+  });
+  const child = spawnedChild(spawned, 0);
+  child.emit(`{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/w"}\n`);
+  child.emit(
+    `{"type":"tool_execution_start","toolCallId":"c1","toolName":"Bash","args":{"command":"python3 -m http.server 8000"}}\n`,
+  );
+  await Bun.sleep(20);
+  // Quiet truth is the capture file's mtime; age it instead of sleeping 60s.
+  const { utimes } = await import("node:fs/promises");
+  const past = new Date(Date.now() - 5 * 60_000 - 1000);
+  await utimes(`${dir}/runs/${meta.runId}.jsonl`, past, past);
+  const status = await service.piStatus({ run: meta.runId });
+  expect(status.text).toContain("quiet 5m");
+  expect(status.text).toContain("now: Bash:");
+  expect(status.text).toContain("http.server 8000");
+  child.finish(0);
+});
+
+test("a send onto a session with a live run is announced as queueing", async () => {
+  const { service, spawned, files } = await runHarness();
+  const meta = await service.runner.start(await service.load(), files, {
+    kind: "run",
+    prompt: "first",
+  });
+  spawnedChild(spawned, 0).emit(
+    `{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/w"}\n`,
+  );
+  await Bun.sleep(10);
+  const res = await service.piSend({ session: SESSION, prompt: "second" }, { agentId: null });
+  expect(res.isError).toBe(false);
+  expect(res.text).toContain(`run ${meta.runId} is still live on this session`);
+  expect(res.text).toContain("pi_wait");
+  spawnedChild(spawned, 0).kill(); // the first run (detach via kill closes its capture)
+  spawnedChild(spawned, 1).kill(); // the queued send
+});
+
+test("statusFacts gives the card state, progress, the step in flight, and the verdict", async () => {
+  const { service, spawned, files } = await runHarness();
+  const meta = await service.runner.start(await service.load(), files, {
+    kind: "run",
+    prompt: "card me",
+  });
+  const child = spawnedChild(spawned, 0);
+  child.emit(`{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/w"}\n`);
+  child.emit(
+    `{"type":"tool_execution_start","toolCallId":"c1","toolName":"Bash","args":{"command":"ls -la"}}\n`,
+  );
+  // The throttle is <=2 s: the next line after the window flushes the counters.
+  await Bun.sleep(2_100);
+  child.emit(`{"type":"message_start","message":{"role":"assistant"}}\n`);
+  await Bun.sleep(50); // let the run's line chain finish the flush it owes
+  const live = await service.statusFacts(meta.runId);
+  expect(live?.state).toBe("running");
+  expect(Number(live?.eventCount)).toBeGreaterThanOrEqual(3);
+  expect(Number(live?.bytesCaptured)).toBeGreaterThan(0);
+  expect(live?.nowTool).toBe("Bash");
+  expect(String(live?.nowInput)).toContain("ls -la");
+  expect(Number(live?.quietSeconds)).toBeLessThan(60);
+
+  child.emit(
+    `{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"all done"}]}}\n`,
+  );
+  child.emit(`{"type":"agent_settled"}\n`);
+  child.finish(0);
+  await Bun.sleep(100); // the exit path records the verdict asynchronously
+  const done = await service.statusFacts(meta.runId);
+  expect(done?.state).toBe("completed");
+  expect(done?.lastSaid).toContain("all done");
+});
+
+test("retention sweep keeps the newest N and forgets what is past the age floor", async () => {
+  const dir = await mkdtemp(`${tmpdir()}/pi-sweep-`);
+  const store = new DirPiRunStore(dir);
+  const now = Date.now();
+  const id = (n: number) => `${n.toString(16).padStart(8, "0")}-0000-4000-8000-000000000000`;
+  const make = async (n: number, ageDays: number) => {
+    const meta = {
+      runId: id(n),
+      kind: "run",
+      agentId: null,
+      conversationId: null,
+      session: null,
+      target: "worker@h",
+      prompt: `run ${n}`,
+      model: null,
+      startedAt: new Date(now - ageDays * 86_400_000).toISOString(),
+      endedAt: null,
+      state: "running",
+      exitCode: null,
+      error: null,
+      settled: false,
+      eventCount: 0,
+      lastEventAt: null,
+      bytesCaptured: 0,
+      remotePid: null,
+    } as unknown as PiRunMeta;
+    await store.create(meta);
+    await store.appendEvent(meta, "{}");
+  };
+  for (let i = 1; i <= 6; i++) await make(i, i); // ages 1..6 days
+  expect(await store.sweep(4, 14 * 86_400_000, now)).toBe(2); // keep 4 newest
+  expect((await store.list(99)).map((m) => m.runId)).toEqual([id(1), id(2), id(3), id(4)]);
+  expect(await store.read(id(5))).toBeNull();
+  // Age floor bites even inside the keep window.
+  expect(await store.sweep(4, 3 * 86_400_000, now)).toBe(1); // id(4) is 4 days old
+  expect((await store.list(99)).map((m) => m.runId)).toEqual([id(1), id(2), id(3)]);
+});
+
+// ── C1: pi_fetch / pi_ls ─────────────────────────────────────────────────────
+
+test("the fetch/ls remote guards confine the path and mark every refusal", () => {
+  const fetchCmd = buildPiFetchRemoteCommand(BASE, "shots/../shot.png");
+  expect(fetchCmd).toContain("'shots/../shot.png'"); // quoted whole
+  expect(fetchCmd).toContain("realpath -e"); // resolved remotely before matching
+  expect(fetchCmd).toContain("base64"); // bytes survive the text capture
+  expect(fetchCmd).toContain("lettuce-fetch: outside");
+  expect(fetchCmd).toContain("lettuce-fetch: too_big");
+  const lsCmd = buildPiLsRemoteCommand(BASE, "notes");
+  expect(lsCmd).toContain("'notes'");
+  expect(lsCmd).toContain("lettuce-ls: outside");
+});
+
+test("pi_fetch lands the bytes under the run and answers with the link", async () => {
+  const { service, spawned, files } = await runHarness();
+  const meta = await service.runner.start(await service.load(), files, {
+    kind: "run",
+    prompt: "screenshot it",
+  });
+  const pending = service.piFetch({ run: meta.runId, path: "shots/shot.png" });
+  const fetchChild = await waitForSpawns(spawned, 2); // artifact ssh follows the async settings read
+  fetchChild.emit("lettuce-fetch: size 6\n");
+  fetchChild.emit("SGVsbG8h\n");
+  fetchChild.finish(0);
+  const res = await pending;
+  expect(res.isError).toBe(false);
+  expect(res.text).toContain(`/api/pi/runs/${meta.runId}/files/shot.png`);
+  expect((await service.store.readFile(meta.runId, "shot.png"))?.toString()).toBe("Hello!");
+  expect(await service.store.listFiles(meta.runId)).toEqual([{ name: "shot.png", size: 6 }]);
+
+  // Refusals carry the reason, not the file.
+  const denied = service.piFetch({ run: meta.runId, path: "/etc/shadow" });
+  const denyChild = await waitForSpawns(spawned, 3);
+  denyChild.emit("lettuce-fetch: outside\n");
+  denyChild.finish(0);
+  const res2 = await denied;
+  expect(res2.isError).toBe(true);
+  expect(res2.text).toContain("confined");
+});
+
+test("artifact names cannot be paths, and sweeps take the files with the run", async () => {
+  const dir = await mkdtemp(`${tmpdir()}/pi-files-`);
+  const store = new DirPiRunStore(dir);
+  const runId = "11111111-2222-4333-8444-555555555555";
+  expect(DirPiRunStore.safeFileName("../../evil name.png")).toBe("evil_name.png");
+  const saved = await store.saveFile(
+    runId,
+    "../oops/totally.broken.png",
+    new TextEncoder().encode("x"),
+  );
+  expect(saved).toBe("totally.broken.png");
+  expect(await store.readFile(runId, "../../etc/passwd")).toBeNull();
+  expect(await store.readFile(runId, saved)).not.toBeNull();
+  // A run record so the sweep can find it — then sweep it and the files go too.
+  const meta = {
+    runId,
+    kind: "run",
+    agentId: null,
+    conversationId: null,
+    session: null,
+    target: "worker@h",
+    prompt: "f",
+    model: null,
+    startedAt: new Date(Date.now() - 20 * 86_400_000).toISOString(),
+    endedAt: null,
+    state: "completed",
+    exitCode: 0,
+    error: null,
+    settled: true,
+    eventCount: 0,
+    lastEventAt: null,
+    bytesCaptured: 0,
+    remotePid: null,
+  } as unknown as PiRunMeta;
+  await store.create(meta);
+  expect(await store.sweep(10, 14 * 86_400_000, Date.now())).toBe(1);
+  expect(await store.listFiles(runId)).toEqual([]);
+});
+
+// ── operational feedback (prod lessons from the olla agent's runs) ──────────
+
+const BIG_LINES = {
+  filler: "x".repeat(8_000),
+};
+
+test("pi_result digs a buried final answer out; pi_log formats the stream tail", async () => {
+  const { service, spawned, settled } = await runHarness();
+  const started = service.piRun({ prompt: "big answer" });
+  (await waitForSpawns(spawned, 1)).emit(
+    `{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/w"}\n`,
+  );
+  const answer = await started;
+  expect(answer.isError).toBe(false);
+  const child = spawnedChild(spawned, 0);
+  child.emit(
+    `{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"${BIG_LINES.filler} buried here"}],"timestamp":1}}\n`,
+  );
+  child.emit('{"type":"tool_execution_start","toolName":"bash","args":{"command":"ls"}}\n');
+  child.emit(
+    '{"type":"tool_execution_end","toolName":"bash","isError":false,"result":{"content":[{"text":"a.txt"}]}}\n',
+  );
+  child.emit(
+    '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"FINAL: a.txt exists"}],"timestamp":2}}\n',
+  );
+  child.emit('{"type":"agent_settled"}\n');
+  child.finish(0);
+  await Bun.sleep(100);
+  const runId = answer.text.match(/run ([0-9a-f-]{36})/)?.[1] ?? "";
+  // The buried answer: the pre-fix 4 KB tail window would have missed it.
+  const result = await service.piResult({ run: runId });
+  expect(result.isError).toBe(false);
+  expect(result.text).toContain("FINAL: a.txt exists");
+  const full = await service.piResult({ run: runId, transcript: true });
+  expect(full.text).toContain("$ bash");
+  expect(full.text).toContain("a.txt");
+  const log = await service.piLog({ run: runId });
+  expect(log.text).toContain("→ bash");
+  expect(log.text).toContain('{"command":"ls"}');
+  expect(log.text).toContain("assistant: FINAL: a.txt exists");
+  expect(settled.length).toBe(1);
+});
+
+test("pi_exec runs a raw command on the worker and reports the exit honestly", async () => {
+  const { service, spawned } = await runHarness();
+  const pending = service.piExec({ command: "git log --oneline -1" });
+  for (let i = 0; i < 40 && spawned.length === 0; i++) await Bun.sleep(25);
+  const child = spawnedChild(spawned, 0);
+  expect(String(spawned[0]?.args.at(-1))).toContain("git log --oneline -1");
+  child.emit("abc123 the only commit\n");
+  child.finish(0);
+  const answer = await pending;
+  expect(answer.isError).toBe(false);
+  expect(answer.text).toContain("exit 0");
+  expect(answer.text).toContain("abc123 the only commit");
+});
+
+test("pi_fetch save carries base64 for the mod; the settle manifest lists touched files", async () => {
+  const dir = await mkdtemp(`${tmpdir()}/pi-ops-`);
+  const spawner = (args: readonly string[], onStdout: (chunk: string) => void): PiProcess => {
+    const child = new FakeChild();
+    const remote = String(args.at(-1));
+    queueMicrotask(() => {
+      if (remote.includes("lettuce-fetch")) onStdout("lettuce-fetch: size 3\nYWJj\n");
+      else if (remote.includes("find")) onStdout("plan.md 2048\nnotes/x.md 512\n");
+      child.finish(0);
+    });
+    return child;
+  };
+  const service = new PiService({ paths: { dir }, featureEnabled: () => true, spawner });
+  await service.save({
+    enabled: true,
+    host: "pi.example.invalid",
+    user: "worker",
+    port: 22,
+    workdir: "/home/worker/pi",
+    privateKey: VALID_KEY,
+  });
+  await writeFile(`${dir}/known_hosts`, "pi.example.invalid ssh-ed25519 AAAAone\n", "utf8");
+  const meta = {
+    runId: "99999999-2222-3333-4444-555555555555",
+    kind: "run",
+    agentId: "a1",
+    conversationId: "c1",
+    session: SESSION,
+    prompt: "write a plan",
+    model: null,
+    target: "worker@pi.example.invalid:22",
+    startedAt: "2026-10-06T10:00:00.000Z",
+    endedAt: "2026-10-06T10:20:00.000Z",
+    state: "completed",
+    exitCode: 0,
+    settled: true,
+    eventCount: 2,
+    lastEventAt: "2026-10-06T10:20:00.000Z",
+    bytesCaptured: 100,
+    remotePid: null,
+    error: null,
+  } as unknown as PiRunMeta;
+  await service.store.create(meta);
+  const fetched = (await service.piFetch({
+    run: meta.runId,
+    path: "plan.md",
+    save: "docs/../plan.md",
+  })) as { text: string; isError: boolean; content_b64?: string; save_path?: string };
+  expect(fetched.isError).toBe(false);
+  expect(fetched.content_b64).toBe("YWJj");
+  expect(fetched.save_path).toBe(`pi/${meta.runId.slice(0, 8)}/docs/plan.md`);
+  expect(fetched.save_path).not.toContain("..");
+  const report = await service.settleReport(meta);
+  expect(report).toContain("plan.md (2 KB)");
+  expect(report).toContain("notes/x.md (1 KB)");
+  expect(report).toContain("pi_fetch");
+});
+
+test("the event budget ships armed: absent in old settings means 200k, 0 stays off", async () => {
+  const { service } = await runHarness(); // save() writes without any budget field
+  const stored = await service.load();
+  expect(stored.maxEvents).toBe(200_000); // the net that catches an 8.2 M-event run
+  expect(stored.maxRuntimeMinutes).toBe(0); // runtime stays opt-in: quiet long runs survive
+  await service.save({ host: "pi.example.invalid", maxEvents: 0 });
+  expect((await service.load()).maxEvents).toBe(0); // an explicit 0 is still "off"
+});
+
+test("the run budget cancels a runaway: by events, and by wall clock", async () => {
+  const { runner, children } = await freshRunner();
+  const meta = await runner.start(
+    BASE,
+    { keyFile: "/k", knownHostsFile: "/kh" },
+    { kind: "run", prompt: "runaway", maxEvents: 3 },
+  );
+  const child = only(children);
+  child.emit(`{"type":"session","id":"${SESSION}"}\n`);
+  for (let i = 0; i < 6; i++) child.emit(`{"type":"thinking","n":${i}}\n`);
+  await Bun.sleep(30);
+  expect(meta.state).toBe("cancelled");
+  expect(meta.error).toContain("budget exceeded (3 events)");
+
+  // Runtime budget: the clock is fake-past by more than the one-minute cap,
+  // so the deadline has already passed the moment the run starts.
+  const late = await freshRunner();
+  late.setNow(new Date(Date.now() - 61_000));
+  const timed = await late.runner.start(
+    BASE,
+    { keyFile: "/k", knownHostsFile: "/kh" },
+    { kind: "run", prompt: "slowpoke", maxRuntimeMinutes: 1 },
+  );
+  await Bun.sleep(50);
+  expect(timed.state).toBe("cancelled");
+  expect(timed.error).toContain("budget exceeded (1 min runtime)");
 });

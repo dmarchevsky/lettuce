@@ -2,12 +2,23 @@
 export interface ToolAnswer {
   text: string;
   isError: boolean;
+  /**
+   * Set by pi_fetch with `save`: the file bytes, which the MOD writes into the
+   * agent's own workspace (the BFF has no path to /work — that mount belongs
+   * to app-server). The mod template is the only consumer.
+   */
+  content_b64?: string;
+  /** Workspace-relative destination for `content_b64`, already sanitized. */
+  save_path?: string;
 }
 
 /** Who is calling, as the mod reported it. */
 export interface ToolCallContext {
   /** Null for a caller that sent no agent (an older mod, an agent shell's curl). */
   agentId: string | null;
+  /** The conversation the call was made from, when the mod sent one
+   * (`x-letta-conversation-id`); a run settles back into it. */
+  conversationId?: string | null;
 }
 
 /** One native tool the BFF serves. Never throws: a failure is an answer the agent reads. */
