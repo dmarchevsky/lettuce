@@ -156,7 +156,7 @@ upgrading.
 | Variable | Default | Pins |
 |---|---|---|
 | `LETTA_CODE_VERSION` | `0.34.9` | the letta-code release — app-server image, channel gateway image, and the `@letta-ai/letta-code` the UI was built against. Set it in the environment if you must, never in `docker/.env`: Compose reads that file ahead of these defaults, so a leftover there wins quietly and survives every later sync |
-| `CODEX_VERSION` | `0.157.1` | the Codex CLI worker |
+| `CODEX_VERSION` | `0.162.0` | the Codex CLI worker |
 | `CLAUDE_CODE_VERSION` | `2.1.289` | the Claude Code CLI worker |
 | `GH_VERSION` | `2.101.0` | GitHub CLI, used by the `WatchPR` tool |
 | `WORKSPACE_MCP_VERSION` | `1.29.0` | the workspace MCP server |
