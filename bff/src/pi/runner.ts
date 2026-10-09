@@ -275,6 +275,26 @@ export class DirPiRunStore implements PiRunStore {
       return null;
     }
   }
+
+  /**
+   * Retention: delete every run past the newest `keep`, plus any run older
+   * than `maxAgeMs` (meta mtime by `startedAt`; an unparseable date counts as
+   * old). Meta and capture always go together — a lone jsonl is nobody's
+   * record. Returns the number of runs removed.
+   */
+  async sweep(keep: number, maxAgeMs: number, nowMs: number): Promise<number> {
+    const fs = await import("node:fs/promises");
+    const cutoff = nowMs - maxAgeMs;
+    let removed = 0;
+    for (const [index, meta] of (await this.list(Number.MAX_SAFE_INTEGER)).entries()) {
+      const started = Date.parse(meta.startedAt);
+      if (index < keep && !Number.isNaN(started) && started >= cutoff) continue;
+      await fs.rm(this.metaPath(meta.runId), { force: true });
+      await fs.rm(this.eventsPath(meta.runId), { force: true });
+      removed += 1;
+    }
+    return removed;
+  }
 }
 
 /** Pre-A1 run files lack the new fields; readers should never see `undefined` for them. */

@@ -3848,3 +3848,65 @@ button.link-dot.busy.warn {
 .agent-row .icon-button.flat:hover {
   background: color-mix(in srgb, var(--text) 12%, transparent);
 }
+
+/* ── Remote-pi run surfaces ──────────────────────────────────────────────── */
+/* The in-transcript card for one run (PiRunCard): status, the step in flight,
+   the last thing pi said, live counters, and the stop buttons. */
+.pi-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin: 6px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: color-mix(in srgb, var(--text) 3%, transparent);
+}
+.pi-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.pi-card-title {
+  font-weight: 600;
+  min-width: 0;
+  flex: 1;
+}
+.pi-card-now {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.pi-card-now code {
+  flex: none;
+}
+.pi-card-now span {
+  min-width: 0;
+}
+.pi-card-said {
+  color: var(--muted);
+  font-size: 0.9rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.pi-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.pi-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+}
+/* The topbar "pi · N" pill (PiRunsChip). */
+.pi-runs-chip {
+  flex: none;
+}

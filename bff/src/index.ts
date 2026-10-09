@@ -474,6 +474,15 @@ const piService = new PiService({
 void piService
   .reconcile()
   .catch((error) => log(`Remote pi: reconcile failed: ${errorMessage(error)}`));
+// Run captures only grow; sweep at boot and every 6 h (A8: newest 300 kept,
+// anything older than 14 days goes).
+setInterval(
+  () =>
+    void piService
+      .retentionSweep()
+      .catch((error) => log(`Remote pi: retention sweep failed: ${errorMessage(error)}`)),
+  6 * 3_600_000,
+).unref?.();
 const mcpCatalog = new McpCatalog({
   servers: () => loadMcpServers(mcpIo),
   client: mcpClient,
@@ -1541,6 +1550,27 @@ app.get("/api/pi/runs/:runId", async (c) => {
   if (!meta) return c.text("No such run", 404);
   const events = (await piService.store.readEventsTail(runId, 8_000_000)) ?? "";
   return c.json({ run: parsePiRun(meta, events), capturing: piService.runner.isRunning(runId) });
+});
+
+// Structured status for the in-transcript run card — the same facts pi_status
+// carries as prose, cheap enough to poll every few seconds.
+app.get("/api/pi/runs/:runId/status", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  const runId = c.req.param("runId");
+  if (!isPiRunId(runId)) return c.text("Not a run id", 400);
+  const status = await piService.statusFacts(runId);
+  if (!status) return c.text("No such run", 404);
+  return c.json({ status });
+});
+
+// The card's Stop / Force stop buttons; same paths as the pi_stop tool.
+app.post("/api/pi/runs/:runId/stop", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  const runId = c.req.param("runId");
+  if (!isPiRunId(runId)) return c.text("Not a run id", 400);
+  const body = (await c.req.json().catch(() => null)) as { force?: unknown } | null;
+  const answer = await piService.stopRun(runId, body?.force === true);
+  return c.json(answer, answer.isError ? 409 : 200);
 });
 
 // ── Google (Gmail / Calendar / Tasks) ───────────────────────────────────────

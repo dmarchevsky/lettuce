@@ -91,7 +91,7 @@ export interface PiAgentPayload {
   check: PiCheck | null;
 }
 
-export type PiRunStatus = "running" | "completed" | "detached" | "failed";
+export type PiRunStatus = "running" | "completed" | "detached" | "cancelled" | "failed";
 
 export interface PiCommandStep {
   kind: "command";
@@ -118,6 +118,10 @@ export interface PiRunSummary {
   endedAt: string | null;
   prompt: string;
   model: string | null;
+  /** Live progress, flushed at most ~2 s behind the stream. */
+  eventCount: number;
+  bytesCaptured: number;
+  lastEventAt: string | null;
 }
 
 export interface PiRun extends PiRunSummary {
@@ -246,6 +250,29 @@ export async function fetchPiRuns(limit = 10): Promise<PiRunSummary[]> {
   return ((await response.json()) as { runs: PiRunSummary[] }).runs;
 }
 
+/**
+ * `?tab=runs&run=<id>` — the link a settle push carries and the run card's
+ * "View run" points at. Read once at boot; consumed from the URL so a reload
+ * does not re-open the sheet.
+ */
+export function readRunsDeepLink(): { tab: boolean; run: string | null } {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("tab") !== "runs") return { tab: false, run: null };
+    const run = params.get("run");
+    params.delete("tab");
+    params.delete("run");
+    const rest = params.toString();
+    window.history.replaceState(null, "", rest ? `?${rest}` : window.location.pathname);
+    return {
+      tab: true,
+      run: run && /^[0-9a-f-]{36}$/i.test(run) ? run : null,
+    };
+  } catch {
+    return { tab: false, run: null };
+  }
+}
+
 export async function fetchPiRun(runId: string): Promise<{ run: PiRun; capturing: boolean }> {
   const response = await ok(await fetch(`/api/pi/runs/${encodeURIComponent(runId)}`));
   return (await response.json()) as { run: PiRun; capturing: boolean };
@@ -255,5 +282,41 @@ export const STATUS_LABELS: Record<PiRunStatus, string> = {
   running: "Running",
   completed: "Finished",
   detached: "Detached",
+  cancelled: "Cancelled",
   failed: "Failed",
 };
+
+/** The structured pi_status the run card polls (the BFF's `statusFacts`). */
+export interface PiRunFacts {
+  runId: string;
+  state: PiRunStatus;
+  exitCode: number | null;
+  error: string | null;
+  session: string | null;
+  prompt: string;
+  target: string;
+  startedAt: string;
+  endedAt: string | null;
+  eventCount: number;
+  bytesCaptured: number;
+  lastEventAt: string | null;
+  quietSeconds: number;
+  nowTool?: string;
+  nowInput?: string;
+  lastSaid?: string;
+}
+
+export async function fetchPiRunFacts(runId: string): Promise<PiRunFacts> {
+  const response = await ok(await fetch(`/api/pi/runs/${encodeURIComponent(runId)}/status`));
+  return ((await response.json()) as { status: PiRunFacts }).status;
+}
+
+/** Detach (default) or force-kill the remote pi. Errors come back as 409 text. */
+export async function stopPiRun(runId: string, force = false): Promise<void> {
+  const response = await fetch(`/api/pi/runs/${encodeURIComponent(runId)}/stop`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ force }),
+  });
+  if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
+}

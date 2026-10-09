@@ -1374,3 +1374,76 @@ describe("async AskUserQuestion (0.34.1 receipt flow)", () => {
     expect(entries[0]?.questionResponse).toBeUndefined();
   });
 });
+
+describe("remote-pi run cards", () => {
+  const entry = (over: Partial<TranscriptEntry> & { id: string; seenAt: number }) =>
+    ({
+      kind: "tool_return",
+      date: "2026-01-01T00:00:00Z",
+      text: "",
+      ...over,
+    }) as TranscriptEntry;
+
+  test("a pi_run return gets its card entry right after it", () => {
+    const runId = "0f4c3a2b-1111-4222-8333-444444444444";
+    const transcript: Transcript = new Map([
+      [
+        "c",
+        entry({ id: "c", seenAt: 1, kind: "tool_call", toolName: "pi_run", toolCallId: "call1" }),
+      ],
+      [
+        "r",
+        entry({
+          id: "r",
+          seenAt: 2,
+          toolCallId: "call1",
+          text: `Started remote-pi run ${runId} on worker@h`,
+        }),
+      ],
+    ]);
+    const entries = sortedEntries(transcript);
+    expect(entries.map((e) => e.kind)).toEqual(["tool_call", "tool_return", "pi_run"]);
+    expect(entries[2]?.piRunId).toBe(runId);
+  });
+
+  test("pi_wait about the same run adds no second card; other tools never match", () => {
+    const runId = "0f4c3a2b-1111-4222-8333-444444444444";
+    const other = "9e8d7c6b-5555-4aaa-8bbb-cccccccccccc";
+    const transcript: Transcript = new Map([
+      [
+        "c",
+        entry({ id: "c", seenAt: 1, kind: "tool_call", toolName: "pi_run", toolCallId: "call1" }),
+      ],
+      [
+        "r",
+        entry({
+          id: "r",
+          seenAt: 2,
+          toolCallId: "call1",
+          text: `Started remote-pi run ${runId} on worker@h`,
+        }),
+      ],
+      [
+        "wc",
+        entry({ id: "wc", seenAt: 3, kind: "tool_call", toolName: "pi_wait", toolCallId: "call2" }),
+      ],
+      [
+        "wr",
+        entry({
+          id: "wr",
+          seenAt: 4,
+          toolCallId: "call2",
+          text: `run ${runId} — completed (exit 0)`,
+        }),
+      ],
+      [
+        "bc",
+        entry({ id: "bc", seenAt: 5, kind: "tool_call", toolName: "Bash", toolCallId: "call3" }),
+      ],
+      ["br", entry({ id: "br", seenAt: 6, toolCallId: "call3", text: `wrote run ${other} notes` })],
+    ]);
+    const cards = sortedEntries(transcript).filter((e) => e.kind === "pi_run");
+    expect(cards).toHaveLength(1);
+    expect(cards[0]?.piRunId).toBe(runId);
+  });
+});

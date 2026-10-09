@@ -143,6 +143,12 @@ export interface PiServiceOptions {
 
 /** How long a run may go without a captured line before `pi_status` says `quiet`. */
 const PI_QUIET_MS = 60_000;
+
+/** Retention (docs/remote-pi-live-plan.md A8): the capture is the only durable
+ * record of what the remote pi did, so sweep generously — newest kept, plus
+ * anything younger than the age floor. */
+const PI_RUN_KEEP = 300;
+const PI_RUN_MAX_AGE_MS = 14 * 24 * 3_600_000;
 /** `pi_wait` bounds: long enough to replace a sleep-poll loop, short enough to never wedge a turn. */
 const PI_WAIT_DEFAULT_S = 60;
 const PI_WAIT_MAX_S = 120;
@@ -610,36 +616,101 @@ export class PiService {
       `events ${meta.eventCount}, started ${meta.startedAt}${meta.lastEventAt ? `, last activity ${meta.lastEventAt}` : ""}`,
     ];
     if (meta.error) lines.push(`error: ${meta.error}`);
-    const tail = await this.store.readEventsTail(runId, meta.state === "running" ? 262_144 : 4_000);
     if (meta.state === "running") {
-      // Quiet truth comes from the capture file's mtime, not the meta: the
-      // throttled flush can be ~2 s stale, the mtime is the stream itself.
-      const mtime = await this.store.eventsMtimeMs(runId);
-      if (mtime !== null && this.nowMs() - mtime > PI_QUIET_MS) {
-        lines.push(
-          `quiet ${Math.floor((this.nowMs() - mtime) / 60_000)}m — no output, ssh still alive`,
-        );
+      const live = await this.liveView(meta);
+      if (live.quietMs > PI_QUIET_MS) {
+        lines.push(`quiet ${Math.floor(live.quietMs / 60_000)}m — no output, ssh still alive`);
       }
+      if (live.now) lines.push(`now: ${live.now.tool}: ${live.now.input}`);
+      if (live.lastSaid) lines.push(`last said: ${live.lastSaid}`);
+    } else {
+      const tail = await this.store.readEventsTail(runId, 4_000);
       if (tail) {
-        // The prod lesson: `events 0` lied for 26 minutes because nothing but a
-        // counter was shown. A parsed step (“now: Bash: …”) is much harder to
-        // mistake for a wedged run.
-        const run = parsePiRun(meta, tail);
-        const current = [...run.steps]
-          .reverse()
-          .find((step) => step.kind === "command" && step.output === null);
-        if (current && current.kind === "command") {
-          lines.push(`now: ${current.tool}: ${current.input.replace(/\s+/g, " ").slice(0, 140)}`);
-        }
-        const said = [...run.steps].reverse().find((step) => step.kind === "message");
-        if (said && said.kind === "message") lines.push(`last said: ${said.text.slice(0, 400)}`);
+        const answer = lastAssistantText(tail);
+        if (answer)
+          lines.push(
+            `last assistant text:\n${capText(answer, "older output is in the run viewer")}`,
+          );
       }
-    } else if (tail) {
-      const answer = lastAssistantText(tail);
-      if (answer)
-        lines.push(`last assistant text:\n${capText(answer, "older output is in the run viewer")}`);
     }
     return { text: lines.join("\n"), isError: false };
+  }
+
+  /**
+   * The live truth about a running run, from the capture tail and its mtime:
+   * the step in flight, the last thing pi said, and how long the stream has
+   * been silent. The prod lesson: `events 0` lied for 26 minutes because
+   * nothing but a counter was shown — a parsed step (“now: Bash: …”) is much
+   * harder to mistake for a wedged run. Shared by pi_status prose and the
+   * structured facts the web UI polls.
+   */
+  private async liveView(meta: PiRunMeta): Promise<{
+    now?: { tool: string; input: string };
+    lastSaid?: string;
+    quietMs: number;
+  }> {
+    const out: { now?: { tool: string; input: string }; lastSaid?: string; quietMs: number } = {
+      quietMs: 0,
+    };
+    // Quiet truth comes from the capture file's mtime, not the meta: the
+    // throttled flush can be ~2 s stale, the mtime is the stream itself.
+    const mtime = await this.store.eventsMtimeMs(meta.runId);
+    if (mtime !== null) out.quietMs = Math.max(0, this.nowMs() - mtime);
+    const tail = await this.store.readEventsTail(meta.runId, 262_144);
+    if (!tail) return out;
+    const run = parsePiRun(meta, tail);
+    const current = [...run.steps]
+      .reverse()
+      .find((step) => step.kind === "command" && step.output === null);
+    if (current && current.kind === "command") {
+      out.now = { tool: current.tool, input: current.input.replace(/\s+/g, " ").slice(0, 140) };
+    }
+    const said = [...run.steps].reverse().find((step) => step.kind === "message");
+    if (said && said.kind === "message") out.lastSaid = said.text.slice(0, 400);
+    return out;
+  }
+
+  /**
+   * Status as data (GET /api/pi/runs/:runId/status) — the same facts the
+   * pi_status prose carries, for the in-transcript card and the Runs list.
+   */
+  async statusFacts(runId: string): Promise<Record<string, unknown> | null> {
+    const meta = await this.store.read(runId);
+    if (!meta) return null;
+    const facts: Record<string, unknown> = {
+      runId,
+      state: meta.state,
+      exitCode: meta.exitCode,
+      error: meta.error,
+      session: meta.session,
+      prompt: meta.prompt,
+      target: meta.target,
+      startedAt: meta.startedAt,
+      endedAt: meta.endedAt,
+      eventCount: meta.eventCount,
+      bytesCaptured: meta.bytesCaptured,
+      lastEventAt: meta.lastEventAt,
+      quietSeconds: 0,
+    };
+    if (meta.state === "running") {
+      const live = await this.liveView(meta);
+      facts.quietSeconds = Math.round(live.quietMs / 1000);
+      if (live.now) {
+        facts.nowTool = live.now.tool;
+        facts.nowInput = live.now.input;
+      }
+      if (live.lastSaid) facts.lastSaid = live.lastSaid;
+    } else {
+      const tail = await this.store.readEventsTail(runId, 4_000);
+      const said = tail ? lastAssistantText(tail) : null;
+      if (said) facts.lastSaid = said.slice(0, 600);
+    }
+    return facts;
+  }
+
+  /** Retention sweep, called at boot and every few hours from index.ts. */
+  async retentionSweep(): Promise<number> {
+    return this.store.sweep(PI_RUN_KEEP, PI_RUN_MAX_AGE_MS, this.nowMs());
   }
 
   /** pi_status: state of one run, with progress and what it is doing right now. */
@@ -675,16 +746,21 @@ export class PiService {
     return body;
   };
 
-  /** stop the local capture of a run (detach), or with `force`, kill the remote pi too. */
+  /** pi_stop: stop the local capture of a run (detach), or with `force`, kill the remote pi too. */
   readonly piStop: ToolHandler = async (args) => {
     const off = this.guard();
     if (off) return off;
     const runId = typeof args.run === "string" ? args.run.trim() : "";
     if (!runId) return { text: "`run` is a run id from a previous pi_run/pi_send", isError: true };
+    return this.stopRun(runId, args.force === true);
+  };
+
+  /** Shared by the tool and POST /api/pi/runs/:runId/stop. */
+  async stopRun(runId: string, force: boolean): Promise<ToolAnswer> {
     const meta = await this.store.read(runId);
     if (!meta) return { text: `No remote-pi run ${runId}`, isError: true };
 
-    if (args.force !== true) {
+    if (!force) {
       if (!this.runner.stop(runId))
         return {
           text: `Run ${runId} is not being captured by this BFF (state: ${meta.state})`,
@@ -748,7 +824,7 @@ export class PiService {
         isError: true,
       };
     }
-  };
+  }
 
   handlers(): ReadonlyMap<string, ToolHandler> {
     return new Map<string, ToolHandler>([

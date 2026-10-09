@@ -14,14 +14,16 @@ import {
 import { Icon } from "./components/Icon.tsx";
 import { MessageList } from "./components/MessageList.tsx";
 import { ModelPicker } from "./components/ModelPicker.tsx";
+import { PiRunsChip } from "./components/PiRunsChip.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { Switcher } from "./components/Switcher.tsx";
 import type { PreparedImage } from "./lib/attachments.ts";
 import { draftKey } from "./lib/draft.ts";
 import { applyFavicon } from "./lib/favicon.ts";
-import type { FeatureFlags } from "./lib/features.ts";
+import { type FeatureFlags, featureEnabled } from "./lib/features.ts";
 import { userHistory } from "./lib/input-history.ts";
 import { type FilterGroup, filterEntries, toggleShown } from "./lib/messages.ts";
+import { readRunsDeepLink } from "./lib/pi.ts";
 import { type RuntimeScope, scopeKey } from "./lib/protocol.ts";
 import type { LinkState } from "./lib/session-client.ts";
 import { readSettingsDeepLink } from "./lib/settings-link.ts";
@@ -39,6 +41,7 @@ import { useSession } from "./state/use-session.ts";
 import { AgentTab } from "./tabs/AgentTab.tsx";
 import { FilesTab } from "./tabs/FilesTab.tsx";
 import { MemoryTab } from "./tabs/MemoryTab.tsx";
+import { RunsTab } from "./tabs/RunsTab.tsx";
 import { TasksTab } from "./tabs/TasksTab.tsx";
 import { ToolsTab } from "./tabs/ToolsTab.tsx";
 
@@ -52,7 +55,7 @@ interface Status {
   features?: FeatureFlags;
 }
 
-const TABS = ["Chat", "Files", "Tasks", "Memory", "Tools", "Agent"] as const;
+const TABS = ["Chat", "Files", "Tasks", "Runs", "Memory", "Tools", "Agent"] as const;
 type Tab = (typeof TABS)[number];
 
 /**
@@ -192,7 +195,9 @@ function Workspace({ status }: { status: Status }) {
   /** The context gauge's details: usage, and the limit to change. */
   const [contextOpen, setContextOpen] = useState(false);
 
-  const [tab, setTab] = useState<Tab>("Chat");
+  /** `?tab=runs&run=<id>`: the run card's and settle pushes' landing spot. */
+  const [runsLink] = useState(readRunsDeepLink);
+  const [tab, setTab] = useState<Tab>(runsLink.tab ? "Runs" : "Chat");
   /** The responding-conversations list behind the pulsing status dot. */
   const [activityOpen, setActivityOpen] = useState(false);
   /** The agents-and-conversations menu (phone); see `Switcher`. */
@@ -354,6 +359,9 @@ function Workspace({ status }: { status: Status }) {
             count={respondingCount}
             onOpen={() => setActivityOpen(true)}
           />
+          {featureEnabled(status.features, "pi") ? (
+            <PiRunsChip onOpen={() => setTab("Runs")} />
+          ) : null}
           {/* Settings shared by every agent. The selected agent's own are its
               Agent tab; this is the one way into the rest, at every width. */}
           <button
@@ -368,7 +376,13 @@ function Workspace({ status }: { status: Status }) {
         </header>
 
         <nav className="tabs">
-          {TABS.map((name) => (
+          {TABS.filter(
+            (name) =>
+              name !== "Runs" ||
+              featureEnabled(status.features, "codex") ||
+              featureEnabled(status.features, "claude") ||
+              featureEnabled(status.features, "pi"),
+          ).map((name) => (
             <button
               key={name}
               type="button"
@@ -537,7 +551,12 @@ function Workspace({ status }: { status: Status }) {
             backgroundProcesses={conversation.backgroundProcesses}
             onStopMonitor={conversation.stopMonitor}
             conversations={agents.conversations}
+          />
+        ) : tab === "Runs" ? (
+          <RunsTab
+            backgroundProcesses={conversation.backgroundProcesses}
             features={status.features}
+            initialRunId={runsLink.run}
           />
         ) : tab === "Memory" ? (
           <MemoryTab session={session} agentId={agents.agentId} />

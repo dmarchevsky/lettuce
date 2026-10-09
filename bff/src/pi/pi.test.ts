@@ -877,3 +877,74 @@ test("a send onto a session with a live run is announced as queueing", async () 
   spawnedChild(spawned, 0).kill(); // the first run (detach via kill closes its capture)
   spawnedChild(spawned, 1).kill(); // the queued send
 });
+
+test("statusFacts gives the card state, progress, the step in flight, and the verdict", async () => {
+  const { service, spawned, files } = await runHarness();
+  const meta = await service.runner.start(await service.load(), files, {
+    kind: "run",
+    prompt: "card me",
+  });
+  const child = spawnedChild(spawned, 0);
+  child.emit(`{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/w"}\n`);
+  child.emit(
+    `{"type":"tool_execution_start","toolCallId":"c1","toolName":"Bash","args":{"command":"ls -la"}}\n`,
+  );
+  // The throttle is <=2 s: the next line after the window flushes the counters.
+  await Bun.sleep(2_100);
+  child.emit(`{"type":"message_start","message":{"role":"assistant"}}\n`);
+  await Bun.sleep(50); // let the run's line chain finish the flush it owes
+  const live = await service.statusFacts(meta.runId);
+  expect(live?.state).toBe("running");
+  expect(Number(live?.eventCount)).toBeGreaterThanOrEqual(3);
+  expect(Number(live?.bytesCaptured)).toBeGreaterThan(0);
+  expect(live?.nowTool).toBe("Bash");
+  expect(String(live?.nowInput)).toContain("ls -la");
+  expect(Number(live?.quietSeconds)).toBeLessThan(60);
+
+  child.emit(
+    `{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"all done"}]}}\n`,
+  );
+  child.emit(`{"type":"agent_settled"}\n`);
+  child.finish(0);
+  await Bun.sleep(100); // the exit path records the verdict asynchronously
+  const done = await service.statusFacts(meta.runId);
+  expect(done?.state).toBe("completed");
+  expect(done?.lastSaid).toContain("all done");
+});
+
+test("retention sweep keeps the newest N and forgets what is past the age floor", async () => {
+  const dir = await mkdtemp(`${tmpdir()}/pi-sweep-`);
+  const store = new DirPiRunStore(dir);
+  const now = Date.now();
+  const id = (n: number) => `${n.toString(16).padStart(8, "0")}-0000-4000-8000-000000000000`;
+  const make = async (n: number, ageDays: number) => {
+    const meta = {
+      runId: id(n),
+      kind: "run",
+      agentId: null,
+      session: null,
+      target: "worker@h",
+      prompt: `run ${n}`,
+      model: null,
+      startedAt: new Date(now - ageDays * 86_400_000).toISOString(),
+      endedAt: null,
+      state: "running",
+      exitCode: null,
+      error: null,
+      settled: false,
+      eventCount: 0,
+      lastEventAt: null,
+      bytesCaptured: 0,
+      remotePid: null,
+    } as unknown as PiRunMeta;
+    await store.create(meta);
+    await store.appendEvent(meta, "{}");
+  };
+  for (let i = 1; i <= 6; i++) await make(i, i); // ages 1..6 days
+  expect(await store.sweep(4, 14 * 86_400_000, now)).toBe(2); // keep 4 newest
+  expect((await store.list(99)).map((m) => m.runId)).toEqual([id(1), id(2), id(3), id(4)]);
+  expect(await store.read(id(5))).toBeNull();
+  // Age floor bites even inside the keep window.
+  expect(await store.sweep(4, 3 * 86_400_000, now)).toBe(1); // id(4) is 4 days old
+  expect((await store.list(99)).map((m) => m.runId)).toEqual([id(1), id(2), id(3)]);
+});

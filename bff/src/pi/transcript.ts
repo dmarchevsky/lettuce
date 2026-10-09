@@ -35,6 +35,10 @@ export interface PiRunSummary {
   endedAt: string | null;
   prompt: string;
   model: string | null;
+  /** Live progress counters (throttled to ~2 s while the run streams). */
+  eventCount: number;
+  bytesCaptured: number;
+  lastEventAt: string | null;
 }
 
 export interface PiRun extends PiRunSummary {
@@ -54,6 +58,9 @@ export function summarizePiRun(meta: PiRunMeta): PiRunSummary {
     endedAt: meta.endedAt,
     prompt: meta.prompt,
     model: meta.model,
+    eventCount: meta.eventCount,
+    bytesCaptured: meta.bytesCaptured,
+    lastEventAt: meta.lastEventAt,
   };
 }
 

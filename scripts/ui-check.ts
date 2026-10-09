@@ -152,7 +152,15 @@ try {
     const box = await overflow(page);
     check("nothing is clipped off-screen", box.clipped.length === 0, box);
 
-    check("all six tabs are reachable", (await page.locator("nav.tabs button").count()) === 6);
+    check("all seven tabs are reachable", (await page.locator("nav.tabs button").count()) === 7);
+    // The Runs tab (worker runs; it hides when every worker token is off).
+    const runsTab = page.locator('nav.tabs button:text-is("Runs")');
+    if ((await runsTab.count()) > 0) {
+      await runsTab.click();
+      const runsBox = await overflow(page);
+      check("the Runs tab has nothing clipped", runsBox.clipped.length === 0, runsBox);
+      await page.locator('nav.tabs button:text-is("Chat")').click();
+    }
     check(
       "the top bar names the agent",
       (await page.locator(".topbar .where-agent").innerText()).trim() !== "",

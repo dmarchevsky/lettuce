@@ -9,6 +9,7 @@ const STATUS_TONES: Record<PiRunSummary["status"], string> = {
   running: "",
   completed: " ok-tag",
   detached: " muted",
+  cancelled: " muted",
   failed: " bad",
 };
 
@@ -19,10 +20,17 @@ const STATUS_TONES: Record<PiRunSummary["status"], string> = {
  * exists without the upstream connection — and "running" means the BFF
  * still holds the ssh child.
  */
-export function PiRunsList({ refreshKey }: { refreshKey: string }) {
+export function PiRunsList({
+  refreshKey,
+  initialRunId,
+}: {
+  refreshKey: string;
+  /** Open this run's viewer on mount (the `?run=` deep link). */
+  initialRunId?: string | null;
+}) {
   const [runs, setRuns] = useState<PiRunSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [openRun, setOpenRun] = useState<string | null>(null);
+  const [openRun, setOpenRun] = useState<string | null>(initialRunId ?? null);
 
   const load = useCallback(async () => {
     try {

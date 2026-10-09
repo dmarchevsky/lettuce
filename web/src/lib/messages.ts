@@ -28,7 +28,8 @@ export type EntryKind =
   | "approval_response"
   | "event"
   | "notice"
-  | "question";
+  | "question"
+  | "pi_run";
 
 /** The filter groups offered in the UI. */
 export type FilterGroup = "user" | "agent" | "tools" | "tasks" | "system";
@@ -44,6 +45,8 @@ export interface TranscriptEntry {
   toolName?: string;
   toolArgs?: string;
   toolCallId?: string;
+  /** pi_run: the remote-pi run this entry announces (parsed from the tool return). */
+  piRunId?: string;
   /** tool_return */
   status?: "success" | "error";
   /** tool_return: the captured streams, when the app-server sent them separately. */
@@ -117,6 +120,8 @@ const FILTER_GROUPS: Record<EntryKind, FilterGroup> = {
   notice: "system",
   // A tool the agent ran; the card answers it, but it belongs with the work.
   question: "tools",
+  // A remote-pi run announced in the transcript; it rides the Tools switch.
+  pi_run: "tools",
 };
 
 export const FILTER_LABELS: Record<FilterGroup, string> = {
@@ -434,6 +439,39 @@ function nameToolReturns(entries: TranscriptEntry[]): TranscriptEntry[] {
   });
 }
 
+const PI_RUN_ANNOUNCE =
+  /^(?:Started remote-pi (?:run|send)|run) ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b/;
+
+/**
+ * The remote-pi runs announced by tool returns. A `pi_run`/`pi_send` return
+ * announces a run's birth; the synthetic `pi_run` entry placed right after it
+ * is where the live run card renders (it polls until the run settles), so the
+ * human watches the dispatch directly instead of asking the agent to relay
+ * pi_status. Several returns about the same run get one card, at the first.
+ */
+function attachPiRunCards(entries: TranscriptEntry[]): TranscriptEntry[] {
+  const out: TranscriptEntry[] = [];
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    out.push(entry);
+    if (entry.kind !== "tool_return") continue;
+    if (entry.toolName !== "pi_run" && entry.toolName !== "pi_send" && entry.toolName !== "pi_wait")
+      continue;
+    const match = PI_RUN_ANNOUNCE.exec(entry.text);
+    if (!match || seen.has(match[1]!)) continue;
+    seen.add(match[1]!);
+    out.push({
+      id: `pi-run:${match[1]}`,
+      kind: "pi_run",
+      date: entry.date,
+      seenAt: entry.seenAt + 0.5, // straight after the return it answers
+      text: entry.text,
+      piRunId: match[1]!,
+    });
+  }
+  return out;
+}
+
 /**
  * The async AskUserQuestion receipt carried by a tool return, or null.
  *
@@ -506,17 +544,19 @@ function promoteQuestions(entries: TranscriptEntry[]): TranscriptEntry[] {
  * changing re-render, instead of every message in the conversation per token.
  */
 export function sortedEntries(transcript: Transcript): TranscriptEntry[] {
-  return promoteQuestions(
-    nameToolReturns(
-      [...transcript.values()]
-        .sort((a, b) => {
-          if (a.seenAt !== b.seenAt) return a.seenAt - b.seenAt;
-          return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-        })
-        .map((entry) => (entry.streaming ? { ...entry } : entry))
-        // After copying, so an extracted block keeps its parent's position and a
-        // settled entry keeps its identity.
-        .flatMap(splitInjectedBlocks),
+  return attachPiRunCards(
+    promoteQuestions(
+      nameToolReturns(
+        [...transcript.values()]
+          .sort((a, b) => {
+            if (a.seenAt !== b.seenAt) return a.seenAt - b.seenAt;
+            return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+          })
+          .map((entry) => (entry.streaming ? { ...entry } : entry))
+          // After copying, so an extracted block keeps its parent's position and a
+          // settled entry keeps its identity.
+          .flatMap(splitInjectedBlocks),
+      ),
     ),
   );
 }
@@ -705,6 +745,12 @@ export function groupTranscript(entries: readonly TranscriptEntry[]): Transcript
     if (entry.kind === "question") {
       // Standalone, never inside a run: a question the user has to see and
       // answer cannot hide behind a collapsed "5 steps" fold.
+      items.push({ kind: "message", entry });
+      run = null;
+      continue;
+    }
+    if (entry.kind === "pi_run") {
+      // Same as a question: the live run card must never hide inside a fold.
       items.push({ kind: "message", entry });
       run = null;
       continue;

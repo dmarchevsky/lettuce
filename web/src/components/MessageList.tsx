@@ -19,6 +19,7 @@ import { CodexRunSheet } from "./CodexRunSheet.tsx";
 import { Icon } from "./Icon.tsx";
 import { ImageLightbox } from "./ImageLightbox.tsx";
 import { Markdown } from "./Markdown.tsx";
+import { PiRunCard } from "./PiRunCard.tsx";
 import { QuestionCard } from "./QuestionCard.tsx";
 
 interface Props {
@@ -343,6 +344,10 @@ const MessageItem = memo(function MessageItem({
         ) : null}
       </div>
     );
+  }
+
+  if (entry.kind === "pi_run" && entry.piRunId) {
+    return <PiRunCard runId={entry.piRunId} />;
   }
 
   if (entry.kind === "question" && entry.question) {
