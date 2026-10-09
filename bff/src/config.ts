@@ -94,7 +94,7 @@ export interface BffConfig {
    * shows it. The coding CLIs are measured inside the image instead
    * (`/opt/lettuce/features`), because a stale image disproves a pin.
    */
-  pinVersions: { searxng: string; googleMcp: string; cloudflared: string };
+  pinVersions: { searxng: string; googleMcp: string; cloudflared: string; ddgMcp: string };
 }
 
 /** The profile-gated integrations. See `BffConfig.features`. */
@@ -436,6 +436,7 @@ export function loadConfig(): BffConfig {
       searxng: process.env.SEARXNG_VERSION?.trim() ?? "",
       googleMcp: process.env.WORKSPACE_MCP_VERSION?.trim() ?? "",
       cloudflared: process.env.CLOUDFLARED_VERSION?.trim() ?? "",
+      ddgMcp: process.env.DDG_MCP_VERSION?.trim() ?? "",
     },
   };
 }

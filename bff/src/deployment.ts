@@ -53,7 +53,9 @@ export interface DeploymentInput {
   features: { web: boolean; google: boolean; codex: boolean; claude: boolean };
   /** Whether the tunnel container exists here, i.e. `mode === "cloudflared"`. */
   tunnel: boolean;
-  pinVersions: { searxng: string; googleMcp: string; cloudflared: string };
+  pinVersions: { searxng: string; googleMcp: string; cloudflared: string; ddgMcp: string };
+  /** Whether page reading is wired at all (`DDG_MCP_URL` set), i.e. ddg-mcp exists. */
+  webReader: boolean;
   marker: CodingMarker | null;
   /** What the app-server said for `letta_code_version`, null before its hello. */
   lettaCodeVersion: string | null;
@@ -83,6 +85,11 @@ export function deploymentComponents(input: DeploymentInput): Component[] {
   if (gh) rows.push({ name: "GitHub CLI", version: gh });
   if (input.features.web && input.pinVersions.searxng)
     rows.push({ name: "Web search (SearXNG)", version: input.pinVersions.searxng });
+  // The web feature is two containers: SearXNG answers searches, ddg-mcp reads
+  // pages and is the search fallback. Both get a row when they exist, because
+  // they are pinned and upgraded separately.
+  if (input.features.web && input.webReader && input.pinVersions.ddgMcp)
+    rows.push({ name: "Page reading (ddg-mcp)", version: input.pinVersions.ddgMcp });
   if (input.features.google && input.pinVersions.googleMcp)
     rows.push({ name: "Google (workspace-mcp)", version: input.pinVersions.googleMcp });
   if (input.tunnel && input.pinVersions.cloudflared)

@@ -381,6 +381,7 @@ function deploymentRows(): Component[] {
     features: config.features,
     tunnel: config.mode === "cloudflared",
     pinVersions: config.pinVersions,
+    webReader: config.webTools.ddgMcpUrl !== null,
     marker: codingMarker,
     lettaCodeVersion: upstream.getInfo()?.letta_code_version ?? null,
   });

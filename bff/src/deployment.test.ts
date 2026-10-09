@@ -1,7 +1,12 @@
 import { describe, expect, it } from "bun:test";
 import { type DeploymentInput, deploymentComponents, parseCodingMarker } from "./deployment.ts";
 
-const PINS = { searxng: "2026.10.9-9f042d2f6", googleMcp: "1.29.0", cloudflared: "2026.10.0" };
+const PINS = {
+  searxng: "2026.10.9-9f042d2f6",
+  googleMcp: "1.29.0",
+  cloudflared: "2026.10.0",
+  ddgMcp: "0.7.0",
+};
 const OFF = { web: false, google: false, codex: false, claude: false };
 
 function rows(input: Partial<DeploymentInput>): string[] {
@@ -9,6 +14,7 @@ function rows(input: Partial<DeploymentInput>): string[] {
     features: OFF,
     tunnel: false,
     pinVersions: PINS,
+    webReader: true,
     marker: null,
     lettaCodeVersion: null,
     ...input,
@@ -42,7 +48,14 @@ describe("deploymentComponents", () => {
       "letta-code=0.34.9",
       "GitHub CLI=2.102.0",
       "Web search (SearXNG)=2026.10.9-9f042d2f6",
+      "Page reading (ddg-mcp)=0.7.0",
       "Google (workspace-mcp)=1.29.0",
+    ]);
+  });
+
+  it("leaves ddg-mcp out when page reading is not wired", () => {
+    expect(rows({ features: { ...OFF, web: true }, webReader: false })).toEqual([
+      "Web search (SearXNG)=2026.10.9-9f042d2f6",
     ]);
   });
 
@@ -67,7 +80,10 @@ describe("deploymentComponents", () => {
 
   it("drops a pin the BFF was never given", () => {
     expect(
-      rows({ features: { ...OFF, web: true }, pinVersions: { ...PINS, searxng: "" } }),
+      rows({
+        features: { ...OFF, web: true },
+        pinVersions: { ...PINS, searxng: "", ddgMcp: "" },
+      }),
     ).toEqual([]);
   });
 });
