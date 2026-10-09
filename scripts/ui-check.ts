@@ -153,6 +153,13 @@ try {
     check("nothing is clipped off-screen", box.clipped.length === 0, box);
 
     check("all seven tabs are reachable", (await page.locator("nav.tabs button").count()) === 7);
+    check(
+      "the phone tab strip does not scroll (seven squeeze in at 390px)",
+      await page.evaluate(() => {
+        const strip = document.querySelector("nav.tabs");
+        return !!strip && strip.scrollWidth <= strip.clientWidth;
+      }),
+    );
     // The Runs tab (worker runs; it hides when every worker token is off).
     const runsTab = page.locator('nav.tabs button:text-is("Runs")');
     if ((await runsTab.count()) > 0) {

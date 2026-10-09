@@ -112,8 +112,7 @@ pre {
 }
 .tabs button {
   flex: 1;
-  /* Six tabs have to fit a 390px phone without scrolling: Chat is the longest
-     name at 62, so this is what is left over. */
+  /* Sized by name at ≥390; the squeeze below is what makes seven fit. */
   min-width: 58px;
   background: none;
   border: none;
@@ -126,6 +125,22 @@ pre {
 .tabs button.active {
   background: var(--surface-2);
   color: var(--text);
+}
+/* Seven tabs cannot keep the 58px-each sizing on a 390px phone (434px of
+   labels against 390px of strip, so the row scrolled and the bar showed).
+   Squeeze instead: the widest tab is `Memory`, and at 13px with tight padding
+   all seven fit with slack — no scroll, no swipe to reach a tab. After the
+   base rules on purpose: the media query must win. */
+@media (max-width: 640px) {
+  .tabs {
+    padding: 6px 4px;
+    gap: 0;
+  }
+  .tabs button {
+    min-width: 0;
+    padding: 8px 3px;
+    font-size: 13px;
+  }
 }
 
 .filters {
