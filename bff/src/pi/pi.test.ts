@@ -759,6 +759,13 @@ function spawnedChild(spawned: { child: FakeChild }[], n: number): FakeChild {
   return entry.child;
 }
 
+/** Wait for the nth spawn instead of sleeping a fixed guess — a shared CI
+ *  runner delivers async spawns later than a laptop ever does. */
+async function waitForSpawns(spawned: { child: FakeChild }[], n: number): Promise<FakeChild> {
+  for (let i = 0; i < 300 && spawned.length < n; i += 1) await Bun.sleep(10);
+  return spawnedChild(spawned, n - 1);
+}
+
 async function runHarness() {
   const dir = await mkdtemp(`${tmpdir()}/pi-runsvc-`);
   const spawned: { args: readonly string[]; child: FakeChild }[] = [];
@@ -817,12 +824,12 @@ test("pi_run records the dispatching conversation and the settle report answers 
   );
   child.emit('{"type":"agent_settled"}\n');
   child.finish(0);
-  await Bun.sleep(100);
+  for (let i = 0; i < 200 && !settled.some((m) => m.runId === runId); i += 1) await Bun.sleep(10);
   const done = settled.find((m) => m.runId === runId);
   expect(done?.conversationId).toBe("local-conv-120");
   const pending = service.settleReport(done!);
-  await Bun.sleep(30);
-  spawned.at(-1)?.child.finish(0); // the manifest find must answer too
+  const findChild = await waitForSpawns(spawned, 2); // the manifest find must answer too
+  findChild.finish(0);
   const report = await pending;
   expect(report.startsWith("<task-notification>")).toBe(true);
   expect(report).toContain("completed");
@@ -874,8 +881,7 @@ test("force stop kills the remote pi and records cancelled — later, never rewr
   await Bun.sleep(20);
 
   const stopping = service.piStop({ run: meta.runId, force: true });
-  await Bun.sleep(30); // let the kill ssh spawn
-  const killChild = spawnedChild(spawned, 1);
+  const killChild = await waitForSpawns(spawned, 2); // the kill ssh spawns async
   expect(spawned[1]!.args.join(" ")).toContain("kill 4711");
   expect(spawned[1]!.args.join(" ")).toContain("-o StrictHostKeyChecking=yes");
   killChild.finish(0);
@@ -1038,8 +1044,7 @@ test("pi_fetch lands the bytes under the run and answers with the link", async (
     prompt: "screenshot it",
   });
   const pending = service.piFetch({ run: meta.runId, path: "shots/shot.png" });
-  await Bun.sleep(20); // the artifact ssh is spawned after the async settings read
-  const fetchChild = spawnedChild(spawned, 1);
+  const fetchChild = await waitForSpawns(spawned, 2); // artifact ssh follows the async settings read
   fetchChild.emit("lettuce-fetch: size 6\n");
   fetchChild.emit("SGVsbG8h\n");
   fetchChild.finish(0);
@@ -1051,8 +1056,7 @@ test("pi_fetch lands the bytes under the run and answers with the link", async (
 
   // Refusals carry the reason, not the file.
   const denied = service.piFetch({ run: meta.runId, path: "/etc/shadow" });
-  await Bun.sleep(20);
-  const denyChild = spawnedChild(spawned, 2);
+  const denyChild = await waitForSpawns(spawned, 3);
   denyChild.emit("lettuce-fetch: outside\n");
   denyChild.finish(0);
   const res2 = await denied;
