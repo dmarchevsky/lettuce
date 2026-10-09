@@ -204,7 +204,7 @@
         "attachment_index": {
           "type": "integer",
           "default": null,
-          "description": "Zero-based attachment position from\nthe message-content response. When the cap is enabled, this lets\nthe server safely resolve Gmail's refreshed attachment IDs against\ncurrent metadata before downloading."
+          "description": "Zero-based attachment position from\nthe message-content response. Lets the server resolve Gmail's\nrefreshed attachment IDs against current metadata before every\ndownload, selecting the current attachment ID, filename and MIME type."
         }
       },
       "required": ["message_id", "attachment_id"],
@@ -235,7 +235,7 @@
   {
     "name": "get_gmail_message_content",
     "title": "Get Gmail Message Content",
-    "description": "Retrieves the full content (subject, sender, recipients, body) of a specific Gmail message.\n\nBodies are returned inline and truncated at 20,000 characters. Set full=True to\nget the complete, untruncated message instead: it is exported to disk and the\nresponse carries a short-lived download URL (HTTP transport) or file path (stdio\ntransport) rather than the body, so large messages never stream through the model\ncontext. Stateless deployments have no file storage, so there full=True returns the\nuntruncated body inline.",
+    "description": "Retrieves the full content (subject, sender, recipients, body) of a specific Gmail message.\n\nBodies are returned inline and truncated at 20,000 characters. Set full=True to\nget the complete, untruncated message instead: it is exported to storage and the\nresponse carries a short-lived download URL (HTTP transport) or file path (stdio\ntransport) rather than the body, so large messages never stream through the model\ncontext. Stateless deployments without GCS staging have no storage, so there\nfull=True returns the untruncated body inline; with GCS staging configured it\nreturns a signed download URL like any other HTTP deployment.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -256,7 +256,7 @@
         },
         "full": {
           "default": false,
-          "description": "When True, return the COMPLETE untruncated message: saved to local storage and referenced by download URL/file path instead of the body text, or inlined in the response when the server has no file storage (stateless mode). Use for messages large enough to hit the truncation limit, or when byte-exact fidelity is needed (pair with body_format='raw' for a .eml export).",
+          "description": "When True, return the COMPLETE untruncated message: saved to storage and referenced by download URL/file path instead of the body text. In stateless mode without GCS staging, the body is returned inline; with GCS staging, a signed download URL is returned. Use for messages large enough to hit the truncation limit, or when byte-exact fidelity is needed (pair with body_format='raw' for a .eml export).",
           "type": "boolean"
         },
         "format": {

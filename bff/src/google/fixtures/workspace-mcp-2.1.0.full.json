@@ -120,7 +120,7 @@
   {
     "name": "draft_gmail_message",
     "title": "Draft Gmail Message",
-    "description": "Creates a draft email in the user's Gmail account. Supports both new drafts and reply drafts with optional attachments.\nSupports Gmail's \"Send As\" feature to draft from configured alias addresses.\n\nSCHEDULED SEND IS NOT AVAILABLE. Gmail's REST API exposes no send-time\nparameter; the Schedule send feature is web-UI only, and a message cannot be\nplaced in the Scheduled folder through the API. Do not claim a message was\nscheduled. To deliver at a chosen time, create a draft with\ndraft_gmail_message. An external scheduler must retain the message data to\ncreate and send a new message via send_gmail_message then, or call\nusers.drafts.send with the draft ID returned by draft_gmail_message.\nAlternatively, let the user schedule the draft in the Gmail UI.",
+    "description": "Creates a draft email in the user's Gmail account. Supports new, reply, and forward\ndrafts with optional attachments. Supports Gmail's \"Send As\" feature to draft from\nconfigured alias addresses.\n\nTo save a forward as a draft for review, pass forward_message_id. The original\nsubject, body (quoted with a \"Forwarded message\" header), and attachments are\ncarried over. In forward mode, body (if any) is prepended as a note, subject is\noptional, and threading, reply, and signature options do not apply.\n\nSCHEDULED SEND IS NOT AVAILABLE. Gmail's REST API exposes no send-time\nparameter; the Schedule send feature is web-UI only, and a message cannot be\nplaced in the Scheduled folder through the API. Do not claim a message was\nscheduled. To deliver at a chosen time, create a draft with\ndraft_gmail_message. An external scheduler must retain the message data to\ncreate and send a new message via send_gmail_message then, or call\nusers.drafts.send with the draft ID returned by draft_gmail_message.\nAlternatively, let the user schedule the draft in the Gmail UI.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -130,18 +130,30 @@
           "default": "fixture@example.com"
         },
         "subject": {
-          "description": "Email subject.",
-          "type": "string"
+          "type": "string",
+          "default": null,
+          "description": "Email subject. Required unless forwarding (then defaults to 'Fwd: <original subject>')."
         },
         "body": {
-          "description": "Email body (plain text).",
-          "type": "string"
+          "type": "string",
+          "default": null,
+          "description": "Email body. Required unless forwarding, where it becomes an optional note prepended above the quoted original."
         },
         "body_format": {
           "default": "plain",
           "description": "Email body format. Use 'plain' for plaintext or 'html' for HTML content.",
           "enum": ["plain", "html"],
           "type": "string"
+        },
+        "forward_message_id": {
+          "type": "string",
+          "default": null,
+          "description": "Set to a Gmail message ID to save a forward of that message as a draft for review. The original subject, body, and (optionally) attachments are carried over; 'body' becomes an optional note prepended to the forward."
+        },
+        "include_forwarded_attachments": {
+          "default": true,
+          "description": "When forwarding, whether to include the original message's attachments. Ignored unless forward_message_id is set.",
+          "type": "boolean"
         },
         "to": {
           "type": "string",
@@ -203,7 +215,7 @@
           "type": "boolean"
         }
       },
-      "required": ["subject", "body"],
+      "required": [],
       "additionalProperties": false
     },
     "outputSchema": {
@@ -433,7 +445,7 @@
         "attachment_index": {
           "type": "integer",
           "default": null,
-          "description": "Zero-based attachment position from\nthe message-content response. When the cap is enabled, this lets\nthe server safely resolve Gmail's refreshed attachment IDs against\ncurrent metadata before downloading."
+          "description": "Zero-based attachment position from\nthe message-content response. Lets the server resolve Gmail's\nrefreshed attachment IDs against current metadata before every\ndownload, selecting the current attachment ID, filename and MIME type."
         }
       },
       "required": ["message_id", "attachment_id"],
@@ -464,7 +476,7 @@
   {
     "name": "get_gmail_message_content",
     "title": "Get Gmail Message Content",
-    "description": "Retrieves the full content (subject, sender, recipients, body) of a specific Gmail message.\n\nBodies are returned inline and truncated at 20,000 characters. Set full=True to\nget the complete, untruncated message instead: it is exported to disk and the\nresponse carries a short-lived download URL (HTTP transport) or file path (stdio\ntransport) rather than the body, so large messages never stream through the model\ncontext. Stateless deployments have no file storage, so there full=True returns the\nuntruncated body inline.",
+    "description": "Retrieves the full content (subject, sender, recipients, body) of a specific Gmail message.\n\nBodies are returned inline and truncated at 20,000 characters. Set full=True to\nget the complete, untruncated message instead: it is exported to storage and the\nresponse carries a short-lived download URL (HTTP transport) or file path (stdio\ntransport) rather than the body, so large messages never stream through the model\ncontext. Stateless deployments without GCS staging have no storage, so there\nfull=True returns the untruncated body inline; with GCS staging configured it\nreturns a signed download URL like any other HTTP deployment.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -485,7 +497,7 @@
         },
         "full": {
           "default": false,
-          "description": "When True, return the COMPLETE untruncated message: saved to local storage and referenced by download URL/file path instead of the body text, or inlined in the response when the server has no file storage (stateless mode). Use for messages large enough to hit the truncation limit, or when byte-exact fidelity is needed (pair with body_format='raw' for a .eml export).",
+          "description": "When True, return the COMPLETE untruncated message: saved to storage and referenced by download URL/file path instead of the body text. In stateless mode without GCS staging, the body is returned inline; with GCS staging, a signed download URL is returned. Use for messages large enough to hit the truncation limit, or when byte-exact fidelity is needed (pair with body_format='raw' for a .eml export).",
           "type": "boolean"
         },
         "format": {
@@ -2363,7 +2375,7 @@
         "max_results": {
           "default": 10,
           "type": "integer",
-          "description": "For \"list\" action: maximum events to return. Defaults to 10."
+          "description": "For \"list\" action: maximum events to return in one page. Defaults to 10."
         },
         "event_id": {
           "type": "string",
@@ -2374,6 +2386,11 @@
           "default": "primary",
           "type": "string",
           "description": "Calendar ID. Defaults to 'primary'. Focus Time status events live on primary calendars, so use 'primary' or a user's primary calendar ID/email rather than a secondary calendar ID."
+        },
+        "page_token": {
+          "type": "string",
+          "default": null,
+          "description": "For \"list\" action: token for the next page, taken from a previous response. Also pass the response's Pagination time_min as time_min, even if omitted on the first call. Keep all other query parameters unchanged."
         }
       },
       "required": ["action"],
@@ -2404,7 +2421,7 @@
   {
     "name": "manage_gmail_filter",
     "title": "Manage Gmail Filter",
-    "description": "Manages Gmail filters. Supports creating and deleting filters.",
+    "description": "Manages Gmail filters: create, delete, update, and apply to existing mail.\n\n- update: Gmail has no filter update API, so the filter is recreated (new\n  one first, then the old one is deleted) and its ID changes. A passed\n  criteria or filter_action replaces that whole object; omit one to keep\n  the old filter's.\n- apply: runs a filter's label actions on mail ALREADY in the mailbox\n  (Gmail filters only act on new mail). Only matching messages change,\n  not whole conversations as in the web UI. Use filter_id, or criteria +\n  filter_action for an ad-hoc run. Forwarding is never applied. Use\n  dry_run=true first to see the search query and the match count.\n  Needs the gmail.modify scope in addition to gmail.settings.basic.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2415,24 +2432,34 @@
         },
         "action": {
           "type": "string",
-          "description": "Action to perform - \"create\" or \"delete\"."
+          "description": "\"create\", \"delete\", \"update\" or \"apply\"."
         },
         "criteria": {
           "additionalProperties": true,
           "type": "object",
           "default": null,
-          "description": "Filter criteria object (required for create)."
+          "description": "Filter criteria object (required for create; optional for update/apply)."
         },
         "filter_action": {
           "additionalProperties": true,
           "type": "object",
           "default": null,
-          "description": "Filter action object (required for create). Named 'filter_action' to avoid shadowing the 'action' parameter."
+          "description": "Filter action object (required for create; optional for update/apply). Named 'filter_action' to avoid shadowing the 'action' parameter."
         },
         "filter_id": {
           "type": "string",
           "default": null,
-          "description": "ID of the filter to delete (required for delete)."
+          "description": "ID of the filter (required for delete and update; optional for apply)."
+        },
+        "dry_run": {
+          "default": false,
+          "type": "boolean",
+          "description": "apply only: count matches without changing anything."
+        },
+        "max_messages": {
+          "default": 5000,
+          "type": "integer",
+          "description": "apply only: safety cap on messages changed (default 5000)."
         }
       },
       "required": ["action"],
@@ -2607,7 +2634,7 @@
         "max_results": {
           "default": 10,
           "type": "integer",
-          "description": "For \"list\" action: maximum events to return. Defaults to 10."
+          "description": "For \"list\" action: maximum events to return in one page. Defaults to 10."
         },
         "event_id": {
           "type": "string",
@@ -2618,6 +2645,11 @@
           "default": "primary",
           "type": "string",
           "description": "Calendar ID. Defaults to 'primary'. Out of Office status events live on primary calendars, so use 'primary' or a user's primary calendar ID/email rather than a secondary calendar ID."
+        },
+        "page_token": {
+          "type": "string",
+          "default": null,
+          "description": "For \"list\" action: token for the next page, taken from a previous response. Also pass the response's Pagination time_min as time_min, even if omitted on the first call. Keep all other query parameters unchanged."
         }
       },
       "required": ["action"],

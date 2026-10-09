@@ -75,8 +75,16 @@ Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `
   `--single-user` defaults it (and the bridge hides it from schemas). The mappings are pinned
   by a recorded `tools/list`
   (`bff/src/google/fixtures/workspace-mcp-<version>.{full,readonly}.json`, captured by running
-  the pinned image with `--single-user --permissions …` and a dummy OAuth client — listing
-  needs no token) and `google/tools.test.ts` checks every mapped tool, argument and read/write
-  marking against it. **Refresh the fixture on every `WORKSPACE_MCP_VERSION` bump.**
+  the pinned image alone with `--transport streamable-http --single-user --permissions
+  gmail:full calendar:full tasks:full contacts:full --disabled-tools start_google_auth`, env
+  `WORKSPACE_MCP_HOST=0.0.0.0` and a dummy client — listing needs no token; repeat with every
+  level `readonly` for the second file) and `google/tools.test.ts` checks every mapped tool,
+  argument and read/write marking against it. **Refresh the fixture on every
+  `WORKSPACE_MCP_VERSION` bump.** The 1.29.0 → 2.1.0 bump moved none of what this mirrors —
+  `auth/permissions.py` (the level table), `auth/credential_store.py` (the token file an
+  existing grant is stored in) and the CLI flags are byte-identical across those releases, so
+  a connection survives the upgrade; diff those three files between the two images to know
+  whether a future bump needs a reconnect. What did move is tool schemas: 2.1.0 gave
+  `draft_gmail_message` forwarding parameters and stopped requiring subject and body.
   Everything else Google offers (labels, filters, focus time…) is reachable through the MCP
   bridge.

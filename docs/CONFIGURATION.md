@@ -159,7 +159,7 @@ upgrading.
 | `CODEX_VERSION` | `0.162.0` | the Codex CLI worker |
 | `CLAUDE_CODE_VERSION` | `2.1.295` | the Claude Code CLI worker |
 | `GH_VERSION` | `2.102.0` | GitHub CLI, used by the `WatchPR` tool |
-| `WORKSPACE_MCP_VERSION` | `1.29.0` | the workspace MCP server |
+| `WORKSPACE_MCP_VERSION` | `2.1.0` | the workspace MCP server |
 | `SEARXNG_VERSION` | `2026.10.9-9f042d2f6` | `searxng/searxng` image tag |
 | `DDG_MCP_VERSION` | `0.7.0` | `duckduckgo-mcp-server` release |
 | `CLOUDFLARED_VERSION` | `2026.10.0` | the tunnel container |

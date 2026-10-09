@@ -3,7 +3,7 @@ import { type DeploymentInput, deploymentComponents, parseCodingMarker } from ".
 
 const PINS = {
   searxng: "2026.10.9-9f042d2f6",
-  googleMcp: "1.29.0",
+  googleMcp: "2.1.0",
   cloudflared: "2026.10.0",
   ddgMcp: "0.7.0",
 };
@@ -49,7 +49,7 @@ describe("deploymentComponents", () => {
       "GitHub CLI=2.102.0",
       "Web search (SearXNG)=2026.10.9-9f042d2f6",
       "Page reading (ddg-mcp)=0.7.0",
-      "Google (workspace-mcp)=1.29.0",
+      "Google (workspace-mcp)=2.1.0",
     ]);
   });
 

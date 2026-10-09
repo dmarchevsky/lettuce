@@ -284,7 +284,7 @@ services:
       # picks the tag two services below, never a second copy of it.
       SEARXNG_VERSION: ${SEARXNG_VERSION:-2026.10.9-9f042d2f6}
       DDG_MCP_VERSION: ${DDG_MCP_VERSION:-0.7.0}
-      WORKSPACE_MCP_VERSION: ${WORKSPACE_MCP_VERSION:-1.29.0}
+      WORKSPACE_MCP_VERSION: ${WORKSPACE_MCP_VERSION:-2.1.0}
       CLOUDFLARED_VERSION: ${CLOUDFLARED_VERSION:-2026.10.0}
       CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN:-}
       CF_ACCESS_AUD: ${CF_ACCESS_AUD:-}
@@ -470,8 +470,8 @@ services:
     build:
       context: google-mcp
       args:
-        WORKSPACE_MCP_VERSION: ${WORKSPACE_MCP_VERSION:-1.29.0}
-    image: lettuce-google-mcp:${WORKSPACE_MCP_VERSION:-1.29.0}
+        WORKSPACE_MCP_VERSION: ${WORKSPACE_MCP_VERSION:-2.1.0}
+    image: lettuce-google-mcp:${WORKSPACE_MCP_VERSION:-2.1.0}
     environment:
       TZ: ${TZ:-America/Los_Angeles}
     volumes:
