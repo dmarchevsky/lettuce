@@ -537,6 +537,7 @@ export class PiService {
     kind: "run" | "send",
     args: Record<string, unknown>,
     callerAgentId: string | null,
+    callerConversationId: string | null,
   ): Promise<ToolAnswer> {
     const off = this.guard();
     if (off) return off;
@@ -583,6 +584,7 @@ export class PiService {
         session,
         model,
         agentId: callerAgentId,
+        conversationId: callerConversationId,
       });
       // Give the session header a moment: it is the first record of the stream
       // and the caller needs it to follow up (§ 3.2).
@@ -607,7 +609,8 @@ export class PiService {
           (observed.session
             ? ` on session ${observed.session} (agent ${agentId})`
             : " — session id not yet visible") +
-          `${sessionNote}. Poll with pi_status {run:"${observed.runId}"} — pi_wait {run:"${observed.runId}"} blocks until it settles.`,
+          `${sessionNote}. You will be told in this conversation when it finishes — do not poll. ` +
+          `Read progress with pi_status {run:"${observed.runId}"} only if asked; pi_wait it only when this turn must hold until then.`,
         isError: false,
       };
     } catch (error) {
@@ -620,11 +623,32 @@ export class PiService {
 
   /** pi_run: start a fresh pi session on the remote host. */
   readonly piRun: ToolHandler = (args, context) =>
-    this.startRun("run", args, context?.agentId ?? null);
+    this.startRun("run", args, context?.agentId ?? null, context?.conversationId ?? null);
 
   /** pi_send: follow up on an existing session (spike-proven iteration, § 3.3). */
   readonly piSend: ToolHandler = (args, context) =>
-    this.startRun("send", args, context?.agentId ?? null);
+    this.startRun("send", args, context?.agentId ?? null, context?.conversationId ?? null);
+
+  /**
+   * The settle report the BFF injects into the originating conversation, in
+   * the same `<task-notification>` envelope the answer to AskUserQuestion
+   * rides — the UI already renders those as task rows, not as "You".
+   */
+  async settleReport(meta: PiRunMeta): Promise<string> {
+    const lines = [
+      `remote pi run ${meta.runId.slice(0, 8)} ${meta.state}` +
+        (meta.exitCode !== null ? ` (exit ${meta.exitCode})` : "") +
+        ` — ${meta.prompt.split("\n")[0]?.slice(0, 120) ?? ""}`,
+    ];
+    if (meta.error) lines.push(`error: ${meta.error}`);
+    const tail = await this.store.readEventsTail(meta.runId, 4_000);
+    const answer = tail ? lastAssistantText(tail) : null;
+    if (answer) lines.push(`last said: ${answer.split("\n").join(" ").slice(0, 300)}`);
+    lines.push(
+      "The Runs tab has the transcript; pi_send continues the session. Do not poll for this run again.",
+    );
+    return `<task-notification>${lines.join("\n")}</task-notification>`;
+  }
 
   /** The pi_status body: state, session, progress, and what the run is doing now. */
   private async statusBody(runId: string): Promise<ToolAnswer> {

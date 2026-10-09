@@ -44,6 +44,8 @@ export interface PiRunMeta {
    * simply read as null.
    */
   agentId: string | null;
+  /** The conversation that dispatched it; the settle report goes back there. */
+  conversationId: string | null;
   /** Filled from the json session header shortly after start. */
   session: string | null;
   prompt: string;
@@ -442,6 +444,7 @@ export class PiRunner {
       session?: string;
       model?: string | null;
       agentId?: string | null;
+      conversationId?: string | null;
     },
   ): Promise<PiRunMeta> {
     const remote = buildPiRemoteCommand(settings, options);
@@ -450,6 +453,7 @@ export class PiRunner {
       runId: randomUUID(),
       kind: options.kind,
       agentId: options.agentId ?? null,
+      conversationId: options.conversationId ?? null,
       session: options.session ?? null,
       prompt: options.prompt,
       model: options.model ?? settings.model,

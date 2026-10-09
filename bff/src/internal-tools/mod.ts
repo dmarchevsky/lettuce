@@ -22,6 +22,9 @@ export const MODS_DIR = "/root/.letta/mods";
 
 /** Header carrying the calling agent's id on every call (`ctx.agent.id`). */
 export const AGENT_ID_HEADER = "x-letta-agent-id";
+/** Header carrying the calling conversation's id (`ctx.sessionId` — upstream
+ * stamps the conversation as the mod context's session, AppCoordinator.tsx). */
+export const CONVERSATION_ID_HEADER = "x-letta-conversation-id";
 
 export function renderToolsMod(options: {
   /** First comment line — identifies the mod and its render version. */
@@ -63,6 +66,7 @@ function enabledFor(tool, ctx) {
 async function callBff(tool, ctx) {
   const headers = { "content-type": "application/json" };
   if (ctx.agent?.id) headers[${JSON.stringify(AGENT_ID_HEADER)}] = ctx.agent.id;
+  if (ctx.sessionId) headers[${JSON.stringify(CONVERSATION_ID_HEADER)}] = ctx.sessionId;
   let response;
   try {
     response = await fetch(ENDPOINT + "/" + tool, {

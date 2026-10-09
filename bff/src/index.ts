@@ -450,26 +450,40 @@ const piService = new PiService({
   log,
   // Settle pushes: a finished remote run is exactly what a waiting human wants
   // without an agent turn relaying it. Deep link lands on the Runs tab once
-  // that view ships; unknown query params are inert before then.
-  onSettle: pushStore
-    ? (meta) => {
-        const verdict =
-          meta.state === "completed" || meta.state === "failed" || meta.state === "cancelled"
-            ? meta.state
-            : null;
-        if (!verdict || !pushStore) return;
-        void notify(
-          pushStore,
-          {
-            title: `Remote pi ${verdict}`,
-            body: meta.prompt.split("\n")[0]?.slice(0, 90) ?? meta.runId,
-            url: `/?tab=runs&run=${encodeURIComponent(meta.runId)}`,
-          },
-          verdict === "failed" ? "failed" : "completed",
-          log,
-        );
-      }
-    : undefined,
+  // that view ships; unknown query params are inert before then. And the
+  // dispatching conversation gets the same news as a <task-notification>, so
+  // the agent learns by event instead of a pi_wait/pi_status poll loop.
+  onSettle: (meta) => {
+    const verdict =
+      meta.state === "completed" || meta.state === "failed" || meta.state === "cancelled"
+        ? meta.state
+        : null;
+    if (!verdict) return;
+    if (pushStore)
+      void notify(
+        pushStore,
+        {
+          title: `Remote pi ${verdict}`,
+          body: meta.prompt.split("\n")[0]?.slice(0, 90) ?? meta.runId,
+          url: `/?tab=runs&run=${encodeURIComponent(meta.runId)}`,
+        },
+        verdict === "failed" ? "failed" : "completed",
+        log,
+      );
+    if (meta.agentId && meta.conversationId) {
+      void piService
+        .settleReport(meta)
+        .then((content) =>
+          upstream.send({
+            type: "input",
+            request_id: crypto.randomUUID(),
+            runtime: { agent_id: meta.agentId, conversation_id: meta.conversationId },
+            payload: { kind: "create_message", messages: [{ role: "user", content }] },
+          }),
+        )
+        .catch((error) => log(`Remote pi: settle report failed: ${errorMessage(error)}`));
+    }
+  },
 });
 void piService
   .reconcile()

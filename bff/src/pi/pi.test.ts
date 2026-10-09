@@ -374,6 +374,7 @@ test("boot reconciliation detaches orphaned runs", async () => {
     runId: "11111111-2222-3333-4444-555555555555",
     kind: "run",
     agentId: null,
+    conversationId: null,
     session: SESSION,
     prompt: "old",
     model: null,
@@ -443,6 +444,7 @@ test("the parser turns a captured stream into steps", () => {
     runId: "r",
     kind: "run",
     agentId: null,
+    conversationId: null,
     session: SESSION,
     prompt: "do it",
     model: null,
@@ -794,6 +796,38 @@ async function runHarness() {
   return { dir, service, spawned, settled, files };
 }
 
+test("pi_run records the dispatching conversation and the settle report answers back", async () => {
+  const { service, spawned, settled } = await runHarness();
+  setTimeout(() => {
+    spawned[0]?.child.emit(
+      `{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/w"}\n`,
+    );
+  }, 60);
+  const answer = await service.piRun(
+    { prompt: "clone the repo" },
+    { agentId: "agent-local-0fefdba6", conversationId: "local-conv-120" },
+  );
+  expect(answer.isError).toBe(false);
+  expect(answer.text).toContain("do not poll"); // Option A: event, not polling
+  const runId = answer.text.match(/run ([0-9a-f-]{36})/)?.[1] ?? "";
+  expect(runId).not.toBe("");
+  const child = spawnedChild(spawned, 0);
+  child.emit(
+    `{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"cloned"}],"timestamp":1760000000000}}\n`,
+  );
+  child.emit('{"type":"agent_settled"}\n');
+  child.finish(0);
+  await Bun.sleep(100);
+  const done = settled.find((m) => m.runId === runId);
+  expect(done?.conversationId).toBe("local-conv-120");
+  const report = await service.settleReport(done!);
+  expect(report.startsWith("<task-notification>")).toBe(true);
+  expect(report).toContain("completed");
+  expect(report).toContain("clone the repo");
+  expect(report).toContain("cloned");
+  expect(report).toContain("Do not poll");
+});
+
 test("pi_wait returns when the run settles, and times out honestly", async () => {
   const { service, spawned, settled, files } = await runHarness();
   const meta = await service.runner.start(await service.load(), files, {
@@ -952,6 +986,7 @@ test("retention sweep keeps the newest N and forgets what is past the age floor"
       runId: id(n),
       kind: "run",
       agentId: null,
+      conversationId: null,
       session: null,
       target: "worker@h",
       prompt: `run ${n}`,
@@ -1040,6 +1075,7 @@ test("artifact names cannot be paths, and sweeps take the files with the run", a
     runId,
     kind: "run",
     agentId: null,
+    conversationId: null,
     session: null,
     target: "worker@h",
     prompt: "f",

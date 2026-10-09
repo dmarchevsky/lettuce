@@ -8,6 +8,9 @@ export interface ToolAnswer {
 export interface ToolCallContext {
   /** Null for a caller that sent no agent (an older mod, an agent shell's curl). */
   agentId: string | null;
+  /** The conversation the call was made from, when the mod sent one
+   * (`x-letta-conversation-id`); a run settles back into it. */
+  conversationId?: string | null;
 }
 
 /** One native tool the BFF serves. Never throws: a failure is an answer the agent reads. */
