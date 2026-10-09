@@ -5,6 +5,8 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.10.0-letta_0.34.1] - 2026-10-09
+
 ### Added
 - **A finished remote pi run reports itself back.** The conversation that dispatched a `pi_run` (or `pi_send`) gets a task notification the moment it settles — state, exit, what pi last said — as a real message, so the agent no longer walks the turn through `pi_wait` and `pi_status` polling to find out. `pi_status` stays for progress when you ask, `pi_wait` for when a turn must hold; the run-start ack now says so.
 - **Agents can wait on the remote pi instead of poking it.** `pi_wait {run}` blocks until a run settles (up to 2 minutes) and answers with the same report `pi_status` gives — the sleep-60-then-poll loops and self-scheduled wake-ups a dispatched task used to require are gone. And when a run settles, your browser gets a **push** ("Remote pi completed · <task>"), the same channel turn notifications use — you no longer need the agent to be mid-turn to find out.
