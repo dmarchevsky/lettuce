@@ -44,6 +44,7 @@ import {
   piConfigured,
   renderPiSettings,
 } from "./settings.ts";
+import { parsePiRun } from "./transcript.ts";
 
 export {
   assertEffectiveUsable,
@@ -136,7 +137,15 @@ export interface PiServiceOptions {
   spawner?: PiSpawner;
   now?: () => Date;
   log?: (message: string) => void;
+  /** Fires once per run as it settles (completed/failed/cancelled) — the push hook. */
+  onSettle?: (meta: PiRunMeta) => void;
 }
+
+/** How long a run may go without a captured line before `pi_status` says `quiet`. */
+const PI_QUIET_MS = 60_000;
+/** `pi_wait` bounds: long enough to replace a sleep-poll loop, short enough to never wedge a turn. */
+const PI_WAIT_DEFAULT_S = 60;
+const PI_WAIT_MAX_S = 120;
 
 /** How long a check waits for ssh before calling the host unreachable. */
 const PI_CHECK_TIMEOUT_MS = 15_000;
@@ -159,8 +168,17 @@ export class PiService {
 
   constructor(private readonly options: PiServiceOptions) {
     this.store = new DirPiRunStore(piRunsDir(options.paths));
-    this.runner = new PiRunner(this.store, options.spawner ?? sshSpawner, options.now);
+    this.runner = new PiRunner(
+      this.store,
+      options.spawner ?? sshSpawner,
+      options.now,
+      options.onSettle,
+    );
     this.agentSettings = new PiAgentSettingsStore(piAgentSettingsFile(options.paths), () => {});
+  }
+
+  private nowMs(): number {
+    return (this.options.now ?? (() => new Date()))().getTime();
   }
 
   /**
@@ -520,6 +538,12 @@ export class PiService {
       } else if (!origin) {
         sessionNote = " (session unknown to lettuce — using this agent's host)";
       }
+      // A send onto a session with a live run queues behind it on the remote —
+      // say so here, because a queueing send otherwise reads exactly like the
+      // wedged runs prod's olla agent misdiagnosed.
+      if (origin?.state === "running") {
+        sessionNote += ` (note: run ${origin.runId} is still live on this session — pi_wait it first)`;
+      }
     }
     const model = typeof args.model === "string" && args.model.trim() ? args.model.trim() : null;
 
@@ -555,7 +579,7 @@ export class PiService {
           (observed.session
             ? ` on session ${observed.session} (agent ${agentId})`
             : " — session id not yet visible") +
-          `${sessionNote}. Poll with pi_status {run:"${observed.runId}"}.`,
+          `${sessionNote}. Poll with pi_status {run:"${observed.runId}"} — pi_wait {run:"${observed.runId}"} blocks until it settles.`,
         isError: false,
       };
     } catch (error) {
@@ -574,12 +598,8 @@ export class PiService {
   readonly piSend: ToolHandler = (args, context) =>
     this.startRun("send", args, context?.agentId ?? null);
 
-  /** pi_status: state of one run, with the tail of its last assistant text. */
-  readonly piStatus: ToolHandler = async (args) => {
-    const off = this.guard();
-    if (off) return off;
-    const runId = typeof args.run === "string" ? args.run.trim() : "";
-    if (!runId) return { text: "`run` is a run id from a previous pi_run/pi_send", isError: true };
+  /** The pi_status body: state, session, progress, and what the run is doing now. */
+  private async statusBody(runId: string): Promise<ToolAnswer> {
     const meta = await this.store.read(runId);
     if (!meta) return { text: `No remote-pi run ${runId}`, isError: true };
     const lines = [
@@ -590,16 +610,72 @@ export class PiService {
       `events ${meta.eventCount}, started ${meta.startedAt}${meta.lastEventAt ? `, last activity ${meta.lastEventAt}` : ""}`,
     ];
     if (meta.error) lines.push(`error: ${meta.error}`);
-    const tail = await this.store.readEventsTail(runId, 4_000);
-    if (tail) {
+    const tail = await this.store.readEventsTail(runId, meta.state === "running" ? 262_144 : 4_000);
+    if (meta.state === "running") {
+      // Quiet truth comes from the capture file's mtime, not the meta: the
+      // throttled flush can be ~2 s stale, the mtime is the stream itself.
+      const mtime = await this.store.eventsMtimeMs(runId);
+      if (mtime !== null && this.nowMs() - mtime > PI_QUIET_MS) {
+        lines.push(
+          `quiet ${Math.floor((this.nowMs() - mtime) / 60_000)}m — no output, ssh still alive`,
+        );
+      }
+      if (tail) {
+        // The prod lesson: `events 0` lied for 26 minutes because nothing but a
+        // counter was shown. A parsed step (“now: Bash: …”) is much harder to
+        // mistake for a wedged run.
+        const run = parsePiRun(meta, tail);
+        const current = [...run.steps]
+          .reverse()
+          .find((step) => step.kind === "command" && step.output === null);
+        if (current && current.kind === "command") {
+          lines.push(`now: ${current.tool}: ${current.input.replace(/\s+/g, " ").slice(0, 140)}`);
+        }
+        const said = [...run.steps].reverse().find((step) => step.kind === "message");
+        if (said && said.kind === "message") lines.push(`last said: ${said.text.slice(0, 400)}`);
+      }
+    } else if (tail) {
       const answer = lastAssistantText(tail);
       if (answer)
         lines.push(`last assistant text:\n${capText(answer, "older output is in the run viewer")}`);
     }
     return { text: lines.join("\n"), isError: false };
+  }
+
+  /** pi_status: state of one run, with progress and what it is doing right now. */
+  readonly piStatus: ToolHandler = async (args) => {
+    const off = this.guard();
+    if (off) return off;
+    const runId = typeof args.run === "string" ? args.run.trim() : "";
+    if (!runId) return { text: "`run` is a run id from a previous pi_run/pi_send", isError: true };
+    return this.statusBody(runId);
   };
 
-  /** stop the local capture of a run (detach; the remote keeps working). */
+  /** pi_wait: block until the run settles or the timeout passes, then answer like pi_status. */
+  readonly piWait: ToolHandler = async (args) => {
+    const off = this.guard();
+    if (off) return off;
+    const runId = typeof args.run === "string" ? args.run.trim() : "";
+    if (!runId) return { text: "`run` is a run id from a previous pi_run/pi_send", isError: true };
+    const raw = Number(args.timeout_seconds ?? PI_WAIT_DEFAULT_S);
+    const seconds = Number.isFinite(raw)
+      ? Math.min(PI_WAIT_MAX_S, Math.max(5, raw))
+      : PI_WAIT_DEFAULT_S;
+    const first = await this.store.read(runId);
+    if (!first) return { text: `No remote-pi run ${runId}`, isError: true };
+    const deadline = this.nowMs() + seconds * 1_000;
+    let meta = first;
+    while (meta.state === "running" && this.nowMs() < deadline) {
+      await this.runner.wait(runId, Math.max(500, deadline - this.nowMs()));
+      meta = (await this.store.read(runId)) ?? meta;
+    }
+    const body = await this.statusBody(runId);
+    if (meta.state === "running")
+      return { text: `${body.text}\nstill running after ${Math.round(seconds)}s`, isError: false };
+    return body;
+  };
+
+  /** stop the local capture of a run (detach), or with `force`, kill the remote pi too. */
   readonly piStop: ToolHandler = async (args) => {
     const off = this.guard();
     if (off) return off;
@@ -607,15 +683,71 @@ export class PiService {
     if (!runId) return { text: "`run` is a run id from a previous pi_run/pi_send", isError: true };
     const meta = await this.store.read(runId);
     if (!meta) return { text: `No remote-pi run ${runId}`, isError: true };
-    if (!this.runner.stop(runId))
+
+    if (args.force !== true) {
+      if (!this.runner.stop(runId))
+        return {
+          text: `Run ${runId} is not being captured by this BFF (state: ${meta.state})`,
+          isError: true,
+        };
       return {
-        text: `Run ${runId} is not being captured by this BFF (state: ${meta.state})`,
+        text: `Stopped capturing run ${runId}. The remote pi keeps running until its turn ends (detach-only; docs/remote-pi-plan.md § 4.5).`,
+        isError: false,
+      };
+    }
+
+    // Force: a second ssh kills the REMOTE pi (the § 3.4 spike proved this
+    // works; v1 chose detach-only, and prod showed agents read detach as
+    // “cannot stop runaway work” and spawned duplicates instead).
+    const pid = meta.remotePid;
+    if (typeof pid !== "number" || !Number.isInteger(pid) || pid < 2)
+      return {
+        text: `Run ${runId} has no recorded remote pid (an older run?), so it cannot be force-stopped — detach-only: pi_stop {run:"${runId}"}.`,
         isError: true,
       };
-    return {
-      text: `Stopped capturing run ${runId}. The remote pi keeps running until its turn ends (detach-only; docs/remote-pi-plan.md § 4.5).`,
-      isError: false,
-    };
+    if (meta.state !== "running")
+      return { text: `Run ${runId} already finished (state: ${meta.state})`, isError: true };
+    const settings = await this.settingsFor(meta.agentId);
+    if (!piConfigured(settings)) return { text: this.disabledReason(), isError: true };
+    try {
+      const files = await this.keyFiles(settings);
+      const proc = (this.options.spawner ?? sshSpawner)(
+        buildSshArgs(settings, files, `kill ${pid}`),
+        () => {},
+        () => {},
+      );
+      const killer = setTimeout(() => proc.kill(), PI_CHECK_TIMEOUT_MS);
+      let code: number | null;
+      try {
+        code = (await proc.exited).code;
+      } finally {
+        clearTimeout(killer);
+      }
+      // kill exits 1 when the process is already gone — the wanted outcome too.
+      if (code !== null && code > 1)
+        return {
+          text: `Force stop failed: the remote kill exited ${code} — the run is still live.`,
+          isError: true,
+        };
+      const cancelled = await this.runner.cancel(runId);
+      if (!cancelled) {
+        // Another exit path already recorded it; the kill still happened.
+        const fresh = await this.store.read(runId);
+        return {
+          text: `Killed remote pi (pid ${pid}); run ${runId} had already been recorded as ${fresh?.state ?? "?"}.`,
+          isError: false,
+        };
+      }
+      return {
+        text: `Force-stopped run ${runId}: the remote pi (pid ${pid}) was killed and the run is cancelled (its session stays resumable).`,
+        isError: false,
+      };
+    } catch (error) {
+      return {
+        text: `Force stop failed: ${error instanceof Error ? error.message : String(error)}`,
+        isError: true,
+      };
+    }
   };
 
   handlers(): ReadonlyMap<string, ToolHandler> {
@@ -623,6 +755,7 @@ export class PiService {
       ["pi_run", this.piRun],
       ["pi_send", this.piSend],
       ["pi_status", this.piStatus],
+      ["pi_wait", this.piWait],
       ["pi_stop", this.piStop],
     ]);
   }
@@ -700,6 +833,33 @@ const STATUS_PARAMETERS = {
   additionalProperties: false,
 };
 
+const WAIT_PARAMETERS = {
+  type: "object",
+  properties: {
+    run: { type: "string", description: "The run id from pi_run/pi_send's answer." },
+    timeout_seconds: {
+      type: "number",
+      description: `How long to block, 5-${PI_WAIT_MAX_S} seconds (default ${PI_WAIT_DEFAULT_S}).`,
+    },
+  },
+  required: ["run"],
+  additionalProperties: false,
+};
+
+const STOP_PARAMETERS = {
+  type: "object",
+  properties: {
+    run: { type: "string", description: "The run id from pi_run/pi_send's answer." },
+    force: {
+      type: "boolean",
+      description:
+        "true also kills the remote pi (the run is recorded as cancelled); absent/false only stops the capture (detach).",
+    },
+  },
+  required: ["run"],
+  additionalProperties: false,
+};
+
 export const PI_TOOL_SPECS: readonly ToolSpec[] = [
   {
     name: "pi_run",
@@ -708,29 +868,40 @@ export const PI_TOOL_SPECS: readonly ToolSpec[] = [
       "It starts in the working folder configured for this agent, on the host configured for it " +
       "(one agent may point at a different folder or machine than another). " +
       "Returns a run id and a pi session id immediately; the run continues in the background. " +
-      "Poll with pi_status, continue the conversation with pi_send.",
+      "Wait with pi_wait, read progress with pi_status, continue the conversation with pi_send.",
     parameters: RUN_PARAMETERS,
     approval: "ask",
   },
   {
     name: "pi_send",
     description:
-      "Send a follow-up to an existing remote pi session (from pi_run). Same background semantics as pi_run.",
+      "Send a follow-up to an existing remote pi session (from pi_run). Same background semantics as pi_run. " +
+      "If the answer says a run is still live on that session, pi_wait it first — a second send queues behind it on the remote.",
     parameters: SEND_PARAMETERS,
     approval: "ask",
   },
   {
     name: "pi_status",
     description:
-      "State of a remote-pi run: running/completed/detached/failed, its session id, and the tail of its last assistant text.",
+      "State of a remote-pi run: running/completed/detached/failed/cancelled, its session id, event progress, " +
+      "and while running what it is doing now (current tool, last assistant text).",
     parameters: STATUS_PARAMETERS,
+    approval: "auto",
+  },
+  {
+    name: "pi_wait",
+    description:
+      "Block until a remote-pi run settles (completed/failed/cancelled/detached) or the timeout passes, " +
+      "then answer with pi_status's report. Use this instead of sleep-and-poll loops.",
+    parameters: WAIT_PARAMETERS,
     approval: "auto",
   },
   {
     name: "pi_stop",
     description:
-      "Stop Lettuce capturing a remote-pi run (detach). The remote pi is NOT killed; its session stays resumable.",
-    parameters: STATUS_PARAMETERS,
+      "Stop a remote-pi run. Default (detach): Lettuce stops capturing; the remote pi is NOT killed and its session stays resumable. " +
+      "With force: true, the remote pi process is killed too and the run is recorded as cancelled.",
+    parameters: STOP_PARAMETERS,
     approval: "auto",
   },
 ];

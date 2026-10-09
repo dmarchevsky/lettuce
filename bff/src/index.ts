@@ -126,6 +126,7 @@ import {
 } from "./providers/vision.ts";
 import { AgentNames } from "./push/agent-names.ts";
 import { ApprovalWatcher } from "./push/approval-watcher.ts";
+import { notify } from "./push/notify.ts";
 import { configureWebPush, sendPush } from "./push/send.ts";
 import { PushSubscriptionStore } from "./push/store.ts";
 import { TurnOutcomeWatcher } from "./push/turn-watcher.ts";
@@ -447,6 +448,28 @@ const piService = new PiService({
   paths: { dir: config.piDir },
   featureEnabled: () => config.features.pi,
   log,
+  // Settle pushes: a finished remote run is exactly what a waiting human wants
+  // without an agent turn relaying it. Deep link lands on the Runs tab once
+  // that view ships; unknown query params are inert before then.
+  onSettle: pushStore
+    ? (meta) => {
+        const verdict =
+          meta.state === "completed" || meta.state === "failed" || meta.state === "cancelled"
+            ? meta.state
+            : null;
+        if (!verdict || !pushStore) return;
+        void notify(
+          pushStore,
+          {
+            title: `Remote pi ${verdict}`,
+            body: meta.prompt.split("\n")[0]?.slice(0, 90) ?? meta.runId,
+            url: `/?tab=runs&run=${encodeURIComponent(meta.runId)}`,
+          },
+          verdict === "failed" ? "failed" : "completed",
+          log,
+        );
+      }
+    : undefined,
 });
 void piService
   .reconcile()

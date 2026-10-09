@@ -27,7 +27,12 @@ export function piAgentId(sessionId: string): string {
   return `pi_${sessionId}`;
 }
 
-export type PiRunState = "running" | "completed" | "detached" | "failed";
+export type PiRunState = "running" | "completed" | "detached" | "failed" | "cancelled";
+
+/** How late progress metadata may read from `pi_status` while a run streams (A1). */
+export const PI_META_FLUSH_INTERVAL_MS = 2_000;
+/** … or how many captured lines force a flush regardless of time. */
+export const PI_META_FLUSH_LINES = 64;
 
 export interface PiRunMeta {
   runId: string;
@@ -52,6 +57,10 @@ export interface PiRunMeta {
   settled: boolean;
   eventCount: number;
   lastEventAt: string | null;
+  /** Bytes captured so far — the honest counter a frozen `events 0` could not be. */
+  bytesCaptured: number;
+  /** The pi process on the remote host, captured from stderr; force-stop kills it. */
+  remotePid: number | null;
   /** stderr tail, when the run failed outright (never an ssh secret). */
   error: string | null;
 }
@@ -90,23 +99,41 @@ export function shq(value: string): string {
  * directory` — an operator-visible failure from a field that looks correct.
  * Two adjacent quoted segments concatenate, so the prepend stays quoted and
  * `$PATH` still expands, spaces in the inherited PATH included.
+ *
+ * The `{ pi … & rp=$!; echo pid >&2; wait $rp; }` wrapper exists for one
+ * reason: force-stop needs pi's REMOTE pid. Backgrounding pi makes its own pid
+ * `$!` (backgrounding the whole compound would name a subshell whose kill
+ * orphans pi), and `wait $rp` — not a bare `wait`, which always returns 0 —
+ * keeps the ssh exit code equal to pi's. The marker goes to stderr because
+ * stdout is the json stream.
  */
 export function buildPiRemoteCommand(
   settings: PiSettings,
   options: { prompt: string; session?: string; model?: string | null },
 ): string {
-  const parts = ["cd", shq(settings.workdir), "&&"];
+  const pi: string[] = [];
   const prepend = normalizePathPrepend(settings.pathPrepend);
-  if (prepend) parts.push("env", `PATH=${shq(prepend)}:"$PATH"`);
-  parts.push("pi", "--mode", "json");
+  if (prepend) pi.push("env", `PATH=${shq(prepend)}:"$PATH"`);
+  pi.push("pi", "--mode", "json");
   if (options.session) {
     if (!isPiSessionId(options.session)) throw new Error("not a pi session id");
-    parts.push("--session", shq(options.session));
+    pi.push("--session", shq(options.session));
   }
   const model = options.model ?? settings.model;
-  if (model) parts.push("--model", shq(model));
-  parts.push(shq(options.prompt));
-  return parts.join(" ");
+  if (model) pi.push("--model", shq(model));
+  pi.push(shq(options.prompt));
+  return [
+    "cd",
+    shq(settings.workdir),
+    "&&",
+    "{",
+    ...pi,
+    "&",
+    "rp=$!;",
+    'echo "lettuce-remote-pid $rp" >&2;',
+    "wait $rp;",
+    "}",
+  ].join(" ");
 }
 
 /** The full ssh argv (the executable is `ssh`; this is everything after it). */
@@ -147,6 +174,8 @@ export interface PiRunStore {
   read(runId: string): Promise<PiRunMeta | null>;
   list(limit: number): Promise<PiRunMeta[]>;
   readEventsTail(runId: string, maxChars: number): Promise<string | null>;
+  /** mtime of the capture file — the liveness signal `quiet` verdicts come from. */
+  eventsMtimeMs(runId: string): Promise<number | null>;
 }
 
 const RUN_ID_RE = /^[0-9a-f-]{36}$/i;
@@ -180,7 +209,7 @@ export class DirPiRunStore implements PiRunStore {
   async read(runId: string): Promise<PiRunMeta | null> {
     const fs = await import("node:fs/promises");
     try {
-      return JSON.parse(await fs.readFile(this.metaPath(runId), "utf8")) as PiRunMeta;
+      return withDefaults(JSON.parse(await fs.readFile(this.metaPath(runId), "utf8")) as PiRunMeta);
     } catch {
       return null;
     }
@@ -197,7 +226,9 @@ export class DirPiRunStore implements PiRunStore {
     const metas: PiRunMeta[] = [];
     for (const name of names) {
       try {
-        metas.push(JSON.parse(await fs.readFile(`${this.dir}/${name}`, "utf8")) as PiRunMeta);
+        metas.push(
+          withDefaults(JSON.parse(await fs.readFile(`${this.dir}/${name}`, "utf8")) as PiRunMeta),
+        );
       } catch {
         // A half-written meta is skipped, never fatal to the listing.
       }
@@ -219,21 +250,53 @@ export class DirPiRunStore implements PiRunStore {
   async readEventsTail(runId: string, maxChars: number): Promise<string | null> {
     const fs = await import("node:fs/promises");
     try {
-      const text = await fs.readFile(this.eventsPath(runId), "utf8");
-      return text.length > maxChars ? text.slice(-maxChars) : text;
+      const fh = await fs.open(this.eventsPath(runId), "r");
+      try {
+        const { size } = await fh.stat();
+        if (size <= maxChars) return (await fh.readFile()).toString("utf8");
+        // A seeked tail can cut a multi-byte character at its start; TextDecoder
+        // leniency turns that into one replacement glyph, and every reader of a
+        // tail parses line-by-line leniently anyway.
+        const buf = Buffer.allocUnsafe(maxChars);
+        await fh.read(buf, 0, maxChars, size - maxChars);
+        return buf.toString("utf8");
+      } finally {
+        await fh.close();
+      }
+    } catch {
+      return null;
+    }
+  }
+  async eventsMtimeMs(runId: string): Promise<number | null> {
+    const fs = await import("node:fs/promises");
+    try {
+      return (await fs.stat(this.eventsPath(runId))).mtimeMs;
     } catch {
       return null;
     }
   }
 }
 
+/** Pre-A1 run files lack the new fields; readers should never see `undefined` for them. */
+function withDefaults(meta: PiRunMeta): PiRunMeta {
+  meta.bytesCaptured ??= 0;
+  meta.remotePid ??= null;
+  return meta;
+}
+
 export class PiRunner {
   private readonly children = new Map<string, PiProcess>();
+  /** Live runs by id — the in-process truth behind the on-disk meta. */
+  private readonly metas = new Map<string, PiRunMeta>();
+  /** Resolve-callbacks waiting on a run reaching a terminal state (`pi_wait`). */
+  private readonly waiters = new Map<string, Set<() => void>>();
 
   constructor(
     private readonly store: PiRunStore,
     private readonly spawner: PiSpawner,
     private readonly now: () => Date = () => new Date(),
+    /** Fires once per run as it reaches a terminal state (push-on-settle). */
+    private readonly onSettle?: (meta: PiRunMeta) => void,
   ) {}
 
   /** Anything still marked running at boot is an orphan from a previous BFF: capture ended, remote unknown. */
@@ -280,30 +343,49 @@ export class PiRunner {
       settled: false,
       eventCount: 0,
       lastEventAt: null,
+      bytesCaptured: 0,
+      remotePid: null,
       error: null,
     };
     await this.store.create(meta);
+    this.metas.set(meta.runId, meta);
 
     let buffer = "";
     let stderrTail = "";
     let lineChain: Promise<void> = Promise.resolve();
+    // Progress truth (A1): eventCount/lastEventAt living only in memory is how
+    // an 18 MB run read as `events 0` for 26 minutes in prod. Flush dirty
+    // progress at most every interval — never per line, an 18 MB stream is
+    // thousands of lines.
+    let lastFlushMs = this.now().getTime();
+    let linesSinceFlush = 0;
     const handleLine = async (line: string) => {
       if (!line.trim()) return;
       await this.store.appendEvent(meta, line);
       meta.eventCount += 1;
+      meta.bytesCaptured += line.length + 1;
       meta.lastEventAt = this.now().toISOString();
+      linesSinceFlush += 1;
+      const ms = this.now().getTime();
+      let flushedNow = false;
+      if (linesSinceFlush >= PI_META_FLUSH_LINES || ms - lastFlushMs >= PI_META_FLUSH_INTERVAL_MS) {
+        linesSinceFlush = 0;
+        lastFlushMs = ms;
+        flushedNow = true;
+      }
       try {
         const record = JSON.parse(line) as { type?: string; id?: string };
         if (record.type === "session" && typeof record.id === "string" && !meta.session) {
           meta.session = record.id;
-          await this.store.update(meta);
+          flushedNow = true;
         } else if (record.type === "agent_settled" && !meta.settled) {
           meta.settled = true;
-          await this.store.update(meta);
+          flushedNow = true;
         }
       } catch {
         // Lenient: a line that is not JSON is still part of the captured stream.
       }
+      if (flushedNow) await this.store.update(meta);
     };
 
     const child = this.spawner(
@@ -320,6 +402,15 @@ export class PiRunner {
       },
       (chunk) => {
         stderrTail = `${stderrTail}${chunk}`.slice(-2_000);
+        // The wrapper's first stderr line is pi's remote pid; force-stop kills
+        // it through a second ssh, so it must reach the durable record.
+        if (meta.remotePid === null) {
+          const m = /lettuce-remote-pid (\d+)/.exec(stderrTail);
+          if (m) {
+            meta.remotePid = Number(m[1]);
+            lineChain = lineChain.then(() => this.store.update(meta));
+          }
+        }
       },
     );
     this.children.set(meta.runId, child);
@@ -328,6 +419,12 @@ export class PiRunner {
       this.children.delete(meta.runId);
       await lineChain;
       if (buffer.trim()) await handleLine(buffer);
+      // A force-stop already recorded `cancelled`; a detached-or-completed write
+      // here would overwrite the honest verdict with a guess.
+      if (meta.state !== "running") {
+        this.settle(meta);
+        return;
+      }
       meta.exitCode = code;
       meta.endedAt = this.now().toISOString();
       if (meta.settled) meta.state = "completed";
@@ -336,8 +433,24 @@ export class PiRunner {
         meta.error = stderrTail.trim() || `ssh exited ${code}`;
       } else meta.state = "detached";
       await this.store.update(meta);
+      this.settle(meta);
     });
     return meta;
+  }
+
+  /** Once-per-run settle bookkeeping: waiters wake, `onSettle` fires, meta is retired. */
+  private settle(meta: PiRunMeta): void {
+    if (!this.metas.delete(meta.runId)) return;
+    const waiting = this.waiters.get(meta.runId);
+    if (waiting) {
+      this.waiters.delete(meta.runId);
+      for (const wake of [...waiting]) wake();
+    }
+    try {
+      this.onSettle?.(meta);
+    } catch {
+      // A broken notification must never corrupt a recorded run.
+    }
   }
 
   /** True when this BFF still has the ssh child alive. */
@@ -351,5 +464,49 @@ export class PiRunner {
     if (!child) return false;
     child.kill();
     return true;
+  }
+
+  /**
+   * Record a force-stop after the remote kill succeeded: the run is `cancelled`
+   * (not `detached` — the remote really was stopped), and the local capture goes
+   * with it. The ssh exit hook sees the terminal state and does not overwrite it.
+   */
+  async cancel(runId: string): Promise<boolean> {
+    const meta = this.metas.get(runId);
+    if (!meta) return false;
+    meta.state = "cancelled";
+    meta.endedAt = meta.endedAt ?? this.now().toISOString();
+    meta.error = `force-stopped: remote pi ${meta.remotePid ?? "?"} terminated`;
+    await this.store.update(meta);
+    this.children.get(runId)?.kill();
+    this.settle(meta);
+    return true;
+  }
+
+  /**
+   * Resolve when `runId` reaches a terminal state, or after `timeoutMs`. A run
+   * this runner never started (or already finished) resolves immediately — the
+   * caller reads the store and gets the truth either way.
+   */
+  wait(runId: string, timeoutMs: number): Promise<void> {
+    if (!this.metas.has(runId)) return Promise.resolve();
+    return new Promise((resolve) => {
+      let done = false;
+      const wake = () => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        this.waiters.get(runId)?.delete(wake);
+        resolve();
+      };
+      const timer = setTimeout(wake, timeoutMs);
+      timer.unref?.();
+      let waiting = this.waiters.get(runId);
+      if (!waiting) {
+        waiting = new Set();
+        this.waiters.set(runId, waiting);
+      }
+      waiting.add(wake);
+    });
   }
 }

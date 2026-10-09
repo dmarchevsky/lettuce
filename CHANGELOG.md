@@ -6,9 +6,12 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 ## [Unreleased]
 
 ### Added
+- **Agents can wait on the remote pi instead of poking it.** `pi_wait {run}` blocks until a run settles (up to 2 minutes) and answers with the same report `pi_status` gives — the sleep-60-then-poll loops and self-scheduled wake-ups a dispatched task used to require are gone. And when a run settles, your browser gets a **push** ("Remote pi completed · <task>"), the same channel turn notifications use — you no longer need the agent to be mid-turn to find out.
+- **A runaway remote pi can really be stopped.** `pi_stop {run, force: true}` kills the pi process on the remote host too and records the run as *cancelled*; the default stays detach-only, which only closes Lettuce's capture and leaves the remote working.
 - Claude Code workers can run on your Claude subscription: Settings → Claude Code → Sign in with **Claude subscription**, then paste the token `claude setup-token` prints on any computer with a browser. Endpoint mode is unchanged and keeps its own settings.
 
 ### Changed
+- **Remote pi progress is now the truth.** `pi_status` used to freeze at `events 0` for the whole run — prod watched a healthy 18 MB planning run "stall" for 26 minutes on that counter, and the agent (reasonably) killed it and paid for a duplicate. While a run is live, `pi_status` now keeps counting events and bytes within two seconds, names the tool in flight (`now: Bash: playwright screenshot …`) with the last thing pi said, and marks a silent-but-alive run `quiet 7m` from the stream itself. A follow-up sent onto a session that is still busy is announced as queueing behind the live run.
 - Claude Code CLI 2.1.285 → 2.1.289. The app-server image is rebuilt, so the deploy recreates `app-server`.
 
 ## [v0.9.0-letta_0.34.1] - 2026-10-08
