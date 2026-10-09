@@ -102,6 +102,20 @@ describe("saving settings", () => {
     expect(stored.baseUrl).toBe("http://proxy:4000");
     expect(stored.model).toBe("m");
   });
+
+  test("subscription settings survive reapply, the profile drop and the legacy mirror", async () => {
+    const { io, files } = memoryIo();
+    const SUB = { mode: "subscription", enabled: true, oauthToken: "sk-ant-oat01-secret" };
+    await saveClaudeSettings(io, SUB);
+    expect(files.get(CLAUDE_SETTINGS_LEGACY_PATH)).toBe(files.get(CLAUDE_SETTINGS_PATH));
+    expect(await reapplyClaudeSettings(io)).toBe(true);
+    expect(JSON.parse(files.get(CLAUDE_SETTINGS_PATH) ?? "{}")).toMatchObject(SUB);
+    expect(await reapplyClaudeSettings(io, { profileEnabled: false })).toBe(true);
+    expect(JSON.parse(files.get(CLAUDE_SETTINGS_PATH) ?? "{}")).toMatchObject({
+      ...SUB,
+      enabled: false,
+    });
+  });
 });
 
 describe("runs", () => {

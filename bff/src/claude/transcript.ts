@@ -9,7 +9,7 @@
  *
  * The format is internal to Claude Code and can change between versions, so
  * everything here is lenient: unknown entry types and unknown content parts are
- * skipped, never fatal. Verified against 2.1.285.
+ * skipped, never fatal. Verified against 2.1.285 and 2.1.289.
  */
 
 /** Claude session ids are plain UUIDv4 — unlike Codex's UUIDv7, no time bits. */

@@ -8,9 +8,9 @@
  * prompt on stdin (`tools/impl/claude-stream-session.ts`). Unlike the Codex
  * shim there is nothing to rewrite: Claude Code takes argv and stdin verbatim,
  * and it builds no sandbox of its own here. What the shim adds is the
- * configuration the CLI has no config file for — the Anthropic-compatible
- * endpoint, model and token, injected as the environment Claude Code reads —
- * and the on/off switch: with workers disabled in Settings → Claude Code,
+ * configuration the CLI has no config file for — either the Claude
+ * subscription's OAuth token or an Anthropic-compatible endpoint, model and
+ * token, injected as the environment Claude Code reads — and the on/off switch: with workers disabled in Settings → Claude Code,
  * every invocation — including letta-code's `claude auth status --json`
  * preflight — fails with a message saying so, and the task reports it.
  * No fork delta: letta-code finds `claude` on PATH.

@@ -1,6 +1,6 @@
 ---
 name: lettuce-coding-workers
-description: 'lettuce external coding-worker mechanics: `subagent_type: "codex"` / "claude-code", the docker/codex shims on PATH, the workspaceWrite → externalSandbox rewrite, preflight commands (`codex --version`, `claude auth status --json`), CODEX_HOME / CLAUDE_CONFIG_DIR config rendering, rollout and transcript files behind GET /api/codex/runs and /api/claude/runs, the codex_<thread>/claude_<session> agent ids, cwd of cron/channel workers, and the CODEX_VERSION / CLAUDE_CODE_VERSION pin sites. Read before touching docker/codex/, bff/src/codex/, bff/src/claude/, Settings → Codex/Claude Code workers, or the app-server Dockerfile.'
+description: 'lettuce external coding-worker mechanics: `subagent_type: "codex"` / "claude-code", the docker/codex shims on PATH, the workspaceWrite → externalSandbox rewrite, preflight commands (`codex --version`, `claude auth status --json`), CODEX_HOME / CLAUDE_CONFIG_DIR config rendering, Claude subscription (`claude setup-token`) vs endpoint auth, rollout and transcript files behind GET /api/codex/runs and /api/claude/runs, the codex_<thread>/claude_<session> agent ids, cwd of cron/channel workers, and the CODEX_VERSION / CLAUDE_CODE_VERSION pin sites. Read before touching docker/codex/, bff/src/codex/, bff/src/claude/, Settings → Codex/Claude Code workers, or the app-server Dockerfile.'
 ---
 
 # Codex and Claude Code workers
@@ -64,16 +64,37 @@ Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `
   above) and always puts `docker/codex/claude-shim.mjs` on PATH as `claude`; the shim rewrites
   nothing (argv and stdin pass through verbatim) — its whole job is env injection and the
   switch.
-  - **Claude Code speaks only the Anthropic Messages API**, which llama.cpp does not serve:
-    Settings → Claude Code takes a user-supplied Anthropic-compatible base URL (a LiteLLM-style
-    proxy or any Anthropic-API gateway), a model id, and an optional auth token. There is no
-    config file to render — the shim injects `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL` and
-    `ANTHROPIC_AUTH_TOKEN` from `lettuce.json` in `CLAUDE_CONFIG_DIR=/root/.letta/claude`
-    (on the letta-home mount), each only if not already in the env.
+  - **Two auth modes, `mode` in `lettuce.json`** (in `CLAUDE_CONFIG_DIR=/root/.letta/claude`,
+    on the letta-home mount; absent `mode` = `endpoint`, which is what every file saved before
+    the mode existed holds). There is no config file to render; the shim injects env, each
+    variable only if not already in the env (`claude-shim-core.mjs` `buildEnv`).
+    - `subscription`: the long-lived OAuth token `claude setup-token` prints (run on any machine
+      with a browser; nothing logs in inside the container), injected as
+      `CLAUDE_CODE_OAUTH_TOKEN`, plus `ANTHROPIC_MODEL` only when `subscriptionModel` is set. The
+      shim sets **no** `ANTHROPIC_BASE_URL` (it would send the subscription token to a proxy) and
+      **no** placeholder `ANTHROPIC_AUTH_TOKEN` (it outranks the OAuth token in Claude Code's auth
+      order and would shadow it). It also **deletes** any of `ANTHROPIC_BASE_URL`,
+      `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_API_KEY` it inherited (`SUBSCRIPTION_UNSAFE_ENV`), the
+      one exception to "the environment wins".
+    - `endpoint`: Claude Code speaks only the Anthropic Messages API, which llama.cpp does not
+      serve, so this takes a user-supplied Anthropic-compatible base URL (a LiteLLM-style proxy
+      or any Anthropic-API gateway), a model id and an optional token → `ANTHROPIC_BASE_URL`,
+      `ANTHROPIC_MODEL`, `ANTHROPIC_AUTH_TOKEN`.
+    - Each mode keeps its own write-only token and model (`authToken` + `model`, `oauthToken` +
+      `subscriptionModel`), so a switch never sends one mode's model id to the other's API. The
+      browser sees only `hasAuthToken` / `hasOauthToken`, and its Save sends only the visible
+      mode's fields.
+    - The subscription token is readable by every command a worker runs (it is in the worker's
+      env) and by every agent shell (`lettuce.json`). Claude Code's own
+      `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` needs bubblewrap, which the image deliberately lacks
+      (see the sandbox note in `AGENTS.md`), so it cannot help here. The exposure is documented
+      in Settings and `docs/CONFIGURATION.md`, not mitigated.
   - **The preflight is `claude auth status --json`** and needs `{"loggedIn": true}` on stdout
-    with exit 0 — measured on 2.1.285, any `ANTHROPIC_AUTH_TOKEN` value satisfies it, so the
-    shim injects a placeholder when none was configured (a proxy that checks the token fails
-    honestly at request time). Disabled workers: the shim refuses every call with our message,
+    with exit 0 — measured on 2.1.285 and 2.1.289: any `ANTHROPIC_AUTH_TOKEN` value satisfies it,
+    so in endpoint mode the shim injects a placeholder when none was configured (a proxy that
+    checks the token fails honestly at request time); `CLAUDE_CODE_OAUTH_TOKEN` alone satisfies it
+    too (`authMethod: "oauth_token"`), unvalidated, so a bad or expired subscription token also
+    fails only at the first request. Disabled workers: the shim refuses every call with our message,
     which the task reports as "claude-code authentication is not ready: …".
   - **Runs live in Claude's own transcripts**, `$CLAUDE_CONFIG_DIR/projects/<cwd-slug>/
     <session-id>.jsonl` (slug = absolute cwd, non-alphanumerics → `-`), appended live. Session
@@ -85,3 +106,7 @@ Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `
   - Pin site: `CLAUDE_CODE_VERSION` in compose (build arg + image tag), like `CODEX_VERSION` —
     separate from `LETTA_CODE_VERSION` and not checked by `check-version-pin`. The shim depends
     on the preflight shape and the stream-json flags; re-verify on every bump.
+  - **A shim change reaches prod only with a new image tag.** The tag names version pins, not
+    shim content, and `compose up` without `--build` keeps the old image — so a change to
+    `claude-shim*.mjs` ships together with a `CLAUDE_CODE_VERSION` bump (subscription mode came
+    with 2.1.289), and that recreates `app-server`.

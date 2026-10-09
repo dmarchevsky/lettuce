@@ -63,6 +63,25 @@ describe("buildEnv", () => {
     expect(env.ANTHROPIC_MODEL).toBeUndefined();
   });
 
+  test("a file saved before modes existed gets exactly the endpoint env", () => {
+    const base = { PATH: "/usr/bin" };
+    expect(shim.buildEnv(SETTINGS, base)).toEqual({
+      PATH: "/usr/bin",
+      CLAUDE_CONFIG_DIR: "/root/.letta/claude",
+      ANTHROPIC_BASE_URL: "http://proxy:4000",
+      ANTHROPIC_MODEL: "claude-sonnet-4-5",
+      ANTHROPIC_AUTH_TOKEN: "sk-real",
+    });
+    const { authToken: _, ...tokenless } = SETTINGS;
+    expect(shim.buildEnv(tokenless, base)).toEqual({
+      PATH: "/usr/bin",
+      CLAUDE_CONFIG_DIR: "/root/.letta/claude",
+      ANTHROPIC_BASE_URL: "http://proxy:4000",
+      ANTHROPIC_MODEL: "claude-sonnet-4-5",
+      ANTHROPIC_AUTH_TOKEN: shim.PLACEHOLDER_AUTH_TOKEN,
+    });
+  });
+
   test("what the environment already carries wins", () => {
     const env = shim.buildEnv(SETTINGS, {
       CLAUDE_CONFIG_DIR: "/elsewhere",
@@ -76,5 +95,50 @@ describe("buildEnv", () => {
       ANTHROPIC_MODEL: "explicit-model",
       ANTHROPIC_AUTH_TOKEN: "explicit-token",
     });
+  });
+});
+
+describe("buildEnv in subscription mode", () => {
+  const SUBSCRIPTION = {
+    enabled: true,
+    mode: "subscription",
+    oauthToken: "sk-ant-oat01-secret",
+    // Left over from endpoint mode; must not leak into a subscription run.
+    baseUrl: "http://proxy:4000",
+    authToken: "sk-proxy",
+    model: "qwen3-coder",
+    subscriptionModel: "",
+  };
+
+  test("injects only the OAuth token, never an endpoint or a bearer token", () => {
+    expect(shim.buildEnv(SUBSCRIPTION, { PATH: "/usr/bin" })).toEqual({
+      PATH: "/usr/bin",
+      CLAUDE_CONFIG_DIR: "/root/.letta/claude",
+      CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-secret",
+    });
+  });
+
+  test("its own model, when set, is passed on; the endpoint's never is", () => {
+    expect(shim.buildEnv({ ...SUBSCRIPTION, subscriptionModel: "opus" }, {}).ANTHROPIC_MODEL).toBe(
+      "opus",
+    );
+    expect(shim.buildEnv(SUBSCRIPTION, {}).ANTHROPIC_MODEL).toBeUndefined();
+  });
+
+  test("an inherited endpoint, bearer token or API key is removed, not passed through", () => {
+    const env = shim.buildEnv(SUBSCRIPTION, {
+      ANTHROPIC_BASE_URL: "http://proxy:4000",
+      ANTHROPIC_AUTH_TOKEN: "sk-proxy",
+      ANTHROPIC_API_KEY: "sk-ant-api03-x",
+    });
+    expect(env).not.toHaveProperty("ANTHROPIC_BASE_URL");
+    expect(env).not.toHaveProperty("ANTHROPIC_AUTH_TOKEN");
+    expect(env).not.toHaveProperty("ANTHROPIC_API_KEY");
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe("sk-ant-oat01-secret");
+  });
+
+  test("what the environment already carries wins", () => {
+    const env = shim.buildEnv(SUBSCRIPTION, { CLAUDE_CODE_OAUTH_TOKEN: "explicit" });
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe("explicit");
   });
 });

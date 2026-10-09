@@ -6,8 +6,9 @@ description: Load this before handing a self-contained coding job (write or fix 
 # Delegating coding work to a Claude Code worker
 
 A **Claude Code worker** is the Claude Code CLI running as one of your background subagents. It
-works in your current working directory with a shell and file editing, on the Anthropic-compatible
-endpoint the user configured, and reports back to this conversation when it finishes.
+works in your current working directory with a shell and file editing, signed in with the user's
+Claude subscription or pointed at an Anthropic-compatible endpoint (whichever they configured), and
+reports back to this conversation when it finishes.
 
 ## When to use one
 
@@ -42,6 +43,11 @@ job — it resumes the same Claude Code session and still remembers the earlier 
 `Claude Code workers are disabled. Enable them in the web UI under Settings → Claude Code.` means
 exactly that: tell the user, and do the work yourself meanwhile. Do not try to install, configure
 or log in to Claude Code yourself — the web UI owns its configuration and rewrites it.
+
+An authentication error from the worker (401, "invalid", "expired" or "OAuth token" in the
+message) means the saved token no longer works: subscription tokens expire after a year. A
+usage-limit or rate-limit error means the subscription's quota is spent for now. In either case
+tell the user, who fixes it in Settings → Claude Code, and do the work yourself meanwhile.
 
 `Claude Code workers are turned off for this agent` is a per-agent choice the user made in the web
 UI (Agent → Tools). Tell the user and do the work yourself. Do not run `claude` from a shell to

@@ -155,12 +155,45 @@ upgrading.
 
 | Variable | Default | Pins |
 |---|---|---|
-| `LETTA_CODE_VERSION` | `0.33.3` | the letta-code release — app-server image, channel gateway image, and the `@letta-ai/letta-code` the UI was built against |
+| `LETTA_CODE_VERSION` | `0.34.1` | the letta-code release — app-server image, channel gateway image, and the `@letta-ai/letta-code` the UI was built against |
 | `CODEX_VERSION` | `0.157.1` | the Codex CLI worker |
+| `CLAUDE_CODE_VERSION` | `2.1.289` | the Claude Code CLI worker |
 | `GH_VERSION` | `2.101.0` | GitHub CLI, used by the `WatchPR` tool |
 | `WORKSPACE_MCP_VERSION` | `1.29.0` | the workspace MCP server |
 | `SEARXNG_VERSION` | `2026.9.23-3cd69d30e` | `searxng/searxng` image tag |
 | `DDG_MCP_VERSION` | `0.7.0` | `duckduckgo-mcp-server` release |
+
+## Claude Code workers
+
+With the `claude` profile on, Settings → Claude Code decides what agents' Claude
+Code workers (subagent type `claude-code`) sign in with:
+
+- **Claude subscription.** On any computer with a browser and Claude Code
+  installed, run `claude setup-token`, sign in, and paste the token it prints
+  (`sk-ant-oat01-…`) into the OAuth token field. The token lasts a year; when it
+  expires, workers fail at their first request and you paste a new one. No
+  login happens inside the container. Workers share your subscription's usage
+  limits with your own Claude use. The model is optional (`sonnet`, `opus`, or
+  a full id).
+- **Anthropic-compatible endpoint.** A base URL that serves the Anthropic
+  Messages API (a LiteLLM-style proxy in front of your own model), a model id,
+  and an optional bearer token.
+
+Each mode keeps its own token and model, so switching between them loses
+neither. Both tokens are stored in `$LETTA_STATE_DIR/letta-home/claude/lettuce.json`
+and never sent back to a browser.
+
+**What can read the subscription token.** Claude Code needs the token in its
+environment, so every command a worker runs can read it, and every agent shell can
+read `lettuce.json`. Agent shells are unconfined inside the app-server container.
+An agent, or a prompt injection in something a worker reads, could therefore copy
+the token out. The same is true of the endpoint token and the Codex API key, but
+this one is a credential for your own Claude account and stays valid for a year.
+Use subscription mode only for agents and workspaces you trust, and keep the
+state directory's backups as private as the token. Claude Code's own credential
+scrubbing for commands it runs (`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`) depends on
+bubblewrap, which this image deliberately does not ship, so it is not available
+here.
 
 ## Web search
 

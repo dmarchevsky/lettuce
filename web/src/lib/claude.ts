@@ -6,16 +6,27 @@
  * from each other.
  */
 
+/** `subscription`: a Claude subscription via `claude setup-token`; `endpoint`: an Anthropic-compatible URL. */
+export type ClaudeAuthMode = "endpoint" | "subscription";
+
 export interface ClaudeSettings {
   enabled: boolean;
+  mode: ClaudeAuthMode;
   baseUrl: string;
+  /** Endpoint mode's model. */
   model: string;
+  /** Subscription mode's model; "" = Claude Code's default. */
+  subscriptionModel: string;
   hasAuthToken: boolean;
+  hasOauthToken: boolean;
 }
 
-/** A save. `authToken`: absent keeps the stored token, "" clears it. */
-export type ClaudeSettingsUpdate = Partial<Omit<ClaudeSettings, "hasAuthToken">> & {
+/** A save. Each token: absent keeps the stored one, "" clears it. */
+export type ClaudeSettingsUpdate = Partial<
+  Omit<ClaudeSettings, "hasAuthToken" | "hasOauthToken">
+> & {
   authToken?: string;
+  oauthToken?: string;
 };
 
 export type ClaudeRunStatus = "running" | "completed" | "unknown";

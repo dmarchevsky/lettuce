@@ -74,9 +74,9 @@ services:
         LETTA_CODE_VERSION: ${LETTA_CODE_VERSION:-0.34.1}
         CODEX_VERSION: ${CODEX_VERSION:-0.157.1}
         GH_VERSION: ${GH_VERSION:-2.101.0}
-        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-2.1.285}
+        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-2.1.289}
         CODING_FEATURES: ${COMPOSE_PROFILES:-}
-    image: lettuce-app-server:${LETTA_CODE_VERSION:-0.34.1}-codex${CODEX_VERSION:-0.157.1}-gh${GH_VERSION:-2.101.0}-claude${CLAUDE_CODE_VERSION:-2.1.285}
+    image: lettuce-app-server:${LETTA_CODE_VERSION:-0.34.1}-codex${CODEX_VERSION:-0.157.1}-gh${GH_VERSION:-2.101.0}-claude${CLAUDE_CODE_VERSION:-2.1.289}
     # An init process as PID 1, so exited orphans are reaped. Without it PID 1
     # is `node … letta server`, which waits only on children it spawned: every
     # process an agent shell backgrounds (`&`, nohup, servers) and outlives is
@@ -196,7 +196,9 @@ services:
       # letta-home bind mount so they survive a recreate and the BFF can read
       # them for the run viewer. The BFF writes lettuce.json there from
       # Settings → Claude Code; the shim reads it for the switch and injects
-      # the endpoint settings as env (Claude Code has no config file for them).
+      # its credentials as env (Claude Code has no config file for them) —
+      # an endpoint's URL and token, or the user's Claude subscription OAuth
+      # token. So this directory holds secrets, the subscription one included.
       CLAUDE_CONFIG_DIR: /root/.letta/claude
     volumes:
       - ${LETTA_STATE_DIR:-../..}/letta-home:/root/.letta
