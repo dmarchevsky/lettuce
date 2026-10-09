@@ -20,6 +20,9 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 - **Remote pi progress is now the truth.** `pi_status` used to freeze at `events 0` for the whole run — prod watched a healthy 18 MB planning run "stall" for 26 minutes on that counter, and the agent (reasonably) killed it and paid for a duplicate. While a run is live, `pi_status` now keeps counting events and bytes within two seconds, names the tool in flight (`now: Bash: playwright screenshot …`) with the last thing pi said, and marks a silent-but-alive run `quiet 7m` from the stream itself. A follow-up sent onto a session that is still busy is announced as queueing behind the live run.
 - Claude Code CLI 2.1.285 → 2.1.289. The app-server image is rebuilt, so the deploy recreates `app-server`.
 
+### Fixed
+- **Sending to a conversation that sat idle no longer flashes `No activity`.** The stall watch counted from the previous turn's last frame — so on a tab that had been quiet for over a minute, a fresh message lit `No activity 1:16` immediately, only for `Thinking` to replace it as soon as the model answered. Silence is now measured from the newer of the last event and the turn's start, so the amber line only lights when the live turn itself goes quiet.
+
 ## [v0.9.0-letta_0.34.1] - 2026-10-08
 
 ### Added

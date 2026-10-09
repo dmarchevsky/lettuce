@@ -200,7 +200,7 @@ export function WorkingLine({
       </span>
       {snap.state === "stall" ? (
         <span className="wl-act">
-          No activity {formatElapsed(now - (lastActivityAt ?? turnStartedAt ?? now))}
+          No activity {formatElapsed(now - Math.max(lastActivityAt ?? 0, turnStartedAt ?? 0))}
           <span className="wl-sep"> · </span>last: {snap.lastSeen}
         </span>
       ) : (
