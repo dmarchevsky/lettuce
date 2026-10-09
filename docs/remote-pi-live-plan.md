@@ -28,7 +28,7 @@ burning turns on sleep/poll loops and self-scheduled wakes.
 - Full interactive rpc-mode sessions (steering, answering remote approvals from the chat).
   That is the post-branch milestone; § C.3 sketches it. This branch makes one-ssh-per-turn
   honest and its surfaces live, which is the prerequisite either way.
-- Artifact fetch (`pi_fetch`) ships in its own follow-up (§ C.1); the mockups show where
+- Artifact fetch (`pi_fetch`/`pi_ls`) and the stdin prompt (C2) shipped in this branch; § C.
   artifacts will land, the card hides the section until the backend exists.
 - Per-agent host/settings work is already shipped (`feat: per-agent Remote Pi settings`);
   nothing here changes resolution.
@@ -137,13 +137,17 @@ B6. ui-check assertions: card renders for a scripted pi_run return (fixture), pi
 
 ## C. Follow-ups this branch sets up but does not ship
 
-C1. **`pi_fetch {run|session, path}` + `pi_ls`** — ssh `cat` (path confined to the agent's
-    configured workdir, 25 MB cap) into `runs/<runId>/files/`, served under
-    `/api/pi/runs/:runId/files/<name>`; card shows an Artifacts row with image thumbs
-    (mocked so the layout is approved now). Replaces the `python -m http.server` dance the
-    olla agent invented to move PNGs.
-C2. Prompt via stdin instead of argv (visible in remote `ps`, ARGV_MAX), and a `check` probe
-    that the remote pi never blocks on tool approval in the configured workdir.
+C1. **SHIPPED in this branch** (`pi_fetch`/`pi_ls`): ssh `cat` — actually
+    `base64` so bytes survive the text capture — path confined by remote
+    `realpath -e` prefix-match against the configured workdir, 25 MB cap,
+    stored under the run (`runs/<runId>/<name>`), served at
+    `/api/pi/runs/:runId/files/<name>` (html/svg come back as text so nothing
+    scripts on our origin), listed on the card as an Artifacts row.
+C2. **SHIPPED in this branch**: the prompt travels through the ssh stdin, not
+    argv — the remote `ps` never sees it and ARG_MAX is out of the picture.
+    The planned "never blocks on tool approval" probe was tested and needs no
+    probe: pi 1.1.0 `--mode json` auto-runs tools, project-local `.pi/` or
+    not (verified live on the worker), so the LLM-free `check` stays as it is.
 C3. **Interactive milestone**: one persistent ssh + `pi --mode rpc` per pi session
     (ControlMaster multiplexing), live stream, steering, real interrupt, remote approvals
     surfaced as an in-chat card (the QuestionCard pattern). `pi_wait`/push are the honest

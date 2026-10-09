@@ -11,6 +11,8 @@ import {
   renderChecks,
 } from "./check.ts";
 import {
+  buildPiFetchRemoteCommand,
+  buildPiLsRemoteCommand,
   buildPiRemoteCommand,
   buildSshArgs,
   DirPiRunStore,
@@ -116,13 +118,14 @@ test("shq survives single quotes", () => {
   expect(shq("it's")).toBe(`'it'\\''s'`);
 });
 
-test("the remote command cd's, prepends PATH, and quotes the prompt", () => {
-  const cmd = buildPiRemoteCommand(BASE, { prompt: "review 'my' code" });
+test("the remote command cd's and prepends PATH — the prompt is not in argv (C2)", () => {
+  const cmd = buildPiRemoteCommand(BASE, {});
   expect(cmd).toContain(
     String.raw`cd '/home/worker/pi' && { env PATH='/opt/node/bin:/opt/pi/bin':"$PATH"`,
   );
   expect(cmd).toContain("pi --mode json");
-  expect(cmd).toContain(`'review '\\''my'\\'' code'`);
+  // The prompt travels via stdin (it must never be readable in the remote's ps).
+  expect(cmd).not.toContain("review");
   // The force-stop wrapper: pi's own pid (not a subshell's) reaches stderr,
   // and `wait $rp` (not bare `wait`, which always exits 0) keeps pi's exit code.
   expect(cmd).toContain(String.raw`& rp=$!; echo "lettuce-remote-pid $rp" >&2; wait $rp; }`);
@@ -134,7 +137,6 @@ test("the force-stop wrapper really passes the exit code through", () => {
   const command = buildPiRemoteCommand(
     { ...BASE, workdir: "/tmp", pathPrepend: "" },
     {
-      prompt: "x",
       model: null,
     },
   ).replace("pi --mode json", "false --mode json");
@@ -144,7 +146,7 @@ test("the force-stop wrapper really passes the exit code through", () => {
   const ok = Bun.spawnSync([
     "sh",
     "-c",
-    buildPiRemoteCommand({ ...BASE, workdir: "/tmp", pathPrepend: "" }, { prompt: "x" }).replace(
+    buildPiRemoteCommand({ ...BASE, workdir: "/tmp", pathPrepend: "" }, {}).replace(
       "pi --mode json",
       "true --mode json",
     ),
@@ -157,7 +159,7 @@ test("the PATH prepend hands $PATH to the remote shell", () => {
   // quoted `$PATH`, so env gets a PATH of one directory plus five literal
   // characters, and the run dies naming the program env could not find.
   for (const cmd of [
-    buildPiRemoteCommand(BASE, { prompt: "x" }),
+    buildPiRemoteCommand(BASE, {}),
     buildProbeRemoteCommand({ workdir: "/home/w/pi", pathPrepend: "/opt/pi/bin" }),
   ]) {
     expect(cmd).not.toContain(":$PATH'");
@@ -201,21 +203,21 @@ test("a PATH prefix is normalized before it can reach a PATH search", () => {
   ).toBe("/opt/pi/bin");
   // And the command is built from the normalized value even if a record kept
   // the old shape.
-  const cmd = buildPiRemoteCommand({ ...BASE, pathPrepend: "/opt/pi/bin/" }, { prompt: "x" });
+  const cmd = buildPiRemoteCommand({ ...BASE, pathPrepend: "/opt/pi/bin/" }, {});
   expect(cmd).toContain(`env PATH='/opt/pi/bin':"$PATH"`);
   expect(cmd).not.toContain("//");
 });
 
 test("empty pathPrepend emits no env PATH at all", () => {
-  const cmd = buildPiRemoteCommand({ ...BASE, pathPrepend: "  " }, { prompt: "x" });
+  const cmd = buildPiRemoteCommand({ ...BASE, pathPrepend: "  " }, {});
   expect(cmd).not.toContain("env");
 });
 
 test("session resume passes --session and rejects non-UUIDs", () => {
   const session = "01a10e10-08ec-705d-a364-5cfa40e1a963";
   expect(isPiSessionId(session)).toBe(true);
-  expect(buildPiRemoteCommand(BASE, { prompt: "x", session })).toContain(`--session '${session}'`);
-  expect(() => buildPiRemoteCommand(BASE, { prompt: "x", session: "'; rm -rf / #" })).toThrow();
+  expect(buildPiRemoteCommand(BASE, { session })).toContain(`--session '${session}'`);
+  expect(() => buildPiRemoteCommand(BASE, { session: "'; rm -rf / #" })).toThrow();
 });
 
 test("ssh argv is hardened and the key file is the one identity", () => {
@@ -239,6 +241,9 @@ class FakeChild implements PiProcess {
   stdout = "";
   stderr = "";
   killed = false;
+  /** What the runner wrote as the prompt through the ssh stdin (C2). */
+  stdinText: string | null = null;
+  stdinClosed = false;
   private settle!: (v: { code: number | null }) => void;
   readonly exited = new Promise<{ code: number | null }>((resolve) => (this.settle = resolve));
   emit(chunk: string): void {
@@ -252,6 +257,13 @@ class FakeChild implements PiProcess {
   kill(): void {
     this.killed = true;
     this.finish(255);
+  }
+  sendStdin(text: string): void {
+    this.stdinText = text;
+    this.stdinClosed = true;
+  }
+  closeStdin(): void {
+    this.stdinClosed = true;
   }
 }
 
@@ -772,6 +784,7 @@ test("pi_wait returns when the run settles, and times out honestly", async () =>
     prompt: "slow task",
   });
   const child = spawnedChild(spawned, 0);
+  expect(child.stdinText).toBe("slow task"); // C2: the prompt rode the stdin, not argv
   child.emit(`{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/w"}\n`);
   setTimeout(() => {
     child.emit(`{"type":"agent_settled"}\n`);
@@ -947,4 +960,85 @@ test("retention sweep keeps the newest N and forgets what is past the age floor"
   // Age floor bites even inside the keep window.
   expect(await store.sweep(4, 3 * 86_400_000, now)).toBe(1); // id(4) is 4 days old
   expect((await store.list(99)).map((m) => m.runId)).toEqual([id(1), id(2), id(3)]);
+});
+
+// ── C1: pi_fetch / pi_ls ─────────────────────────────────────────────────────
+
+test("the fetch/ls remote guards confine the path and mark every refusal", () => {
+  const fetchCmd = buildPiFetchRemoteCommand(BASE, "shots/../shot.png");
+  expect(fetchCmd).toContain("'shots/../shot.png'"); // quoted whole
+  expect(fetchCmd).toContain("realpath -e"); // resolved remotely before matching
+  expect(fetchCmd).toContain("base64"); // bytes survive the text capture
+  expect(fetchCmd).toContain("lettuce-fetch: outside");
+  expect(fetchCmd).toContain("lettuce-fetch: too_big");
+  const lsCmd = buildPiLsRemoteCommand(BASE, "notes");
+  expect(lsCmd).toContain("'notes'");
+  expect(lsCmd).toContain("lettuce-ls: outside");
+});
+
+test("pi_fetch lands the bytes under the run and answers with the link", async () => {
+  const { service, spawned, files } = await runHarness();
+  const meta = await service.runner.start(await service.load(), files, {
+    kind: "run",
+    prompt: "screenshot it",
+  });
+  const pending = service.piFetch({ run: meta.runId, path: "shots/shot.png" });
+  await Bun.sleep(20); // the artifact ssh is spawned after the async settings read
+  const fetchChild = spawnedChild(spawned, 1);
+  fetchChild.emit("lettuce-fetch: size 6\n");
+  fetchChild.emit("SGVsbG8h\n");
+  fetchChild.finish(0);
+  const res = await pending;
+  expect(res.isError).toBe(false);
+  expect(res.text).toContain(`/api/pi/runs/${meta.runId}/files/shot.png`);
+  expect((await service.store.readFile(meta.runId, "shot.png"))?.toString()).toBe("Hello!");
+  expect(await service.store.listFiles(meta.runId)).toEqual([{ name: "shot.png", size: 6 }]);
+
+  // Refusals carry the reason, not the file.
+  const denied = service.piFetch({ run: meta.runId, path: "/etc/shadow" });
+  await Bun.sleep(20);
+  const denyChild = spawnedChild(spawned, 2);
+  denyChild.emit("lettuce-fetch: outside\n");
+  denyChild.finish(0);
+  const res2 = await denied;
+  expect(res2.isError).toBe(true);
+  expect(res2.text).toContain("confined");
+});
+
+test("artifact names cannot be paths, and sweeps take the files with the run", async () => {
+  const dir = await mkdtemp(`${tmpdir()}/pi-files-`);
+  const store = new DirPiRunStore(dir);
+  const runId = "11111111-2222-4333-8444-555555555555";
+  expect(DirPiRunStore.safeFileName("../../evil name.png")).toBe("evil_name.png");
+  const saved = await store.saveFile(
+    runId,
+    "../oops/totally.broken.png",
+    new TextEncoder().encode("x"),
+  );
+  expect(saved).toBe("totally.broken.png");
+  expect(await store.readFile(runId, "../../etc/passwd")).toBeNull();
+  expect(await store.readFile(runId, saved)).not.toBeNull();
+  // A run record so the sweep can find it — then sweep it and the files go too.
+  const meta = {
+    runId,
+    kind: "run",
+    agentId: null,
+    session: null,
+    target: "worker@h",
+    prompt: "f",
+    model: null,
+    startedAt: new Date(Date.now() - 20 * 86_400_000).toISOString(),
+    endedAt: null,
+    state: "completed",
+    exitCode: 0,
+    error: null,
+    settled: true,
+    eventCount: 0,
+    lastEventAt: null,
+    bytesCaptured: 0,
+    remotePid: null,
+  } as unknown as PiRunMeta;
+  await store.create(meta);
+  expect(await store.sweep(10, 14 * 86_400_000, Date.now())).toBe(1);
+  expect(await store.listFiles(runId)).toEqual([]);
 });

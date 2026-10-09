@@ -1,6 +1,6 @@
 /**
  * The remote-pi service: local custody of the settings and keys, the real
- * `ssh` spawner, and the three tools the agents get.
+ * `ssh` spawner, and the tools the agents get.
  *
  * Everything here is BFF-local (`/app/data/pi` on the `bff-data` volume): the
  * private key never crosses the upstream connection and never returns to a
@@ -27,6 +27,8 @@ import {
   renderChecks,
 } from "./check.ts";
 import {
+  buildPiFetchRemoteCommand,
+  buildPiLsRemoteCommand,
   buildSshArgs,
   DirPiRunStore,
   isPiSessionId,
@@ -105,10 +107,11 @@ async function writePrivate(path: string, content: string): Promise<void> {
 /** The real spawner: `ssh` with piped stdio, resolved as a detached capture. */
 export const sshSpawner: PiSpawner = (args, onStdout, onStderr) => {
   const child = Bun.spawn(["ssh", ...args], {
-    stdin: "ignore",
+    stdin: "pipe", // the run prompt travels here (C2); one-shots close it unused
     stdout: "pipe",
     stderr: "pipe",
   });
+  const sink = child.stdin; // Bun's FileSink: write, then end to close ssh's stdin
   const decode = (stream: ReadableStream<Uint8Array>, cb: (chunk: string) => void) => {
     void (async () => {
       const reader = stream.getReader();
@@ -126,6 +129,21 @@ export const sshSpawner: PiSpawner = (args, onStdout, onStderr) => {
     exited: child.exited.then((code) => ({ code })),
     kill: () => {
       child.kill();
+    },
+    sendStdin: (text) => {
+      try {
+        sink.write(text);
+        sink.end();
+      } catch {
+        /* the child is already gone */
+      }
+    },
+    closeStdin: () => {
+      try {
+        sink.end();
+      } catch {
+        /* the child is already gone */
+      }
     },
   };
 };
@@ -155,6 +173,9 @@ const PI_WAIT_MAX_S = 120;
 
 /** How long a check waits for ssh before calling the host unreachable. */
 const PI_CHECK_TIMEOUT_MS = 15_000;
+
+/** A 25 MB base64 pull over a slow ssh link still needs minutes, not seconds. */
+const PI_FETCH_TIMEOUT_MS = 120_000;
 
 /**
  * What pinning came back as: written, or refused because a different key was
@@ -462,6 +483,7 @@ export class PiService {
         stderr += chunk;
       },
     );
+    child.closeStdin?.();
     const killer = setTimeout(() => child.kill(), PI_CHECK_TIMEOUT_MS);
     let code: number | null = null;
     try {
@@ -792,6 +814,7 @@ export class PiService {
         () => {},
         () => {},
       );
+      proc.closeStdin?.();
       const killer = setTimeout(() => proc.kill(), PI_CHECK_TIMEOUT_MS);
       let code: number | null;
       try {
@@ -826,6 +849,132 @@ export class PiService {
     }
   }
 
+  /**
+   * One ssh, collected as text, with hard size and time caps. For the fetch
+   * and ls paths (the run path streams instead of collecting).
+   */
+  private async sshCollect(
+    settings: PiSettings,
+    files: PiKeyFiles,
+    remote: string,
+    options: { maxChars: number; timeoutMs: number },
+  ): Promise<{ code: number | null; stdout: string; stderr: string; overflowed: boolean }> {
+    let stdout = "";
+    let stderr = "";
+    let overflowed = false;
+    const proc = (this.options.spawner ?? sshSpawner)(
+      buildSshArgs(settings, files, remote),
+      (chunk) => {
+        stdout += chunk;
+        if (stdout.length > options.maxChars && !overflowed) {
+          overflowed = true;
+          proc.kill(); // releases `exited`; the size cap is the answer
+        }
+      },
+      (chunk) => {
+        stderr = `${stderr}${chunk}`.slice(-2_000);
+      },
+    );
+    proc.closeStdin?.();
+    const killer = setTimeout(() => proc.kill(), options.timeoutMs);
+    try {
+      const { code } = await proc.exited;
+      return { code, stdout, stderr, overflowed };
+    } finally {
+      clearTimeout(killer);
+    }
+  }
+
+  /** Which run a pi_fetch/pi_ls names, and how to reach the host it ran on. */
+  private async artifactTarget(
+    args: Record<string, unknown>,
+  ): Promise<{ meta: PiRunMeta; settings: PiSettings; files: PiKeyFiles } | ToolAnswer> {
+    const runId = typeof args.run === "string" ? args.run.trim() : "";
+    const session = typeof args.session === "string" ? args.session.trim() : "";
+    if (runId && !isPiRunId(runId))
+      return { text: "`run` is a run id from a previous pi_run/pi_send", isError: true };
+    const meta = runId
+      ? await this.store.read(runId)
+      : isPiSessionId(session)
+        ? await this.store.findBySession(session)
+        : null;
+    if (!meta) return { text: "`run` or `session` must name a known remote-pi run", isError: true };
+    const settings = await this.settingsFor(meta.agentId);
+    if (!piConfigured(settings)) return { text: this.disabledReason(), isError: true };
+    return { meta, settings, files: await this.keyFiles(settings) };
+  }
+
+  /** pi_fetch: pull one file the remote run produced (C1), capped at 25 MB. */
+  readonly piFetch: ToolHandler = async (args) => {
+    const off = this.guard();
+    if (off) return off;
+    const path = typeof args.path === "string" ? args.path.trim() : "";
+    if (!path)
+      return { text: "`path` is the file to fetch, inside the configured workdir", isError: true };
+    const target = await this.artifactTarget(args);
+    if (!("meta" in target)) return target;
+    const { meta, settings, files } = target;
+    const { code, stdout, stderr, overflowed } = await this.sshCollect(
+      settings,
+      files,
+      buildPiFetchRemoteCommand(settings, path),
+      { maxChars: 40_000_000, timeoutMs: PI_FETCH_TIMEOUT_MS },
+    );
+    const all = `${stdout}\n${stderr}`;
+    if (overflowed || all.includes("lettuce-fetch: too_big"))
+      return { text: "That file is larger than 25 MB; fetch a smaller one.", isError: true };
+    if (all.includes("lettuce-fetch: missing"))
+      return { text: `No such file on ${meta.target}: ${path}`, isError: true };
+    if (all.includes("lettuce-fetch: outside"))
+      return {
+        text: `pi_fetch is confined to the configured workdir (${settings.workdir}).`,
+        isError: true,
+      };
+    const cut = stdout.indexOf("\n");
+    const header = cut >= 0 ? stdout.slice(0, cut) : stdout;
+    const m = /^lettuce-fetch: size (\d+)$/.exec(header);
+    if (!m)
+      return {
+        text: `Fetch failed (ssh exit ${code ?? "signal"}): ${stderr.slice(0, 200) || "no output"}`,
+        isError: true,
+      };
+    const bytes = Buffer.from(
+      (cut >= 0 ? stdout.slice(cut + 1) : "").replace(/\s+/g, ""),
+      "base64",
+    );
+    const name = await this.store.saveFile(meta.runId, path.split("/").pop() || "file", bytes);
+    const kb = Math.max(1, Math.round(bytes.byteLength / 1024));
+    return {
+      text: `Fetched ${path} (${kb} KB) from ${meta.target}. Link the human to: /api/pi/runs/${meta.runId}/files/${name}`,
+      isError: false,
+    };
+  };
+
+  /** pi_ls: a listing inside the remote workdir (C1). */
+  readonly piLs: ToolHandler = async (args) => {
+    const off = this.guard();
+    if (off) return off;
+    const path = typeof args.path === "string" && args.path.trim() ? args.path.trim() : ".";
+    const target = await this.artifactTarget(args);
+    if (!("meta" in target)) return target;
+    const { meta, settings, files } = target;
+    const { stdout, stderr } = await this.sshCollect(
+      settings,
+      files,
+      buildPiLsRemoteCommand(settings, path),
+      { maxChars: 32_000, timeoutMs: 30_000 },
+    );
+    const all = `${stdout}${stderr}`;
+    if (all.includes("lettuce-ls: missing"))
+      return { text: `No such path on ${meta.target}: ${path}`, isError: true };
+    if (all.includes("lettuce-ls: outside"))
+      return {
+        text: `pi_ls is confined to the configured workdir (${settings.workdir}).`,
+        isError: true,
+      };
+    return { text: stdout.trim() || "(empty)", isError: false };
+  };
+
   handlers(): ReadonlyMap<string, ToolHandler> {
     return new Map<string, ToolHandler>([
       ["pi_run", this.piRun],
@@ -833,6 +982,8 @@ export class PiService {
       ["pi_status", this.piStatus],
       ["pi_wait", this.piWait],
       ["pi_stop", this.piStop],
+      ["pi_fetch", this.piFetch],
+      ["pi_ls", this.piLs],
     ]);
   }
 }
@@ -936,6 +1087,33 @@ const STOP_PARAMETERS = {
   additionalProperties: false,
 };
 
+const FETCH_PARAMETERS = {
+  type: "object",
+  properties: {
+    run: { type: "string", description: "The run that produced the file. Either this or session." },
+    session: {
+      type: "string",
+      description: "The session whose host has the file. Either this or run.",
+    },
+    path: {
+      type: "string",
+      description: "The file on the remote host; must resolve inside the configured workdir.",
+    },
+  },
+  required: ["path"],
+  additionalProperties: false,
+};
+
+const LS_PARAMETERS = {
+  type: "object",
+  properties: {
+    run: { type: "string", description: "A run on the host to list. Either this or session." },
+    session: { type: "string", description: "A session whose host to list. Either this or run." },
+    path: { type: "string", description: "Directory (default: the configured workdir)." },
+  },
+  additionalProperties: false,
+};
+
 export const PI_TOOL_SPECS: readonly ToolSpec[] = [
   {
     name: "pi_run",
@@ -978,6 +1156,22 @@ export const PI_TOOL_SPECS: readonly ToolSpec[] = [
       "Stop a remote-pi run. Default (detach): Lettuce stops capturing; the remote pi is NOT killed and its session stays resumable. " +
       "With force: true, the remote pi process is killed too and the run is recorded as cancelled.",
     parameters: STOP_PARAMETERS,
+    approval: "auto",
+  },
+  {
+    name: "pi_fetch",
+    description:
+      "Fetch one file a remote-pi run produced (screenshot, report, patch) into Lettuce so it can be shown in chat. " +
+      "The path must resolve inside the configured workdir; max 25 MB. The answer carries the link to give the human. " +
+      "Do this instead of serving files with an ad-hoc http server.",
+    parameters: FETCH_PARAMETERS,
+    approval: "auto",
+  },
+  {
+    name: "pi_ls",
+    description:
+      "List files in the remote pi's configured workdir (or a path inside it) to see what a run produced before fetching it.",
+    parameters: LS_PARAMETERS,
     approval: "auto",
   },
 ];

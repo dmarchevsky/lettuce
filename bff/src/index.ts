@@ -1573,6 +1573,46 @@ app.post("/api/pi/runs/:runId/stop", async (c) => {
   return c.json(answer, answer.isError ? 409 : 200);
 });
 
+// Artifacts a pi_fetch pulled in (C1): the card lists them, links open them.
+app.get("/api/pi/runs/:runId/files", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  const runId = c.req.param("runId");
+  if (!isPiRunId(runId)) return c.text("Not a run id", 400);
+  return c.json({ files: await piService.store.listFiles(runId) });
+});
+
+const PI_FILE_TYPES: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  pdf: "application/pdf",
+  json: "text/plain; charset=utf-8",
+  md: "text/plain; charset=utf-8",
+  txt: "text/plain; charset=utf-8",
+  csv: "text/plain; charset=utf-8",
+  log: "text/plain; charset=utf-8",
+  // html and svg would run scripts on our own origin; they come back as text.
+};
+
+app.get("/api/pi/runs/:runId/files/:name", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  const runId = c.req.param("runId");
+  if (!isPiRunId(runId)) return c.text("Not a run id", 400);
+  const bytes = await piService.store.readFile(runId, c.req.param("name"));
+  if (!bytes) return c.text("No such file", 404);
+  const ext = c.req.param("name").split(".").pop()?.toLowerCase() ?? "";
+  return new Response(bytes, {
+    headers: {
+      "content-type": PI_FILE_TYPES[ext] ?? "application/octet-stream",
+      "x-content-type-options": "nosniff",
+      "content-disposition": `inline; filename="${c.req.param("name")}"`,
+      "cache-control": "private, max-age=300",
+    },
+  });
+});
+
 // ── Google (Gmail / Calendar / Tasks) ───────────────────────────────────────
 // Agents use Google through the `google-mcp` sidecar; this is where the user
 // decides how far. The policy and the token live on volumes only the BFF and

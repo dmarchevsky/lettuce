@@ -311,6 +311,21 @@ export async function fetchPiRunFacts(runId: string): Promise<PiRunFacts> {
   return ((await response.json()) as { status: PiRunFacts }).status;
 }
 
+/** A file a `pi_fetch` pulled in (C1): served under the run's own URL. */
+export interface PiRunFile {
+  name: string;
+  size: number;
+}
+
+export async function listPiRunFiles(runId: string): Promise<PiRunFile[]> {
+  const response = await ok(await fetch(`/api/pi/runs/${encodeURIComponent(runId)}/files`));
+  return ((await response.json()) as { files: PiRunFile[] }).files;
+}
+
+export function piRunFileUrl(runId: string, name: string): string {
+  return `/api/pi/runs/${encodeURIComponent(runId)}/files/${encodeURIComponent(name)}`;
+}
+
 /** Detach (default) or force-kill the remote pi. Errors come back as 409 text. */
 export async function stopPiRun(runId: string, force = false): Promise<void> {
   const response = await fetch(`/api/pi/runs/${encodeURIComponent(runId)}/stop`, {

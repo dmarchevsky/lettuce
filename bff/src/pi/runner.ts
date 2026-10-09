@@ -69,6 +69,10 @@ export interface PiRunMeta {
 export interface PiProcess {
   readonly exited: Promise<{ code: number | null }>;
   kill(): void;
+  /** Write text to the child's stdin and close it (C2: the prompt never enters argv). */
+  sendStdin?(text: string): void;
+  /** Close stdin when nothing will be sent (one-shot ssh calls; nothing reads it). */
+  closeStdin?(): void;
 }
 export type PiSpawner = (
   args: readonly string[],
@@ -109,11 +113,15 @@ export function shq(value: string): string {
  */
 export function buildPiRemoteCommand(
   settings: PiSettings,
-  options: { prompt: string; session?: string; model?: string | null },
+  options: { session?: string; model?: string | null },
 ): string {
   const pi: string[] = [];
   const prepend = normalizePathPrepend(settings.pathPrepend);
   if (prepend) pi.push("env", `PATH=${shq(prepend)}:"$PATH"`);
+  // C2: no prompt in argv. An argv prompt is world-readable in the remote's
+  // `ps`, bounded by ARG_MAX, and quoted through two shells; pi reads the
+  // message from stdin instead (proved against pi 1.1.0 before this shipped),
+  // and the runner writes it into the ssh stdin and closes it.
   pi.push("pi", "--mode", "json");
   if (options.session) {
     if (!isPiSessionId(options.session)) throw new Error("not a pi session id");
@@ -121,7 +129,6 @@ export function buildPiRemoteCommand(
   }
   const model = options.model ?? settings.model;
   if (model) pi.push("--model", shq(model));
-  pi.push(shq(options.prompt));
   return [
     "cd",
     shq(settings.workdir),
@@ -133,6 +140,45 @@ export function buildPiRemoteCommand(
     'echo "lettuce-remote-pid $rp" >&2;',
     "wait $rp;",
     "}",
+  ].join(" ");
+}
+
+/**
+ * pi_fetch (C1): one file from the remote, base64'd so the text-only ssh
+ * capture carries bytes. The path is confined to the configured workdir by
+ * resolving both ends remotely (`realpath -e`) and prefix-matching, so `..`,
+ * symlinks and absolute paths cannot escape it; size is capped at 25 MB.
+ * Markers on stdout name every refusal: `lettuce-fetch: missing|outside|too_big`.
+ * shortcut: `realpath -e`/`base64` assume GNU userlands (every worker so far);
+ * upgrade with a BSD fallback if a macOS worker appears.
+ */
+export function buildPiFetchRemoteCommand(settings: PiSettings, path: string): string {
+  return [
+    "cd",
+    shq(settings.workdir),
+    "&&",
+    "wd=$(realpath -e .) && rp=$(realpath -e --",
+    shq(path),
+    ") || { echo 'lettuce-fetch: missing'; exit 0; };",
+    'case "$rp" in "$wd/"*) ;; *) echo \'lettuce-fetch: outside\'; exit 0;; esac;',
+    'sz=$(wc -c <"$rp");',
+    "if [ \"$sz\" -gt 26214400 ]; then echo 'lettuce-fetch: too_big'; exit 0; fi;",
+    'echo "lettuce-fetch: size $sz";',
+    'base64 "$rp"',
+  ].join(" ");
+}
+
+/** pi_ls (C1): a listing inside the workdir, the same confinement as a fetch. */
+export function buildPiLsRemoteCommand(settings: PiSettings, path: string): string {
+  return [
+    "cd",
+    shq(settings.workdir),
+    "&&",
+    "wd=$(realpath -e .) && rp=$(realpath -e --",
+    shq(path),
+    ") || { echo 'lettuce-ls: missing'; exit 0; };",
+    'case "$rp" in "$wd"|"$wd/"*) ;; *) echo \'lettuce-ls: outside\'; exit 0;; esac;',
+    'ls -la "$rp" 2>&1 | head -c 8192',
   ].join(" ");
 }
 
@@ -276,6 +322,58 @@ export class DirPiRunStore implements PiRunStore {
     }
   }
 
+  private filesDir(runId: string): string {
+    if (!RUN_ID_RE.test(runId)) throw new Error("not a run id");
+    return `${this.dir}/${runId}`;
+  }
+
+  /** A fetched artifact name: nothing path-shaped survives the sanitize. */
+  static safeFileName(name: string): string {
+    const base = name.split("/").pop() ?? "file";
+    return (
+      base
+        .replace(/[^A-Za-z0-9._-]/g, "_")
+        .replace(/^\.+/, "_")
+        .slice(0, 100) || "file"
+    );
+  }
+
+  /** pi_fetch lands here (C1): `runs/<runId>/<name>`, next to the capture. */
+  async saveFile(runId: string, name: string, bytes: Uint8Array): Promise<string> {
+    const fs = await import("node:fs/promises");
+    const safe = DirPiRunStore.safeFileName(name);
+    await fs.mkdir(this.filesDir(runId), { recursive: true });
+    await fs.writeFile(`${this.filesDir(runId)}/${safe}`, bytes);
+    return safe;
+  }
+
+  async listFiles(runId: string): Promise<{ name: string; size: number }[]> {
+    const fs = await import("node:fs/promises");
+    try {
+      const entries = await fs.readdir(this.filesDir(runId), { withFileTypes: true });
+      const out: { name: string; size: number }[] = [];
+      for (const entry of entries) {
+        if (!entry.isFile()) continue;
+        const st = await fs.stat(`${this.filesDir(runId)}/${entry.name}`);
+        out.push({ name: entry.name, size: st.size });
+      }
+      return out.sort((a, b) => a.name.localeCompare(b.name));
+    } catch {
+      return [];
+    }
+  }
+
+  /** Exact-match read: a name that sanitizes to something else never resolves. */
+  async readFile(runId: string, name: string): Promise<Buffer | null> {
+    if (name !== DirPiRunStore.safeFileName(name)) return null;
+    const fs = await import("node:fs/promises");
+    try {
+      return await fs.readFile(`${this.filesDir(runId)}/${name}`);
+    } catch {
+      return null;
+    }
+  }
+
   /**
    * Retention: delete every run past the newest `keep`, plus any run older
    * than `maxAgeMs` (meta mtime by `startedAt`; an unparseable date counts as
@@ -291,6 +389,9 @@ export class DirPiRunStore implements PiRunStore {
       if (index < keep && !Number.isNaN(started) && started >= cutoff) continue;
       await fs.rm(this.metaPath(meta.runId), { force: true });
       await fs.rm(this.eventsPath(meta.runId), { force: true });
+      // Fetched artifacts (C1) ride the run they were fetched for.
+      if (RUN_ID_RE.test(meta.runId))
+        await fs.rm(`${this.dir}/${meta.runId}`, { recursive: true, force: true });
       removed += 1;
     }
     return removed;
@@ -434,6 +535,9 @@ export class PiRunner {
       },
     );
     this.children.set(meta.runId, child);
+    // C2: the prompt travels through the ssh stdin and closes it, so pi sees
+    // piped input (non-interactive) and the remote `ps` never names it.
+    child.sendStdin?.(options.prompt);
 
     void child.exited.then(async ({ code }) => {
       this.children.delete(meta.runId);

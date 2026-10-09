@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
-import type { PiRunFacts } from "../lib/pi.ts";
-import { ago, fetchPiRunFacts, LIVE_POLL_MS, STATUS_LABELS, stopPiRun } from "../lib/pi.ts";
+import type { PiRunFacts, PiRunFile } from "../lib/pi.ts";
+import {
+  ago,
+  fetchPiRunFacts,
+  LIVE_POLL_MS,
+  listPiRunFiles,
+  piRunFileUrl,
+  STATUS_LABELS,
+  stopPiRun,
+} from "../lib/pi.ts";
 
 const TONES: Record<PiRunFacts["state"], string> = {
   running: "",
@@ -20,6 +28,7 @@ const TONES: Record<PiRunFacts["state"], string> = {
  */
 export function PiRunCard({ runId }: { runId: string }) {
   const [facts, setFacts] = useState<PiRunFacts | null>(null);
+  const [files, setFiles] = useState<PiRunFile[]>([]);
   const [gone, setGone] = useState(false);
   const [busy, setBusy] = useState<"stop" | "force" | null>(null);
 
@@ -34,6 +43,19 @@ export function PiRunCard({ runId }: { runId: string }) {
         setFacts(next);
         setGone(false);
         misses = 0;
+        // Artifacts ride along: a pi_fetch mid-run shows up without a reload.
+        try {
+          const nextFiles = await listPiRunFiles(runId);
+          if (!cancelled)
+            setFiles((prev) =>
+              prev.length === nextFiles.length &&
+              prev.every((f, i) => nextFiles[i]?.name === f.name && nextFiles[i]?.size === f.size)
+                ? prev
+                : nextFiles,
+            );
+        } catch {
+          /* no artifacts is also an answer */
+        }
         if (next.state === "running") timer = setTimeout(load, LIVE_POLL_MS);
       } catch {
         if (cancelled) return;
@@ -102,6 +124,27 @@ export function PiRunCard({ runId }: { runId: string }) {
         </div>
       ) : null}
       {facts.lastSaid ? <p className="pi-card-said">“{facts.lastSaid.trim()}”</p> : null}
+      {files.length > 0 ? (
+        <div className="pi-card-files">
+          <span className="muted small">Artifacts:</span>
+          {files.map((file) => (
+            <a
+              key={file.name}
+              className="pi-file"
+              href={piRunFileUrl(runId, file.name)}
+              target="_blank"
+              rel="noreferrer"
+              title={`${file.name} · ${Math.max(1, Math.round(file.size / 1024))} KB`}
+            >
+              {/\.(png|jpe?g|gif|webp)$/i.test(file.name) ? (
+                <img className="pi-card-thumb" src={piRunFileUrl(runId, file.name)} alt="" />
+              ) : (
+                file.name
+              )}
+            </a>
+          ))}
+        </div>
+      ) : null}
       {facts.error ? <p className="small bad">{facts.error}</p> : null}
       <div className="pi-card-foot">
         <span className="muted small pi-events">

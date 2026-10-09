@@ -3910,3 +3910,18 @@ button.link-dot.busy.warn {
 .pi-runs-chip {
   flex: none;
 }
+.pi-card-files {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.pi-file {
+  font-size: 0.85rem;
+}
+.pi-card-thumb {
+  height: 56px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  display: block;
+}
