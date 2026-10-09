@@ -413,8 +413,8 @@ services:
     build:
       context: searxng
       args:
-        SEARXNG_VERSION: ${SEARXNG_VERSION:-2026.9.23-3cd69d30e}
-    image: lettuce-searxng:${SEARXNG_VERSION:-2026.9.23-3cd69d30e}
+        SEARXNG_VERSION: ${SEARXNG_VERSION:-2026.10.9-9f042d2f6}
+    image: lettuce-searxng:${SEARXNG_VERSION:-2026.10.9-9f042d2f6}
     environment:
       TZ: ${TZ:-America/Los_Angeles}
     restart: unless-stopped

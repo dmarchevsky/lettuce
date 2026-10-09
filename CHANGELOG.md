@@ -10,6 +10,7 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ### Changed
 - Synced letta-code 0.34.1 → 0.34.9: agents with the new memfs memory layout get a read-only **Memory** tool for browsing their own memory tree, workflow runs report per-phase progress and token counts, subagents can nest one layer and report back to the parent that spawned them, tool returns and user messages are scanned and redacted for anything matching a stored secret, a scheduled (cron) turn now runs even when no client is attached, and a queued message carrying a photo over 1 MiB is no longer silently dropped. The app-server image is rebuilt, so the deploy recreates `app-server` and drops any turn in flight.
+- SearXNG 2026.9.23 → 2026.10.9 — the search sidecar the BFF asks for JSON results; newer engine definitions are what keep `web_search` returning things.
 - cloudflared 2026.8.3 → 2026.10.0 — the tunnel container only. Recreating it drops the tunnel for a few seconds, so the app is briefly unreachable while everything else keeps running.
 - GitHub CLI 2.101.0 → 2.102.0 — only the `WatchPR` tool's `gh api` calls touch it; built into the app-server image.
 - Codex CLI 0.157.1 → 0.162.0 — five releases, and letta-code drives it over its app-server protocol, so a worker run is the thing to re-check after the deploy. The app-server image is rebuilt, so the deploy recreates `app-server`.
