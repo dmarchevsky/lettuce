@@ -19,8 +19,9 @@ burning turns on sleep/poll loops and self-scheduled wakes.
    doing — event growth, last activity, current step, honest quiet detection.
 2. Stop faking interactivity: one-shot `pi_wait` for agents that must block; a web-push on
    settle so humans do not need the agent to relay; cancel that really cancels.
-3. A live UI: a run card in the transcript, a live run viewer, an active-runs chip — so
-   "any updates from pi?" is answered on screen, updating, without an agent turn.
+3. A live UI: a run card in the transcript, a dedicated **Runs** tab with a live run viewer
+   for every remote worker, an active-runs chip — so "any updates from pi?" is answered on
+   screen, updating, without an agent turn.
 
 ## Non-goals (this branch)
 
@@ -104,24 +105,35 @@ B1. **Run card in the transcript.** `web/src/lib/messages.ts` recognizes a paire
     `POST /api/pi/runs/:runId/stop {force}` — the tool already exists; the browser needs a
     door.
 
-B2. **Live run viewer.** `PiRunSheet` (Tasks tab) polls while `running`: new endpoint
+B0. **Runs tab.** A seventh tab, `Runs` (label order: Chat · Files · Tasks · **Runs** · Memory
+    · Tools · Agent — the nav already scrolls, and `Runs` clears the 58px phone budget).
+    It hosts the three worker run lists moved wholesale out of `TasksTab` —
+    `PiRunsList`, `CodexRunsList`, `ClaudeRunsList`, same feature gates — because
+    "codex / claude-code / pi ran a job for me" is one kind of screen, and Tasks is then
+    honestly *scheduled* runs (crons, background tasks) only. The components already exist
+    as self-contained lists that open their sheets; the move is imports and section-notes.
+    Deep links use `?tab=runs`.
+
+B2. **Live run viewer.** `PiRunSheet` (opened from the Runs tab) polls while `running`: new endpoint
     `GET /api/pi/runs/:runId/events?since=<byteOffset>` → `{next, lines, state}` over the
     seek reader (A2); the sheet appends parsed steps and auto-scrolls at the live edge with
     a `Running…` peek line (existing `.tool-peek`). Terminal runs render once, as today.
 
 B3. **Active-runs chip.** Topbar: when `features.pi` and any run is `running`, a `pi · N`
     pill (existing `.pill` language, next to the ContextGauge) opens a small menu listing
-    live runs (prompt one-liner, host, age) → tap opens the sheet. App-level poll of
-    `/api/pi/runs?limit=20` every 10 s only while at least one run is active (plus on focus).
+    live runs (prompt one-liner, host, age) → tap opens the sheet on the Runs tab. App-level
+    poll of `/api/pi/runs?limit=20` every 10 s only while at least one run is active (plus
+    on focus).
 
-B4. **Push → deep link.** A push tap opens the app on Tasks with the run sheet open
-    (`?tab=tasks&run=<id>` query handling in App.tsx).
+B4. **Push → deep link.** A push tap opens the app on the Runs tab with the run sheet open
+    (`?tab=runs&run=<id>` query handling in App.tsx).
 
 B5. `web/src/lib/pi.ts`: `stopPiRun(runId, force)`, `piRunEvents(runId, since)`; status
     union gains `cancelled` (renderers default unknown → neutral tag, as `detached` does).
 
 B6. ui-check assertions: card renders for a scripted pi_run return (fixture), pill tone per
-    state, no horizontal overflow at 390px on the card and sheet; chip hidden when idle.
+    state, no horizontal overflow at 390px on the card and sheet; chip hidden when idle;
+    Runs tab active-state and the moved lists appear there and are gone from Tasks.
 
 ## C. Follow-ups this branch sets up but does not ship
 
@@ -141,8 +153,8 @@ C4. Correct olla's memory note (`references/remote-pi.md`): there was no queue w
 ## PR split
 
 PR-1: A1–A7 (+tests) — backend only, ships `pi_wait`, `force` stop, honest status; the
-transcript is unaffected. PR-2: B1–B6 + A8 (one shippable UI story: card + live sheet +
-chip + push deep link). Mockups ride PR-2's body.
+transcript is unaffected. PR-2: B0–B6 + A8 (one shippable UI story: Runs tab + card + live
+sheet + chip + push deep link). Mockups ride PR-2's body.
 
 ## Mockups (gate 1 artifacts)
 
@@ -155,6 +167,7 @@ real `web/src/styles.css`, app class names):
 | `pi-card-quiet-phone` | warn pill, quiet 7m |
 | `pi-card-done-phone` | completed + last text + artifacts row (C1 preview) |
 | `pi-card-failed-phone` | failed + error; detached variant below |
-| `pi-viewer-live-phone` / `pi-viewer-live-desktop` | Tasks list + live sheet at the live edge |
+| `pi-tab-phone` / `pi-tab-desktop` | the new Runs tab: all three worker lists, live sheet open |
+| `pi-viewer-live-phone` / `pi-viewer-live-desktop` | live sheet at the live edge |
 | `pi-chip-desktop` | topbar chip + live-runs menu |
 | `pi-card-widths-desktop` | card at narrow container (tablet) — truncation check |
