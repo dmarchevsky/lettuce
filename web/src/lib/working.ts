@@ -169,6 +169,8 @@ const TOOL_VERBS: Record<string, string> = {
   Agent: "Subagent",
   Skill: "Skill",
   memory: "Memory",
+  // 0.34.7's read-only memfs-v2 discovery tool (a `path` under $MEMORY_DIR).
+  Memory: "Memory",
   Wake: "Schedule",
   TodoWrite: "Plan",
   MessageChannel: "Post",
