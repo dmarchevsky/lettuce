@@ -116,6 +116,52 @@ for (const site of found) {
   console.log(`  ${mark} ${site.version.padEnd(12)} ${site.file}  (${site.label})`);
 }
 
+/**
+ * The component pins, each written in every place it is used: a build arg, an
+ * image tag, and (for what Settings → About can name) the BFF's own env.
+ * Compose interpolates every `${NAME:-literal}` separately, so two literals that
+ * disagree give one host an image and an About row that disagree, silently.
+ * Same for the docs table, which is what a human reads before overriding one.
+ */
+const COMPONENT_VARS = [
+  "CODEX_VERSION",
+  "CLAUDE_CODE_VERSION",
+  "GH_VERSION",
+  "SEARXNG_VERSION",
+  "WORKSPACE_MCP_VERSION",
+  "DDG_MCP_VERSION",
+  "CLOUDFLARED_VERSION",
+];
+
+const compose = await Bun.file(`${ROOT}docker/compose.yml`).text();
+const docs = await Bun.file(`${ROOT}docs/CONFIGURATION.md`).text();
+for (const name of COMPONENT_VARS) {
+  const places: [string, string][] = [];
+  for (const m of compose.matchAll(new RegExp(`\\$\\{${name}:-([^}]*)\\}`, "g"))) {
+    places.push(["docker/compose.yml", m[1]]);
+  }
+  const doc = docs.match(new RegExp("`" + name + "` \\| `([^`]+)`"));
+  if (doc) places.push(["docs/CONFIGURATION.md", doc[1]]);
+  if (places.length === 0) {
+    problems.push(`${name}: no pin found in docker/compose.yml`);
+    continue;
+  }
+  const values = new Set(places.map(([, value]) => value));
+  if (values.size > 1) {
+    const byValue = new Map<string, string[]>();
+    for (const [file, value] of places) byValue.set(value, [...(byValue.get(value) ?? []), file]);
+    problems.push(
+      `${name}: ${[...byValue]
+        .map(([value, files]) => `${value} (${files.join(", ")})`)
+        .join(" vs ")}`,
+    );
+    continue;
+  }
+  console.log(
+    `    ${[...values][0].padEnd(16)} ${name} (${places.length} place${places.length > 1 ? "s" : ""})`,
+  );
+}
+
 if (versions.size > 1) {
   problems.push(`pins disagree: ${[...versions].sort().join(" vs ")}`);
 }

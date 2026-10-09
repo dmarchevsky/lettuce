@@ -1238,6 +1238,16 @@ try {
       aboutText,
     );
 
+    // The component list the BFF builds (/api/status → components). letta-code is
+    // the row that always exists once the app-server has said hello; the rest
+    // depend on which profiles this machine runs, so the shape is what is
+    // asserted, not the numbers.
+    check(
+      "about lists components with versions",
+      /Components/.test(aboutText) && /letta-code\s+\d+\.\d+\.\d+/.test(aboutText),
+      aboutText,
+    );
+
     await openSection("Providers & models");
 
     // Models served: count in the heading, provider per row.
