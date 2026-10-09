@@ -12,6 +12,16 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 - Synced letta-code 0.34.1 → 0.34.8: agents with the new memfs memory layout get a read-only **Memory** tool for browsing their own memory tree, workflow runs report per-phase progress and token counts, subagents can nest one layer and report back to the parent that spawned them, tool returns and user messages are scanned and redacted for anything matching a stored secret, and a scheduled (cron) turn now runs even when no client is attached. The app-server image is rebuilt, so the deploy recreates `app-server` and drops any turn in flight.
 - Claude Code CLI 2.1.285 → 2.1.289. The app-server image is rebuilt, so the deploy recreates `app-server`.
 
+### Fixed
+- **A Codex or Claude Code block now reaches what an agent spawns.** To the app-server a subagent is
+  an agent of its own, so the block the Tools tab set on a parent agent said nothing about it: an
+  agent with workers switched off could ask a general-purpose subagent to start one for it, and
+  since letta-code 0.34.4 a subagent can nest one layer further and start one itself. The block now
+  follows the parent chain — the policy asks the BFF about any agent it has never seen, and the BFF
+  answers for every ancestor it has.
+- **The `Memory` tool finally has a name in the UI.** A memfs-v2 agent browsing its own memory
+  showed as "Use Memory" with nothing beside it in the working line and the transcript.
+
 ## [v0.9.0-letta_0.34.1] - 2026-10-08
 
 ### Added

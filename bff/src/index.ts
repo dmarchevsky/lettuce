@@ -15,8 +15,14 @@ import type { ServerWebSocket } from "bun";
 import { type Context, Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { installAgentSkills, readSkillTree } from "./agent-skills.ts";
+import { AgentAncestry } from "./agents/ancestry.ts";
 import { AgentIdList, isAgentId } from "./agents/id-list.ts";
-import { AgentToolAccessStore, agentsWhere, parseToolAccess } from "./agents/tool-access.ts";
+import {
+  AgentToolAccessStore,
+  agentsWhere,
+  inheritAccess,
+  parseToolAccess,
+} from "./agents/tool-access.ts";
 import { checkUpgradeOrigin } from "./auth/origin.ts";
 import { resolveSession } from "./auth/resolve-session.ts";
 import {
@@ -178,6 +184,17 @@ const agentToolAccess = new AgentToolAccessStore(config.agentToolAccessFile, (er
 // A call with no agent id (an agent shell's curl) gets the default: this is availability, not a boundary.
 const googleAccessFor = (agentId: string | null) =>
   agentId ? agentToolAccess.get(agentId).google : "full";
+// A subagent's own id is in no stored entry, so what it may start is decided by
+// its ancestors too — letta-code tags every spawned subagent `parent:<id>`.
+const agentAncestry = new AgentAncestry(async (agentId) => {
+  const response = await upstream.request<AgentRetrieveResponseMessage>(
+    { type: "agent_retrieve", request_id: `bff-agent-tags-${randomUUID()}`, agent_id: agentId },
+    10_000,
+  );
+  return response.success ? (response.agent?.tags ?? []) : [];
+});
+const workerAccessFor = async (agentId: string) =>
+  inheritAccess(await agentAncestry.chain(agentId), (id) => agentToolAccess.get(id));
 // Push titles name the agent. Looked up through the permanent connection and
 // cached; a failed lookup falls back to "Lettuce" rather than delaying the push.
 const agentNames = new AgentNames(async (agentId) => {
@@ -574,6 +591,7 @@ async function renderAllMods(): Promise<RenderedMod[]> {
       source: renderAgentPolicyMod({
         codexBlocked: agentsWhere(access, (a) => !a.codex),
         claudeBlocked: agentsWhere(access, (a) => !a.claude),
+        accessBase: `http://127.0.0.1:${config.port}`,
       }),
     },
   ];
@@ -1926,6 +1944,7 @@ const server = Bun.serve<SocketData>({
       request,
       bunServer.requestIP(request)?.address,
       () => toolHandlers,
+      workerAccessFor,
     );
     if (internal) return internal;
 

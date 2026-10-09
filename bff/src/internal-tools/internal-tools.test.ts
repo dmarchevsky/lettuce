@@ -28,6 +28,60 @@ const NON_LOOPBACK = "192.0.2.1";
 const NON_LOOPBACK_MAPPED = "::ffff:192.0.2.5";
 
 describe("the internal route", () => {
+  test("the agent-access answer is loopback-only and needs a real agent id", async () => {
+    const access = async (agentId: string) => ({
+      codex: agentId !== "agent-blocked",
+      claude: true,
+    });
+    const ask = (path: string) => new Request(`http://127.0.0.1:8080${path}`);
+    const ok = await handleInternalTools(
+      ask("/internal/agent-access/agent-a"),
+      "127.0.0.1",
+      handlers,
+      access,
+    );
+    expect(await ok?.json()).toEqual({ codex: true, claude: true });
+    expect(
+      await (
+        await handleInternalTools(
+          ask("/internal/agent-access/agent-blocked"),
+          "127.0.0.1",
+          handlers,
+          access,
+        )
+      )?.json(),
+    ).toEqual({ codex: false, claude: true });
+    // A browser never gets here, and nothing answers without a resolver wired.
+    expect(
+      (
+        await handleInternalTools(
+          ask("/internal/agent-access/agent-a"),
+          NON_LOOPBACK,
+          handlers,
+          access,
+        )
+      )?.status,
+    ).toBe(404);
+    expect(
+      (await handleInternalTools(ask("/internal/agent-access/agent-a"), "127.0.0.1", handlers))
+        ?.status,
+    ).toBe(404);
+    expect(
+      (await handleInternalTools(ask("/internal/agent-access/"), "127.0.0.1", handlers, access))
+        ?.status,
+    ).toBe(404);
+    expect(
+      (
+        await handleInternalTools(
+          ask("/internal/agent-access/not%20an%20id"),
+          "127.0.0.1",
+          handlers,
+          access,
+        )
+      )?.status,
+    ).toBe(404);
+  });
+
   test("loopback means loopback", () => {
     for (const address of ["127.0.0.1", "::1", "::ffff:127.0.0.1", "127.0.0.53"])
       expect(isLoopback(address)).toBe(true);
