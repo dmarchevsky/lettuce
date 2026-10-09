@@ -2,6 +2,14 @@
 export interface ToolAnswer {
   text: string;
   isError: boolean;
+  /**
+   * Set by pi_fetch with `save`: the file bytes, which the MOD writes into the
+   * agent's own workspace (the BFF has no path to /work — that mount belongs
+   * to app-server). The mod template is the only consumer.
+   */
+  content_b64?: string;
+  /** Workspace-relative destination for `content_b64`, already sanitized. */
+  save_path?: string;
 }
 
 /** Who is calling, as the mod reported it. */

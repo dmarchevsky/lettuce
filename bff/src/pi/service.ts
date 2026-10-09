@@ -27,7 +27,9 @@ import {
   renderChecks,
 } from "./check.ts";
 import {
+  buildPiExecRemoteCommand,
   buildPiFetchRemoteCommand,
+  buildPiFindRemoteCommand,
   buildPiLsRemoteCommand,
   buildSshArgs,
   DirPiRunStore,
@@ -585,6 +587,8 @@ export class PiService {
         model,
         agentId: callerAgentId,
         conversationId: callerConversationId,
+        maxEvents: settings.maxEvents,
+        maxRuntimeMinutes: settings.maxRuntimeMinutes,
       });
       // Give the session header a moment: it is the first record of the stream
       // and the caller needs it to follow up (§ 3.2).
@@ -605,7 +609,7 @@ export class PiService {
         // Naming the host is what makes per-agent hosts usable: the model can
         // say where a task went instead of guessing.
         text:
-          `Started remote-pi ${kind} ${observed.runId} on ${observed.target}` +
+          `Started remote-pi ${kind} ${observed.runId} on ${observed.target} (workdir ${settings.workdir})` +
           (observed.session
             ? ` on session ${observed.session} (agent ${agentId})`
             : " — session id not yet visible") +
@@ -641,13 +645,43 @@ export class PiService {
         ` — ${meta.prompt.split("\n")[0]?.slice(0, 120) ?? ""}`,
     ];
     if (meta.error) lines.push(`error: ${meta.error}`);
-    const tail = await this.store.readEventsTail(meta.runId, 4_000);
+    const tail = await this.store.readEventsTail(meta.runId, 262_144);
     const answer = tail ? lastAssistantText(tail) : null;
     if (answer) lines.push(`last said: ${answer.split("\n").join(" ").slice(0, 300)}`);
+    // The manifest is what makes the report actionable: without it the agent
+    // must pi_ls the workdir to discover what the run produced (it does not).
+    const manifest = await this.settleManifest(meta).catch(() => "");
+    if (manifest)
+      lines.push(
+        `files the run touched in the workdir: ${manifest} — read one into your workspace with pi_fetch {run, path, save:"name"}`,
+      );
     lines.push(
       "The Runs tab has the transcript; pi_send continues the session. Do not poll for this run again.",
     );
     return `<task-notification>${lines.join("\n")}</task-notification>`;
+  }
+
+  /** What the run created or modified under the workdir (find -newermt). */
+  private async settleManifest(meta: PiRunMeta): Promise<string> {
+    if (meta.state !== "completed" && meta.state !== "detached") return "";
+    const settings = await this.settingsFor(meta.agentId);
+    if (!piConfigured(settings)) return "";
+    const files = await this.keyFiles(settings);
+    const { stdout } = await this.sshCollect(
+      settings,
+      files,
+      buildPiFindRemoteCommand(settings, new Date(meta.startedAt).getTime()),
+      { maxChars: 20_000, timeoutMs: 20_000 },
+    );
+    return stdout
+      .split("\n")
+      .filter((line) => line.trim())
+      .slice(0, 20)
+      .map((line) => {
+        const m = /^(.*) (\d+)$/.exec(line.trim());
+        return m ? `${m[1]} (${Math.max(1, Math.round(Number(m[2]) / 1024))} KB)` : line.trim();
+      })
+      .join(", ");
   }
 
   /** The pi_status body: state, session, progress, and what the run is doing now. */
@@ -670,7 +704,7 @@ export class PiService {
       if (live.now) lines.push(`now: ${live.now.tool}: ${live.now.input}`);
       if (live.lastSaid) lines.push(`last said: ${live.lastSaid}`);
     } else {
-      const tail = await this.store.readEventsTail(runId, 4_000);
+      const tail = await this.store.readEventsTail(runId, 262_144);
       if (tail) {
         const answer = lastAssistantText(tail);
         if (answer)
@@ -747,7 +781,7 @@ export class PiService {
       }
       if (live.lastSaid) facts.lastSaid = live.lastSaid;
     } else {
-      const tail = await this.store.readEventsTail(runId, 4_000);
+      const tail = await this.store.readEventsTail(runId, 262_144);
       const said = tail ? lastAssistantText(tail) : null;
       if (said) facts.lastSaid = said.slice(0, 600);
     }
@@ -968,10 +1002,23 @@ export class PiService {
     );
     const name = await this.store.saveFile(meta.runId, path.split("/").pop() || "file", bytes);
     const kb = Math.max(1, Math.round(bytes.byteLength / 1024));
-    return {
+    const answer: ToolAnswer & { content_b64?: string; save_path?: string } = {
       text: `Fetched ${path} (${kb} KB) from ${meta.target}. Link the human to: /api/pi/runs/${meta.runId}/files/${name}`,
       isError: false,
     };
+    // `save` lands the bytes in the CALLING agent's workspace via the mod —
+    // the BFF has no path to /work; only the mod runs there.
+    const save = typeof args.save === "string" ? args.save.trim() : "";
+    if (save) {
+      const safe = save
+        .split("/")
+        .filter((part) => part && part !== "." && part !== "..")
+        .join("/");
+      answer.save_path = `pi/${meta.runId.slice(0, 8)}/${safe || name}`;
+      answer.content_b64 = bytes.toString("base64");
+      answer.text += ` The mod also writes it into your workspace at ./${answer.save_path}.`;
+    }
+    return answer;
   };
 
   /** pi_ls: a listing inside the remote workdir (C1). */
@@ -999,6 +1046,90 @@ export class PiService {
     return { text: stdout.trim() || "(empty)", isError: false };
   };
 
+  /** pi_result: what the run actually answered — its final assistant message,
+   * read from the whole captured stream (no window-size luck), or the full
+   * transcript with transcript: true. */
+  readonly piResult: ToolHandler = async (args) => {
+    const off = this.guard();
+    if (off) return off;
+    const runId = typeof args.run === "string" ? args.run.trim() : "";
+    if (!runId) return { text: "`run` is a run id from a previous pi_run/pi_send", isError: true };
+    const meta = await this.store.read(runId);
+    if (!meta) return { text: `No remote-pi run ${runId}`, isError: true };
+    const events = await this.store.readEventsTail(runId, 1_048_576);
+    const head = `run ${runId} — ${meta.state}${meta.exitCode !== null ? ` (exit ${meta.exitCode})` : ""}`;
+    if (args.transcript === true && events) {
+      const lines: string[] = [head];
+      for (const step of parsePiRun(meta, events).steps) {
+        if (step.kind === "prompt") lines.push(`\n## prompt\n${step.text}`);
+        else if (step.kind === "reasoning") lines.push(`(thinking) ${step.text.slice(0, 400)}`);
+        else if (step.kind === "message") lines.push(`\n${step.text}`);
+        else if (step.kind === "command") {
+          lines.push(`$ ${step.tool} ${step.input.slice(0, 200)}`);
+          if (step.output !== null) lines.push(step.output.slice(0, 800));
+        }
+      }
+      return { text: lines.join("\n").slice(0, 60_000), isError: false };
+    }
+    const answer = events ? lastAssistantText(events) : null;
+    if (answer)
+      return { text: `${head}\nfinal message:\n${answer.slice(0, 30_000)}`, isError: false };
+    return {
+      text: `${head}\nno final assistant text was captured${meta.error ? ` (error: ${meta.error})` : ""}`,
+      isError: meta.state !== "completed",
+    };
+  };
+
+  /** pi_log: the tail of the captured event stream, formatted — what is it
+   * doing right now. Served from the BFF's own capture; no ssh, cheap. */
+  readonly piLog: ToolHandler = async (args) => {
+    const off = this.guard();
+    if (off) return off;
+    const runId = typeof args.run === "string" ? args.run.trim() : "";
+    if (!runId) return { text: "`run` is a run id from a previous pi_run/pi_send", isError: true };
+    const meta = await this.store.read(runId);
+    if (!meta) return { text: `No remote-pi run ${runId}`, isError: true };
+    const tailN = Math.min(200, Math.max(1, Math.floor(Number(args.tail)) || 40));
+    const raw = await this.store.readEventsTail(runId, 262_144);
+    const lines = (raw ?? "")
+      .split("\n")
+      .filter((line) => line.trim())
+      .slice(-tailN)
+      .map((line) => `  ${piLogLine(line)}`);
+    return {
+      text: `run ${runId.slice(0, 8)} — ${meta.state}, ${meta.eventCount} events\n${lines.join("\n")}`,
+      isError: false,
+    };
+  };
+
+  /** pi_exec: one raw command in the remote workdir over the same ssh channel
+   * — the `git log -1` / `mv` / `cat` ops that do not need an agent turn. The
+   * door is already open (the channel runs arbitrary remote programs by
+   * design); per-agent access is the same Tools-tab gate as the pi tools. */
+  readonly piExec: ToolHandler = async (args, context) => {
+    const off = this.guard();
+    if (off) return off;
+    const command = typeof args.command === "string" ? args.command.trim() : "";
+    if (!command)
+      return { text: "`command` is the shell command to run in the remote workdir", isError: true };
+    const timeoutS = Math.min(120, Math.max(5, Math.floor(Number(args.timeout_seconds)) || 30));
+    const settings = await this.settingsFor(context?.agentId ?? null);
+    if (!piConfigured(settings)) return { text: this.disabledReason(), isError: true };
+    const files = await this.keyFiles(settings);
+    const { code, stdout, stderr, overflowed } = await this.sshCollect(
+      settings,
+      files,
+      buildPiExecRemoteCommand(settings, command),
+      { maxChars: 200_000, timeoutMs: (timeoutS + 10) * 1000 },
+    );
+    return {
+      text:
+        `exit ${code ?? "signal"} · ${settings.user}@${settings.host} · ${settings.workdir}\n` +
+        `${stdout.slice(0, 100_000)}${stderr.trim() ? `\n[stderr] ${stderr.slice(0, 4_000)}` : ""}${overflowed ? "\n(output truncated at 200 KB)" : ""}`,
+      isError: (code ?? 1) !== 0,
+    };
+  };
+
   handlers(): ReadonlyMap<string, ToolHandler> {
     return new Map<string, ToolHandler>([
       ["pi_run", this.piRun],
@@ -1008,7 +1139,40 @@ export class PiService {
       ["pi_stop", this.piStop],
       ["pi_fetch", this.piFetch],
       ["pi_ls", this.piLs],
+      ["pi_result", this.piResult],
+      ["pi_log", this.piLog],
+      ["pi_exec", this.piExec],
     ]);
+  }
+}
+
+/** One captured event line, one readable line. */
+function piLogLine(line: string): string {
+  const one = (s: string, n = 150): string => s.replace(/\s+/g, " ").slice(0, n);
+  try {
+    const r = JSON.parse(line) as Record<string, unknown>;
+    const resultText = (value: unknown): string => {
+      const content = (value as { content?: { text?: string }[] })?.content;
+      return one(Array.isArray(content) ? content.map((c) => c.text ?? "").join(" ") : "");
+    };
+    switch (r.type) {
+      case "tool_execution_start":
+        return `→ ${String(r.toolName ?? "?")} ${one(JSON.stringify(r.args ?? {}))}`;
+      case "tool_execution_end":
+        return `← ${r.isError ? "ERROR " : ""}${resultText(r.result)}`;
+      case "message_end": {
+        const m = r.message as { role?: string; content?: { type?: string; text?: string }[] };
+        const text = (m?.content ?? [])
+          .filter((c) => c.type === "text")
+          .map((c) => c.text)
+          .join(" ");
+        return `${m?.role ?? "?"}: ${one(text)}`;
+      }
+      default:
+        return String(r.type ?? "?");
+    }
+  } catch {
+    return one(line);
   }
 }
 
@@ -1123,6 +1287,11 @@ const FETCH_PARAMETERS = {
       type: "string",
       description: "The file on the remote host; must resolve inside the configured workdir.",
     },
+    save: {
+      type: "string",
+      description:
+        "Also land the file in YOUR workspace at pi/<run>/<this name> so you can read or edit it locally.",
+    },
   },
   required: ["path"],
   additionalProperties: false,
@@ -1186,6 +1355,7 @@ export const PI_TOOL_SPECS: readonly ToolSpec[] = [
     name: "pi_fetch",
     description:
       "Fetch one file a remote-pi run produced (screenshot, report, patch) into Lettuce so it can be shown in chat. " +
+      "With save, it ALSO lands in your own workspace — do that for any deliverable you must read or edit. " +
       "The path must resolve inside the configured workdir; max 25 MB. The answer carries the link to give the human. " +
       "Do this instead of serving files with an ad-hoc http server.",
     parameters: FETCH_PARAMETERS,
@@ -1196,6 +1366,55 @@ export const PI_TOOL_SPECS: readonly ToolSpec[] = [
     description:
       "List files in the remote pi's configured workdir (or a path inside it) to see what a run produced before fetching it.",
     parameters: LS_PARAMETERS,
+    approval: "auto",
+  },
+  {
+    name: "pi_result",
+    description:
+      "What a remote-pi run actually answered: its final assistant message, read from the whole captured stream. " +
+      "Use this instead of digging the answer out of pi_status. transcript: true returns the whole run.",
+    parameters: {
+      type: "object",
+      properties: {
+        run: { type: "string", description: "The run id." },
+        transcript: {
+          type: "boolean",
+          description: "Return the whole transcript, not just the final message.",
+        },
+      },
+      required: ["run"],
+      additionalProperties: false,
+    },
+    approval: "auto",
+  },
+  {
+    name: "pi_log",
+    description:
+      "The last lines of a remote-pi run's captured stream — what it is doing right now, to tell 'working' from 'stuck' or 'looping'. Served locally, cheap to poll.",
+    parameters: {
+      type: "object",
+      properties: {
+        run: { type: "string", description: "The run id." },
+        tail: { type: "integer", description: "How many event records (default 40, max 200)." },
+      },
+      required: ["run"],
+      additionalProperties: false,
+    },
+    approval: "auto",
+  },
+  {
+    name: "pi_exec",
+    description:
+      "Run one raw shell command in the remote pi's configured workdir over the same ssh channel — for trivial ops (git log, mv, cat) that do not need an agent turn. Output capped at 200 KB; not for autonomous work.",
+    parameters: {
+      type: "object",
+      properties: {
+        command: { type: "string", description: "The command; runs in the configured workdir." },
+        timeout_seconds: { type: "integer", description: "Kill after (default 30, max 120)." },
+      },
+      required: ["command"],
+      additionalProperties: false,
+    },
     approval: "auto",
   },
 ];

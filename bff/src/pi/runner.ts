@@ -128,7 +128,17 @@ export function buildPiRemoteCommand(
   // So pi is `exec`'d inside an inner sh instead — stdin survives, the inner
   // shell's $$ is pi's own pid after the exec replaces it, and the exec also
   // passes pi's exit code through untouched.
-  const inner: string[] = ['echo "lettuce-remote-pid $$" >&2;', "exec", "pi", "--mode", "json"];
+  const inner: string[] = [
+    'echo "lettuce-remote-pid $$" >&2;',
+    "exec",
+    "pi",
+    "--mode",
+    "json",
+    // Trust project-local files: a session resumed onto another project's dir
+    // would otherwise block on an interactive [y/N] that nobody can answer in
+    // json mode (the cross-project fork trap).
+    "--approve",
+  ];
   if (options.session) {
     if (!isPiSessionId(options.session)) throw new Error("not a pi session id");
     inner.push("--session", shq(options.session));
@@ -139,6 +149,49 @@ export function buildPiRemoteCommand(
   const prepend = normalizePathPrepend(settings.pathPrepend);
   if (prepend) outer.push("env", `PATH=${shq(prepend)}:"$PATH"`);
   outer.push("/bin/sh", "-c", shq(inner.join(" ")));
+  return outer.join(" ");
+}
+
+/**
+ * pi_exec: one raw command in the configured workdir over the same ssh
+ * channel and PATH prefix a pi run gets — deterministic, no agent in the
+ * loop. The caller already proved it can reach this host (the pi tools do).
+ */
+export function buildPiExecRemoteCommand(settings: PiSettings, command: string): string {
+  const outer: string[] = ["cd", shq(settings.workdir), "&&"];
+  const prepend = normalizePathPrepend(settings.pathPrepend);
+  if (prepend) outer.push("env", `PATH=${shq(prepend)}:"$PATH"`);
+  outer.push("/bin/sh", "-c", shq(command));
+  return outer.join(" ");
+}
+
+/**
+ * The settle manifest: files the run created or modified under the workdir —
+ * everything modified after the run started, minus git and dependency noise,
+ * minus anything past the fetch cap. `find -printf` is GNU; see the C1 note.
+ */
+export function buildPiFindRemoteCommand(settings: PiSettings, sinceMs: number): string {
+  const outer: string[] = ["cd", shq(settings.workdir), "&&"];
+  outer.push(
+    "find",
+    ".",
+    "-xdev",
+    "-type",
+    "f",
+    "-newermt",
+    shq(`@${Math.floor(sinceMs / 1000)}`),
+    "-not",
+    "-path",
+    '"*/.git/*"',
+    "-not",
+    "-path",
+    '"*/node_modules/*"',
+    "-size",
+    "-25M",
+    "-printf",
+    '"%P %s\\n"',
+    "| head -80",
+  );
   return outer.join(" ");
 }
 
@@ -445,6 +498,9 @@ export class PiRunner {
       model?: string | null;
       agentId?: string | null;
       conversationId?: string | null;
+      /** Run budget guards (0/absent = off): the run cancels itself, remotely. */
+      maxEvents?: number;
+      maxRuntimeMinutes?: number;
     },
   ): Promise<PiRunMeta> {
     const remote = buildPiRemoteCommand(settings, options);
@@ -475,6 +531,37 @@ export class PiRunner {
     let buffer = "";
     let stderrTail = "";
     let lineChain: Promise<void> = Promise.resolve();
+    // Budget guards: a runaway is more expensive to babysit than to let die.
+    // The kill mirrors pi_stop force (second ssh `kill <remotePid>`), so the
+    // remote pi stops instead of running on after a detached capture.
+    const maxEvents = Number(options.maxEvents) > 0 ? Number(options.maxEvents) : 0;
+    const maxRuntimeMs =
+      Number(options.maxRuntimeMinutes) > 0 ? Number(options.maxRuntimeMinutes) * 60_000 : 0;
+    const deadlineMs = maxRuntimeMs ? new Date(meta.startedAt).getTime() + maxRuntimeMs : 0;
+    let budgetStopActive = false;
+    const budgetStop = async (why: string) => {
+      if (budgetStopActive || meta.state !== "running") return;
+      budgetStopActive = true;
+      if (meta.remotePid) {
+        try {
+          const killer = this.spawner(
+            buildSshArgs(settings, files, `kill ${meta.remotePid}`),
+            () => {},
+            () => {},
+          );
+          killer.closeStdin?.();
+        } catch {
+          // best-effort; the local cancel records the verdict either way
+        }
+      }
+      await this.cancel(meta.runId, `budget exceeded (${why})`);
+    };
+    let budgetTimer: ReturnType<typeof setTimeout> | undefined;
+    if (deadlineMs)
+      budgetTimer = setTimeout(
+        () => void budgetStop(`${Math.round(maxRuntimeMs / 60_000)} min runtime`),
+        Math.max(1, deadlineMs - Date.now()),
+      );
     // Progress truth (A1): eventCount/lastEventAt living only in memory is how
     // an 18 MB run read as `events 0` for 26 minutes in prod. Flush dirty
     // progress at most every interval — never per line, an 18 MB stream is
@@ -489,6 +576,8 @@ export class PiRunner {
       meta.lastEventAt = this.now().toISOString();
       linesSinceFlush += 1;
       const ms = this.now().getTime();
+      if (meta.state === "running" && maxEvents && meta.eventCount >= maxEvents)
+        void budgetStop(`${maxEvents} events`);
       let flushedNow = false;
       if (linesSinceFlush >= PI_META_FLUSH_LINES || ms - lastFlushMs >= PI_META_FLUSH_INTERVAL_MS) {
         linesSinceFlush = 0;
@@ -541,6 +630,7 @@ export class PiRunner {
     child.sendStdin?.(options.prompt);
 
     void child.exited.then(async ({ code }) => {
+      if (budgetTimer) clearTimeout(budgetTimer);
       this.children.delete(meta.runId);
       await lineChain;
       if (buffer.trim()) await handleLine(buffer);
@@ -596,12 +686,12 @@ export class PiRunner {
    * (not `detached` — the remote really was stopped), and the local capture goes
    * with it. The ssh exit hook sees the terminal state and does not overwrite it.
    */
-  async cancel(runId: string): Promise<boolean> {
+  async cancel(runId: string, reason?: string): Promise<boolean> {
     const meta = this.metas.get(runId);
     if (!meta) return false;
     meta.state = "cancelled";
     meta.endedAt = meta.endedAt ?? this.now().toISOString();
-    meta.error = `force-stopped: remote pi ${meta.remotePid ?? "?"} terminated`;
+    meta.error = reason ?? `force-stopped: remote pi ${meta.remotePid ?? "?"} terminated`;
     await this.store.update(meta);
     this.children.get(runId)?.kill();
     this.settle(meta);

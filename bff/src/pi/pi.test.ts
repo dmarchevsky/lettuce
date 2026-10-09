@@ -159,7 +159,7 @@ test("the exec wrapper really carries stdin to the program (the & form cannot)",
   // /dev/null stdin when job control is off, so the first stdin design made
   // pi see an instant EOF. The exec'd program must read the piped prompt.
   const cmd = buildPiRemoteCommand({ ...BASE, workdir: "/tmp", pathPrepend: "" }, {}).replace(
-    "exec pi --mode json",
+    "exec pi --mode json --approve",
     "exec cat",
   );
   // `printf X | cd … && sh` would pipe into `cd` — the pipeline must feed the
@@ -820,7 +820,10 @@ test("pi_run records the dispatching conversation and the settle report answers 
   await Bun.sleep(100);
   const done = settled.find((m) => m.runId === runId);
   expect(done?.conversationId).toBe("local-conv-120");
-  const report = await service.settleReport(done!);
+  const pending = service.settleReport(done!);
+  await Bun.sleep(30);
+  spawned.at(-1)?.child.finish(0); // the manifest find must answer too
+  const report = await pending;
   expect(report.startsWith("<task-notification>")).toBe(true);
   expect(report).toContain("completed");
   expect(report).toContain("clone the repo");
@@ -1094,4 +1097,148 @@ test("artifact names cannot be paths, and sweeps take the files with the run", a
   await store.create(meta);
   expect(await store.sweep(10, 14 * 86_400_000, Date.now())).toBe(1);
   expect(await store.listFiles(runId)).toEqual([]);
+});
+
+// ── operational feedback (prod lessons from the olla agent's runs) ──────────
+
+const BIG_LINES = {
+  filler: "x".repeat(8_000),
+};
+
+test("pi_result digs a buried final answer out; pi_log formats the stream tail", async () => {
+  const { service, spawned, settled } = await runHarness();
+  setTimeout(() => {
+    spawned[0]?.child.emit(
+      `{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/w"}\n`,
+    );
+  }, 60);
+  const answer = await service.piRun({ prompt: "big answer" });
+  expect(answer.isError).toBe(false);
+  const child = spawnedChild(spawned, 0);
+  child.emit(
+    `{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"${BIG_LINES.filler} buried here"}],"timestamp":1}}\n`,
+  );
+  child.emit('{"type":"tool_execution_start","toolName":"bash","args":{"command":"ls"}}\n');
+  child.emit(
+    '{"type":"tool_execution_end","toolName":"bash","isError":false,"result":{"content":[{"text":"a.txt"}]}}\n',
+  );
+  child.emit(
+    '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"FINAL: a.txt exists"}],"timestamp":2}}\n',
+  );
+  child.emit('{"type":"agent_settled"}\n');
+  child.finish(0);
+  await Bun.sleep(100);
+  const runId = answer.text.match(/run ([0-9a-f-]{36})/)?.[1] ?? "";
+  // The buried answer: the pre-fix 4 KB tail window would have missed it.
+  const result = await service.piResult({ run: runId });
+  expect(result.isError).toBe(false);
+  expect(result.text).toContain("FINAL: a.txt exists");
+  const full = await service.piResult({ run: runId, transcript: true });
+  expect(full.text).toContain("$ bash");
+  expect(full.text).toContain("a.txt");
+  const log = await service.piLog({ run: runId });
+  expect(log.text).toContain("→ bash");
+  expect(log.text).toContain('{"command":"ls"}');
+  expect(log.text).toContain("assistant: FINAL: a.txt exists");
+  expect(settled.length).toBe(1);
+});
+
+test("pi_exec runs a raw command on the worker and reports the exit honestly", async () => {
+  const { service, spawned } = await runHarness();
+  const pending = service.piExec({ command: "git log --oneline -1" });
+  for (let i = 0; i < 40 && spawned.length === 0; i++) await Bun.sleep(25);
+  const child = spawnedChild(spawned, 0);
+  expect(String(spawned[0]?.args.at(-1))).toContain("git log --oneline -1");
+  child.emit("abc123 the only commit\n");
+  child.finish(0);
+  const answer = await pending;
+  expect(answer.isError).toBe(false);
+  expect(answer.text).toContain("exit 0");
+  expect(answer.text).toContain("abc123 the only commit");
+});
+
+test("pi_fetch save carries base64 for the mod; the settle manifest lists touched files", async () => {
+  const dir = await mkdtemp(`${tmpdir()}/pi-ops-`);
+  const spawner = (args: readonly string[], onStdout: (chunk: string) => void): PiProcess => {
+    const child = new FakeChild();
+    const remote = String(args.at(-1));
+    queueMicrotask(() => {
+      if (remote.includes("lettuce-fetch")) onStdout("lettuce-fetch: size 3\nYWJj\n");
+      else if (remote.includes("find")) onStdout("plan.md 2048\nnotes/x.md 512\n");
+      child.finish(0);
+    });
+    return child;
+  };
+  const service = new PiService({ paths: { dir }, featureEnabled: () => true, spawner });
+  await service.save({
+    enabled: true,
+    host: "pi.example.invalid",
+    user: "worker",
+    port: 22,
+    workdir: "/home/worker/pi",
+    privateKey: VALID_KEY,
+  });
+  await writeFile(`${dir}/known_hosts`, "pi.example.invalid ssh-ed25519 AAAAone\n", "utf8");
+  const meta = {
+    runId: "99999999-2222-3333-4444-555555555555",
+    kind: "run",
+    agentId: "a1",
+    conversationId: "c1",
+    session: SESSION,
+    prompt: "write a plan",
+    model: null,
+    target: "worker@pi.example.invalid:22",
+    startedAt: "2026-10-06T10:00:00.000Z",
+    endedAt: "2026-10-06T10:20:00.000Z",
+    state: "completed",
+    exitCode: 0,
+    settled: true,
+    eventCount: 2,
+    lastEventAt: "2026-10-06T10:20:00.000Z",
+    bytesCaptured: 100,
+    remotePid: null,
+    error: null,
+  } as unknown as PiRunMeta;
+  await service.store.create(meta);
+  const fetched = (await service.piFetch({
+    run: meta.runId,
+    path: "plan.md",
+    save: "docs/../plan.md",
+  })) as { text: string; isError: boolean; content_b64?: string; save_path?: string };
+  expect(fetched.isError).toBe(false);
+  expect(fetched.content_b64).toBe("YWJj");
+  expect(fetched.save_path).toBe(`pi/${meta.runId.slice(0, 8)}/docs/plan.md`);
+  expect(fetched.save_path).not.toContain("..");
+  const report = await service.settleReport(meta);
+  expect(report).toContain("plan.md (2 KB)");
+  expect(report).toContain("notes/x.md (1 KB)");
+  expect(report).toContain("pi_fetch");
+});
+
+test("the run budget cancels a runaway: by events, and by wall clock", async () => {
+  const { runner, children } = await freshRunner();
+  const meta = await runner.start(
+    BASE,
+    { keyFile: "/k", knownHostsFile: "/kh" },
+    { kind: "run", prompt: "runaway", maxEvents: 3 },
+  );
+  const child = only(children);
+  child.emit(`{"type":"session","id":"${SESSION}"}\n`);
+  for (let i = 0; i < 6; i++) child.emit(`{"type":"thinking","n":${i}}\n`);
+  await Bun.sleep(30);
+  expect(meta.state).toBe("cancelled");
+  expect(meta.error).toContain("budget exceeded (3 events)");
+
+  // Runtime budget: the clock is fake-past by more than the one-minute cap,
+  // so the deadline has already passed the moment the run starts.
+  const late = await freshRunner();
+  late.setNow(new Date(Date.now() - 61_000));
+  const timed = await late.runner.start(
+    BASE,
+    { keyFile: "/k", knownHostsFile: "/kh" },
+    { kind: "run", prompt: "slowpoke", maxRuntimeMinutes: 1 },
+  );
+  await Bun.sleep(50);
+  expect(timed.state).toBe("cancelled");
+  expect(timed.error).toContain("budget exceeded (1 min runtime)");
 });

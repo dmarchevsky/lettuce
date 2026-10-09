@@ -60,6 +60,9 @@ export interface PiSettings {
   workdir: string;
   /** Optional pi model id; null lets the remote pi use its own default. */
   model: string | null;
+  /** Run budget guards (0 = off): a run over either cancels itself, remotely. */
+  maxEvents: number;
+  maxRuntimeMinutes: number;
 }
 
 /** What the browser sees: the key is reduced to whether one is set. */
@@ -76,6 +79,8 @@ export const DEFAULT_PI_SETTINGS: PiSettings = {
   pathPrepend: "",
   workdir: "",
   model: null,
+  maxEvents: 0,
+  maxRuntimeMinutes: 0,
 };
 
 export class InvalidPiSettingsError extends Error {}
@@ -107,6 +112,11 @@ export function parsePiSettings(text: string | null): PiSettings {
     pathPrepend: typeof r.pathPrepend === "string" ? normalizePathPrepend(r.pathPrepend) : "",
     workdir: typeof r.workdir === "string" ? r.workdir : "",
     model: typeof r.model === "string" && r.model ? r.model : null,
+    maxEvents: Number.isInteger(r.maxEvents) && Number(r.maxEvents) > 0 ? Number(r.maxEvents) : 0,
+    maxRuntimeMinutes:
+      Number.isInteger(r.maxRuntimeMinutes) && Number(r.maxRuntimeMinutes) > 0
+        ? Number(r.maxRuntimeMinutes)
+        : 0,
   };
 }
 
@@ -154,6 +164,15 @@ export function applyPiSettingsUpdate(current: PiSettings, body: unknown): PiSet
       throw new InvalidPiSettingsError("`model` must be a string or null");
     }
     next.model = typeof r.model === "string" && r.model.trim() ? r.model.trim() : null;
+  }
+  for (const field of ["maxEvents", "maxRuntimeMinutes"] as const) {
+    if (field in r) {
+      const n = Number(r[field]);
+      if (!Number.isInteger(n) || n < 0 || n > (field === "maxEvents" ? 1_000_000 : 1440)) {
+        throw new InvalidPiSettingsError(`\`${field}\` must be an integer 0..limit (0 = off)`);
+      }
+      next[field] = n;
+    }
   }
   if (typeof r.privateKey === "string" && r.privateKey.trim()) {
     const key = r.privateKey.trimEnd();
