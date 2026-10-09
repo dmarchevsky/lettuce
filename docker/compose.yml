@@ -277,6 +277,14 @@ services:
       # and `claude` decide which Settings sections and integrations are on
       # (bff/src/config.ts). Same comma-separated string, no second setting.
       LETTA_MODE: ${COMPOSE_PROFILES:-local}
+      # What Settings → About lists as this deployment's components. The coding
+      # CLIs report their own version from inside the image (/opt/lettuce/
+      # features), but a sidecar has no version endpoint and the BFF cannot read
+      # Compose, so these pins are handed over as env — the same literal that
+      # picks the tag two services below, never a second copy of it.
+      SEARXNG_VERSION: ${SEARXNG_VERSION:-2026.10.9-9f042d2f6}
+      WORKSPACE_MCP_VERSION: ${WORKSPACE_MCP_VERSION:-1.29.0}
+      CLOUDFLARED_VERSION: ${CLOUDFLARED_VERSION:-2026.10.0}
       CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN:-}
       CF_ACCESS_AUD: ${CF_ACCESS_AUD:-}
       CF_ACCESS_ISSUER: ${CF_ACCESS_ISSUER:-}
@@ -492,7 +500,7 @@ services:
   # means cloudflared itself fails at startup with an auth error (see its own
   # logs) — scoped to this one container, not the rest of the stack.
   cloudflared:
-    image: cloudflare/cloudflared:2026.10.0
+    image: cloudflare/cloudflared:${CLOUDFLARED_VERSION:-2026.10.0}
     command: tunnel --no-autoupdate run
     profiles: ["cloudflared"]
     environment:

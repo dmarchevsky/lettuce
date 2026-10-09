@@ -17,6 +17,14 @@ FROM letta/letta:${LETTA_CODE_VERSION}
 
 ARG CODING_FEATURES=
 
+# The install manifest, read by the BFF on every connect. Always written, even
+# when empty — a missing file means an image that predates this mechanism, and
+# the BFF says so instead of guessing. Each line is `<name> <version>`, taken
+# from the CLI itself in the step that installs it, so About can show what the
+# image really runs instead of repeating a pin that a stale image disproves.
+# (An old image has bare names; the BFF reads a missing version as unknown.)
+RUN mkdir -p /opt/lettuce && : > /opt/lettuce/features
+
 # The real CLI stays off PATH; `codex` on PATH is always the shim
 # (codex-shim.mjs), installed even when the real CLI is not — its preflight
 # refusal ("not installed") is the clean answer for a worker task, and the BFF
@@ -24,7 +32,8 @@ ARG CODING_FEATURES=
 ARG CODEX_VERSION
 RUN case ",${CODING_FEATURES}," in *,codex,*) \
       npm install --global --prefix /opt/codex "@openai/codex@${CODEX_VERSION}" \
-      && /opt/codex/bin/codex --version ;; esac
+      && v="$(/opt/codex/bin/codex --version | grep -oE '[0-9]+\.[0-9]+[^ ]*' | head -1)" \
+      && test -n "$v" && printf 'codex %s\n' "$v" >> /opt/lettuce/features ;; esac
 
 # Same arrangement for Claude Code (`subagent_type: "claude-code"`): the real
 # CLI off PATH, `claude` on PATH is the shim (claude-shim.mjs), which injects
@@ -32,15 +41,8 @@ RUN case ",${CODING_FEATURES}," in *,codex,*) \
 ARG CLAUDE_CODE_VERSION
 RUN case ",${CODING_FEATURES}," in *,claude,*) \
       npm install --global --prefix /opt/claude-code "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
-      && /opt/claude-code/bin/claude --version ;; esac
-
-# The install manifest, read by the BFF on every connect. Always written, even
-# when empty — a missing file means an image that predates this mechanism, and
-# the BFF says so instead of guessing.
-RUN mkdir -p /opt/lettuce \
-    && : > /opt/lettuce/features \
-    && case ",${CODING_FEATURES}," in *,codex,*) printf 'codex\n' >> /opt/lettuce/features ;; esac \
-    && case ",${CODING_FEATURES}," in *,claude,*) printf 'claude\n' >> /opt/lettuce/features ;; esac
+      && v="$(/opt/claude-code/bin/claude --version | grep -oE '[0-9]+\.[0-9]+[^ ]*' | head -1)" \
+      && test -n "$v" && printf 'claude %s\n' "$v" >> /opt/lettuce/features ;; esac
 
 # Logs the real errno of a failed child spawn, which letta-code discards (a
 # subagent that could not start reports only "exited with code unknown"). In
@@ -82,4 +84,6 @@ RUN set -eu; \
       | tar -x -C /tmp; \
     install -m 755 "/tmp/gh_${GH_VERSION}_linux_${TARGETARCH}/bin/gh" /usr/local/bin/gh; \
     rm -rf /tmp/gh_*; \
-    gh --version
+    v="$(gh --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"; \
+    test -n "$v"; \
+    printf 'gh %s\n' "$v" >> /opt/lettuce/features

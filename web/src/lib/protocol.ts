@@ -77,6 +77,15 @@ export function parseScopeKey(key: string): [agentId: string, conversationId: st
 }
 
 /** Capability-discovery handshake, narrowed from the `unknown` wire payload. */
+/**
+ * One row of Settings → About's component list, as `/api/status` builds it
+ * (`bff/src/deployment.ts`). The BFF decides which rows exist; the UI renders them.
+ */
+export interface Component {
+  name: string;
+  version: string;
+}
+
 export interface AppServerInfo {
   backend: "local" | "api";
   letta_code_version: string;
