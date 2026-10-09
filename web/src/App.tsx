@@ -14,7 +14,7 @@ import {
 import { Icon } from "./components/Icon.tsx";
 import { MessageList } from "./components/MessageList.tsx";
 import { ModelPicker } from "./components/ModelPicker.tsx";
-import { PiRunsChip } from "./components/PiRunsChip.tsx";
+import { PiRunsChip, usePiActiveRuns } from "./components/PiRunsChip.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { Switcher } from "./components/Switcher.tsx";
 import type { PreparedImage } from "./lib/attachments.ts";
@@ -198,6 +198,8 @@ function Workspace({ status }: { status: Status }) {
   /** `?tab=runs&run=<id>`: the run card's and settle pushes' landing spot. */
   const [runsLink] = useState(readRunsDeepLink);
   const [tab, setTab] = useState<Tab>(runsLink.tab ? "Runs" : "Chat");
+  // One poll feeds both the Runs tab dot and the topbar chip.
+  const piActive = usePiActiveRuns(featureEnabled(status?.features, "pi"));
   /** The responding-conversations list behind the pulsing status dot. */
   const [activityOpen, setActivityOpen] = useState(false);
   /** The agents-and-conversations menu (phone); see `Switcher`. */
@@ -360,7 +362,7 @@ function Workspace({ status }: { status: Status }) {
             onOpen={() => setActivityOpen(true)}
           />
           {featureEnabled(status.features, "pi") ? (
-            <PiRunsChip onOpen={() => setTab("Runs")} />
+            <PiRunsChip active={piActive} onOpen={() => setTab("Runs")} />
           ) : null}
           {/* Settings shared by every agent. The selected agent's own are its
               Agent tab; this is the one way into the rest, at every width. */}
@@ -389,6 +391,7 @@ function Workspace({ status }: { status: Status }) {
               className={name === tab ? "active" : ""}
               onClick={() => setTab(name)}
             >
+              {name === "Runs" && piActive > 0 && <i className="tab-dot" aria-hidden="true" />}
               {name}
             </button>
           ))}

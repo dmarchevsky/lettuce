@@ -166,6 +166,23 @@ try {
       await runsTab.click();
       const runsBox = await overflow(page);
       check("the Runs tab has nothing clipped", runsBox.clipped.length === 0, runsBox);
+      // A run transcript must be scrollable inside the sheet; it used to be
+      // clipped by the fill sheet with no scroll region at all.
+      const firstRun = page.locator(".list .task button.row").first();
+      if ((await firstRun.count()) > 0) {
+        await firstRun.click();
+        await page.waitForSelector(".sheet-panel.fill .codex-run", { timeout: 5000 });
+        const scroller = await page.evaluate(() => {
+          const el = document.querySelector<HTMLElement>(".sheet-panel.fill .codex-run");
+          if (!el) return "missing";
+          const style = getComputedStyle(el);
+          return style.overflowY === "auto" ? "yes" : `overflow=${style.overflowY}`;
+        });
+        check("the run transcript scrolls inside its sheet", scroller === "yes", scroller);
+        // The phone sheet is full-screen, so the scrim has no exposed area.
+        await page.locator(".sheet-panel .sheet-close").click();
+        await page.waitForTimeout(200);
+      }
       await page.locator('nav.tabs button:text-is("Chat")').click();
     }
     check(

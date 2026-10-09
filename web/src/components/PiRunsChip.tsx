@@ -1,45 +1,55 @@
 import { useEffect, useState } from "react";
 import { fetchPiRuns } from "../lib/pi.ts";
 
+const IDLE_POLL_MS = 60_000;
+const LIVE_POLL_MS = 15_000;
+
 /**
- * "pi · N" — remote-pi runs still streaming right now, so "is any worker
- * still working?" is one glance at the topbar instead of a tab. Tap opens
- * the Runs tab. Polls every 15 s while something runs, 60 s otherwise; the
- * settle push covers the human case in between.
+ * How many remote-pi runs are currently running. Polls fast while something is
+ * active and slow while idle; disabled for agents that cannot use pi. Feeds
+ * both the Runs tab dot and the topbar chip.
  */
-export function PiRunsChip({ onOpen }: { onOpen: () => void }) {
-  const [count, setCount] = useState(0);
+export function usePiActiveRuns(enabled: boolean): number {
+  const [active, setActive] = useState(0);
 
   useEffect(() => {
-    let alive = true;
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    if (!enabled) {
+      setActive(0);
+      return;
+    }
+    let timer: ReturnType<typeof setTimeout>;
+    const schedule = (delay: number) => {
+      timer = setTimeout(tick, delay);
+    };
     const tick = async () => {
-      let running = 0;
       try {
-        running = (await fetchPiRuns(10)).filter((run) => run.status === "running").length;
+        const runs = await fetchPiRuns(10);
+        const n = runs.filter((run) => run.status === "running").length;
+        setActive(n);
+        schedule(n > 0 ? LIVE_POLL_MS : IDLE_POLL_MS);
       } catch {
-        // The route 404s when the token is off — there is simply no chip.
+        schedule(IDLE_POLL_MS);
       }
-      if (!alive) return;
-      setCount(running);
-      timer = setTimeout(() => void tick(), running > 0 ? 15_000 : 60_000);
     };
     void tick();
-    return () => {
-      alive = false;
-      if (timer) clearTimeout(timer);
-    };
-  }, []);
+    return () => clearTimeout(timer);
+  }, [enabled]);
 
-  if (count === 0) return null;
+  return active;
+}
+
+/** Compact topbar chip: "pi · N" while runs are active. */
+export function PiRunsChip({ active, onOpen }: { active: number; onOpen: () => void }) {
+  if (active <= 0) return null;
   return (
     <button
       type="button"
-      className="pill as-button pi-runs-chip"
+      className="chip pi-chip"
       onClick={onOpen}
-      title="Remote pi runs in progress"
+      title={`${active} remote pi run${active === 1 ? "" : "s"} running`}
     >
-      pi · {count}
+      <i className="tab-dot" aria-hidden="true" />
+      pi · {active}
     </button>
   );
 }

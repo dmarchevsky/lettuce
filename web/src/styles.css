@@ -141,6 +141,12 @@ pre {
     padding: 8px 3px;
     font-size: 13px;
   }
+  /* With the live-runs dot showing, shave every tab so the strip does not
+     grow by the dot's width — the 390px strip has zero slack. */
+  .tabs:has(.tab-dot) button {
+    padding: 8px 1px;
+    font-size: 12px;
+  }
 }
 
 .filters {
@@ -1655,7 +1661,8 @@ pre {
 }
 @media (prefers-reduced-motion: reduce) {
   .glyph-btn.halt.pending:disabled,
-  .activity-dot {
+  .activity-dot,
+  .tab-dot {
     animation: none;
   }
 }
@@ -1678,6 +1685,19 @@ pre {
    you are not looking at. */
 .activity-dot.badge-dot {
   margin: 0 0 0 6px;
+}
+/* Live remote-pi runs: green pulse left of the Runs tab label and inside the
+   topbar chip. Inline, so it costs layout width — the phone tab strip absorbs
+   it via the `.tabs:has(.tab-dot)` squeeze above. */
+.tab-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--ok);
+  vertical-align: middle;
+  animation: activity-pulse 1.6s ease-in-out infinite;
 }
 @keyframes activity-pulse {
   0%,
@@ -2247,12 +2267,19 @@ p.warning code {
 .sheet-panel.fill .memory-editor,
 .sheet-panel.fill .file-editor,
 .sheet-panel.fill .tool-args,
-.sheet-panel.fill .md-document {
+.sheet-panel.fill .md-document,
+.sheet-panel.fill .codex-run {
   flex: 1;
   min-height: 0;
   max-height: none;
   overflow: auto;
   resize: none;
+}
+/* A run transcript is read, not edited: give it a visible thin bar so the
+   clipping that replaced scrolling reads as scrollable on desktop. */
+.sheet-panel.fill .codex-run {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 30%, transparent) transparent;
 }
 /* A flex column stretches its children, which turns an inline link into a
    full-width button with centred text. Keep it the size of its label. */
