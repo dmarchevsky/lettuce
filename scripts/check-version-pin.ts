@@ -67,6 +67,14 @@ const SITES: Site[] = [
     pattern: /"@letta-ai\/letta-code":\s*"([^"]+)"/,
   },
   {
+    // The user-facing defaults table in the docs. It states the compose default,
+    // so a sync that missed it tells every reader the wrong version, and nothing
+    // else reads that file to find out.
+    file: "docs/CONFIGURATION.md",
+    label: "docs defaults table",
+    pattern: /`LETTA_CODE_VERSION` \| `([^`]+)`/,
+  },
+  {
     file: "docker/.env",
     label: "docker/.env (gitignored)",
     pattern: /^LETTA_CODE_VERSION=(.+)$/m,

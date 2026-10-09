@@ -462,7 +462,7 @@ letta-code checkout, no pre-built images.
 | `CF_ACCESS_TEAM_DOMAIN` | `acme` |
 | `CF_ACCESS_AUD` | Access application Audience tag |
 | `CLOUDFLARE_TUNNEL_TOKEN` | tunnel token |
-| `LETTA_CODE_VERSION` | must match the tracked pin — `bun run check-version-pin` |
+| `LETTA_CODE_VERSION` | do not set — `docker/compose.yml` carries the pin, and a value here silently outranks it through every later sync |
 | `BFF_BIND` | `127.0.0.1` |
 
 Optional: the three `PUSH_VAPID_*` values, `BFF_PORT`,

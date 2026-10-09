@@ -66,7 +66,7 @@ Everything the stack runs comes from a **published artifact**: the images are
 pin to, and quietly stops being the code the app-server runs. `sync-upstream.sh` now asserts
 both artifacts exist before re-pinning.
 
-**The version literal lives in six tracked places and they must move together:**
+**The version literal lives in seven tracked places and they must move together:**
 
 | File | Form |
 |---|---|
@@ -76,6 +76,7 @@ both artifacts exist before re-pinning.
 | `package.json` | `"@letta-ai/letta-code": "<v>"` |
 | `bff/package.json` | same |
 | `web/package.json` | same |
+| `docs/CONFIGURATION.md` | the `LETTA_CODE_VERSION` row of its defaults table — what a reader is told |
 
 `scripts/check-version-pin.ts` asserts they agree and runs first in `bun run verify`. Its
 app-server patterns are fenced to that service's block: a plain lazy match ran on into

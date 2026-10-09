@@ -202,6 +202,21 @@ cd "$UI_ROOT"
 sed -i -E "s|(\"@letta-ai/letta-code\": \")[^\"]+(\")|\1$VERSION\2|" \
   package.json bff/package.json web/package.json
 sed -i -E "s|(LETTA_CODE_VERSION:-)[^}]+(\})|\1$VERSION\2|g" docker/compose.yml
+# The docs' defaults table states the same default, so a sync that missed it told
+# every reader the wrong version. check-version-pin.ts counts it as a site now.
+# In JS rather than sed: the row is a markdown pair of backticked cells, and a
+# sed replacement of \1 followed by digits reads as group 19 and shreds the file.
+bun -e '
+const [file, version] = process.argv.slice(1);
+const text = await Bun.file(file).text();
+const next = text.replace(/`LETTA_CODE_VERSION` \| `[^`]+`/, () =>
+  "`LETTA_CODE_VERSION` | `" + version + "`");
+if (next === text) {
+  console.error(file + ": no pin row to rewrite in the docs defaults table");
+  process.exit(1);
+}
+await Bun.write(file, next);
+' docs/CONFIGURATION.md "$VERSION"
 
 bun install
 bun scripts/check-version-pin.ts || fail "Version pins disagree after the bump."
