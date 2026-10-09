@@ -5,6 +5,8 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.10.1-letta_0.34.9] - 2026-10-09
+
 ## [v0.10.0-letta_0.34.1] - 2026-10-09
 
 ### Added
