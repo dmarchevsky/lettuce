@@ -177,6 +177,21 @@ if (import.meta.main) {
     .catch(() => "");
 
   let failures = 0;
+
+  // A merge whose markers were committed. `git add -A` after resolving only one of several
+  // conflicted paths commits the rest with the markers in them — and a changelog with markers
+  // in it passed typecheck, tests, CI hygiene and the release preflight, and only then did
+  // anything notice, because nothing else reads the text. The pattern is git's own line start.
+  const markers = git("grep", "-I", "--name-only", "-E", "^<<<<<<< ", "--", ".");
+  if (markers) {
+    console.error(
+      `  FAIL  committed merge conflict markers in:\n        ${markers.split("\n").join("\n        ")}`,
+    );
+    failures += 1;
+  } else {
+    console.log("  PASS  no committed merge conflict markers");
+  }
+
   for (const error of reviewReleaseState(versionText, changelogText)) {
     console.error(`  FAIL  ${error}`);
     failures += 1;
