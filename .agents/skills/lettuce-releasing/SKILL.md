@@ -56,7 +56,8 @@ v<MAJOR>.<MINOR>.<PATCH>-letta_<LETTA_CODE_VERSION>     e.g. v0.1.0-letta_0.33.7
   one line, bumped in the same commit that is tagged. The bff image `COPY`s it and the
   BFF serves it at `/api/status` (authenticated branch only — the route's
   no-fingerprinting rule stands), which is how Settings → About shows
-  the "lettuce" row (About no longer shows a letta-code version row). The image cannot derive it: `.dockerignore` excludes
+  the "lettuce" row (the letta-code row in Settings → About is the live handshake's version,
+  not this file's suffix). The image cannot derive it: `.dockerignore` excludes
   `.git/` and the image carries no `git`, so `git describe` at build time is
   impossible. `deploy-check` asserts `VERSION` agrees with the tag pointing at `HEAD`.
 - Tags and `VERSION` are the **only** version record. No `version` field in any

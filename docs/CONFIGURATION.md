@@ -151,7 +151,9 @@ unless the dev bypass is active. Local mode never reads them.
 
 Every third-party thing the stack runs is pinned. `bun run check-version-pin`
 verifies every copy agrees; leave these alone unless you are deliberately
-upgrading.
+upgrading. Settings → About reports the version of each of these for the running
+install — the coding CLIs by `--version` inside the app-server image, letta-code from
+the app-server's own handshake, the sidecars from the tag compose pulled.
 
 | Variable | Default | Pins |
 |---|---|---|
