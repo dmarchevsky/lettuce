@@ -194,12 +194,19 @@ sed -i -E "s|(\"@letta-ai/letta-code\": \")[^\"]+(\")|\1$VERSION\2|" \
 sed -i -E "s|(LETTA_CODE_VERSION:-)[^}]+(\})|\1$VERSION\2|g" docker/compose.yml
 
 bun install
+# docker/.env is gitignored, so it is the one pin site a sync would otherwise leave
+# behind — and a stale value there outranks compose's default and builds the old image.
+if [[ -f docker/.env ]] && grep -q '^LETTA_CODE_VERSION=' docker/.env; then
+  sed -i -E "s|^LETTA_CODE_VERSION=.*|LETTA_CODE_VERSION=$VERSION|" docker/.env
+  echo "  docker/.env LETTA_CODE_VERSION -> $VERSION"
+fi
 bun scripts/check-version-pin.ts || fail "Version pins disagree after the bump."
 
 say "Typechecking UI against the new protocol"
 if bun run typecheck; then
   say "Sync complete. No typed protocol breakage."
-  echo "  docker/.env is gitignored — update LETTA_CODE_VERSION there by hand if you set it."
+  echo "  A host whose docker/.env sets LETTA_CODE_VERSION needs the same value before "
+  echo "  its next deploy — the stale-pin story: docs/upstream-notes.md#stale-pin-story."
   echo "  A version bump is a full rebuild: docker compose -f docker/compose.yml up -d --build"
 else
   fail "Typecheck failed — the protocol changed under us. Fix the UI — upstream is not ours to patch."

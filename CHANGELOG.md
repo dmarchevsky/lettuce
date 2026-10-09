@@ -9,6 +9,7 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 - Claude Code workers can run on your Claude subscription: Settings → Claude Code → Sign in with **Claude subscription**, then paste the token `claude setup-token` prints on any computer with a browser. Endpoint mode is unchanged and keeps its own settings.
 
 ### Changed
+- Synced letta-code 0.34.1 → 0.34.8: agents with the new memfs memory layout get a read-only **Memory** tool for browsing their own memory tree, workflow runs report per-phase progress and token counts, subagents can nest one layer and report back to the parent that spawned them, tool returns and user messages are scanned and redacted for anything matching a stored secret, and a scheduled (cron) turn now runs even when no client is attached. The app-server image is rebuilt, so the deploy recreates `app-server` and drops any turn in flight.
 - Claude Code CLI 2.1.285 → 2.1.289. The app-server image is rebuilt, so the deploy recreates `app-server`.
 
 ## [v0.9.0-letta_0.34.1] - 2026-10-08
