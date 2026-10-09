@@ -2,7 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AgentToolAccessStore, agentsWhere, parseToolAccess } from "./tool-access.ts";
+import {
+  type AgentToolAccess,
+  AgentToolAccessStore,
+  agentsWhere,
+  DEFAULT_TOOL_ACCESS,
+  inheritAccess,
+  parseToolAccess,
+} from "./tool-access.ts";
 
 const fileIn = () => join(mkdtempSync(join(tmpdir(), "tool-access-")), "agent-tool-access.json");
 
@@ -118,5 +125,38 @@ describe("AgentToolAccessStore", () => {
         (a) => !a.claude,
       ),
     ).toEqual(["agent-a", "agent-m"]);
+  });
+});
+
+describe("inheritAccess", () => {
+  const entries: Record<string, AgentToolAccess> = {
+    "agent-a": { codex: false, claude: true, google: "read", pi: true },
+    "agent-b": { codex: true, claude: false, google: "off", pi: true },
+    "agent-c": { codex: true, claude: true, google: "full", pi: false },
+  };
+  const read = (agentId: string) => entries[agentId] ?? DEFAULT_TOOL_ACCESS;
+
+  test("an agent on its own keeps exactly its own access", () => {
+    expect(inheritAccess(["agent-a"], read)).toEqual({
+      codex: false,
+      claude: true,
+      google: "read",
+      pi: true,
+    });
+    expect(inheritAccess(["agent-new"], read)).toEqual(DEFAULT_TOOL_ACCESS);
+  });
+
+  test("a subagent loses whatever any ancestor lost", () => {
+    // agent-b (no claude, google off) spawned agent-c (no pi) under agent-a (no codex).
+    expect(inheritAccess(["agent-c", "agent-b", "agent-a"], read)).toEqual({
+      codex: false,
+      claude: false,
+      google: "off",
+      pi: false,
+    });
+    // Google keeps the narrowest level, not the last one.
+    expect(inheritAccess(["agent-c", "agent-a"], read).google).toBe("read");
+    // An unrestricted agent under an unrestricted agent keeps everything.
+    expect(inheritAccess(["agent-new", "agent-plain"], read)).toEqual(DEFAULT_TOOL_ACCESS);
   });
 });

@@ -90,6 +90,14 @@ describe("summarizeToolCall", () => {
     ).toEqual({ headline: "str_replace  system/human.md", mono: true, subtitle: "note" });
   });
 
+  test("the Memory tool reads as the path it looked at", () => {
+    expect(summarize("Memory", `{"path":"projects/code"}`)).toEqual({
+      headline: "projects/code",
+      mono: true,
+    });
+    expect(summarize("Memory", `{}`)).toBeNull();
+  });
+
   test("snake_case aliases from the other toolsets are recognised", () => {
     expect(summarize("read_file", `{"path":"${CWD}/x.ts"}`)?.headline).toBe("x.ts");
   });

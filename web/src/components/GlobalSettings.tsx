@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { type FeatureFlags, type FeatureName, featureEnabled } from "../lib/features.ts";
-import type { LinkState } from "../lib/session-client.ts";
+import type { Component } from "../lib/protocol.ts";
 import { defaultStorage, readStored } from "../lib/storage.ts";
 import { useBackToClose } from "../state/use-back-to-close.ts";
 import type { SessionApi } from "../state/use-session.ts";
@@ -131,6 +131,8 @@ interface Props {
   authMode: "cf-access" | "dev-bypass" | "none";
   /** This build's release tag from `/api/status`; absent on an untagged dev run. */
   version?: string;
+  /** This deployment's components with their versions, from `/api/status`. */
+  components?: Component[];
   /**
    * Profile-gated sections from `/api/status`: a section whose token is off
    * does not appear at all — the integration behind it cannot be configured,
@@ -160,6 +162,7 @@ export function GlobalSettings({
   user,
   authMode,
   version,
+  components,
   features,
   initialSection,
   onClose,
@@ -215,7 +218,7 @@ export function GlobalSettings({
     ),
     notifications: () => <NotificationsSection />,
     about: () => (
-      <AboutSection session={session} user={user} authMode={authMode} version={version} />
+      <AboutSection user={user} authMode={authMode} version={version} components={components} />
     ),
   };
 
@@ -282,15 +285,6 @@ export function GlobalSettings({
   );
 }
 
-const LINK_LABELS: Record<LinkState, string> = {
-  live: "Live",
-  connecting: "Connecting…",
-  reconnecting: "Reconnecting…",
-  resyncing: "Resyncing…",
-  offline: "Offline",
-  "signed-out": "Signed out",
-};
-
 const AUTH_LABELS: Record<Props["authMode"], string> = {
   "cf-access": "Cloudflare Access",
   "dev-bypass": "Developer bypass (not authenticated)",
@@ -298,32 +292,47 @@ const AUTH_LABELS: Record<Props["authMode"], string> = {
 };
 
 function AboutSection({
-  session,
   user,
   authMode,
   version,
+  components,
 }: {
-  session: SessionApi;
   user: Props["user"];
   authMode: Props["authMode"];
   version?: string;
+  components?: Component[];
 }) {
-  const info = session.appServerInfo;
   const rows: [string, ReactNode][] = [
     ["Signed in as", user?.email ?? "—"],
     ["Sign-in", AUTH_LABELS[authMode]],
-    ["Connection", LINK_LABELS[session.link]],
     ["lettuce", version ?? "—"],
-    ["Backend", info?.backend ?? "—"],
   ];
   return (
-    <ul className="list">
-      {rows.map(([label, value]) => (
-        <li key={label} className="row-between pad">
-          <span className="muted">{label}</span>
-          <span>{value}</span>
-        </li>
-      ))}
-    </ul>
+    <>
+      <ul className="list">
+        {rows.map(([label, value]) => (
+          <li key={label} className="row-between pad">
+            <span className="muted">{label}</span>
+            <span>{value}</span>
+          </li>
+        ))}
+      </ul>
+      {/* What this deployment runs. The BFF decides which rows exist — it knows
+          which profile tokens are on and what the app-server image really has —
+          so this renders the list as given. */}
+      {components && components.length > 0 ? (
+        <>
+          <p className="section-note">Components</p>
+          <ul className="list">
+            {components.map((component) => (
+              <li key={component.name} className="row-between pad">
+                <span className="muted">{component.name}</span>
+                <span>{component.version}</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+    </>
   );
 }

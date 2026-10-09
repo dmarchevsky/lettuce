@@ -71,12 +71,12 @@ services:
     build:
       context: codex
       args:
-        LETTA_CODE_VERSION: ${LETTA_CODE_VERSION:-0.34.1}
-        CODEX_VERSION: ${CODEX_VERSION:-0.157.1}
-        GH_VERSION: ${GH_VERSION:-2.101.0}
-        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-2.1.289}
+        LETTA_CODE_VERSION: ${LETTA_CODE_VERSION:-0.34.9}
+        CODEX_VERSION: ${CODEX_VERSION:-0.162.0}
+        GH_VERSION: ${GH_VERSION:-2.102.0}
+        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-2.1.295}
         CODING_FEATURES: ${COMPOSE_PROFILES:-}
-    image: lettuce-app-server:${LETTA_CODE_VERSION:-0.34.1}-codex${CODEX_VERSION:-0.157.1}-gh${GH_VERSION:-2.101.0}-claude${CLAUDE_CODE_VERSION:-2.1.289}
+    image: lettuce-app-server:${LETTA_CODE_VERSION:-0.34.9}-codex${CODEX_VERSION:-0.162.0}-gh${GH_VERSION:-2.102.0}-claude${CLAUDE_CODE_VERSION:-2.1.295}
     # An init process as PID 1, so exited orphans are reaped. Without it PID 1
     # is `node … letta server`, which waits only on children it spawned: every
     # process an agent shell backgrounds (`&`, nohup, servers) and outlives is
@@ -277,6 +277,15 @@ services:
       # and `claude` decide which Settings sections and integrations are on
       # (bff/src/config.ts). Same comma-separated string, no second setting.
       LETTA_MODE: ${COMPOSE_PROFILES:-local}
+      # What Settings → About lists as this deployment's components. The coding
+      # CLIs report their own version from inside the image (/opt/lettuce/
+      # features), but a sidecar has no version endpoint and the BFF cannot read
+      # Compose, so these pins are handed over as env — the same literal that
+      # picks the tag two services below, never a second copy of it.
+      SEARXNG_VERSION: ${SEARXNG_VERSION:-2026.10.9-9f042d2f6}
+      DDG_MCP_VERSION: ${DDG_MCP_VERSION:-0.7.0}
+      WORKSPACE_MCP_VERSION: ${WORKSPACE_MCP_VERSION:-2.1.0}
+      CLOUDFLARED_VERSION: ${CLOUDFLARED_VERSION:-2026.10.0}
       CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN:-}
       CF_ACCESS_AUD: ${CF_ACCESS_AUD:-}
       CF_ACCESS_ISSUER: ${CF_ACCESS_ISSUER:-}
@@ -364,7 +373,7 @@ services:
   channel-gateway:
     profiles: ["telegram"]
     # Upstream's published image, used as-is — same image as the app-server.
-    image: letta/letta:${LETTA_CODE_VERSION:-0.34.1}
+    image: letta/letta:${LETTA_CODE_VERSION:-0.34.9}
     depends_on:
       app-server:
         condition: service_healthy
@@ -413,8 +422,8 @@ services:
     build:
       context: searxng
       args:
-        SEARXNG_VERSION: ${SEARXNG_VERSION:-2026.9.23-3cd69d30e}
-    image: lettuce-searxng:${SEARXNG_VERSION:-2026.9.23-3cd69d30e}
+        SEARXNG_VERSION: ${SEARXNG_VERSION:-2026.10.9-9f042d2f6}
+    image: lettuce-searxng:${SEARXNG_VERSION:-2026.10.9-9f042d2f6}
     environment:
       TZ: ${TZ:-America/Los_Angeles}
     restart: unless-stopped
@@ -461,8 +470,8 @@ services:
     build:
       context: google-mcp
       args:
-        WORKSPACE_MCP_VERSION: ${WORKSPACE_MCP_VERSION:-1.29.0}
-    image: lettuce-google-mcp:${WORKSPACE_MCP_VERSION:-1.29.0}
+        WORKSPACE_MCP_VERSION: ${WORKSPACE_MCP_VERSION:-2.1.0}
+    image: lettuce-google-mcp:${WORKSPACE_MCP_VERSION:-2.1.0}
     environment:
       TZ: ${TZ:-America/Los_Angeles}
     volumes:
@@ -492,7 +501,7 @@ services:
   # means cloudflared itself fails at startup with an auth error (see its own
   # logs) — scoped to this one container, not the rest of the stack.
   cloudflared:
-    image: cloudflare/cloudflared:2026.8.3
+    image: cloudflare/cloudflared:${CLOUDFLARED_VERSION:-2026.10.0}
     command: tunnel --no-autoupdate run
     profiles: ["cloudflared"]
     environment:

@@ -80,8 +80,9 @@ invisible to the app-server.
 
 Why: `letta-code/src/websocket/listener/connection-lifecycle.ts` — when a connection closes and no
 other *subscribed* connection remains for that `(agent_id, conversation_id)` scope, the app-server
-cancels and **kills the in-flight turn**, drops its queued messages, rejects its pending approvals and
-kills its terminals. A phone backgrounding a tab drops its socket in seconds; because the BFF owns the
+cancels and **kills the in-flight turn**, rejects its pending approvals and kills its terminals —
+since 0.34.2 it keeps queued messages (process-owned, run when a subscribed connection returns).
+A phone backgrounding a tab drops its socket in seconds; because the BFF owns the
 connection, none of that cleanup runs.
 
 Corollaries — do not break these:

@@ -24,7 +24,7 @@ import { type FeatureFlags, featureEnabled } from "./lib/features.ts";
 import { userHistory } from "./lib/input-history.ts";
 import { type FilterGroup, filterEntries, toggleShown } from "./lib/messages.ts";
 import { readRunsDeepLink } from "./lib/pi.ts";
-import { type RuntimeScope, scopeKey } from "./lib/protocol.ts";
+import { type Component, type RuntimeScope, scopeKey } from "./lib/protocol.ts";
 import type { LinkState } from "./lib/session-client.ts";
 import { readSettingsDeepLink } from "./lib/settings-link.ts";
 import {
@@ -52,6 +52,8 @@ interface Status {
   version?: string;
   /** Which integrations this deployment offers; absent (older BFF) = all on. */
   features?: FeatureFlags;
+  /** This deployment's components with their versions (Settings → About). */
+  components?: Component[];
 }
 
 const TABS = ["Chat", "Files", "Tasks", "Runs", "Tools", "Agent"] as const;
@@ -592,6 +594,7 @@ function Workspace({ status }: { status: Status }) {
           authMode={status.auth_mode}
           version={status.version}
           features={status.features}
+          components={status.components}
           initialSection={globalSettings.section}
           onClose={closeGlobalSettings}
         />

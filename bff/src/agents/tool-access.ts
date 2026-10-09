@@ -151,3 +151,28 @@ export function agentsWhere(
     .map(([agentId]) => agentId)
     .sort();
 }
+
+const GOOGLE_RANK: Record<GoogleAccess, number> = { off: 0, read: 1, full: 2 };
+
+/**
+ * What an agent may use once its ancestors count: a family is on only when every
+ * agent in the chain has it on, and Google keeps the narrowest level. `chain` is
+ * `AgentAncestry.chain` output (self first); `read` is the store lookup.
+ */
+export function inheritAccess(
+  chain: readonly string[],
+  read: (agentId: string) => AgentToolAccess,
+): AgentToolAccess {
+  const entries = chain.map(read);
+  if (entries.length === 0) return { ...DEFAULT_TOOL_ACCESS };
+  let google = "full" as GoogleAccess;
+  for (const entry of entries) {
+    if (GOOGLE_RANK[entry.google] < GOOGLE_RANK[google]) google = entry.google;
+  }
+  return {
+    codex: entries.every((entry) => entry.codex),
+    claude: entries.every((entry) => entry.claude),
+    pi: entries.every((entry) => entry.pi),
+    google,
+  };
+}

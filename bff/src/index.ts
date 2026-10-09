@@ -15,8 +15,14 @@ import type { ServerWebSocket } from "bun";
 import { type Context, Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { installAgentSkills, readSkillTree } from "./agent-skills.ts";
+import { AgentAncestry } from "./agents/ancestry.ts";
 import { AgentIdList, isAgentId } from "./agents/id-list.ts";
-import { AgentToolAccessStore, agentsWhere, parseToolAccess } from "./agents/tool-access.ts";
+import {
+  AgentToolAccessStore,
+  agentsWhere,
+  inheritAccess,
+  parseToolAccess,
+} from "./agents/tool-access.ts";
 import { checkUpgradeOrigin } from "./auth/origin.ts";
 import { resolveSession } from "./auth/resolve-session.ts";
 import {
@@ -54,6 +60,14 @@ import {
   isAllowedUser,
   loadConfig,
 } from "./config.ts";
+import {
+  CODING_MARKER_LEGACY_PATH,
+  CODING_MARKER_PATH,
+  type CodingMarker,
+  type Component,
+  deploymentComponents,
+  parseCodingMarker,
+} from "./deployment.ts";
 import { errorMessage } from "./errors.ts";
 import { contentDisposition } from "./files/content-disposition.ts";
 import { inlineContentType } from "./files/content-type.ts";
@@ -179,6 +193,17 @@ const agentToolAccess = new AgentToolAccessStore(config.agentToolAccessFile, (er
 // A call with no agent id (an agent shell's curl) gets the default: this is availability, not a boundary.
 const googleAccessFor = (agentId: string | null) =>
   agentId ? agentToolAccess.get(agentId).google : "full";
+// A subagent's own id is in no stored entry, so what it may start is decided by
+// its ancestors too — letta-code tags every spawned subagent `parent:<id>`.
+const agentAncestry = new AgentAncestry(async (agentId) => {
+  const response = await upstream.request<AgentRetrieveResponseMessage>(
+    { type: "agent_retrieve", request_id: `bff-agent-tags-${randomUUID()}`, agent_id: agentId },
+    10_000,
+  );
+  return response.success ? (response.agent?.tags ?? []) : [];
+});
+const workerAccessFor = async (agentId: string) =>
+  inheritAccess(await agentAncestry.chain(agentId), (id) => agentToolAccess.get(id));
 // Push titles name the agent. Looked up through the permanent connection and
 // cached; a failed lookup falls back to "Lettuce" rather than delaying the push.
 const agentNames = new AgentNames(async (agentId) => {
@@ -326,9 +351,7 @@ const codexIo: CodexFileIo = {
 // The marker moved to /opt/lettuce with the `letta-ui` rename; the old path is
 // still tried because the marker lives in the image, and the image is only
 // rebuilt when letta-code is bumped.
-const CODING_MARKER_PATH = "/opt/lettuce/features";
-const CODING_MARKER_LEGACY_PATH = "/opt/letta-ui/features";
-let codingInstalled: string[] | null = null;
+let codingMarker: CodingMarker | null = null;
 
 async function checkCodingMarker(): Promise<void> {
   const text = await readRenamed(codexIo, CODING_MARKER_PATH, CODING_MARKER_LEGACY_PATH);
@@ -339,21 +362,30 @@ async function checkCodingMarker(): Promise<void> {
     );
     return;
   }
-  codingInstalled = text
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
+  codingMarker = parseCodingMarker(text);
   for (const [name, on] of [
     ["codex", config.features.codex],
     ["claude", config.features.claude],
   ] as const) {
-    if (on && !codingInstalled.includes(name)) {
+    if (on && !codingMarker.names.includes(name)) {
       log(
         `! ${name} is enabled by COMPOSE_PROFILES but is not installed in the app-server image — ` +
           `rebuild it: docker compose -f docker/compose.yml build app-server && … up -d`,
       );
     }
   }
+}
+
+/** Settings → About's version list — see `deployment.ts` for where each comes from. */
+function deploymentRows(): Component[] {
+  return deploymentComponents({
+    features: config.features,
+    tunnel: config.mode === "cloudflared",
+    pinVersions: config.pinVersions,
+    webReader: config.webTools.ddgMcpUrl !== null,
+    marker: codingMarker,
+    lettaCodeVersion: upstream.getInfo()?.letta_code_version ?? null,
+  });
 }
 
 // Claude Code workers' files, over the same channel as Codex's — plus the
@@ -620,6 +652,7 @@ async function renderAllMods(): Promise<RenderedMod[]> {
       source: renderAgentPolicyMod({
         codexBlocked: agentsWhere(access, (a) => !a.codex),
         claudeBlocked: agentsWhere(access, (a) => !a.claude),
+        accessBase: `http://127.0.0.1:${config.port}`,
       }),
     },
   ];
@@ -860,7 +893,9 @@ app.get("/api/status", (c) => {
     // What the app-server image actually has installed; null until read, or
     // when the image predates the marker. Compare against `features` — a token
     // on with the CLI missing is a stale image, which the connect log also says.
-    coding_installed: codingInstalled,
+    coding_installed: codingMarker?.names ?? null,
+    // Settings → About's version list; see `deployment.ts`.
+    components: deploymentRows(),
     upstream: {
       state: upstream.getState(),
       info: upstream.getInfo(),
@@ -2033,6 +2068,7 @@ const server = Bun.serve<SocketData>({
       request,
       bunServer.requestIP(request)?.address,
       () => toolHandlers,
+      workerAccessFor,
     );
     if (internal) return internal;
 

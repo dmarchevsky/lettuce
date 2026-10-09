@@ -166,6 +166,13 @@ export function summarizeToolCall(
       return todos === null ? null : { headline: plural(todos, "todo") };
     }
 
+    // letta-code 0.34.7: read-only discovery of deferred memfs-v2 memory. The
+    // path is already relative to the memory dir, so it needs no shortening.
+    case "Memory": {
+      const target = path("path");
+      return target ? { headline: target, mono: true } : null;
+    }
+
     case "memory": {
       const command = str(args, "command");
       const file = str(args, "file_path");

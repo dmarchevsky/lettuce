@@ -20,11 +20,24 @@ Protocol drift shows up two ways:
    matching the running image), so `bun run typecheck` fails on any breaking protocol change.
 2. **Behavioral** — types will NOT catch these; the sync script flags changes to:
    - `src/websocket/listener/connection-lifecycle.ts` — the turn-cancellation semantics above.
+     0.34 keeps them for a normal listener socket (the last subscribed connection closing still
+     cancels with `cause: "transport"`), but a close no longer *drops* queued messages: they are
+     detached (`connectionId: undefined`) and the queue pump runs them when a subscribed
+     connection returns. So a BFF restart mid-queue now replays the queue instead of losing it —
+     verify dedup in the ring buffer, do not assume the drop.
+   - `src/types/turn-finished-protocol.ts` (new since 0.34.2) — `input.terminal_consumer_id`,
+     `turn_finished.terminal_consumer_ids` and a `turn_finished_ack` command: a durable, acked,
+     fsynced terminal journal for clients that declare a consumer id. **Dormant for us** — the BFF
+     sends no `terminal_consumer_id`, and upstream sets it only when the client does. That same
+     durable ledger capped an accepted input at 1 MiB until 0.34.9 raised it to 21 MiB: a queued
+     message carrying an inline base64 photo used to be dropped with no error at all.
    - `src/channels/gateway-supervisor.ts` and `src/channels/gateway-local.ts` — if the gateway
      ever gains `--ws-auth`, the shared-network-namespace workaround can be dropped.
    - `src/types/background-process-protocol.ts` — `readBackgroundProcesses` hand-parses these
      and drops unknown kinds. 0.33 made `workflow` a native kind (it used to arrive as `bash`
      with a `workflow_N` id); a missed new kind vanishes from the Tasks tab without a type error.
+     0.34 added an optional `progress` to a running `workflow` (`agents_total/done/failed/running`,
+     `total_tokens`, per-phase) — nothing breaks without it, the Tasks tab just cannot show it.
    - `src/tools/toolset-catalog.ts` — which tools agents actually get. 0.33 removed `memory`,
      `MultiEdit`, `TodoWrite` and the Codex shell aliases, and added `Wake` (durable timed
      follow-ups stored in the local cron scheduler — so they fire only because the BFF's
@@ -37,7 +50,12 @@ Protocol drift shows up two ways:
      [`docs/CONFIGURATION.md` → GitHub (WatchPR)](../../../docs/CONFIGURATION.md#github-watchpr).
      0.34.1 removed `AskUserQuestion` from every featured toolset — the async question tool is
      offered only through `client_preferences.toolset.include`, which our BFF stamps on every
-     browser message (see the `lettuce-transcript-and-streaming` skill).
+     browser message (see the `lettuce-transcript-and-streaming` skill). 0.34.7 put a `Memory`
+     tool back in three toolsets: read-only progressive discovery of *deferred* MemFS v2 memory
+     (a `path` arg; it lists a directory's `MEMORY.md` and its children). It is gated on the
+     agent's memory dir actually being memfs-v2 with a root `MEMORY.md`, and the permission
+     checker auto-allows it outside Strict mode. `web/src/lib/working.ts` and `tool-summary.ts`
+     still only know the old lowercase `memory` — `Memory` needs its own verb/summary.
 
 ### Version pinning
 
@@ -48,7 +66,7 @@ Everything the stack runs comes from a **published artifact**: the images are
 pin to, and quietly stops being the code the app-server runs. `sync-upstream.sh` now asserts
 both artifacts exist before re-pinning.
 
-**The version literal lives in six tracked places and they must move together:**
+**The version literal lives in seven tracked places and they must move together:**
 
 | File | Form |
 |---|---|
@@ -58,14 +76,20 @@ both artifacts exist before re-pinning.
 | `package.json` | `"@letta-ai/letta-code": "<v>"` |
 | `bff/package.json` | same |
 | `web/package.json` | same |
-| `docker/.env` | `LETTA_CODE_VERSION=<v>` — gitignored, so it drifts unseen |
+| `docs/CONFIGURATION.md` | the `LETTA_CODE_VERSION` row of its defaults table — what a reader is told |
 
 `scripts/check-version-pin.ts` asserts they agree and runs first in `bun run verify`. Its
 app-server patterns are fenced to that service's block: a plain lazy match ran on into
 channel-gateway's image line once the app-server stopped naming `letta/letta` directly.
-`docker/.env` is reported but never fatal — it cannot be fixed from a fresh clone.
 `sync-upstream.sh` rewrites all of them for you (its sed replaces every
 `LETTA_CODE_VERSION:-…}`).
+
+**`docker/.env` must not set `LETTA_CODE_VERSION` at all.** Compose reads that file and its value
+outranks compose's own default, so a leftover freezes the host on an older release and survives
+every later sync. `check-version-pin.ts` prints one as a `!` to be deleted, and `sync-upstream.sh`
+deletes it wherever it finds one — before its "already synced" exit, so re-running the command
+cleans a host whose only problem is that line. A host that genuinely needs an override passes it in
+the shell environment, where the command that set it is visible.
 
 **The trap that hides a stale pin:** a shell `LETTA_CODE_VERSION` outranks `docker/.env` in
 Compose's precedence order — that is how `.env` once sat a whole cycle behind unseen; story:

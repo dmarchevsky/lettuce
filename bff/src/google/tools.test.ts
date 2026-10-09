@@ -9,8 +9,8 @@ import {
 } from "../mcp-bridge/catalog.ts";
 import type { ListedTool, McpClientPort } from "../mcp-bridge/client.ts";
 import { bridgeHandlers, resolveTool, toolsForAgent } from "../mcp-bridge/tools.ts";
-import fullFixture from "./fixtures/workspace-mcp-1.29.0.full.json";
-import readonlyFixture from "./fixtures/workspace-mcp-1.29.0.readonly.json";
+import fullFixture from "./fixtures/workspace-mcp-2.1.0.full.json";
+import readonlyFixture from "./fixtures/workspace-mcp-2.1.0.readonly.json";
 import {
   availableGoogleTools,
   CURATED_GOOGLE_TOOLS,
@@ -47,7 +47,7 @@ async function catalogOf(listing: ListedTool[], servers: McpServer[] = [google])
 // ── The fixture is the contract with workspace-mcp ──────────────────────────
 // Recorded from the pinned image (WORKSPACE_MCP_VERSION) — refresh it on every
 // bump; these tests are what then say whether the curated mappings still fit.
-describe("curated Google tools against workspace-mcp 1.29.0", () => {
+describe("curated Google tools against workspace-mcp 2.1.0", () => {
   const byName = new Map(full.map((t) => [t.name, t]));
 
   test("every tool a curated tool needs exists", () => {

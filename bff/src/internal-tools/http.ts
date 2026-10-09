@@ -19,6 +19,19 @@ import type { ToolAnswer, ToolHandler } from "./types.ts";
 
 export const INTERNAL_PREFIX = "/internal/tools/";
 /**
+ * `GET /internal/agent-access/<agentId>` — what the agent-policy mod asks about
+ * an agent it has never seen (a subagent of one the UI blocked, which carries its
+ * own id: `agents/ancestry.ts`). Answered from the BFF because only the BFF can
+ * walk letta-code's `parent:` tags over the upstream connection.
+ */
+export const ACCESS_PREFIX = "/internal/agent-access/";
+
+/** The worker families an agent may start, ancestors included. */
+export interface WorkerAccess {
+  codex: boolean;
+  claude: boolean;
+}
+/**
  * The first web-tools mod (v1) called these paths; a v1 file stays on disk
  * until the BFF's next connect re-renders it, so they keep answering.
  */
@@ -57,10 +70,19 @@ export async function handleInternalTools(
   request: Request,
   clientAddress: string | null | undefined,
   handlers: () => ReadonlyMap<string, ToolHandler>,
+  workerAccess?: (agentId: string) => Promise<WorkerAccess>,
 ): Promise<Response | null> {
   const { pathname } = new URL(request.url);
   if (!pathname.startsWith("/internal/")) return null;
   if (!isLoopback(clientAddress)) return new Response("Not found", { status: 404 });
+  if (pathname.startsWith(ACCESS_PREFIX)) {
+    const agentId = decodeURIComponent(pathname.slice(ACCESS_PREFIX.length));
+    if (!workerAccess || !isAgentId(agentId)) return new Response("Not found", { status: 404 });
+    const access = await workerAccess(agentId);
+    return new Response(JSON.stringify({ codex: access.codex, claude: access.claude }), {
+      headers: { "content-type": "application/json" },
+    });
+  }
   const name = toolNameOf(pathname);
   const handler = name ? handlers().get(name) : undefined;
   if (request.method !== "POST" || !handler) return new Response("Not found", { status: 404 });

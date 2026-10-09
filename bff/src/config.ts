@@ -87,6 +87,14 @@ export interface BffConfig {
    * is token AND switch, enforced at every availability decision.
    */
   features: FeatureFlags;
+  /**
+   * Image versions for the pieces that cannot report one: a sidecar has no
+   * version endpoint and the BFF cannot read Compose, so compose hands over the
+   * same literal that picks the tag (docker/compose.yml) and Settings → About
+   * shows it. The coding CLIs are measured inside the image instead
+   * (`/opt/lettuce/features`), because a stale image disproves a pin.
+   */
+  pinVersions: { searxng: string; googleMcp: string; cloudflared: string; ddgMcp: string };
 }
 
 /** The profile-gated integrations. See `BffConfig.features`. */
@@ -424,6 +432,12 @@ export function loadConfig(): BffConfig {
       allowDevBypass: process.env.GOOGLE_ALLOW_DEV_BYPASS?.trim() === "true",
     },
     features: readFeatures(),
+    pinVersions: {
+      searxng: process.env.SEARXNG_VERSION?.trim() ?? "",
+      googleMcp: process.env.WORKSPACE_MCP_VERSION?.trim() ?? "",
+      cloudflared: process.env.CLOUDFLARED_VERSION?.trim() ?? "",
+      ddgMcp: process.env.DDG_MCP_VERSION?.trim() ?? "",
+    },
   };
 }
 
