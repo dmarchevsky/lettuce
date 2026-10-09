@@ -492,7 +492,7 @@ services:
   # means cloudflared itself fails at startup with an auth error (see its own
   # logs) — scoped to this one container, not the rest of the stack.
   cloudflared:
-    image: cloudflare/cloudflared:2026.8.3
+    image: cloudflare/cloudflared:2026.10.0
     command: tunnel --no-autoupdate run
     profiles: ["cloudflared"]
     environment:
