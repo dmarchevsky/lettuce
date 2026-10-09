@@ -54,6 +54,12 @@ describe("deploymentComponents", () => {
     expect(rows({ features: { ...OFF, claude: true } })).toEqual(["Claude Code CLI=not installed"]);
   });
 
+  it("says unknown for an image whose marker predates versions", () => {
+    expect(rows({ features: { ...OFF, codex: true }, marker: parseCodingMarker("codex") })).toEqual(
+      ["Codex CLI=unknown"],
+    );
+  });
+
   it("shows the tunnel only where the tunnel container exists", () => {
     expect(rows({ tunnel: true })).toContain("Cloudflare Tunnel=2026.10.0");
     expect(rows({})).toEqual([]);

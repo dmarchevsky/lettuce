@@ -12,9 +12,9 @@
  *   hands over the same literal that picks its tag (`pinVersions`).
  *
  * A component whose token is off has no row: something that does not exist has no
- * version worth showing. A token that is ON with nothing installed in the image
- * says `not installed` rather than repeating the pin — that mismatch is the whole
- * reason the marker exists.
+ * version worth showing. A token that is ON says `not installed` when the image
+ * has no CLI in it, and `unknown` when the image predates versioned markers —
+ * that mismatch is the whole reason the marker exists.
  */
 
 /** Where the app-server image records what it installed. */
@@ -65,7 +65,15 @@ export function deploymentComponents(input: DeploymentInput): Component[] {
   const rows: Component[] = [];
   if (input.lettaCodeVersion) rows.push({ name: "letta-code", version: input.lettaCodeVersion });
   const cli = (on: boolean, key: string, label: string) => {
-    if (on) rows.push({ name: label, version: marker?.versions.get(key) ?? "not installed" });
+    if (!on) return;
+    // Three honest answers, because there are three states: the marker said a
+    // version, it said only the name (an image built before it carried versions,
+    // which is what a production host has until its next app-server rebuild), or
+    // the CLI is genuinely not in the image. Saying "not installed" for the
+    // middle one would send someone off to rebuild an image that is fine.
+    const version =
+      marker?.versions.get(key) ?? (marker?.names.includes(key) ? "unknown" : "not installed");
+    rows.push({ name: label, version });
   };
   cli(input.features.codex, "codex", "Codex CLI");
   cli(input.features.claude, "claude", "Claude Code CLI");
