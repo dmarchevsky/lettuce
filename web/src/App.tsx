@@ -40,7 +40,6 @@ import { useCurrentModel } from "./state/use-models.ts";
 import { useSession } from "./state/use-session.ts";
 import { AgentTab } from "./tabs/AgentTab.tsx";
 import { FilesTab } from "./tabs/FilesTab.tsx";
-import { MemoryTab } from "./tabs/MemoryTab.tsx";
 import { RunsTab } from "./tabs/RunsTab.tsx";
 import { TasksTab } from "./tabs/TasksTab.tsx";
 import { ToolsTab } from "./tabs/ToolsTab.tsx";
@@ -55,7 +54,7 @@ interface Status {
   features?: FeatureFlags;
 }
 
-const TABS = ["Chat", "Files", "Tasks", "Runs", "Memory", "Tools", "Agent"] as const;
+const TABS = ["Chat", "Files", "Tasks", "Runs", "Tools", "Agent"] as const;
 type Tab = (typeof TABS)[number];
 
 /**
@@ -561,8 +560,6 @@ function Workspace({ status }: { status: Status }) {
             features={status.features}
             initialRunId={runsLink.run}
           />
-        ) : tab === "Memory" ? (
-          <MemoryTab session={session} agentId={agents.agentId} />
         ) : tab === "Tools" ? (
           <ToolsTab
             agents={agents}

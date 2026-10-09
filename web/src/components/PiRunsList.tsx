@@ -6,7 +6,7 @@ import { PiRunSheet } from "./PiRunSheet.tsx";
 
 /** The status chip's tone: finished reads as done; detached and failed warn. */
 const STATUS_TONES: Record<PiRunSummary["status"], string> = {
-  running: "",
+  running: " running",
   completed: " ok-tag",
   detached: " muted",
   cancelled: " muted",

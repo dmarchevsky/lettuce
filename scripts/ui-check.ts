@@ -152,7 +152,7 @@ try {
     const box = await overflow(page);
     check("nothing is clipped off-screen", box.clipped.length === 0, box);
 
-    check("all seven tabs are reachable", (await page.locator("nav.tabs button").count()) === 7);
+    check("all six tabs are reachable", (await page.locator("nav.tabs button").count()) === 6);
     check(
       "the phone tab strip does not scroll (seven squeeze in at 390px)",
       await page.evaluate(() => {
@@ -1001,7 +1001,7 @@ try {
     // The Agent tab holds the selected agent's settings and nothing shared.
     await page.locator('nav.tabs button:text-is("Agent")').click();
     await page.waitForTimeout(500);
-    const expectedChips = ["General", "Secrets", "Reflection", "Skills"];
+    const expectedChips = ["General", "Secrets", "Reflection", "Skills", "Memory"];
     const chipLabels = (await page.locator(".section-tabs button").allInnerTexts()).map((t) =>
       t.trim(),
     );
@@ -1418,7 +1418,9 @@ try {
     // A document sheet must actually be bigger than a form sheet, and must give
     // its height to the content: the memory editor used to scroll inside a
     // scrolling body, so a 5KB block showed about a dozen lines.
-    await page.locator('nav.tabs button:text-is("Memory")').click();
+    await page.locator('nav.tabs button:text-is("Agent")').click();
+    await page.waitForTimeout(400);
+    await page.locator('.section-tabs button:text-is("Memory")').click();
     await page.waitForTimeout(1500);
     const memoryBlocks = await page.locator(".pane .list > li button").count();
     if (memoryBlocks === 0) {

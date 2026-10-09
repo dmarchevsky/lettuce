@@ -9,9 +9,10 @@ import {
   STATUS_LABELS,
   stopPiRun,
 } from "../lib/pi.ts";
+import { formatElapsed } from "../lib/working.ts";
 
 const TONES: Record<PiRunFacts["state"], string> = {
-  running: "",
+  running: " running",
   completed: " ok-tag",
   detached: " muted",
   cancelled: " muted",
@@ -31,6 +32,14 @@ export function PiRunCard({ runId }: { runId: string }) {
   const [files, setFiles] = useState<PiRunFile[]>([]);
   const [gone, setGone] = useState(false);
   const [busy, setBusy] = useState<"stop" | "force" | null>(null);
+  // One tick per second while the run lives: the running clock should not wait
+  // on the 3-second status poll.
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (facts?.state !== "running") return;
+    const timer = setInterval(() => setTick((n) => n + 1), 1000);
+    return () => clearInterval(timer);
+  }, [facts?.state]);
 
   useEffect(() => {
     let cancelled = false;
@@ -84,6 +93,13 @@ export function PiRunCard({ runId }: { runId: string }) {
 
   const running = facts.state === "running";
   const quietMin = Math.floor(facts.quietSeconds / 60);
+  void tick; // read: the per-second interval re-renders this line
+  const ranMs = facts?.startedAt
+    ? Math.max(
+        0,
+        (facts.endedAt ? Date.parse(facts.endedAt) : Date.now()) - Date.parse(facts.startedAt),
+      )
+    : 0;
   const stop = async (force: boolean) => {
     const question = force
       ? "Force stop: this kills the pi process on the remote host. Continue?"
@@ -150,6 +166,7 @@ export function PiRunCard({ runId }: { runId: string }) {
         <span className="muted small pi-events">
           {facts.eventCount.toLocaleString()} events
           {facts.bytesCaptured > 0 ? ` · ${(facts.bytesCaptured / 1024).toFixed(0)} KB` : ""}
+          {ranMs > 0 ? ` · ${running ? "running" : "ran"} ${formatElapsed(ranMs)}` : ""}
           {facts.lastEventAt ? ` · ${ago(facts.lastEventAt)}` : ""}
         </span>
         <span className="pi-card-actions">

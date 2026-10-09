@@ -758,6 +758,12 @@ pre {
   color: var(--ok);
   border-color: color-mix(in srgb, var(--ok) 45%, transparent);
 }
+/* A live remote-pi run reads blue — the app's doing-something colour — where
+   grey used to make `Running` look disabled. */
+.tag.running {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
 .tag.muted {
   margin-left: 6px;
 }
@@ -1688,8 +1694,9 @@ pre {
 .activity-dot.badge-dot {
   margin: 0 0 0 6px;
 }
-/* Live remote-pi runs: green pulse left of the Runs tab label and inside the
-   topbar chip. Inline, so it costs layout width — the phone tab strip absorbs
+/* Live remote-pi runs: blue pulse left of the Runs tab label and inside the
+   topbar chip — same blue as the Running pill, so the dot and the pill say the
+   same thing. Inline, so it costs layout width — the phone tab strip absorbs
    it via the `.tabs:has(.tab-dot)` squeeze above. */
 .tab-dot {
   display: inline-block;
@@ -1697,7 +1704,7 @@ pre {
   height: 8px;
   margin-right: 6px;
   border-radius: 50%;
-  background: var(--ok);
+  background: var(--accent);
   vertical-align: middle;
   animation: activity-pulse 1.6s ease-in-out infinite;
 }
