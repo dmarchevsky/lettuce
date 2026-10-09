@@ -805,15 +805,16 @@ async function runHarness() {
 
 test("pi_run records the dispatching conversation and the settle report answers back", async () => {
   const { service, spawned, settled } = await runHarness();
-  setTimeout(() => {
-    spawned[0]?.child.emit(
-      `{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/w"}\n`,
-    );
-  }, 60);
-  const answer = await service.piRun(
+  // Emit the session once the ssh really exists — a loaded CI runner can
+  // deliver the spawn later than any fixed timer assumes.
+  const started = service.piRun(
     { prompt: "clone the repo" },
     { agentId: "agent-local-0fefdba6", conversationId: "local-conv-120" },
   );
+  (await waitForSpawns(spawned, 1)).emit(
+    `{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/w"}\n`,
+  );
+  const answer = await started;
   expect(answer.isError).toBe(false);
   expect(answer.text).toContain("do not poll"); // Option A: event, not polling
   const runId = answer.text.match(/run ([0-9a-f-]{36})/)?.[1] ?? "";
@@ -1111,12 +1112,11 @@ const BIG_LINES = {
 
 test("pi_result digs a buried final answer out; pi_log formats the stream tail", async () => {
   const { service, spawned, settled } = await runHarness();
-  setTimeout(() => {
-    spawned[0]?.child.emit(
-      `{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/w"}\n`,
-    );
-  }, 60);
-  const answer = await service.piRun({ prompt: "big answer" });
+  const started = service.piRun({ prompt: "big answer" });
+  (await waitForSpawns(spawned, 1)).emit(
+    `{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/w"}\n`,
+  );
+  const answer = await started;
   expect(answer.isError).toBe(false);
   const child = spawnedChild(spawned, 0);
   child.emit(
