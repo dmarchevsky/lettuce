@@ -95,6 +95,16 @@ CURRENT="$(git rev-parse HEAD)"
 git fetch --tags "$UPSTREAM_URL"
 TARGET="$(git rev-parse "$REF^{commit}")"
 
+# docker/.env is gitignored, so it is the one pin site a sync would otherwise
+# leave behind — and a value there outranks compose's default, so the host keeps
+# building the older release and survives every later sync. It should not be set
+# at all, so drop it wherever it is found (before the "already synced" exit, so
+# re-running the command cleans a host that only has this problem).
+if [[ -f "$UI_ROOT/docker/.env" ]] && grep -q '^LETTA_CODE_VERSION=' "$UI_ROOT/docker/.env"; then
+  sed -i -E '/^LETTA_CODE_VERSION=/d' "$UI_ROOT/docker/.env"
+  echo "  docker/.env: removed LETTA_CODE_VERSION — docker/compose.yml carries the pin"
+fi
+
 if [[ "$CURRENT" == "$TARGET" ]]; then
   say "Already at $REF ($(git rev-parse --short HEAD)). Nothing to sync."
   exit 0
@@ -194,18 +204,12 @@ sed -i -E "s|(\"@letta-ai/letta-code\": \")[^\"]+(\")|\1$VERSION\2|" \
 sed -i -E "s|(LETTA_CODE_VERSION:-)[^}]+(\})|\1$VERSION\2|g" docker/compose.yml
 
 bun install
-# docker/.env is gitignored, so it is the one pin site a sync would otherwise leave
-# behind — and a stale value there outranks compose's default and builds the old image.
-if [[ -f docker/.env ]] && grep -q '^LETTA_CODE_VERSION=' docker/.env; then
-  sed -i -E "s|^LETTA_CODE_VERSION=.*|LETTA_CODE_VERSION=$VERSION|" docker/.env
-  echo "  docker/.env LETTA_CODE_VERSION -> $VERSION"
-fi
 bun scripts/check-version-pin.ts || fail "Version pins disagree after the bump."
 
 say "Typechecking UI against the new protocol"
 if bun run typecheck; then
   say "Sync complete. No typed protocol breakage."
-  echo "  A host whose docker/.env sets LETTA_CODE_VERSION needs the same value before "
+  echo "  A host whose docker/.env sets LETTA_CODE_VERSION needs the line gone before "
   echo "  its next deploy — the stale-pin story: docs/upstream-notes.md#stale-pin-story."
   echo "  A version bump is a full rebuild: docker compose -f docker/compose.yml up -d --build"
 else

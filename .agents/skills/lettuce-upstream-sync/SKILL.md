@@ -74,17 +74,19 @@ both artifacts exist before re-pinning.
 | `package.json` | `"@letta-ai/letta-code": "<v>"` |
 | `bff/package.json` | same |
 | `web/package.json` | same |
-| `docker/.env` | `LETTA_CODE_VERSION=<v>` — gitignored, so it drifts unseen |
 
 `scripts/check-version-pin.ts` asserts they agree and runs first in `bun run verify`. Its
 app-server patterns are fenced to that service's block: a plain lazy match ran on into
 channel-gateway's image line once the app-server stopped naming `letta/letta` directly.
-`docker/.env` is reported but never fatal — a fresh clone has no such file. When the file exists and
-sets the key, `sync-upstream.sh` rewrites it as part of the bump, so it cannot drift a cycle behind
-on the machine that runs the sync. A *different* host running its own deploy (prod) still has to be
-updated by hand.
 `sync-upstream.sh` rewrites all of them for you (its sed replaces every
 `LETTA_CODE_VERSION:-…}`).
+
+**`docker/.env` must not set `LETTA_CODE_VERSION` at all.** Compose reads that file and its value
+outranks compose's own default, so a leftover freezes the host on an older release and survives
+every later sync. `check-version-pin.ts` prints one as a `!` to be deleted, and `sync-upstream.sh`
+deletes it wherever it finds one — before its "already synced" exit, so re-running the command
+cleans a host whose only problem is that line. A host that genuinely needs an override passes it in
+the shell environment, where the command that set it is visible.
 
 **The trap that hides a stale pin:** a shell `LETTA_CODE_VERSION` outranks `docker/.env` in
 Compose's precedence order — that is how `.env` once sat a whole cycle behind unseen; story:

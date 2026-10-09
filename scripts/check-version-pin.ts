@@ -7,11 +7,12 @@
  * tracked places and nothing used to check them — AGENTS.md said so outright
  * ("Nothing asserts they agree").
  *
- * `docker/.env` is reported but never fails the run: it is gitignored, so it
- * cannot be fixed by anyone reading this repo fresh, and a shell
- * LETTA_CODE_VERSION outranks it in Compose's precedence order anyway. A stale
- * value there is still worth saying out loud — that exact drift once sat
- * unnoticed through a whole release cycle.
+ * `docker/.env` must not carry the key at all: Compose reads that file and its
+ * value outranks the pin in `docker/compose.yml`, so a leftover there quietly
+ * freezes the stack on an older release — that exact drift once sat unnoticed
+ * through a whole release cycle. It is gitignored, so no one reading this repo
+ * fresh can fix it, which is why a leftover is said out loud rather than failed
+ * on: `bun run sync-upstream v<x.y.z>` deletes it wherever it finds one.
  *
  * Usage: bun scripts/check-version-pin.ts
  */
@@ -103,7 +104,7 @@ const authoritative = found.filter((site) => !site.advisory);
 const versions = new Set(authoritative.map((site) => site.version));
 
 for (const site of found) {
-  const mark = site.advisory && versions.size === 1 && !versions.has(site.version) ? "!" : " ";
+  const mark = site.advisory ? "!" : " ";
   console.log(`  ${mark} ${site.version.padEnd(12)} ${site.file}  (${site.label})`);
 }
 
@@ -111,14 +112,13 @@ if (versions.size > 1) {
   problems.push(`pins disagree: ${[...versions].sort().join(" vs ")}`);
 }
 
-const drifted = found.filter(
-  (site) => site.advisory && versions.size === 1 && !versions.has(site.version),
-);
-for (const site of drifted) {
+for (const site of found.filter((site) => site.advisory)) {
   console.log(
-    `\n  ! ${site.file} says ${site.version}, everything tracked says ${[...versions][0]}.` +
-      `\n    Compose reads that file, so a build without an explicit LETTA_CODE_VERSION` +
-      `\n    would use the stale value. Not fatal here because the file is gitignored.`,
+    `\n  ! ${site.file} sets LETTA_CODE_VERSION (${site.version}) and should not.` +
+      `\n    Compose reads this file and its value outranks the pin in docker/compose.yml, so` +
+      `\n    the build quietly takes the older of the two. Delete the line (or run` +
+      `\n    \`bun run sync-upstream\`, which does), and pass an override in the environment` +
+      `\n    instead if a host truly needs one.`,
   );
 }
 
