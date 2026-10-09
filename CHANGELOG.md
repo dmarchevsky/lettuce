@@ -11,7 +11,7 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 ### Changed
 - Synced letta-code 0.34.1 → 0.34.9: agents with the new memfs memory layout get a read-only **Memory** tool for browsing their own memory tree, workflow runs report per-phase progress and token counts, subagents can nest one layer and report back to the parent that spawned them, tool returns and user messages are scanned and redacted for anything matching a stored secret, a scheduled (cron) turn now runs even when no client is attached, and a queued message carrying a photo over 1 MiB is no longer silently dropped. The app-server image is rebuilt, so the deploy recreates `app-server` and drops any turn in flight.
 - Codex CLI 0.157.1 → 0.162.0 — five releases, and letta-code drives it over its app-server protocol, so a worker run is the thing to re-check after the deploy. The app-server image is rebuilt, so the deploy recreates `app-server`.
-- Claude Code CLI 2.1.285 → 2.1.289. The app-server image is rebuilt, so the deploy recreates `app-server`.
+- Claude Code CLI 2.1.285 → 2.1.295. The app-server image is rebuilt, so the deploy recreates `app-server`.
 
 ### Fixed
 - **A Codex or Claude Code block now reaches what an agent spawns.** To the app-server a subagent is
