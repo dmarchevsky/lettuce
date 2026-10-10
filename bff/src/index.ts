@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import type {
   AgentListResponseMessage,
   AgentRetrieveResponseMessage,
+  ConversationRetrieveResponseMessage,
   ExecuteCommandResponseMessage,
   ListInDirectoryResponseMessage,
   ReadFileResponseMessage,
@@ -146,11 +147,20 @@ import { PushSubscriptionStore } from "./push/store.ts";
 import { TurnOutcomeWatcher } from "./push/turn-watcher.ts";
 import { securityHeaders } from "./security-headers.ts";
 import { scopeKeyOf } from "./session/buffer.ts";
+import {
+  accounting,
+  agentModelHandle,
+  ContextSizer,
+  ContextSizeStore,
+  contextBudget,
+  handSetWindow,
+} from "./session/context-size.ts";
+import { ContextWatchdog, effectiveContextLimit } from "./session/context-watchdog.ts";
 import { WORKSPACE_ROOT, workspaceViolation } from "./session/protocol.ts";
 import { SessionRegistry, type SessionUser } from "./session/registry.ts";
 import { symlinkViolation } from "./session/symlink-guard.ts";
 import { TurnErrorLog } from "./session/turn-errors.ts";
-import { TurnUsageLog } from "./session/turn-usage.ts";
+import { JsonUsageDisk, TurnUsageLog } from "./session/turn-usage.ts";
 import { drainActiveTurns } from "./shutdown.ts";
 import { hostSkillFs, upstreamSkillFs } from "./skills/fs.ts";
 import { InvalidSkillScopeError, SkillCatalog } from "./skills/service.ts";
@@ -216,7 +226,14 @@ const agentNames = new AgentNames(async (agentId) => {
 const turnOutcomeWatcher = pushStore ? new TurnOutcomeWatcher(pushStore, log, agentNames) : null;
 const approvalWatcher = pushStore ? new ApprovalWatcher(pushStore, log, agentNames) : null;
 const turnErrors = new TurnErrorLog();
-const turnUsage = new TurnUsageLog();
+const turnUsage = new TurnUsageLog(
+  () => new Date(),
+  new JsonUsageDisk(config.contextUsageFile, (error) =>
+    log(`context usage file not saved: ${errorMessage(error)}`),
+  ),
+);
+/** Set just below, once the connection it needs exists. */
+let contextWatchdog: ContextWatchdog | null = null;
 
 function log(message: string): void {
   console.log(`[bff] ${new Date().toISOString()} ${message}`);
@@ -232,6 +249,7 @@ const upstream = new UpstreamConnection({
     // Before the fan-out: a browser refetches usage when it sees a usage
     // delta, and must find this step already counted.
     turnUsage.observe(frame);
+    contextWatchdog?.observe(frame);
     const sightUpdate = providerSight.observe(frame);
     registry.handleUpstreamFrame(frame);
     turnErrors.observe(frame);
@@ -276,12 +294,66 @@ const upstream = new UpstreamConnection({
       void checkCodingMarker().catch((error) =>
         log(`Coding CLIs: could not read the install marker: ${errorMessage(error)}`),
       );
+      // Last of the connect passes: it reads the agents as they now are and
+      // writes each one's context window. Off the critical path on purpose — the
+      // caps it works from come from this process's own store, not from the mod,
+      // so nothing waits on it.
+      void contextSizer
+        .applyAll()
+        .then((summary) => log(summary))
+        .catch((error) => log(`context sizing: ${errorMessage(error)}`));
     }
   },
   log,
 });
 
 const registry = new SessionRegistry(upstream, config.frameBufferSize, log);
+
+// Compacts a conversation the app-server's own pressure trigger cannot save —
+// see `session/context-watchdog.ts` for why the declared window is not enough.
+contextWatchdog = new ContextWatchdog({
+  ratio: config.contextWatchdogRatio,
+  usage: turnUsage,
+  upstream,
+  log,
+});
+
+// Context sizes the operator typed, and the window they imply for letta-code.
+// Everything the Context sheet shows about compaction comes from this pair —
+// see `session/context-size.ts` for why the window is derived rather than typed.
+const contextSizes = new ContextSizeStore(config.contextSizeFile, (error) =>
+  log(`context size file not saved: ${errorMessage(error)}`),
+);
+const contextSizer = new ContextSizer(
+  { upstream, caps: () => modelCaps.models(), log },
+  contextSizes,
+);
+
+/** The model in force for a scope, resolved the way the model picker does. */
+async function modelHandleFor(
+  agentId: string,
+  conversationId: string | null,
+): Promise<string | null> {
+  if (conversationId && conversationId !== "default") {
+    const conversation = await upstream
+      .request<ConversationRetrieveResponseMessage>(
+        {
+          type: "conversation_retrieve",
+          request_id: `bff-sizer-conv-${randomUUID()}`,
+          conversation_id: conversationId,
+        },
+        10_000,
+      )
+      .catch(() => null);
+    const model = conversation?.conversation?.model;
+    if (typeof model === "string" && model) return model;
+  }
+  const agent = await upstream.request<AgentRetrieveResponseMessage>(
+    { type: "agent_retrieve", request_id: `bff-sizer-agent-${randomUUID()}`, agent_id: agentId },
+    10_000,
+  );
+  return agentModelHandle(agent.success ? (agent.agent ?? null) : null);
+}
 
 // Skills this repo ships to every agent (docker/agent-skills), installed into
 // the app-server's global skills directory on each connect — see
@@ -1303,6 +1375,9 @@ app.put("/api/model-caps", async (c) => {
     refreshCatalog: false,
     refreshProviders: true,
   }).catch(() => null);
+  // A different declared window moves the point where the engine refuses, so
+  // every agent on this model is retuned to it (session/context-size.ts).
+  void contextSizer.applyHandle(saved.handle).catch(() => {});
   return c.json({ model: { handle: saved.handle, ...saved.caps }, mod: mod ?? "failed" });
 });
 
@@ -1317,6 +1392,124 @@ app.delete("/api/model-caps", async (c) => {
     refreshProviders: true,
   }).catch(() => null);
   return c.json({ removed, mod: mod ?? "failed" });
+});
+
+// The Context sheet's numbers: the context size in force (typed or declared),
+// what the model promises per reply, and where the conversation therefore
+// compacts. Reading it also sizes the agent, which is how an agent created after
+// the last connect gets a window that matches its model. GET answers with the
+// values as they are; PUT stores a typed size and writes the window it implies.
+app.get("/api/context-size", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
+  const agentId = c.req.query("agent_id");
+  if (!agentId) return c.text("agent_id is required", 400);
+  const conversationId = c.req.query("conversation_id") || null;
+  try {
+    // Before reading, so what is shown is what was just written: an agent whose
+    // window disagrees with its model's declaration is retuned here, once.
+    await contextSizer.ensure(agentId).catch(() => {});
+    const [agent, conversation] = await Promise.all([
+      upstream.request<AgentRetrieveResponseMessage>(
+        { type: "agent_retrieve", request_id: `bff-size-agent-${randomUUID()}`, agent_id: agentId },
+        10_000,
+      ),
+      conversationId && conversationId !== "default"
+        ? upstream.request<ConversationRetrieveResponseMessage>(
+            {
+              type: "conversation_retrieve",
+              request_id: `bff-size-conv-${randomUUID()}`,
+              conversation_id: conversationId,
+            },
+            10_000,
+          )
+        : Promise.resolve(null),
+    ]);
+    const handle = await modelHandleFor(agentId, conversationId);
+    const declared = contextSizer.capsFor(handle);
+    const inForce = effectiveContextLimit(
+      agent.success ? (agent.agent ?? null) : null,
+      conversation?.conversation ?? null,
+    );
+    // A conversation carrying its own window was sized by hand before this kept
+    // any record of it — the agent's own window was just adopted by `ensure`. Do
+    // the same here, or the sheet shows the declaration over the number that is
+    // really in force for this conversation.
+    const conv = (conversation?.conversation ?? {}) as { context_window_limit?: unknown };
+    const convWindow =
+      typeof conv.context_window_limit === "number" && conv.context_window_limit > 0
+        ? conv.context_window_limit
+        : null;
+    if (
+      conversationId &&
+      convWindow !== null &&
+      contextSizes.get(`conv:${conversationId}`) === null &&
+      handSetWindow(convWindow, declared)
+    ) {
+      contextSizes.set(`conv:${conversationId}`, convWindow);
+    }
+    return c.json(
+      accounting({
+        limit: inForce,
+        typedAgent: contextSizes.get(`agent:${agentId}`),
+        typedConversation: conversationId ? contextSizes.get(`conv:${conversationId}`) : null,
+        declared,
+      }),
+    );
+  } catch (error) {
+    return c.text(errorMessage(error), 502);
+  }
+});
+
+// The same floor the sheet enforces: a window below this cannot hold a system
+// prompt, a tool schema and a summary, whatever the server claims (`use-context-limit.ts`).
+const MIN_CONTEXT_SIZE = 30_000;
+
+app.put("/api/context-size", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
+  const body = (await c.req.json().catch(() => null)) as {
+    agent_id?: unknown;
+    conversation_id?: unknown;
+    scope?: unknown;
+    tokens?: unknown;
+  } | null;
+  const agentId = typeof body?.agent_id === "string" ? body.agent_id : null;
+  if (!agentId) return c.text("agent_id is required", 400);
+  const conversationId = typeof body?.conversation_id === "string" ? body.conversation_id : null;
+  const scope =
+    body?.scope === "conversation" && conversationId
+      ? ({ kind: "conversation", agentId, conversationId } as const)
+      : ({ kind: "agent", agentId } as const);
+  const tokens = body?.tokens === null || body?.tokens === undefined ? null : Number(body.tokens);
+  if (tokens !== null && (!Number.isFinite(tokens) || tokens < MIN_CONTEXT_SIZE)) {
+    return c.text(`A context size is at least ${MIN_CONTEXT_SIZE.toLocaleString()} tokens`, 400);
+  }
+  try {
+    const handle = await modelHandleFor(
+      agentId,
+      scope.kind === "conversation" ? conversationId : null,
+    );
+    // A size that cannot hold the model's own output leaves nothing to compact
+    // into: the window it implies is the size itself and every request is then
+    // refused, so refuse the size instead of storing it.
+    if (tokens !== null) {
+      const maxOutput = contextSizer.capsFor(handle)?.maxTokens ?? null;
+      const budget = contextBudget(maxOutput);
+      if (tokens <= budget) {
+        return c.text(
+          maxOutput === null
+            ? `A context size is at least ${budget.toLocaleString()} tokens`
+            : `A context size must be more than ${budget.toLocaleString()} tokens: the ${maxOutput.toLocaleString()}-token output has to fit inside it, with room for the summary`,
+          400,
+        );
+      }
+    }
+    const output = await contextSizer.setSize(scope, tokens, handle);
+    return c.json({ output });
+  } catch (error) {
+    return c.text(errorMessage(error), 502);
+  }
 });
 
 // What agents currently have as native tools from the MCP side: the curated

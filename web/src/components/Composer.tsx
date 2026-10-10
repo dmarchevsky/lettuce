@@ -14,7 +14,11 @@ import {
   historyUp,
 } from "../lib/input-history.ts";
 import { enterSends } from "../lib/input-mode.ts";
-import type { FilterGroup, TranscriptEntry } from "../lib/messages.ts";
+import {
+  type FilterGroup,
+  pendingCompactStartedAt,
+  type TranscriptEntry,
+} from "../lib/messages.ts";
 import type { QueuedItem } from "../lib/queue-actions.ts";
 import { parseResponseFormat, type ResponseFormat } from "../lib/structured-output.ts";
 import type { TurnUsage } from "../lib/usage.ts";
@@ -405,6 +409,21 @@ export function Composer({
   };
 
   /**
+   * When a `/compact` began, or null when none is running. This is also the only
+   * thing that can notice a compaction that never reported back: an idle composer
+   * gets no other render, so the clock ticks while a marker is held and the
+   * working line unwinds itself once `pendingCompactStartedAt` refuses an expired
+   * one.
+   */
+  const compactStartedAt = pendingCompactStartedAt(turn.entries);
+  const [, tickCompacting] = useState(0);
+  useEffect(() => {
+    if (compactStartedAt === null) return;
+    const timer = setInterval(() => tickCompacting((n) => n + 1), 1000);
+    return () => clearInterval(timer);
+  }, [compactStartedAt]);
+
+  /**
    * Send what is in the box — or run it, when it names a command.
    *
    * The app-server's message path never inspects a leading slash: that parsing
@@ -509,10 +528,12 @@ export function Composer({
           </ul>
         ) : null}
 
-        {processing ? (
+        {processing || compactStartedAt !== null ? (
           // Above the box, not in the transcript: the transcript's own dots
           // scroll away, this one says what the agent is doing, how long, and
-          // how fast — and why the button under it is red.
+          // how fast — and why the button under it is red. It also shows while a
+          // `/compact` runs, the one thing the harness does with no turn in
+          // flight, which would otherwise look like an idle composer.
           <WorkingLine
             entries={turn.entries}
             queue={turn.queue}
@@ -520,6 +541,7 @@ export function Composer({
             stopping={stopping}
             turnStartedAt={turn.turnStartedAt}
             lastActivityAt={turn.lastActivityAt}
+            compactStartedAt={compactStartedAt}
             usage={turn.usage}
             onAbort={onAbort}
           />

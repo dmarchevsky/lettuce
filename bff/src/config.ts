@@ -57,6 +57,19 @@ export interface BffConfig {
   /** Per-agent Codex and Google access (`agents/tool-access.ts`), on the `bff-data` volume. */
   agentToolAccessFile: string;
   /**
+   * Last finished turn per conversation (`session/turn-usage.ts`), on the
+   * `bff-data` volume, so the context gauge survives a BFF restart instead of
+   * reading "—" until the next turn.
+   */
+  contextUsageFile: string;
+  contextSizeFile: string;
+  /**
+   * Share of the declared context window at which the BFF compacts a
+   * conversation itself (`session/context-watchdog.ts`). 0 switches the
+   * watchdog off; see that file for why upstream's own trigger is not enough.
+   */
+  contextWatchdogRatio: number;
+  /**
    * Remote pi worker (`pi/`): settings + private key + captured run streams,
    * all on the `bff-data` volume under one directory. None of it ever crosses
    * the upstream connection — the BFF itself is the ssh client here.
@@ -152,6 +165,21 @@ function optionalNumber(name: string, fallback: number): number {
   const parsed = Number(raw);
   if (!Number.isFinite(parsed) || parsed <= 0) {
     throw new Error(`${name} must be a positive number`);
+  }
+  return parsed;
+}
+
+/**
+ * A 0-1 share, where 0 is a value rather than an error: `CONTEXT_WATCHDOG_RATIO=0`
+ * is how an operator switches the watchdog off, and a misconfigured BFF that
+ * refuses to boot is worse than one that keeps compacting.
+ */
+function optionalShare(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw?.trim()) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+    throw new Error(`${name} must be between 0 and 1`);
   }
   return parsed;
 }
@@ -416,6 +444,11 @@ export function loadConfig(): BffConfig {
       process.env.ARCHIVED_AGENTS_FILE?.trim() || "/app/data/archived-agents.json",
     agentToolAccessFile:
       process.env.AGENT_TOOL_ACCESS_FILE?.trim() || "/app/data/agent-tool-access.json",
+    contextUsageFile: process.env.CONTEXT_USAGE_FILE?.trim() || "/app/data/context-usage.json",
+    contextSizeFile: process.env.CONTEXT_SIZE_FILE?.trim() || "/app/data/context-size.json",
+    // 0.9 = earlier than letta-code's own trigger; 0 turns it off. See
+    // session/context-watchdog.ts.
+    contextWatchdogRatio: optionalShare("CONTEXT_WATCHDOG_RATIO", 0.9),
     piDir: process.env.PI_DIR?.trim() || "/app/data/pi",
     modelCapsFile: process.env.MODEL_CAPS_FILE?.trim() || "/app/data/vision-models.json",
     webTools: {

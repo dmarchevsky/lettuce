@@ -65,6 +65,22 @@ describe("deriveWorking", () => {
     expect(deriveWorking({ ...base, processing: false, entries: [], queue: [] })).toBeNull();
   });
 
+  test("a running /compact fills the line with no turn in flight", () => {
+    // Nothing streams, no tool runs, usage is the previous turn's: the compact
+    // marker alone has to be enough, or the composer looks free while the
+    // harness is mid-summary.
+    const snap = deriveWorking({
+      ...base,
+      processing: false,
+      compactStartedAt: Date.now() - 42_000,
+      entries: [],
+      queue: [],
+    });
+    expect(snap?.state).toBe("compacting");
+    expect(snap?.verb).toBe("Compacting");
+    expect(snap?.icon).toBeNull();
+  });
+
   test("stopping outranks everything", () => {
     const snap = deriveWorking({
       ...base,

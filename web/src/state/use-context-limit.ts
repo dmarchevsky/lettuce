@@ -55,13 +55,6 @@ export function parseContextLimit(text: string): number | null {
 export interface ContextLimitApi {
   limit: ContextLimit | null;
   refresh: () => Promise<void>;
-  /**
-   * Set (`tokens`) or reset (`null`) the limit for this conversation or the
-   * whole agent, through letta-code's own `/context-limit`. The agent scope is
-   * the agent's `default` conversation — how letta-code applies agent-wide
-   * settings. Resolves with the command's own confirmation.
-   */
-  apply: (tokens: number | null, scope: "conversation" | "agent") => Promise<string>;
 }
 
 /**
@@ -115,32 +108,5 @@ export function useContextLimit(
     if (ready && agentId) void refresh();
   }, [ready, agentId, refresh]);
 
-  const apply = useCallback(
-    async (tokens: number | null, scope: "conversation" | "agent") => {
-      if (!agentId || (scope === "conversation" && !conversationId)) {
-        throw new Error("No conversation is open");
-      }
-      const response = await request<{ success?: boolean; error?: string; output?: string }>(
-        "execute_command",
-        {
-          runtime: {
-            agent_id: agentId,
-            conversation_id: scope === "agent" ? "default" : conversationId,
-          },
-          command_id: "context-limit",
-          // --override: letta-code refuses anything above its 128k default
-          // without it, which is exactly the case this exists for.
-          ...(tokens === null ? {} : { args: `${tokens} --override` }),
-        },
-      );
-      if (response?.success === false) {
-        throw new Error(response.error ?? "Could not change the context limit");
-      }
-      await refresh();
-      return response?.output ?? "";
-    },
-    [request, agentId, conversationId, refresh],
-  );
-
-  return { limit, refresh, apply };
+  return { limit, refresh };
 }
