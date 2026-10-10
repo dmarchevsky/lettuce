@@ -228,16 +228,19 @@ image is silently replaced with an "(image omitted)" placeholder before the call
 even when the server reads images fine — and its context window clamps to the
 harness default of 128 000.
 
-**The declarations live in the UI**: in Settings → Providers & models, every
-model from a capability-less endpoint has an **Edit** action where you tick
-*Vision* and *Thinking* and give the **real** `contextWindow` and completion
-`maxTokens` (e.g. a 262 144-token window with a 32 768 `max_tokens_cap` —
-`/health` on the actual endpoint reports both live numbers). The BFF stores
-them (`bff-data/vision-models.json`) and renders the provider mod — the one
-sanctioned capability override upstream — so the model keeps its handle and
+**The declarations live in the UI**, on the model. Every model a provider publishes
+has an **Edit** action where you tick *Vision* and *Thinking* and give the **real**
+`contextWindow` and completion `maxTokens` (e.g. a 262 144-token window with a
+32 768 `max_tokens_cap` — `/health` on the actual endpoint reports both live
+numbers). Nothing asks for them per provider, because one endpoint routinely
+serves models that answer differently. Until a model is declared it gets what
+auto-discovery would have given it: text-only, harness-default window. The BFF
+stores them (`bff-data/vision-models.json`) and renders the provider mod — the
+one sanctioned capability override upstream — so a model keeps its handle and
 gains its capabilities from the agents' next turn, with no restart and no
-container recreate. An endpoint that gains models is picked up automatically
-when the BFF next sees its list.
+container recreate. A connection the app-server holds itself still discovers its
+own models, and a model of one that reports nothing keeps the same **Edit**
+action.
 
 `VISION_PROVIDERS` remains as a **one-time seed** for existing installs: on the
 first boot with no store file yet, its entries are imported and the env is never

@@ -18,11 +18,18 @@ describe("splitHandle", () => {
     });
   });
 
+  test("a model id may hold slashes — upstream splits at the first", () => {
+    expect(splitHandle("openrouter/deepseek/deepseek-chat-v3")).toEqual({
+      prefix: "openrouter",
+      model: "deepseek/deepseek-chat-v3",
+    });
+  });
+
   test("rejects malformed handles", () => {
     expect(splitHandle("nodashes")).toBeNull();
     expect(splitHandle("/leading")).toBeNull();
     expect(splitHandle("trailing/")).toBeNull();
-    expect(splitHandle("two/slashes/here")).toBeNull();
+    expect(splitHandle("bad//")).toBeNull();
     expect(splitHandle("Bad Id/model")).toBeNull();
     expect(splitHandle(42)).toBeNull();
   });
@@ -179,5 +186,64 @@ describe("seedFromVisionProviders", () => {
   test("a fresh store with nothing to seed stays unseeded", () => {
     const store = new ModelCapsStore(fileIn(), noop);
     expect(store.seedFromVisionProviders([])).toBe(0);
+  });
+});
+
+describe("provider entries", () => {
+  test("type, api, scope and models round-trip through the file", async () => {
+    const file = fileIn();
+    const store = new ModelCapsStore(file, noop);
+    store.setEndpoint("llama-3b", {
+      name: "llama 3b",
+      type: "llama-cpp",
+      api: "openai-completions",
+      scope: "local",
+      baseUrl: "http://x:8080/v1",
+      models: ["qwen3-4b-instruct"],
+    });
+    await store.drain();
+    expect(new ModelCapsStore(file, noop).endpoint("llama-3b")).toMatchObject({
+      name: "llama 3b",
+      type: "llama-cpp",
+      api: "openai-completions",
+      scope: "local",
+      models: ["qwen3-4b-instruct"],
+    });
+  });
+
+  test("removing a provider takes its declarations and retires the prefix", async () => {
+    const file = fileIn();
+    const store = new ModelCapsStore(file, noop);
+    store.setEndpoint("p", { name: "P", models: ["a", "b"] });
+    store.setModel("p/a", CAPS);
+    store.setModel("p/b", CAPS);
+    store.setModel("other/m", CAPS);
+    expect(store.removeProvider("p")).toBe(true);
+    expect(store.endpoint("p")).toBeUndefined();
+    expect(Object.keys(store.models())).toEqual(["other/m"]);
+    expect(store.retired().has("p")).toBe(true);
+    // Nothing left to remove, and no fresh retirement of a prefix we never had.
+    expect(store.removeProvider("p")).toBe(false);
+    await store.drain();
+    expect(new ModelCapsStore(file, noop).retired().has("p")).toBe(true);
+  });
+
+  test("adding a name back clears its retirement", () => {
+    const store = new ModelCapsStore(fileIn(), noop);
+    store.setEndpoint("p", { name: "P", models: ["a"] });
+    store.removeProvider("p");
+    expect(store.retired().has("p")).toBe(true);
+    store.unretire("p");
+    expect(store.retired().has("p")).toBe(false);
+  });
+
+  test("undeclaring one model shrinks the provider's own list, it does not delete the provider", () => {
+    const store = new ModelCapsStore(fileIn(), noop);
+    store.setEndpoint("p", { name: "P", models: ["a", "b"] });
+    store.setModel("p/a", CAPS);
+    store.setModel("p/b", CAPS);
+    store.removeModel("p/a");
+    expect(store.endpoint("p")?.name).toBe("P");
+    expect(store.endpoint("p")?.models).toEqual(["b"]);
   });
 });

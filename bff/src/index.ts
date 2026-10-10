@@ -124,6 +124,14 @@ import {
   toPublicPiSettings,
 } from "./pi/service.ts";
 import { parsePiRun, summarizePiRun } from "./pi/transcript.ts";
+import {
+  type ParsedProvider,
+  PROVIDER_TYPES,
+  ProviderError,
+  parseProviderBody,
+  probeProviderModels,
+  slugifyName,
+} from "./providers/registry.ts";
 import { ProviderSight } from "./providers/sight.ts";
 import {
   ModelCapsError,
@@ -687,6 +695,7 @@ async function renderAllMods(): Promise<RenderedMod[]> {
     baseUrlOf: (prefix) => providerSight.baseUrlFor(prefix),
     isLive: (prefix) => providerSight.isConnected(prefix),
     alreadyRegistered: parseRegisteredProviderIds(currentProvidersMod),
+    retired: modelCaps.retired(),
   });
   if (providerGroups) {
     mods.push({ path: PROVIDERS_MOD_PATH, source: renderProvidersMod(providerGroups) });
@@ -1317,6 +1326,135 @@ app.delete("/api/model-caps", async (c) => {
     refreshProviders: true,
   }).catch(() => null);
   return c.json({ removed, mod: mod ?? "failed" });
+});
+
+// The providers the operator added (Settings → Providers & models). Each is a
+// named endpoint with a handle prefix of its own, registered by the providers
+// mod — see `providers/registry.ts` for why this cannot be `connect_provider`.
+// The list never carries a key; a save with a blank key keeps the stored one.
+
+app.get("/api/providers", (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  const providers = Object.entries(modelCaps.endpoints()).map(([prefix, info]) => ({
+    prefix,
+    name: info.name ?? prefix,
+    type: info.type ?? "",
+    api: info.api ?? "openai-completions",
+    scope: info.scope ?? "local",
+    baseUrl: info.baseUrl ?? "",
+    models: info.models ?? [],
+    hasKey: Boolean(info.apiKey),
+  }));
+  return c.json({ types: PROVIDER_TYPES, providers });
+});
+
+app.post("/api/providers", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
+  let parsed: ParsedProvider;
+  try {
+    parsed = parseProviderBody(await c.req.json().catch(() => null));
+  } catch (error) {
+    if (error instanceof ProviderError) return c.text(error.message, 400);
+    return c.text(errorMessage(error), 400);
+  }
+  const stored = modelCaps.endpoints()[parsed.prefix];
+  if (stored?.name && stored.name !== parsed.name) {
+    return c.text(
+      `Another provider already answers to "${parsed.name}" — two providers cannot share the handle ${parsed.prefix}.`,
+      409,
+    );
+  }
+  if (!stored && providerSight.isConnected(parsed.prefix)) {
+    return c.text(
+      `The app-server already has a connection serving ${parsed.prefix}/ — name the provider something else.`,
+      409,
+    );
+  }
+  modelCaps.unretire(parsed.prefix);
+  modelCaps.setEndpoint(parsed.prefix, {
+    name: parsed.name,
+    type: parsed.type,
+    api: parsed.api,
+    scope: parsed.scope,
+    baseUrl: parsed.baseUrl,
+    models: parsed.models,
+    ...(parsed.apiKey ? { apiKey: parsed.apiKey } : {}),
+  });
+  // Nothing here declares what a model can do — vision, reasoning and the real
+  // context window are per model and set on the model, so a save here must not
+  // write (or flatten) a single capability.
+  const mod = await resyncMods("Settings → providers", {
+    refreshCatalog: false,
+    refreshProviders: true,
+  }).catch(() => null);
+  return c.json({
+    provider: {
+      prefix: parsed.prefix,
+      name: parsed.name,
+      type: parsed.type,
+      api: parsed.api,
+      scope: parsed.scope,
+      baseUrl: parsed.baseUrl,
+      models: parsed.models,
+    },
+    mod: mod ?? "failed",
+  });
+});
+
+app.delete("/api/providers", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
+  const prefix = slugifyName(c.req.query("prefix"));
+  if (!prefix) return c.text("prefix is required", 400);
+  const removed = modelCaps.removeProvider(prefix);
+  const mod = await resyncMods("Settings → providers", {
+    refreshCatalog: false,
+    refreshProviders: true,
+  }).catch(() => null);
+  return c.json({ removed, mod: mod ?? "failed" });
+});
+
+/**
+ * What an endpoint says it serves. POST with the key in the body, not a query
+ * string: a URL is the one thing that ends up in logs.
+ */
+/**
+ * What a probe is asked about: the endpoint fields of the form, with a blank key
+ * falling back to the stored one — an edit form starts blank every time because
+ * nothing can read a key back.
+ */
+async function probeFields(c: Context): Promise<{ api: string; baseUrl: string; key: string }> {
+  const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+  const typed = typeof body?.apiKey === "string" ? body.apiKey.trim() : "";
+  const prefix = slugifyName(body?.prefix);
+  const key = typed || (prefix ? (modelCaps.endpoints()[prefix]?.apiKey ?? "") : "");
+  return {
+    api: typeof body?.api === "string" ? body.api : "openai-completions",
+    baseUrl: typeof body?.baseUrl === "string" ? body.baseUrl : "",
+    key,
+  };
+}
+
+/** A failed probe says what the endpoint said — it is the operator's to read. */
+function providerText(error: unknown): string {
+  return error instanceof ProviderError ? error.message : errorMessage(error);
+}
+
+app.post("/api/providers/models", async (c) => {
+  if (!c.get("session")) return c.text("Unauthorized", 401);
+  const probe = await probeFields(c);
+  if (!probe.baseUrl) return c.text("baseUrl is required", 400);
+  try {
+    const models = await probeProviderModels({
+      api: probe.api,
+      baseUrl: probe.baseUrl,
+      apiKey: probe.key,
+    });
+    return c.json({ models });
+  } catch (error) {
+    return c.text(providerText(error), 400);
+  }
 });
 
 // What agents currently have as native tools from the MCP side: the curated

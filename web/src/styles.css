@@ -1798,6 +1798,36 @@ button {
   flex: 1;
   text-align: center;
 }
+/* A left action keeps its own width so the two right-hand buttons still have
+   room to keep their labels on one line at phone width. */
+.sheet-actions .button.leading {
+  flex: 0 0 auto;
+}
+
+/* A line that floats over everything and dismisses itself: the outcome of an
+   action the operator just took, where a note inside the panel scrolls away and
+   a dialog would interrupt. Taps dismiss it early; 6s does it otherwise. */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(78px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 90;
+  /* A width, not a max-width: with `left: 50%` the shrink-to-fit box would only
+     have half the viewport to grow into and wrap into a column of text. */
+  width: min(92vw, 560px);
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
+  font-size: 13px;
+  cursor: pointer;
+}
+.toast.bad {
+  border-color: var(--danger);
+  color: var(--danger);
+}
 
 .suggestions {
   margin: 12px 0 0;
@@ -3736,6 +3766,31 @@ button.link-dot.busy.warn {
 .settings-content-title {
   margin: 14px 12px 4px;
   font-size: 16px;
+}
+
+/* Settings → Providers & models. The base URL gets its own line because a row
+   that keeps it beside Edit/Remove truncates the one part of it that matters —
+   the host — on a phone. */
+.prov-meta {
+  margin: -8px 12px 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+/* The "Models (N)" disclosure under a provider row: .tool-head carries no
+   horizontal padding of its own, the list rows it sits between do. */
+.models-head {
+  padding: 0 12px 8px;
+}
+.list.nested > li > .row {
+  padding-left: 24px;
+}
+/* A provider type is a product name (llama.cpp), not a status word, so the
+   `.tag::first-letter` capitalisation must not touch it. */
+.tag.type::first-letter {
+  text-transform: none;
 }
 
 @media (min-width: 900px) {

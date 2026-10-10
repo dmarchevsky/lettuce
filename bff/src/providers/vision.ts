@@ -179,6 +179,8 @@ export interface ProviderModModel {
 export interface ProviderModGroup {
   id: string;
   name: string;
+  /** The pi-ai api this endpoint speaks. */
+  api: string;
   baseUrl: string;
   apiKey?: string;
   models: readonly ProviderModModel[];
@@ -212,6 +214,8 @@ export interface ProviderModInput {
   isLive(prefix: string): boolean;
   /** Prefixes the mod file currently on disk registers. */
   alreadyRegistered: ReadonlySet<string>;
+  /** Prefixes the operator removed — never registered again, whatever the file says. */
+  retired?: ReadonlySet<string>;
 }
 
 /** Harness defaults — what the auto-discovered path would give an undeclared model. */
@@ -246,18 +250,28 @@ export function buildProviderModGroups(input: ProviderModInput): ProviderModGrou
   ]);
   const groups: ProviderModGroup[] = [];
   for (const prefix of [...prefixes].sort()) {
-    const served = input.served.get(prefix);
+    if (input.retired?.has(prefix)) continue;
+    const endpoint = input.endpoints[prefix];
+    // A provider the operator added publishes its own model list, so it is not a
+    // shadow of a connection and no served-list mirror is involved.
+    const ownModels = endpoint?.models?.length ? endpoint.models : null;
+    const served = ownModels ? undefined : input.served.get(prefix);
     // A shadow of a live endpoint must mirror the current served list; an
     // unknown one would erase the endpoint's models. Standalone groups (an
     // env-seeded id no Settings connection owns) render from declarations —
     // `isLive` means a live *connection*, not merely an endpoint record.
-    if (served === undefined && input.isLive(prefix)) return null;
-    const endpoint = input.endpoints[prefix];
+    if (served === undefined && !ownModels && input.isLive(prefix)) return null;
     const baseUrl = input.baseUrlOf(prefix) ?? endpoint?.baseUrl;
-    if (!baseUrl) return null;
+    if (!baseUrl) {
+      // One half-entered provider must not hold every other group hostage; a
+      // shadow with no URL anywhere still means "wait and retry".
+      if (ownModels) continue;
+      return null;
+    }
 
     const declarations = declared.get(prefix) ?? new Map<string, ModelCaps>();
     const ids: string[] = [];
+    for (const id of ownModels ?? []) if (!ids.includes(id)) ids.push(id);
     for (const model of served ?? []) if (!ids.includes(model.id)) ids.push(model.id);
     for (const id of declarations.keys()) if (!ids.includes(id)) ids.push(id);
     if (ids.length === 0) continue; // nothing served, nothing declared: nothing to register
@@ -266,6 +280,7 @@ export function buildProviderModGroups(input: ProviderModInput): ProviderModGrou
     groups.push({
       id: prefix,
       name: endpoint?.name ?? prefix,
+      api: endpoint?.api ?? "openai-completions",
       baseUrl,
       ...(endpoint?.apiKey ? { apiKey: endpoint.apiKey } : {}),
       models: ids.map((id) => {
@@ -309,7 +324,7 @@ export default function activate() {}
     .map((group) => {
       const registration = {
         name: group.name,
-        api: "openai-completions",
+        api: group.api,
         baseUrl: group.baseUrl,
         // Resolved as process.env[apiKey] ?? apiKey by letta-code's mod
         // validation, so "not-needed" (the default) sends no Authorization.
@@ -324,7 +339,12 @@ export default function activate() {}
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
           contextWindow: model.contextWindow,
           maxTokens: model.maxTokens,
-          compat: { supportsDeveloperRole: false, supportsReasoningEffort: false },
+          // The completions-compat overrides are about `developer` role and
+          // reasoning-effort plumbing that only the OpenAI-shaped api has; the
+          // others must keep pi-ai's own defaults.
+          ...(group.api === "openai-completions"
+            ? { compat: { supportsDeveloperRole: false, supportsReasoningEffort: false } }
+            : {}),
         })),
       };
       return `  letta.providers.register(${JSON.stringify(group.id)}, ${JSON.stringify(

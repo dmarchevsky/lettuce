@@ -321,3 +321,78 @@ describe("parseRegisteredProviderIds", () => {
 test("the mod lives where every other mod lives", () => {
   expect(PROVIDERS_MOD_PATH).toMatch(/mods\/lettuce-providers\.mjs$/);
 });
+
+describe("buildProviderModGroups — providers the operator added", () => {
+  test("a provider publishes its own model list, no served mirror needed", () => {
+    const groups = buildProviderModGroups(
+      input({
+        served: new Map(),
+        baseUrlOf: () => undefined,
+        isLive: () => false,
+        endpoints: {
+          "llama-3b": {
+            name: "llama 3b",
+            api: "openai-completions",
+            baseUrl: "http://x:8080/v1",
+            models: ["qwen3-4b-instruct", "gemma3n-e4b"],
+          },
+        },
+      }),
+    )!;
+    expect(groups.map((g) => g.id)).toEqual(["llama-3b"]);
+    expect(groups[0]!.name).toBe("llama 3b");
+    expect(groups[0]!.models.map((m) => m.id)).toEqual(["qwen3-4b-instruct", "gemma3n-e4b"]);
+    // Declared caps still apply per model; nothing declared keeps the clamp.
+    expect(groups[0]!.models[0]!.contextWindow).toBe(128000);
+  });
+
+  test("a non-completions api registers with its own api and pi-ai's defaults", () => {
+    const groups = buildProviderModGroups(
+      input({
+        served: new Map(),
+        baseUrlOf: () => undefined,
+        isLive: () => false,
+        endpoints: {
+          "claude-work": {
+            name: "Claude work",
+            api: "anthropic-messages",
+            baseUrl: "https://api.anthropic.com",
+            models: ["claude-sonnet-4-5"],
+          },
+        },
+      }),
+    )!;
+    expect(groups[0]!.api).toBe("anthropic-messages");
+    const source = renderProvidersMod(groups);
+    expect(source).toContain('"api": "anthropic-messages"');
+    // The completions compat overrides are about plumbing only that api has.
+    expect(source).not.toContain("supportsDeveloperRole");
+  });
+
+  test("a retired prefix stays out, whatever the mod on disk declares", () => {
+    expect(
+      buildProviderModGroups(
+        input({
+          served: new Map(),
+          retired: new Set(["openai-compatible"]),
+          alreadyRegistered: new Set(["openai-compatible"]),
+        }),
+      ),
+    ).toEqual([]);
+  });
+
+  test("a half-entered provider skips itself rather than blocking every other group", () => {
+    const groups = buildProviderModGroups(
+      input({
+        served: new Map(),
+        baseUrlOf: () => undefined,
+        isLive: () => false,
+        endpoints: {
+          "no-url": { name: "No url", models: ["m"] },
+          good: { name: "Good", baseUrl: "http://good/v1", models: ["m"] },
+        },
+      }),
+    );
+    expect(groups?.map((g) => g.id)).toEqual(["good"]);
+  });
+});

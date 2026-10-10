@@ -1,19 +1,12 @@
 /**
- * Telling a locally-served model from a cloud one, client-side.
+ * Handle arithmetic shared by the model picker and Settings → Providers & models.
  *
- * The obvious approach — compare the handle's provider segment against the
- * provider's own `provider_name` — is wrong for exactly one provider, and it is
- * the one this deployment uses. llama.cpp reports
- * `provider_names: ["llama-cpp", "lc-llama-cpp"]` (hyphen), but every handle it
- * serves is stamped `llama.cpp/…` (dot), because upstream's
- * `handlePrefixes[0]` is the dotted spelling. A literal comparison misses every
- * model, which is how "Models served" ended up empty with everything filed
- * under Cloud.
- *
- * `ConnectProviderEntry` carries no `handle_prefixes`, so the dotted spelling
- * cannot be learned from the protocol. Two defences instead: normalise both
- * sides so separators stop mattering, and mirror upstream's own local-prefix
- * list as a fallback for handles that match no connected row.
+ * The one trick worth its salt here: separators must not matter, because the
+ * provider a row reports and the handle it stamps are not spelled the same way.
+ * llama.cpp reports `provider_names: ["llama-cpp", "lc-llama-cpp"]` (hyphen) but
+ * stamps every handle `llama.cpp/…` (dot), because upstream's `handlePrefixes[0]`
+ * is the dotted spelling. A literal comparison misses every model it serves —
+ * which is how "Models served" once came up empty with everything filed elsewhere.
  */
 
 /**
@@ -28,74 +21,7 @@ export function normalizeProviderKey(value: string): string {
   return withoutAlias.replace(/[.\-_]/g, "");
 }
 
-/**
- * Mirrors `LOCAL_MODEL_HANDLE_PREFIXES` in
- * letta-code/src/agent/model-handles.ts. Kept in sync by hand because the
- * protocol does not expose it; `scripts/sync-upstream.sh` reports drift in that
- * file's directory.
- *
- * Note `ollama-cloud` is in upstream's list too: it means "served over a
- * local-style OpenAI-compatible endpoint", not "runs on this machine".
- */
-const LOCAL_HANDLE_PREFIXES = [
-  "ollama",
-  "ollama-cloud",
-  "lmstudio",
-  "llama.cpp",
-  "llama-cpp",
-  "openai-compatible",
-].map(normalizeProviderKey);
-
 /** The provider segment of a handle, e.g. "llama.cpp/Gemma-4" -> "llama.cpp". */
 export function handleProvider(handle: string): string {
   return handle.split("/")[0] ?? "";
-}
-
-export interface ProviderNames {
-  provider_name?: string;
-  provider_names?: string[];
-}
-
-/** Normalised keys for every alias the given provider rows answer to. */
-export function localProviderKeys(providers: readonly ProviderNames[]): Set<string> {
-  const keys = new Set<string>();
-  for (const provider of providers) {
-    for (const name of [provider.provider_name, ...(provider.provider_names ?? [])]) {
-      if (name) keys.add(normalizeProviderKey(name));
-    }
-  }
-  return keys;
-}
-
-/**
- * Is this handle served by one of the connected local endpoints?
- *
- * Falls back to the mirrored prefix list so a served model is still classified
- * correctly when its provider row is absent from the list response.
- */
-export function isLocalHandle(handle: string, localKeys: ReadonlySet<string>): boolean {
-  const key = normalizeProviderKey(handleProvider(handle));
-  if (!key) return false;
-  return localKeys.has(key) || LOCAL_HANDLE_PREFIXES.includes(key);
-}
-
-/**
- * Can this model's capabilities only be *declared* (Settings → Providers &
- * models), because its endpoint reports none?
- *
- * True for a plain OpenAI-compatible prefix and for its BYOK aliases —
- * `byok_provider_aliases` maps each `lc-…` prefix to the base provider it
- * mirrors, and an alias of `openai-compatible` is the same capability-less
- * endpoint under a different handle. llama.cpp, Ollama etc. report
- * capabilities themselves from their native schema, so nothing is declared
- * for them and their models are not editable.
- */
-export function isCapabilityLessHandle(
-  handle: string,
-  aliases: Readonly<Record<string, string>>,
-): boolean {
-  const prefix = handleProvider(handle);
-  if (!prefix) return false;
-  const base = normalizeProviderKey(aliases[prefix] ?? prefix);
-  return base === normalizeProviderKey("openai-compatible");
 }
