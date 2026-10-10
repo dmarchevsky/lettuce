@@ -1257,10 +1257,28 @@ function applyNotice(transcript: Transcript, raw: Record<string, unknown>, seq: 
       dim = raw.dim_output === true;
       break;
     }
+    case "slash_command_start": {
+      // Only /compact earns a card, and it earns one because it is the command
+      // that runs a whole model call with nothing else on screen: the summary
+      // takes a minute or more, and until `slash_command_end` the transcript
+      // looks idle and the composer looks free. Every other command answers
+      // fast enough that a start line would be noise — which is why this marker
+      // used to be dropped outright.
+      if (raw.command_id !== "compact") return;
+      transcript.set(COMPACT_PENDING_ID, {
+        id: COMPACT_PENDING_ID,
+        kind: "notice",
+        date: typeof raw.date === "string" ? raw.date : new Date().toISOString(),
+        seenAt: seq,
+        text: "Compacting the conversation… the summary is a model call, so this takes a minute.",
+        level: "info",
+        streaming: true,
+      });
+      return;
+    }
     case "client_tool_start":
     case "client_tool_end":
     case "command_start":
-    case "slash_command_start":
       return; // Start markers add noise without the paired result.
     default:
       return;
@@ -1275,18 +1293,55 @@ function applyNotice(transcript: Transcript, raw: Record<string, unknown>, seq: 
   // one failure reported twice, so a badge would assert something untrue.
   const duplicate =
     messageType === "loop_error" ? duplicateErrorNotice(transcript, text, runId) : null;
+  // A finished /compact replaces the "Compacting…" card it grew from, so one
+  // compaction is one line. Keyed by command rather than by delta id because
+  // the start and end markers carry unrelated random ids and no run id.
+  const pending =
+    messageType === "slash_command_end" && raw.command_id === "compact"
+      ? (transcript.get(COMPACT_PENDING_ID) ?? null)
+      : null;
+  if (pending) transcript.delete(COMPACT_PENDING_ID);
 
-  transcript.set(duplicate?.id ?? id, {
-    id: duplicate?.id ?? id,
+  transcript.set(duplicate?.id ?? pending?.id ?? id, {
+    id: duplicate?.id ?? pending?.id ?? id,
     kind: "notice",
     date: typeof raw.date === "string" ? raw.date : new Date().toISOString(),
-    seenAt: duplicate?.seenAt ?? seq,
+    seenAt: duplicate?.seenAt ?? pending?.seenAt ?? seq,
     text,
     level,
     dim,
     ...(detail ? { detail } : {}),
     ...(runId ? { runId } : {}),
   });
+}
+
+/** The transcript slot for a running `/compact`, folded into by its end marker. */
+const COMPACT_PENDING_ID = "notice:compact-pending";
+
+/**
+ * How long a `/compact` may go on claiming the harness is busy. Upstream answers
+ * `slash_command_end` on success and on failure alike, so the only way that
+ * answer never arrives is a socket drop or an app-server restart mid-compaction
+ * — and then the line would sit there claiming work until the page is reloaded.
+ * The transcript card keeps its text past this: it is the record that a
+ * `/compact` was issued and never answered, and nothing renders it as running.
+ */
+const COMPACT_PENDING_MAX_MS = 10 * 60_000;
+
+/**
+ * When a running `/compact` began, or null when none is. The turn clock is idle
+ * during a compaction — no turn is in flight — so this is the only thing that
+ * tells the composer's working line the harness is busy and how long it has
+ * been at it.
+ */
+export function pendingCompactStartedAt(entries: readonly TranscriptEntry[]): number | null {
+  for (const entry of entries) {
+    if (entry.id !== COMPACT_PENDING_ID || !entry.streaming) continue;
+    const at = Date.parse(entry.date);
+    if (Number.isNaN(at)) return null;
+    return Date.now() - at > COMPACT_PENDING_MAX_MS ? null : at;
+  }
+  return null;
 }
 
 /**

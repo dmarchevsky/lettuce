@@ -278,3 +278,45 @@ describe("enabledFeatureNames", () => {
     expect(enabledFeatureNames(all).sort()).toEqual(Object.keys(all).sort());
   });
 });
+
+describe("loadConfig context watchdog", () => {
+  function withEnv(extra: Record<string, string | undefined>, run: () => void): void {
+    const saved = { ...process.env };
+    try {
+      Object.assign(process.env, {
+        PUBLIC_ORIGIN: "http://localhost:8090",
+        LETTA_APP_SERVER_URL: "ws://127.0.0.1:4500",
+        SESSION_SECRET: "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p67",
+      });
+      for (const [key, value] of Object.entries(extra)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      run();
+    } finally {
+      for (const key of Object.keys(process.env)) delete process.env[key];
+      Object.assign(process.env, saved);
+    }
+  }
+
+  test("an unset or empty ratio takes the default, since Compose passes empty", () => {
+    withEnv({ CONTEXT_WATCHDOG_RATIO: undefined }, () => {
+      expect(loadConfig().contextWatchdogRatio).toBe(0.9);
+    });
+    withEnv({ CONTEXT_WATCHDOG_RATIO: "" }, () => {
+      expect(loadConfig().contextWatchdogRatio).toBe(0.9);
+    });
+  });
+
+  test("0 means off, not a BFF that refuses to boot", () => {
+    withEnv({ CONTEXT_WATCHDOG_RATIO: "0" }, () => {
+      expect(loadConfig().contextWatchdogRatio).toBe(0);
+    });
+  });
+
+  test("a share outside 0-1 is a config error", () => {
+    withEnv({ CONTEXT_WATCHDOG_RATIO: "1.5" }, () => {
+      expect(() => loadConfig()).toThrow(/CONTEXT_WATCHDOG_RATIO/);
+    });
+  });
+});

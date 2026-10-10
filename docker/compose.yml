@@ -295,6 +295,13 @@ services:
       # docker/.env would never reach the container.
       SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-}
       FRAME_BUFFER_SIZE: ${FRAME_BUFFER_SIZE:-}
+      # Share of the declared context window at which the BFF compacts a
+      # conversation after its turn rather than waiting for the next request to
+      # fail; 0 switches it off. Empty means the BFF's own 0.9. Docs:
+      # "Model capabilities" in docs/CONFIGURATION.md.
+      CONTEXT_WATCHDOG_RATIO: ${CONTEXT_WATCHDOG_RATIO:-}
+      CONTEXT_USAGE_FILE: ${CONTEXT_USAGE_FILE:-}
+      CONTEXT_SIZE_FILE: ${CONTEXT_SIZE_FILE:-}
       # The allowlist, and the only source of it — there is no file. A
       # comma-separated list of addresses. Required in cloudflared mode, where
       # it is the check that still stands if the Cloudflare Access policy is

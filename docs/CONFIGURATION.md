@@ -131,6 +131,9 @@ which drops the BFF's upstream connection, so run
 | `SESSION_TTL_SECONDS` | `2592000` (30 days) | Session cookie lifetime. |
 | `FRAME_BUFFER_SIZE` | `5000` | Total streaming frames retained for session resume, across all conversations. |
 | `SHUTDOWN_DRAIN_TIMEOUT_SECONDS` | `540` (9 min) | How long `SIGTERM` waits for in-flight turns before closing upstream. Must stay below the container's `stop_grace_period` (10m), and drain + image build under the deploy manager's 900 s `compose up` timeout. |
+| `CONTEXT_WATCHDOG_RATIO` | `0.9` | Share of the declared context window at which the BFF compacts a conversation itself, once its turn has ended, instead of waiting for the next request to fail. It also compacts after a provider refusal that smells like a full context (`exceeds the available context size`, `n_ctx`, `prompt is too long`, …) whatever the share. `0` switches it off. See [Model capabilities](#model-capabilities-vision-thinking-real-context-window) for why letta-code's own trigger is not enough. |
+| `CONTEXT_USAGE_FILE` | `/app/data/context-usage.json` | On the `bff-data` volume: the last finished turn per conversation, so the context gauge survives a BFF restart instead of reading `—` until the next turn. Losing it costs nothing but the number. |
+| `CONTEXT_SIZE_FILE` | `/app/data/context-size.json` | On the `bff-data` volume: the context sizes you typed in the **Context** sheet, per agent or conversation. Empty means every agent takes its size from its model's declaration. Losing it only loses those overrides. |
 
 ## Cloudflare Access (cloudflared mode)
 
@@ -247,6 +250,29 @@ included), optional `name`, `description`, `apiKey`, and `models[]` with `id`,
 optional `name`, `reasoning: true`, `input` (default `["text","image"]`), and
 the real `contextWindow` / `maxTokens`. An unparsable value is logged and
 ignored.
+
+The declared window is **not** handed to letta-code as it stands. Upstream derives
+its own threshold from the window alone — `window − min(16 384, 20 % of the
+window)` — and takes no account of what a request promises to generate, while the
+server must leave room for exactly that: it refuses a request at
+`context − maxTokens`. A model whose `maxTokens` (32 768 is common) is bigger than
+the 16 384-token reserve therefore runs out before the compaction is even
+considered, and the summariser is itself such a request — it carries the whole
+transcript and is allowed the model's own `maxTokens` — so it needs that room too.
+
+So Lettuce **derives** the window rather than storing the number you typed. The
+**context size** — the Context sheet's one editable figure, defaulting to the
+model's declaration — minus `max(maxTokens + 4 096, reserve)` is where the
+conversation compacts, and letta-code is given the window whose own threshold
+lands exactly there: a 262 144-token model with a 32 768 output compacts at
+225 280 and is given 241 664. Upstream's compaction does the work, a little
+earlier than it would have, and nothing is left to a timer. Agents are sized when
+the BFF connects, whenever a model's caps are saved, and on the first look at an
+agent that has not been sized.
+
+`CONTEXT_WATCHDOG_RATIO` is the backstop for whatever those numbers still miss:
+the BFF compacts the conversation after the turn that filled it, using the same
+verb `/compact` does.
 
 ```
 VISION_PROVIDERS=[{"id":"vision-box","name":"Vision Box","description":"Qwen3-VL on a Strix Halo box via Olla","baseUrl":"http://192.0.2.10:8080/olla/openai/v1","models":[{"id":"Qwen3-VL-8B","name":"Qwen3-VL-8B","contextWindow":262144,"maxTokens":32768}]}]

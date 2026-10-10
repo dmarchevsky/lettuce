@@ -89,7 +89,7 @@ const UNDISPATCHABLE = new Set([
 
 const COMMAND_DESCRIPTIONS: Record<string, string> = {
   clear: "Clear the conversation history",
-  compact: "Summarise the conversation to free context",
+  compact: "Compact the conversation to free context",
   "context-limit": "Show the current context window usage",
   doctor: "Run environment diagnostics",
   init: "Explore the working directory and write a project guide",

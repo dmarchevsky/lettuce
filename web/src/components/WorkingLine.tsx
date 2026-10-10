@@ -12,6 +12,8 @@ interface Props {
   stopping: boolean;
   turnStartedAt: number | null;
   lastActivityAt: number | null;
+  /** When a running `/compact` began; null when none is. See `lib/working.ts`. */
+  compactStartedAt: number | null;
   usage: TurnUsage | null;
   onAbort: () => void;
 }
@@ -133,6 +135,7 @@ export function WorkingLine({
   stopping,
   turnStartedAt,
   lastActivityAt,
+  compactStartedAt,
   usage,
   onAbort,
 }: Props) {
@@ -153,6 +156,7 @@ export function WorkingLine({
     now,
     turnStartedAt,
     lastActivityAt,
+    compactStartedAt,
   });
   if (!snap) return null;
 
@@ -160,7 +164,11 @@ export function WorkingLine({
   const speed = generating
     ? sampleSpeed(speedStoreRef.current, streamingChars(entries), true)
     : null;
-  const elapsed = formatElapsed(now - (turnStartedAt ?? now));
+  // A compaction owns its own clock: no turn is in flight, so the turn's would
+  // be the previous turn's start.
+  const elapsed = formatElapsed(
+    now - (snap.state === "compacting" ? (compactStartedAt ?? now) : (turnStartedAt ?? now)),
+  );
   const queued = drainingQueueCount(queue);
 
   const metrics: Metric[] = [];
@@ -169,7 +177,9 @@ export function WorkingLine({
   if (generating && usage && usage.completionTokens >= 100) {
     metrics.push({ key: "tok", text: `+${formatTokens(usage.completionTokens)} tok`, wide: true });
   }
-  if (snap.state !== "thinking" && usage && usage.steps > 1) {
+  // A compaction is not a step of this turn, and the usage on screen is the
+  // previous turn's — its step count would be a coincidence.
+  if (snap.state !== "thinking" && snap.state !== "compacting" && usage && usage.steps > 1) {
     metrics.push({ key: "step", text: `step ${usage.steps}`, wide: true });
   }
   if (queued > 0) metrics.push({ key: "queue", text: `queue +${queued}`, wide: true });
