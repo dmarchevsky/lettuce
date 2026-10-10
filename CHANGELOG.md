@@ -5,6 +5,8 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.11.0-letta_0.34.9] - 2026-10-10
+
 ### Added
 - **Settings → About now lists what this deployment runs.** The Connection and Backend rows are gone (the connection state has its own indicator, and the backend has always been local), and in their place a **Components** list gives the version of each piece this install switched on: letta-code, the coding CLIs, the search and Google sidecars, the Cloudflare tunnel. Each number comes from wherever it can actually be read — the app-server answers for itself, the Codex/Claude/GitHub CLIs report theirs from inside the image at build time, and a sidecar's is the pin its image tag was built from — and a component this install does not have is simply absent.
 
