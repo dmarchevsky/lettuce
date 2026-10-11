@@ -1208,22 +1208,23 @@ try {
       offenders,
     );
 
-    // Codex loads its settings from the BFF (GET /api/codex/settings); a form
-    // means the route answered, not just that the row exists.
-    await openSection("Codex workers");
-    check(
-      "codex section loads its settings",
-      (await page.locator('.menu-row:has-text("Allow Codex workers")').count()) === 1,
-      await page.locator(".settings-content").innerText(),
-    );
-
-    // Same for Claude Code (GET /api/claude/settings).
-    await openSection("Claude Code workers");
-    check(
-      "claude section loads its settings",
-      (await page.locator('.menu-row:has-text("Allow Claude Code workers")').count()) === 1,
-      await page.locator(".settings-content").innerText(),
-    );
+    // Codex and Claude Code load their settings from the BFF
+    // (GET /api/codex/settings, GET /api/claude/settings); a form means the route
+    // answered, not just that the row exists. Each is behind a compose token, so a
+    // stack without one has no row to open — the same guard the Remote Pi block
+    // below uses. Without it this hung for 30s on the click instead of skipping.
+    for (const [token, row, switchRow] of [
+      ["codex", "Codex workers", "Allow Codex workers"],
+      ["claude", "Claude Code workers", "Allow Claude Code workers"],
+    ] as const) {
+      if (!featureOn(desktopFeatures, token)) continue;
+      await openSection(row);
+      check(
+        `${token} section loads its settings`,
+        (await page.locator(`.menu-row:has-text("${switchRow}")`).count()) === 1,
+        await page.locator(".settings-content").innerText(),
+      );
+    }
 
     if (featureOn(desktopFeatures, "pi")) {
       // Same for Remote Pi (GET /api/pi/settings).
@@ -1384,6 +1385,9 @@ try {
     await page.waitForTimeout(300);
     check("a toast dismisses on tap", (await page.locator(".toast").count()) === 0);
     await addSheet.locator('button:has-text("Speaks")').count(); // the api hint proves a type is chosen
+    // Blank the URL again first: choosing a type prefills an empty field and never
+    // clobbers what was typed, and the test above typed one.
+    await addSheet.locator('input[placeholder^="http://"]').fill("");
     await addSheet.locator(".field button.row").click();
     const typeSheet = page.locator('.sheet-panel[aria-label="Type"]');
     await typeSheet.waitFor({ timeout: 5_000 });
