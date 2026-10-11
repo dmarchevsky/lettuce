@@ -5,6 +5,8 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.13.0-letta_0.34.9] - 2026-10-11
+
 ### Added
 - **You add providers now; nothing is pre-listed.** Settings → Providers & models used to show the whole catalog of provider types, one endpoint per type at most. It is your list now: **Add provider** takes a type (llama.cpp, Ollama, LM Studio, any OpenAI-compatible endpoint, Anthropic, OpenAI, Gemini, Mistral, OpenRouter, DeepSeek, Groq and a dozen more hosts — each prefills the API it speaks and its base URL), a name, a base URL, a key, and either the endpoint's own model list or ids you type. A **Test** button in the sheet's footer reaches the endpoint and reads its model list before you commit to a provider, so a wrong URL or key is caught there rather than in a conversation — and it answers in a **toast** over the sheet, in the endpoint's own words when the endpoint has words. The name becomes the model handle prefix — `llama 3b` serves `llama-3b/<model>` — so any number of providers may share a type and only their names have to differ: that is what makes several OpenAI-compatible endpoints, or two keys for the same host, usable at once. Each row expands to its models, and **Edit** on one of them declares what it can do — vision, reasoning, its real context window — because that is a fact about a model, not about the endpoint it came from. What the app-server already had stays listed, tagged `app-server`, keeping its own fields and Disconnect. Bedrock, Vertex, Azure OpenAI, GitHub Copilot and the ChatGPT / Claude subscription plans are not offered — they need vendor or OAuth sign-in, which is `letta connect` on the app-server host.
 
