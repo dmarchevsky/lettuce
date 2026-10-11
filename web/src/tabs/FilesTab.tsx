@@ -95,7 +95,7 @@ export function gitActionsVisible(
   probe: { path: string; repo: boolean } | null,
   root: string,
 ): boolean {
-  return probe !== null && probe.repo && probe.path === root;
+  return !!probe?.repo && probe.path === root;
 }
 
 interface Props {

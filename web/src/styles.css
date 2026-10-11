@@ -712,11 +712,10 @@ pre {
   opacity: 1;
   cursor: default;
 }
+/* Only what the task row adds; the base `.grow-text` rule further down already
+ * sets flex/min-width/overflow/text-overflow to these same values, and repeating
+ * them here only meant the pair fought over which one was the real definition. */
 .entry.task .grow-text {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text);
 }

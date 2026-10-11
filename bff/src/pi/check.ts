@@ -65,7 +65,7 @@ export function pinnedHostKey(knownHosts: string, host: string, port: number): s
     if (!trimmed || trimmed.startsWith("#")) continue;
     const [first] = trimmed.split(/\s+/);
     // One line may list several patterns separated by commas or spaces.
-    if (first && first.split(/[,\s]/).includes(pattern)) return trimmed;
+    if (first?.split(/[,\s]/).includes(pattern)) return trimmed;
   }
   return null;
 }

@@ -16,7 +16,6 @@ interface FakeUpstream {
 
 function fakeUpstream(limitTokens: number | null = 128_000): FakeUpstream {
   const compacted: string[] = [];
-  // biome-ignore lint/suspicious/noExplicitAny: the fake answers three commands, loosely.
   const request = async (command: any): Promise<any> => {
     if (command.type === "agent_retrieve") {
       return {

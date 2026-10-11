@@ -86,7 +86,7 @@ export function McpEditor({ session }: { session: SessionApi }) {
   };
 
   const commit = async () => {
-    if (!draft || !draft.name.trim()) return;
+    if (!draft?.name.trim()) return;
     const value: McpServer = {
       name: draft.name.trim(),
       transport: draft.transport ?? "stdio",

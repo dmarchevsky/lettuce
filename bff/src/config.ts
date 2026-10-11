@@ -153,7 +153,7 @@ export interface PushConfig {
 
 function required(name: string): string {
   const value = process.env[name];
-  if (!value || !value.trim()) {
+  if (!value?.trim()) {
     throw new Error(`Missing required environment variable ${name}`);
   }
   return value.trim();

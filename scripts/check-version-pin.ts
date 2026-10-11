@@ -140,7 +140,7 @@ for (const name of COMPONENT_VARS) {
   for (const m of compose.matchAll(new RegExp(`\\$\\{${name}:-([^}]*)\\}`, "g"))) {
     places.push(["docker/compose.yml", m[1]]);
   }
-  const doc = docs.match(new RegExp("`" + name + "` \\| `([^`]+)`"));
+  const doc = docs.match(new RegExp(`\`${name}\` \\| \`([^\`]+)\``));
   if (doc) places.push(["docs/CONFIGURATION.md", doc[1]]);
   if (places.length === 0) {
     problems.push(`${name}: no pin found in docker/compose.yml`);

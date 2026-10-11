@@ -139,7 +139,7 @@ async function liveSessionsUnder(path: string): Promise<number | null> {
     } catch {
       continue;
     }
-    if (cwd === target || cwd.startsWith(target + "/")) count++;
+    if (cwd === target || cwd.startsWith(`${target}/`)) count++;
   }
   return count;
 }
@@ -202,10 +202,10 @@ const br = reportRows(branchRows);
 
 console.log(`\nWorktrees (main checkout: ${mainCheckout})`);
 for (const r of wt.keep) {
-  console.log(`  KEEP    ${r.row.path.replace(mainCheckout + "/", "")}  — ${r.verdict.reason}`);
+  console.log(`  KEEP    ${r.row.path.replace(`${mainCheckout}/`, "")}  — ${r.verdict.reason}`);
 }
 for (const r of wt.remove) {
-  console.log(`  REMOVE  ${r.row.path.replace(mainCheckout + "/", "")}  — ${r.verdict.reason}`);
+  console.log(`  REMOVE  ${r.row.path.replace(`${mainCheckout}/`, "")}  — ${r.verdict.reason}`);
 }
 
 console.log(`\nLocal branches`);

@@ -17,7 +17,11 @@ export interface HistoryLike {
   back(): void;
 }
 
-type Close = () => boolean | undefined | void;
+/** A truthy return tells the stack the Back press was used. `void` stays in the
+ * union because callers hand over state setters — `() => setMenuFor(null)` —
+ * which return nothing, and dropping it would refuse them at the call site. */
+// biome-ignore lint/suspicious/noConfusingVoidType: void is what accepts `() => setMenuFor(null)` as a close handler; boolean | undefined alone refuses it.
+export type Close = () => boolean | void;
 
 const MARKER = { lettaOverlay: true };
 

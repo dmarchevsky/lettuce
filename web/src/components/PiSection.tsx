@@ -222,7 +222,7 @@ export function PiSection() {
   /** Clipboard first; if the browser refuses (insecure origin), the input
    * still select-on-focus, so the key is never un-copyable. */
   const copyKey = async () => {
-    if (!settings || !settings.publicKey) return;
+    if (!settings?.publicKey) return;
     try {
       await navigator.clipboard.writeText(settings.publicKey);
       setCopied(true);

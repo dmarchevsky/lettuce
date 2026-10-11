@@ -257,7 +257,6 @@ function failureResult(failure: GitFailure): GitRouteResult {
       return { status: 404, text: failure.detail };
     case "not-a-repository":
       return { status: 200, json: { repo: false, reason: failure.detail } };
-    case "failed":
     default:
       return { status: 502, text: failure.detail };
   }

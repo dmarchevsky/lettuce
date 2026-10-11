@@ -204,7 +204,7 @@ describe("parseRepoProbe", () => {
 });
 
 describe("parseLog", () => {
-  const record = (fields: string[]): string => fields.join("\x1f") + "\x1e";
+  const record = (fields: string[]): string => `${fields.join("\x1f")}\x1e`;
 
   test("one record, refs decorated", () => {
     const text = record([
@@ -236,8 +236,8 @@ describe("parseLog", () => {
     for (const text of [joined, withTrailing]) {
       const commits = parseLog(text);
       expect(commits.map((commit) => commit.shortSha)).toEqual(["aaaaaaa", "bbbbbbb"]);
-      expect(commits[0] && commits[0].refs).toEqual([]);
-      expect(commits[0] && commits[0].isCurrent).toBe(false);
+      expect(commits[0]?.refs).toEqual([]);
+      expect(commits[0]?.isCurrent).toBe(false);
     }
   });
 
@@ -319,16 +319,15 @@ describe("parseShow", () => {
 
   test("a multi-line body with colons and --- lines stays in the message", () => {
     const body = "fé first\n\nbody line: with colon\n--- looks like a rule\n0\t0\tnot-a-numstat\n";
-    const output =
-      header("a".repeat(40), "A", "2026-01-01T00:00:00+00:00", body) + "\n\n0\t1\treal.txt\n";
+    const output = `${header("a".repeat(40), "A", "2026-01-01T00:00:00+00:00", body)}\n\n0\t1\treal.txt\n`;
     const detail = parseShow(output);
     expect(detail.message).toBe(
       "fé first\n\nbody line: with colon\n--- looks like a rule\n0\t0\tnot-a-numstat",
     );
     expect(detail.fileCount).toBe(1);
-    expect(detail.files[0] && detail.files[0].path).toBe("real.txt");
+    expect(detail.files[0]?.path).toBe("real.txt");
     // No raw line to pair with: status stays null rather than guessing.
-    expect(detail.files[0] && detail.files[0].status).toBeNull();
+    expect(detail.files[0]?.status).toBeNull();
   });
 
   test("a merge commit (suppressed diff) has no files", () => {

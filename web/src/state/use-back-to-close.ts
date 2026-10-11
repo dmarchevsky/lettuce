@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { BackStack } from "../lib/back-stack.ts";
+import { BackStack, type Close } from "../lib/back-stack.ts";
 
 // Created on first use, inside an effect: importing this module must not touch
 // `window` (unit tests import components that use it, with no browser).
@@ -18,7 +18,7 @@ function backStack(): BackStack {
  * `active`. `onClose` returning `false` marks it undismissable: Back is
  * swallowed rather than closing it or leaving the app. See `lib/back-stack.ts`.
  */
-export function useBackToClose(onClose: () => boolean | undefined | void, active = true): void {
+export function useBackToClose(onClose: Close, active = true): void {
   const latest = useRef(onClose);
   latest.current = onClose;
   useEffect(() => {

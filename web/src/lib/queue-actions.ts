@@ -104,7 +104,7 @@ export function planForceSend(
   targetId: string,
 ): ForceSendPlan | null {
   const target = queue.find((item) => item.id === targetId);
-  if (!target || target.source !== "user") return null;
+  if (target?.source !== "user") return null;
   const userItems = queue.filter((item) => item.source === "user");
   const others = userItems.filter((item) => item.id !== target.id);
   return {

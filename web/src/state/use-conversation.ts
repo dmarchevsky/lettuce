@@ -894,7 +894,7 @@ export function useConversation(
     (clientMessageId: string) => {
       if (!clientMessageId) return;
       const entry = transcriptRef.current.get(clientMessageId);
-      if (!entry || !entry.local) return;
+      if (!entry?.local) return;
       transcriptRef.current.delete(clientMessageId);
       streamIndexRef.current.byOtid.delete(clientMessageId);
       flushSync();

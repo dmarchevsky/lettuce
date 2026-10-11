@@ -49,7 +49,7 @@ function countZombies(procRoot = "/proc") {
 /** The one line logged for a failed spawn. */
 function describeSpawnFailure(error, child, env = {}) {
   const code = (error && (error.code || error.errno)) || "unknown";
-  const file = child.spawnfile || (error && error.path) || "?";
+  const file = child.spawnfile || error?.path || "?";
   const args = Array.isArray(child.spawnargs) ? child.spawnargs.slice(1).join(" ") : "";
   const cwd = child.__lettuceSpawnCwd || process.cwd();
   const current =
