@@ -5,6 +5,8 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.13.1-letta_0.34.9] - 2026-10-11
+
 ### Fixed
 - **A saved MCP server is no longer silently lost.** Saving Settings → MCP servers and turning Google on read the same shared list, changed their own copy of it and wrote it back, so whichever of the two finished last overwrote the other — the screen then showed a server that was never stored, until the next save. Saves now queue one behind the other, and a change that turns out to change nothing touches the file at all.
 - **Cron turns are not invisible after a restart any more.** When the BFF reconnects to the app-server it re-watches every conversation it is responsible for, but it asked for one page of the hundred most recently active per agent and stopped there. A conversation outside that page — or beyond the first hundred — got no notification, no unread badge and no working indicator for up to half an hour, and nothing in the UI said why. The first sweep after a connect now walks the app-server's whole list and subscribes to all of it; the periodic sweep keeps its smaller, cheaper shape.
