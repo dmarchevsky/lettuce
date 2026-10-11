@@ -1282,9 +1282,24 @@ try {
 
     await openSection("Providers & models");
 
-    // Models served: count in the heading, provider per row.
-    const servedHeading = await page.locator('.section-note:has-text("Models served")').innerText();
-    check("models-served heading carries a count", /\(\d+\)/.test(servedHeading), servedHeading);
+    // Providers: the operator's own named providers, each with a type chip and
+    // its base URL, or the empty state. Wait for one to arrive — the registry and
+    // the model list both answer after the section opens.
+    await page
+      .locator(".settings-content .prov-meta, .settings-content li.muted")
+      .first()
+      .waitFor({ timeout: 10_000 })
+      .catch(() => {});
+    const providerRows = page.locator(".settings-content .prov-meta");
+    const rowCount = await providerRows.count();
+    const paneText = await page.locator(".settings-content").innerText();
+    check(
+      "providers are listed by name with a type and a URL, or the empty state says so",
+      rowCount > 0
+        ? (await providerRows.first().innerText()).includes("://")
+        : /No providers yet/.test(paneText),
+      paneText.slice(0, 400),
+    );
 
     // Refreshing against a stable endpoint must NOT raise the change warning —
     // a detector that cries wolf on every refresh is worse than none.
@@ -1293,42 +1308,112 @@ try {
       "no spurious model-change warning on load",
       (await page.locator(warningSelector).count()) === 0,
     );
-    await page.locator('button:has-text("Refresh models")').click();
+    await page.locator('button[aria-label="Refresh models"]').click();
     await page.waitForTimeout(2500);
     check(
       "no spurious model-change warning after a refresh",
       (await page.locator(warningSelector).count()) === 0,
     );
 
-    // Capability-less endpoints get an Edit link per row, opening the
-    // declaration sheet. On a stack serving only native endpoints there are
-    // none — then there is nothing to check, and that must not fail. Wait for
-    // the first row to render: the list arrives over the socket after the
-    // section opens.
-    await page
-      .locator('.section-note:has-text("Models served") ~ ul li')
-      .first()
-      .waitFor({ timeout: 10_000 })
-      .catch(() => {});
-    const modelEditLinks = page.locator(
-      '.section-note:has-text("Models served") ~ ul .row button:has-text("Edit")',
-    );
-    const editCount = await modelEditLinks.count();
-    if (editCount > 0) {
-      await modelEditLinks.first().click();
-      const sheet = page.locator(".sheet-panel[aria-label]");
+    // A provider's models sit behind a disclosure, and each model's declaration
+    // opens the same sheet everywhere else. Nothing to expand on a stack with no
+    // providers, which must not fail the run.
+    const disclosure = page.locator(".settings-content .models-head button[aria-expanded]").first();
+    if ((await disclosure.count()) > 0) {
       check(
-        "model edit sheet opens with capability toggles",
-        (await sheet.locator('.menu-row:has-text("Vision")').count()) === 1 &&
-          (await sheet.locator('.menu-row:has-text("Thinking")').count()) === 1,
-        await sheet.innerText(),
+        "a provider's model disclosure counts its models",
+        /\(\d+\)/.test(await disclosure.innerText()),
+        await disclosure.innerText(),
       );
-      await page.keyboard.press("Escape");
+      await disclosure.click();
       await page.waitForTimeout(300);
-      check("model edit sheet closes", (await sheet.count()) === 0);
+      check(
+        "expanding a provider lists its models",
+        (await disclosure.getAttribute("aria-expanded")) === "true",
+      );
+      const modelEdit = page.locator('.list.nested .row button:has-text("Edit")').first();
+      if ((await modelEdit.count()) > 0) {
+        await modelEdit.click();
+        const sheet = page.locator(".sheet-panel[aria-label]");
+        check(
+          "model edit sheet opens with capability toggles",
+          (await sheet.locator('.menu-row:has-text("Vision")').count()) === 1 &&
+            (await sheet.locator('.menu-row:has-text("Thinking")').count()) === 1,
+          await sheet.innerText(),
+        );
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(300);
+        check("model edit sheet closes", (await sheet.count()) === 0);
+      }
+      await disclosure.click();
     } else {
-      check("served rows without an editable endpoint show no Edit link", true);
+      check("no providers yet means nothing to expand", /No providers yet/.test(paneText));
     }
+
+    // Add provider: one sheet for every type, and the type list is the whole
+    // catalog in both groups — a type may be added again under another name, so
+    // nothing in it is disabled.
+    await page.locator('.settings-content button:has-text("Add provider")').click();
+    const addSheet = page.locator('.sheet-panel[aria-label="Add provider"]');
+    await addSheet.waitFor({ timeout: 5_000 });
+    const addText = await addSheet.innerText();
+    check(
+      "add provider offers type, name, base URL and key",
+      /Type/.test(addText) && /Base URL/.test(addText) && /API key/.test(addText),
+      addText.slice(0, 300),
+    );
+    const testButton = addSheet.locator('button:text-is("Test")');
+    check(
+      "the endpoint can be tested once it has a URL",
+      (await testButton.count()) === 1 && (await testButton.isDisabled()),
+    );
+    await addSheet.locator('input[placeholder^="http://"]').fill("http://127.0.0.1:9/v1");
+    check("a URL makes the test available", await testButton.isEnabled());
+    // Nothing listens on port 9, so the answer is the endpoint's refusal — and it
+    // arrives as a toast over the sheet, not as a line inside the form.
+    await testButton.click();
+    const toast = page.locator(".toast");
+    await toast.waitFor({ timeout: 20_000 });
+    check(
+      "a failed test reports itself in a toast",
+      (await toast.innerText()).trim().length > 5 &&
+        (await toast.evaluate((n) => n.classList.contains("bad"))),
+      await toast.innerText(),
+    );
+    await toast.click();
+    await page.waitForTimeout(300);
+    check("a toast dismisses on tap", (await page.locator(".toast").count()) === 0);
+    await addSheet.locator('button:has-text("Speaks")').count(); // the api hint proves a type is chosen
+    await addSheet.locator(".field button.row").click();
+    const typeSheet = page.locator('.sheet-panel[aria-label="Type"]');
+    await typeSheet.waitFor({ timeout: 5_000 });
+    const typeRows = await typeSheet.locator(".menu-row").count();
+    const typeText = await typeSheet.innerText();
+    check(
+      "the type list carries every type in both groups",
+      typeRows > 10 &&
+        /Local — your own machines/.test(typeText) &&
+        /Cloud — hosted/.test(typeText),
+      `${typeRows} types`,
+    );
+    check(
+      "no type is refused for already being added",
+      (await typeSheet.locator(".menu-row:disabled").count()) === 0,
+    );
+    await typeSheet.locator('.menu-row:has-text("Anthropic")').first().click();
+    await typeSheet.waitFor({ state: "detached", timeout: 5_000 });
+    check(
+      "picking a type prefills its base URL and api",
+      (await addSheet.locator('input[value^="https://api.anthropic.com"]').count()) === 1 &&
+        /anthropic-messages/.test(await addSheet.innerText()),
+      await addSheet.innerText(),
+    );
+    await addSheet.locator('button:text-is("Cancel")').click();
+    await addSheet.waitFor({ state: "detached", timeout: 5_000 });
+    check(
+      "cancelling adds nothing",
+      (await page.locator('.sheet-panel[aria-label="Add provider"]').count()) === 0,
+    );
 
     // Global skills: only the global scope, plus the enable-by-path form.
     await openSection("Global skills");

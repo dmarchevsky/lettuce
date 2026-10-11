@@ -17,6 +17,7 @@ import { ModelPicker } from "./components/ModelPicker.tsx";
 import { PiRunsChip, usePiActiveRuns } from "./components/PiRunsChip.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { Switcher } from "./components/Switcher.tsx";
+import { ToastLayer } from "./components/Toast.tsx";
 import type { PreparedImage } from "./lib/attachments.ts";
 import { draftKey } from "./lib/draft.ts";
 import { applyFavicon } from "./lib/favicon.ts";
@@ -674,6 +675,8 @@ function Workspace({ status }: { status: Status }) {
       {creatingAgent ? (
         <AgentEditor session={session} agents={agents} onClose={() => setCreatingAgent(false)} />
       ) : null}
+
+      <ToastLayer />
     </div>
   );
 }

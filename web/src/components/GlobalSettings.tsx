@@ -7,13 +7,13 @@ import type { SessionApi } from "../state/use-session.ts";
 import { useWide } from "../state/use-wide.ts";
 import { ClaudeSection } from "./ClaudeSection.tsx";
 import { CodexSection } from "./CodexSection.tsx";
-import { ConnectionSection } from "./ConnectionSection.tsx";
 import { GoogleSection } from "./GoogleSection.tsx";
 import { Icon } from "./Icon.tsx";
 import { McpEditor } from "./McpEditor.tsx";
 import { MenuRow } from "./MenuRow.tsx";
 import { NotificationsSection } from "./NotificationsSection.tsx";
 import { PiSection } from "./PiSection.tsx";
+import { ProvidersSection } from "./ProvidersSection.tsx";
 import { GlobalSkills } from "./SkillsSections.tsx";
 import { WebToolsSection } from "./WebToolsSection.tsx";
 
@@ -69,13 +69,13 @@ export const GLOBAL_SECTION_GROUPS: { label: string; sections: SectionInfo[] }[]
 
 const ALL_SECTIONS = GLOBAL_SECTION_GROUPS.flatMap((group) => group.sections);
 /**
- * Every section here is global, and the per-agent half of the UI moved twice:
- * what an agent may use is under Tools, what an agent *is* is under Agent. Naming
- * only one of them sends a reader looking for Remote Pi's per-agent folder to the
- * wrong tab.
+ * Every section here is global, and the per-agent half of the UI moved twice: what
+ * an agent may use is under Tools, what an agent *is* is under Agent. Naming only
+ * one of them sends a reader looking for Remote Pi's per-agent folder to the wrong
+ * tab.
  */
-const SHARED_NOTE =
-  "Shared by every agent. What one agent may use is under Tools; what it is named and told is under Agent.";
+const SCOPE_NOTE =
+  "What one agent may use is under Tools; what it is named and told is under Agent.";
 const LAST_SECTION_KEY = "lettuce:settings-section";
 
 /** The profile token each gated section rides on; others are always visible. */
@@ -206,7 +206,7 @@ export function GlobalSettings({
   const info = ALL_SECTIONS.find((candidate) => candidate.id === section);
 
   const content: Record<GlobalSection, () => ReactNode> = {
-    providers: () => <ConnectionSection session={session} />,
+    providers: () => <ProvidersSection session={session} />,
     web: () => <WebToolsSection />,
     mcp: () => <McpEditor session={session} />,
     google: () => <GoogleSection />,
@@ -247,14 +247,14 @@ export function GlobalSettings({
                 </button>
               ))}
             </nav>
-            <p className="scope-line small">{SHARED_NOTE}</p>
+            <p className="scope-line small">{SCOPE_NOTE}</p>
           </>
         )}
 
         <div className="settings-body">
           {wide ? (
             <nav className="settings-nav" aria-label="Settings sections">
-              <p className="settings-nav-note small muted">{SHARED_NOTE}</p>
+              <p className="settings-nav-note small muted">{SCOPE_NOTE}</p>
               {groups.map((group) => (
                 <section key={group.label}>
                   <h3 className="switcher-group">{group.label}</h3>
