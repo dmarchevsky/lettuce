@@ -18,6 +18,15 @@
  * to reach a long-lived subagent. */
 export const ANCESTRY_TTL_MS = 10 * 60_000;
 
+/**
+ * How many agents' chains are remembered at once.
+ *
+ * Keyed by agent id, and every `Task` spawn mints a new subagent id, so without
+ * a ceiling this grows for the life of the process — the one unbounded map in a
+ * BFF meant to run for weeks. Evicting only costs the next `agent_retrieve`.
+ */
+export const ANCESTRY_CACHE_MAX = 500;
+
 /** Cycle guard for a malformed tag, not a policy limit. */
 const MAX_DEPTH = 16;
 
@@ -46,7 +55,13 @@ export class AgentAncestry {
 
   async chain(agentId: string): Promise<string[]> {
     const cached = this.cache.get(agentId);
-    if (cached && this.now() - cached.at < ANCESTRY_TTL_MS) return cached.chain;
+    if (cached && this.now() - cached.at < ANCESTRY_TTL_MS) {
+      // Re-insert so insertion order tracks recency and the eviction below
+      // drops whatever has been asked about least recently.
+      this.cache.delete(agentId);
+      this.cache.set(agentId, cached);
+      return cached.chain;
+    }
 
     const chain: string[] = [];
     let current: string | null = agentId;
@@ -61,6 +76,11 @@ export class AgentAncestry {
       current = parentOf(tags);
     }
     this.cache.set(agentId, { chain, at: this.now() });
+    while (this.cache.size > ANCESTRY_CACHE_MAX) {
+      const oldest = this.cache.keys().next().value;
+      if (oldest === undefined) break;
+      this.cache.delete(oldest);
+    }
     return chain;
   }
 }

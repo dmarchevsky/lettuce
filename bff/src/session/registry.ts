@@ -68,6 +68,17 @@ const RATE_LIMIT_WINDOW_MS = 10_000;
 const RATE_LIMIT_MAX_COMMANDS = 120;
 
 /**
+ * Ceiling on the requests one browser session may have in flight.
+ *
+ * A pending entry is removed when its answer arrives, and upstream does not
+ * always answer — the file commands with a malformed field get no response at
+ * all — so without a ceiling a desktop tab open for a week keeps one entry per
+ * hung request forever. Dropping the oldest only costs a late answer the id
+ * translation it would have needed, which is what an orphaned answer is anyway.
+ */
+const MAX_PENDING_PER_SESSION = 500;
+
+/**
  * Routes frames between many short-lived browser sessions and the one permanent
  * upstream connection.
  *
@@ -295,6 +306,11 @@ export class SessionRegistry {
           ? { path: command.path }
           : {}),
       });
+      while (session.pendingRequests.size > MAX_PENDING_PER_SESSION) {
+        const oldest = session.pendingRequests.keys().next();
+        if (oldest.done) break;
+        session.pendingRequests.delete(oldest.value);
+      }
       outbound.request_id = bffRequestId;
     }
 

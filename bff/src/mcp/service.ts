@@ -26,10 +26,52 @@ export async function loadMcpServers(io: McpIo): Promise<McpServer[]> {
   return raw === null ? [] : readMcpServers(raw);
 }
 
-/** Write the list, then bring the skill in line with it. */
-export async function saveMcpServers(io: McpIo, servers: McpServer[]): Promise<void> {
-  await io.write(MCP_SETTINGS_PATH, renderMcpSettings(servers));
-  await syncMcpSkill(io, servers);
+/**
+ * One mutation of the shared list at a time.
+ *
+ * The list is read-modified-written from several places that can land together —
+ * a Settings → MCP save, a Google connect or disconnect, the boot passes — and
+ * two interleaved read-modify-writes silently drop one of them, because each
+ * writes back the whole file it read. `modsChain` in index.ts does the same for
+ * the mods for the same reason.
+ */
+let mutationChain: Promise<unknown> = Promise.resolve();
+
+function queued<T>(task: () => Promise<T>): Promise<T> {
+  const run = mutationChain.catch(() => undefined).then(task);
+  // The chain survives a failed mutation: a write that could not run must not
+  // wedge every later one behind a rejected promise.
+  mutationChain = run.catch(() => undefined);
+  return run;
+}
+
+/** Write the list, then bring the skill in line with it. Serialized: see `queued`. */
+export function saveMcpServers(io: McpIo, servers: McpServer[]): Promise<void> {
+  return queued(async () => {
+    await io.write(MCP_SETTINGS_PATH, renderMcpSettings(servers));
+    await syncMcpSkill(io, servers);
+  });
+}
+
+/**
+ * Change the list as its only writer: the read happens inside the queue too, so
+ * a mutation can never be computed from a list that is already out of date.
+ *
+ * `mutate` returns the list it was given to mean "nothing to do", which skips
+ * the write; the answer says whether anything was written.
+ */
+export function updateMcpServers(
+  io: McpIo,
+  mutate: (servers: McpServer[]) => McpServer[],
+): Promise<boolean> {
+  return queued(async () => {
+    const current = await loadMcpServers(io);
+    const next = mutate(current);
+    if (next === current) return false;
+    await io.write(MCP_SETTINGS_PATH, renderMcpSettings(next));
+    await syncMcpSkill(io, next);
+    return true;
+  });
 }
 
 /**

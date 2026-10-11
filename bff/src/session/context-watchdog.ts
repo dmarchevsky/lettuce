@@ -32,11 +32,10 @@ import type { TurnUsageLog } from "./turn-usage.ts";
  * through letta-code's own `conversation_compact`, which is the same verb
  * `/compact` drives.
  *
- * Off with `CONTEXT_WATCHDOG_RATIO=0`. Default 0.9 — deliberately earlier than
- * upstream's trigger, which is the point: whichever fires first, the
- * conversation survives the turn that filled it.
+ * Off with `CONTEXT_WATCHDOG_RATIO=0`; the default (0.9, in `config.ts`) is
+ * deliberately earlier than upstream's trigger, which is the point: whichever
+ * fires first, the conversation survives the turn that filled it.
  */
-export const DEFAULT_CONTEXT_WATCHDOG_RATIO = 0.9;
 
 /** Seconds of silence after one compaction before the same conversation may compact again. */
 export const CONTEXT_COMPACT_COOLDOWN_MS = 60_000;
@@ -222,18 +221,26 @@ export class ContextWatchdog {
         agent?.agent ?? null,
         conversation?.conversation ?? null,
       );
+      // Re-insert so Map order tracks recency: eviction drops the scope this
+      // BFF has least recently needed a window for, and a dropped entry costs
+      // one re-read, nothing else.
+      this.limits.delete(key);
       this.limits.set(key, { tokens, at: this.now() });
+      this.trim();
       return tokens;
     } catch {
       return cached?.tokens ?? LETTA_DEFAULT_CONTEXT_LIMIT;
     }
   }
 
+  /** Both per-scope maps are remembered, not owned: the oldest goes first. */
   private trim(): void {
-    while (this.compactedAt.size > WATCHDOG_SCOPES) {
-      const oldest = this.compactedAt.keys().next().value;
-      if (oldest === undefined) break;
-      this.compactedAt.delete(oldest);
+    for (const map of [this.compactedAt, this.limits] as Map<string, unknown>[]) {
+      while (map.size > WATCHDOG_SCOPES) {
+        const oldest = map.keys().next().value;
+        if (oldest === undefined) break;
+        map.delete(oldest);
+      }
     }
   }
 

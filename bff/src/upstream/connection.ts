@@ -11,11 +11,44 @@ import { scopeKeyOf } from "../session/buffer.ts";
 
 export type UpstreamState = "connecting" | "connected" | "disconnected";
 
+/**
+ * The slice of `AppServerClient` this class uses, and the seam its tests drive.
+ *
+ * Everything the connection does — reconnect, re-subscribe, sweep, internal-id
+ * bookkeeping — is behaviour worth pinning down, and none of it is observable
+ * without controlling what the far end says. Production leaves `createClient`
+ * alone and gets the real client over a real socket.
+ */
+export interface UpstreamClient {
+  connect(): Promise<unknown>;
+  close(): void;
+  onMessage(handler: (message: WsProtocolMessage) => void): () => void;
+  onDisconnect(handler: () => void): () => void;
+  sendRaw(command: Record<string, unknown>): void;
+  requestRaw(
+    command: Record<string, unknown>,
+    options: { timeoutMs?: number; predicate?: (message: WsProtocolMessage) => boolean },
+  ): Promise<unknown>;
+  info(): Promise<AppServerInfoResponseMessage>;
+}
+
 export interface UpstreamOptions {
   url: string;
   onFrame: (frame: WsProtocolMessage) => void;
   onStateChange: (state: UpstreamState, info: AppServerInfoResponseMessage | null) => void;
   log?: (message: string) => void;
+  /** Builds the client. Tests inject a fake one; production gets the real one. */
+  createClient?: (url: string) => UpstreamClient;
+}
+
+/** The real client: no `authToken`, deliberately. The app-server listens on
+ * loopback without `--ws-auth`, because `letta channel-gateway` cannot send a
+ * token and would be locked out; nothing outside the shared network namespace
+ * can reach it (docker/compose.yml). An unauthenticated upgrade carrying
+ * `Origin` is rejected outright, which `ws` never sends unasked — and which is
+ * why a browser cannot connect directly. */
+function createAppServerClient(url: string): UpstreamClient {
+  return new AppServerClient({ url, WebSocket: WebSocket as never });
 }
 
 const INITIAL_RETRY_MS = 500;
@@ -23,22 +56,33 @@ const MAX_RETRY_MS = 15_000;
 /** Cron itself only ticks every 60s, so a sweep well slower than that still
  * finds a new conversation quickly without hammering the app-server. */
 const SCOPE_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
-/** Matches the un-paginated `limit: 100` already used by the browser's own
- * agent_list/conversation_list calls (use-agents.ts) — plenty at
- * personal-assistant scale, so there is no cursor-paging logic to get right. */
+/** Matches the `limit: 100` already used by the browser's own
+ * agent_list/conversation_list calls (use-agents.ts); conversations are walked
+ * with the list's own cursor, agents are not. */
 const SCOPE_SWEEP_LIST_LIMIT = 100;
+/** How far one sweep will page a single agent's conversations. The list is
+ * newest-first, so this is only there so a long-lived install with hundreds of
+ * conversations still reaches the older ones — the ones a cron wrote weeks ago
+ * and a browser has never opened. */
+const SCOPE_SWEEP_MAX_PAGES = 10;
 /**
  * How many never-before-seen scopes one sweep will subscribe.
  *
- * Without a cap a sweep is O(agents x conversations) — up to 10,000 serial
- * syncs at 30s timeout each. A large install would spend hours hammering the
+ * Without a cap a sweep is O(agents x conversations) — serial syncs at 30s
+ * timeout each. A large install would spend hours hammering the
  * one connection the whole app shares, and each new scope is a `sync` that can
  * resume an interrupted turn, so the work also translates into LLM load. The
  * cap turns that into a bounded burst per interval; whatever is left over is
  * picked up by the next sweep, and a scope is never synced twice because
  * `rememberScope` records it on the way out.
+ *
+ * The first sweep after a connect gets the larger budget because it starts from
+ * nothing: at the steady 50-per-5-minutes rate a BFF that restarts would leave
+ * every conversation unsubscribed for tens of minutes, and a cron turn in that
+ * window produces no push, no activity dot and no interrupted-turn resume.
  */
 const SCOPE_SWEEP_MAX_NEW_SCOPES = 50;
+const SCOPE_SWEEP_MAX_NEW_SCOPES_INITIAL = 500;
 /**
  * Ceiling on remembered internal request ids. Generous relative to real traffic
  * (a sweep of 100 agents x 100 conversations is ~10k ids) so eviction only
@@ -64,7 +108,7 @@ const MAX_INTERNAL_REQUEST_IDS = 20_000;
  * socket; the app-server never observes a disconnect, so the agent keeps working.
  */
 export class UpstreamConnection {
-  private client: AppServerClient | null = null;
+  private client: UpstreamClient | null = null;
   private state: UpstreamState = "connecting";
   private info: AppServerInfoResponseMessage | null = null;
   private retryMs = INITIAL_RETRY_MS;
@@ -96,6 +140,8 @@ export class UpstreamConnection {
    * enumerating the same agent and conversation lists.
    */
   private sweepInFlight = false;
+  /** Whether the post-connect sweep has finished — see the initial budget. */
+  private initialSweepDone = false;
 
   constructor(private readonly options: UpstreamOptions) {}
 
@@ -246,18 +292,9 @@ export class UpstreamConnection {
     if (this.stopped) return;
     this.setState("connecting");
 
-    let client: AppServerClient;
+    let client: UpstreamClient;
     try {
-      client = new AppServerClient({
-        url: this.options.url,
-        // No `authToken`, deliberately. The app-server listens on loopback
-        // without `--ws-auth`, because `letta channel-gateway` cannot send a
-        // token and would be locked out; nothing outside the shared network
-        // namespace can reach it (docker/compose.yml). An unauthenticated
-        // upgrade carrying `Origin` is rejected outright, which `ws` never
-        // sends unasked — and which is why a browser cannot connect directly.
-        WebSocket: WebSocket as never,
-      });
+      client = (this.options.createClient ?? createAppServerClient)(this.options.url);
     } catch (error) {
       this.log(`Upstream construction failed: ${errorMessage(error)}`);
       this.scheduleRetry();
@@ -367,7 +404,7 @@ export class UpstreamConnection {
    * left with replay-unsafe calls pending — and those conversations may never
    * receive a user message to unstick them. Downgrading it to an observer sync
    * here would hang exactly the cases the flag exists for. The burst that
-   * creates is bounded by `SCOPE_SWEEP_MAX_NEW_SCOPES`, and each scope is
+   * creates is bounded by the sweep's scope cap, and each scope is
    * resumed at most once.
    */
   private async subscribeToAllScopes(): Promise<void> {
@@ -376,14 +413,20 @@ export class UpstreamConnection {
       return;
     }
     this.sweepInFlight = true;
+    // A sweep that ends early (its very first request failed) leaves the flag
+    // down, so the next tick still gets the larger budget rather than spending
+    // another ten sweeps catching up from a restart.
+    const initial = !this.initialSweepDone;
     try {
-      await this.sweepOnce();
+      await this.sweepOnce(initial);
+      this.initialSweepDone = true;
     } finally {
       this.sweepInFlight = false;
     }
   }
 
-  private async sweepOnce(): Promise<void> {
+  private async sweepOnce(initial: boolean): Promise<void> {
+    const budget = initial ? SCOPE_SWEEP_MAX_NEW_SCOPES_INITIAL : SCOPE_SWEEP_MAX_NEW_SCOPES;
     // Counts ATTEMPTS, not successes: a scope whose sync times out still spent
     // the full timeout against the shared connection, so bounding only the
     // successes would still allow a run of failures to consume the sweep.
@@ -396,31 +439,27 @@ export class UpstreamConnection {
         query: { limit: SCOPE_SWEEP_LIST_LIMIT },
       });
       agents = response.success ? response.agents : [];
+      if (agents.length >= SCOPE_SWEEP_LIST_LIMIT) {
+        this.log(
+          `Scope sweep: the app-server listed ${agents.length} agents, the sweep's page size — ` +
+            `only the first ${SCOPE_SWEEP_LIST_LIMIT} are examined`,
+        );
+      }
     } catch (error) {
       this.log(`Scope sweep: agent_list failed: ${errorMessage(error)}`);
       return;
     }
 
     for (const agent of agents) {
-      let conversations: { id: string }[];
-      try {
-        const response = await this.request<ConversationListResponseMessage>({
-          type: "conversation_list",
-          request_id: `bff-sweep-conversations-${agent.id}-${Date.now()}`,
-          query: { agent_id: agent.id, limit: SCOPE_SWEEP_LIST_LIMIT },
-        });
-        conversations = response.success ? response.conversations : [];
-      } catch (error) {
-        this.log(`Scope sweep: conversation_list failed for ${agent.id}: ${errorMessage(error)}`);
-        continue;
-      }
+      const conversations = await this.listConversationIds(agent.id);
+      if (conversations === null) continue;
 
-      for (const conversation of conversations) {
-        const scopeKey = scopeKeyOf(agent.id, conversation.id);
+      for (const conversationId of conversations) {
+        const scopeKey = scopeKeyOf(agent.id, conversationId);
         if (this.knownScopes.has(scopeKey)) continue;
-        if (attempts >= SCOPE_SWEEP_MAX_NEW_SCOPES) {
+        if (attempts >= budget) {
           this.log(
-            `Scope sweep: hit the ${SCOPE_SWEEP_MAX_NEW_SCOPES}-scope cap; ` +
+            `Scope sweep: hit the ${budget}-scope cap; ` +
               `the rest will be picked up on the next sweep`,
           );
           return;
@@ -428,7 +467,7 @@ export class UpstreamConnection {
         attempts += 1;
         try {
           await this.syncAsOwner(
-            { agent_id: agent.id, conversation_id: conversation.id },
+            { agent_id: agent.id, conversation_id: conversationId },
             `bff-sweep-sync-${scopeKey}-${Date.now()}`,
           );
         } catch (error) {
@@ -436,6 +475,52 @@ export class UpstreamConnection {
         }
       }
     }
+  }
+
+  /**
+   * Every conversation id of one agent, newest first, walked with the list's own
+   * `after` cursor up to `SCOPE_SWEEP_MAX_PAGES` pages. Without the walk a
+   * conversation older than the first page is never subscribed at all, so a cron
+   * writing to it stays invisible to every push trigger.
+   *
+   * Null when the first page failed (the caller moves on to the next agent);
+   * whatever was collected when a later page fails is still returned.
+   */
+  private async listConversationIds(agentId: string): Promise<string[] | null> {
+    const ids: string[] = [];
+    let after: string | undefined;
+    for (let page = 0; page < SCOPE_SWEEP_MAX_PAGES; page += 1) {
+      let conversations: { id: string }[];
+      try {
+        const response = await this.request<ConversationListResponseMessage>({
+          type: "conversation_list",
+          request_id: `bff-sweep-conversations-${agentId}-${Date.now()}`,
+          query: {
+            agent_id: agentId,
+            limit: SCOPE_SWEEP_LIST_LIMIT,
+            ...(after ? { after } : {}),
+          },
+        });
+        if (!response.success) {
+          this.log(`Scope sweep: conversation_list refused for ${agentId}: ${response.error}`);
+          break;
+        }
+        conversations = response.conversations ?? [];
+      } catch (error) {
+        this.log(`Scope sweep: conversation_list failed for ${agentId}: ${errorMessage(error)}`);
+        // A failed first page means nothing is known about this agent; a later
+        // page failing still leaves the pages already walked worth syncing.
+        return page === 0 ? null : ids;
+      }
+
+      for (const conversation of conversations) ids.push(conversation.id);
+      if (conversations.length < SCOPE_SWEEP_LIST_LIMIT) break;
+      const last = conversations.at(-1);
+      // A cursor the backend did not honour would repeat the same page forever.
+      if (!last || last.id === after) break;
+      after = last.id;
+    }
+    return ids;
   }
 
   private scheduleRetry(): void {

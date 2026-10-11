@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { ensureMcpServers, loadMcpServers, type McpIo, saveMcpServers } from "./service.ts";
+import {
+  ensureMcpServers,
+  loadMcpServers,
+  type McpIo,
+  saveMcpServers,
+  updateMcpServers,
+} from "./service.ts";
 import { MCP_SETTINGS_PATH, type McpServer, renderMcpSettings } from "./settings.ts";
 import { MCP_SKILL_DIR, MCP_SKILL_NAME, renderMcpSkill } from "./skill.ts";
 
@@ -119,5 +125,61 @@ describe("renderMcpSkill", () => {
     expect(wrapper?.content).toContain(
       'HOME=/root/.letta/mcp-home exec letta mcp "$@" --agent agent-local-mcp-global',
     );
+  });
+});
+
+describe("updateMcpServers", () => {
+  const NOTES: McpServer = { name: "notes", transport: "http", url: "http://notes:1/mcp" };
+  const OTHER: McpServer = { name: "other", transport: "http", url: "http://other:1/mcp" };
+
+  /** A slow io is what makes the race observable: without a queue both callers
+   * read the same list before either writes, and the second write is a whole
+   * file that never knew about the first server. */
+  function slowIo() {
+    const files = new Map<string, string>();
+    const wait = () => new Promise((resolve) => setTimeout(resolve, 5));
+    const io: McpIo = {
+      read: async (path) => {
+        await wait();
+        return files.get(path) ?? null;
+      },
+      write: async (path, content) => {
+        await wait();
+        files.set(path, content);
+      },
+      enableSkill: async () => {
+        await wait();
+      },
+      disableSkill: async () => {
+        await wait();
+      },
+    };
+    return { io, files };
+  }
+
+  test("two mutations started together both land", async () => {
+    const { io } = slowIo();
+    await Promise.all([
+      updateMcpServers(io, (servers) => [...servers, NOTES]),
+      updateMcpServers(io, (servers) => [...servers, OTHER]),
+    ]);
+    expect(await loadMcpServers(io)).toEqual([NOTES, OTHER]);
+  });
+
+  test("returning the list unchanged writes nothing", async () => {
+    const { io, files } = slowIo();
+    const wrote = await updateMcpServers(io, (servers) => servers);
+    expect(wrote).toBe(false);
+    expect(files.size).toBe(0);
+  });
+
+  test("a failed mutation does not wedge the ones after it", async () => {
+    const { io } = slowIo();
+    const failing = updateMcpServers(io, () => {
+      throw new Error("disk gone");
+    });
+    await expect(failing).rejects.toThrow("disk gone");
+    await updateMcpServers(io, (servers) => [...servers, NOTES]);
+    expect(await loadMcpServers(io)).toEqual([NOTES]);
   });
 });

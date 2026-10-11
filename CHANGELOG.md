@@ -5,6 +5,15 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Fixed
+- **A saved MCP server is no longer silently lost.** Saving Settings → MCP servers and turning Google on read the same shared list, changed their own copy of it and wrote it back, so whichever of the two finished last overwrote the other — the screen then showed a server that was never stored, until the next save. Saves now queue one behind the other, and a change that turns out to change nothing touches the file at all.
+- **Cron turns are not invisible after a restart any more.** When the BFF reconnects to the app-server it re-watches every conversation it is responsible for, but it asked for one page of the hundred most recently active per agent and stopped there. A conversation outside that page — or beyond the first hundred — got no notification, no unread badge and no working indicator for up to half an hour, and nothing in the UI said why. The first sweep after a connect now walks the app-server's whole list and subscribes to all of it; the periodic sweep keeps its smaller, cheaper shape.
+- **Memory no longer grows without bound on a long-running BFF.** Three caches remembered everything they had ever seen — per-conversation context limits, subagent ancestry, and in-flight request bookkeeping — and only dropped entries when something fresher replaced them. An abandoned conversation, a subagent that never came back, or one app-server command that never answers (a `grep_in_files` with the wrong key is known to do this) each kept their entries for the life of the process. Each now has a ceiling, and the oldest entry goes first.
+- **The end of a turn stops echoing.** When a browser tab goes away mid-turn the BFF tells the app-server to run whatever the queue holds. It sent that nudge as if it were a browser, so the acknowledgement came back down the shared wire, was counted, buffered for replay and handed to every open tab, none of which wanted it. It goes out on the BFF's own channel now, where nothing echoes it back.
+
+### Changed
+- **The retry loops that wait for the app-server now give up.** Reloading the native tools after a settings save, and mirroring your providers to the file the coding workers read, retried every thirty seconds until one succeeded — which, if the thing that failed was the settings themselves rather than the moment, was never. After twenty attempts either loop stops and says so in the log; the next connection retries it anyway.
+
 ## [v0.13.0-letta_0.34.9] - 2026-10-11
 
 ### Added

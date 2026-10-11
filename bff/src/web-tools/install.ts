@@ -5,7 +5,7 @@
  */
 
 import { readRenamed } from "../internal-tools/legacy.ts";
-import { loadMcpServers, type McpIo, saveMcpServers } from "../mcp/service.ts";
+import { type McpIo, updateMcpServers } from "../mcp/service.ts";
 import {
   applyWebToolsSettingsUpdate,
   parseStoredWebToolsSettings,
@@ -53,12 +53,13 @@ function isSeededDdg(server: { name: string; url?: string }): boolean {
 export async function retireSeededDdgMcp(io: WebToolsIo, mcp: McpIo): Promise<boolean> {
   const settings = await loadWebToolsSettings(io);
   if (settings.mcpDdgRetired) return false;
-  const servers = await loadMcpServers(mcp);
-  const kept = servers.filter((server) => !isSeededDdg(server));
-  if (kept.length !== servers.length) await saveMcpServers(mcp, kept);
+  const removed = await updateMcpServers(mcp, (servers) => {
+    const kept = servers.filter((server) => !isSeededDdg(server));
+    return kept.length === servers.length ? servers : kept;
+  });
   await io.write(
     WEB_TOOLS_SETTINGS_PATH,
     renderStoredWebToolsSettings({ ...settings, mcpDdgRetired: true }),
   );
-  return kept.length !== servers.length;
+  return removed;
 }
