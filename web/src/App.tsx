@@ -36,6 +36,7 @@ import {
 import { readShowTimestamps, writeShowTimestamps } from "./lib/timestamps.ts";
 import { useAgents } from "./state/use-agents.ts";
 import { useContextLimit } from "./state/use-context-limit.ts";
+import { useContextSize } from "./state/use-context-size.ts";
 import { useConversation } from "./state/use-conversation.ts";
 import { useCurrentModel } from "./state/use-models.ts";
 import { useSession } from "./state/use-session.ts";
@@ -194,6 +195,10 @@ function Workspace({ status }: { status: Status }) {
     agents.conversationId,
     session.ready,
   );
+  // The compaction numbers the gauge and the Context sheet share: the size the
+  // server gives a request, what the model promises per reply, and the point the
+  // conversation therefore compacts at.
+  const contextSize = useContextSize(agents.agentId, agents.conversationId, session.ready);
   /** The context gauge's details: usage, and the limit to change. */
   const [contextOpen, setContextOpen] = useState(false);
 
@@ -351,9 +356,11 @@ function Workspace({ status }: { status: Status }) {
           <ContextGauge
             usage={conversation.turnUsage}
             limit={contextLimit.limit}
+            accounting={contextSize.accounting}
             onOpen={() => {
               setContextOpen(true);
               void contextLimit.refresh();
+              void contextSize.refresh();
             }}
           />
           {bypass ? <AuthPill email={status.user?.email} /> : null}
@@ -641,9 +648,10 @@ function Workspace({ status }: { status: Status }) {
         <ContextSheet
           usage={conversation.turnUsage}
           limit={contextLimit.limit}
-          agentName={agentName}
+          accounting={contextSize.accounting}
           processing={conversation.processing}
-          onApply={contextLimit.apply}
+          onSetSize={contextSize.setSize}
+          onSaved={() => void contextLimit.refresh()}
           onClose={() => setContextOpen(false)}
         />
       ) : null}

@@ -24,8 +24,8 @@ import type { TranscriptEntry } from "./messages.ts";
 import type { QueuedItem } from "./queue-actions.ts";
 import { parseToolArgs, summarizeToolCall } from "./tool-summary.ts";
 
-/** The six states the line can be in; `null` state means no line at all. */
-export type WorkingState = "thinking" | "writing" | "tool" | "stopping" | "stall";
+/** The states the line can be in; `null` state means no line at all. */
+export type WorkingState = "thinking" | "writing" | "tool" | "stopping" | "stall" | "compacting";
 
 export interface WorkingSnapshot {
   state: WorkingState;
@@ -53,6 +53,13 @@ export interface WorkingInput {
   turnStartedAt: number | null;
   /** The last frame that reached this conversation (see `use-conversation`). */
   lastActivityAt: number | null;
+  /**
+   * When a `/compact` began, or null when none is running. A compaction is not a
+   * turn — no usage, no tools, nothing streaming — so it needs its own signal,
+   * and it is the one thing that can leave the harness busy while `processing`
+   * is false. See `pendingCompactStartedAt` in `lib/messages.ts`.
+   */
+  compactStartedAt?: number | null;
 }
 
 /** Silence for this long with the model apparently working reads as stuck. */
@@ -255,6 +262,11 @@ function lastSeenLabel(entries: readonly TranscriptEntry[]): string {
  * ended — the caller only mounts the line while `processing`).
  */
 export function deriveWorking(input: WorkingInput): WorkingSnapshot | null {
+  // First, because a compaction runs with no turn in flight and the `processing`
+  // gate below would hide it. It is the slowest thing the harness does with
+  // nothing on screen — one model call over the whole transcript.
+  if (input.compactStartedAt !== undefined && input.compactStartedAt !== null)
+    return { state: "compacting", icon: null, verb: "Compacting" };
   if (!input.processing) return null;
   if (input.stopping) return { state: "stopping", icon: null, verb: "Stopping…" };
 

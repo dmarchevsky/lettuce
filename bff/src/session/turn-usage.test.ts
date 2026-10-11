@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { WsProtocolMessage } from "@letta-ai/letta-code/app-server-protocol";
 import { scopeKeyOf } from "./buffer.ts";
+import type { TurnUsageRecord } from "./turn-usage.ts";
 import { addUsage, readUsageStatistics, TURN_USAGE_SCOPES, TurnUsageLog } from "./turn-usage.ts";
 
 const runtime = (conversationId = "conv-1") => ({
@@ -158,5 +159,65 @@ describe("TurnUsageLog", () => {
     }
     expect(log.get(scopeKeyOf("agent-1", "c0")).current).toBeNull();
     expect(log.get(scopeKeyOf("agent-1", `c${TURN_USAGE_SCOPES}`)).current).not.toBeNull();
+  });
+});
+
+describe("compaction and the gauge", () => {
+  /** A stream delta of one of the shapes that mean "the conversation just got shorter". */
+  function notice(delta: Record<string, unknown>) {
+    return {
+      type: "stream_delta",
+      runtime: runtime(),
+      delta,
+    } as unknown as WsProtocolMessage;
+  }
+
+  function filled() {
+    const log = new TurnUsageLog();
+    log.observe(step({ prompt_tokens: 10, context_tokens: 111_000 }));
+    log.observe(finished());
+    return log;
+  }
+
+  test("an auto-compaction empties the occupancy rather than restating it", () => {
+    const log = filled();
+    expect(log.get(key).last?.contextTokens).toBe(111_000);
+    log.observe(notice({ message_type: "event_message", event_type: "compaction" }));
+    // The stats count the history without the system prompt or tool schemas, so
+    // adopting them would draw a gauge emptier than the next request. Unknown
+    // is the honest reading until the next step reports the real number.
+    expect(log.get(key).last?.contextTokens).toBeUndefined();
+    expect(log.get(key).last?.promptTokens).toBe(10);
+    log.observe(notice({ message_type: "summary_message", summary: "…", compaction_stats: {} }));
+    expect(log.get(key).last?.contextTokens).toBeUndefined();
+  });
+
+  test("a manual /compact empties it too — the command's own delta is the only trace", () => {
+    const log = filled();
+    log.observe(notice({ message_type: "slash_command_end", command_id: "compact" }));
+    expect(log.get(key).last?.contextTokens).toBeUndefined();
+  });
+
+  test("an unrelated command leaves the gauge alone", () => {
+    const log = filled();
+    log.observe(notice({ message_type: "slash_command_end", command_id: "context-limit" }));
+    expect(log.get(key).last?.contextTokens).toBe(111_000);
+  });
+
+  test("the last finished turn survives a restart", () => {
+    let saved: Record<string, TurnUsageRecord> = {};
+    const disk = {
+      load: () => saved,
+      save: (records: Record<string, TurnUsageRecord>) => {
+        saved = records;
+      },
+    };
+    const first = new TurnUsageLog(() => new Date(), disk);
+    first.observe(step({ prompt_tokens: 10, context_tokens: 111_000 }));
+    first.observe(finished());
+
+    const restarted = new TurnUsageLog(() => new Date(), disk);
+    expect(restarted.get(key).last).toMatchObject({ promptTokens: 10, contextTokens: 111_000 });
+    expect(restarted.get(key).current).toBeNull();
   });
 });

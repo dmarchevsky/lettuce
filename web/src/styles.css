@@ -943,6 +943,27 @@ pre {
 .entry.notice.dim pre {
   opacity: 0.6;
 }
+/* A running /compact: no turn is in flight, so this line is the only proof the
+   harness is working. Its own pulse, not the old working-dots one: that fades to
+   0.25, which reads as a disabled row in any still frame. */
+@keyframes compact-pulse {
+  0%,
+  100% {
+    opacity: 0.62;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.entry.notice.streaming > pre:not(.tool-args) {
+  border-left-color: var(--accent);
+  animation: compact-pulse 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .entry.notice.streaming > pre:not(.tool-args) {
+    animation: none;
+  }
+}
 
 /* The transcript's own working dots are gone — the composer's "Agent is
    working" line is the single indicator — but its pulse lives on here. */

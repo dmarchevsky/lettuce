@@ -1937,18 +1937,34 @@ try {
         text.includes("Cache hit") && text.includes("24,655") && text.includes("97% of prompt"),
         text.slice(0, 300),
       );
+      // The compaction section is the whole point of the sheet now: it says where
+      // the context size came from and where the conversation therefore compacts,
+      // which is the number an operator has to compare against the server's n_ctx.
+      check(
+        `${w}px: the sheet names the compaction point`,
+        /Compacts at/.test(text),
+        text.slice(0, 400),
+      );
+      check(
+        `${w}px: the compaction point is the context minus its budget`,
+        /Compacts at\s*[\d,]+/.test(text) && text.includes("context −"),
+        text.slice(0, 400),
+      );
       const limitRow = page.locator(".kv-tap");
       await page
         .waitForFunction(() => !document.querySelector(".kv-tap:disabled"), null, { timeout: 5000 })
         .catch(() => {});
-      check(`${w}px: the limit row is tappable`, await limitRow.isEnabled().catch(() => false));
+      check(
+        `${w}px: the context-size row is tappable`,
+        await limitRow.isEnabled().catch(() => false),
+      );
       await shot(page, `context-sheet-${w}`);
       await limitRow.click().catch(() => {});
       const input = page.locator(".limit-edit input");
-      check(`${w}px: tapping the limit opens the editor`, (await input.count()) === 1);
+      check(`${w}px: tapping the size opens the editor`, (await input.count()) === 1);
       check(
         `${w}px: the editor has presets and both scopes`,
-        (await page.locator(".limit-preset").count()) === 3 &&
+        (await page.locator(".limit-preset").count()) >= 3 &&
           (await page.locator(".limit-edit .menu-row").count()) === 2,
       );
       const { clipped } = await overflow(page);
@@ -1959,7 +1975,7 @@ try {
         .click()
         .catch(() => {});
       check(
-        `${w}px: Cancel returns to the limit row`,
+        `${w}px: Cancel returns to the context-size row`,
         (await page.locator(".kv-tap").count()) === 1,
       );
     }

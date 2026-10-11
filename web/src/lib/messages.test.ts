@@ -10,6 +10,7 @@ import {
   groupTranscript,
   isShown,
   mergeTurnErrors,
+  pendingCompactStartedAt,
   readContentParts,
   readQuestionReceipt,
   settleStreaming,
@@ -1445,5 +1446,86 @@ describe("remote-pi run cards", () => {
     const cards = sortedEntries(transcript).filter((e) => e.kind === "pi_run");
     expect(cards).toHaveLength(1);
     expect(cards[0]?.piRunId).toBe(runId);
+  });
+});
+
+describe("a running /compact", () => {
+  test("gets a card while it runs and keeps one entry when it answers", () => {
+    const transcript: Transcript = new Map();
+    const index = createStreamIndex();
+    applyStreamDelta(
+      transcript,
+      index,
+      {
+        message_type: "slash_command_start",
+        id: "lifecycle-1",
+        date: "d1",
+        command_id: "compact",
+        input: "/compact",
+      },
+      1,
+    );
+    const running = sortedEntries(transcript);
+    expect(running).toHaveLength(1);
+    expect(running[0]!.streaming).toBe(true);
+    expect(running[0]!.text).toContain("Compacting");
+
+    applyStreamDelta(
+      transcript,
+      index,
+      {
+        message_type: "slash_command_end",
+        id: "lifecycle-2",
+        date: "d2",
+        command_id: "compact",
+        input: "/compact",
+        output: "Compaction completed",
+        success: true,
+      },
+      2,
+    );
+    const done = sortedEntries(transcript);
+    // One line for the whole operation, and no longer marked as working.
+    expect(done).toHaveLength(1);
+    expect(done[0]!.id).toBe(running[0]!.id);
+    expect(done[0]!.streaming).toBeUndefined();
+    expect(done[0]!.text).toBe("/compact\nCompaction completed");
+  });
+
+  test("a compaction whose end marker never arrives stops claiming work", () => {
+    // A socket drop or an app-server restart mid-compaction swallows the end
+    // marker; the line must not say the harness is busy until the page reloads.
+    const started = Date.now() - 20 * 60_000;
+    const runningSince = (date: string) => {
+      const transcript: Transcript = new Map();
+      applyStreamDelta(
+        transcript,
+        createStreamIndex(),
+        {
+          message_type: "slash_command_start",
+          id: "lifecycle-1",
+          date,
+          command_id: "compact",
+          input: "/compact",
+        },
+        1,
+      );
+      return pendingCompactStartedAt(sortedEntries(transcript));
+    };
+    expect(runningSince(new Date(started).toISOString())).toBeNull();
+    expect(runningSince(new Date().toISOString())).toBeGreaterThan(started);
+  });
+
+  test("a fast command still says nothing until it answers", () => {
+    const transcript = streamed([
+      {
+        message_type: "slash_command_start",
+        id: "lifecycle-1",
+        date: "d1",
+        command_id: "context-limit",
+        input: "/context-limit",
+      },
+    ]);
+    expect(sortedEntries(transcript)).toHaveLength(0);
   });
 });
