@@ -201,6 +201,20 @@ describe("ContextSizer", () => {
     expect(h.written).toEqual(["a1 110592 --override"]);
   });
 
+  test("one agent is sized from the answer the caller already holds", async () => {
+    // The Context sheet already retrieved this agent to read its window, so
+    // sizing it must not list every agent to learn the same thing — an empty
+    // listing here is what proves no listing happened.
+    const h = harness([]);
+    expect(await h.sizer.ensure("a1", agent(declared.contextWindow))).toBe(true);
+    expect(h.written).toEqual(["a1 241664 --override"]);
+    // Nothing to size answers false, so the caller does not read the agent back.
+    expect(await h.sizer.ensure("a9", { id: "a9", model: "other/y" })).toBe(false);
+    // Someone else's retrieved agent is never used to size a different agent.
+    expect(await h.sizer.ensure("b2", agent(declared.contextWindow))).toBe(false);
+    expect(h.written).toEqual(["a1 241664 --override"]);
+  });
+
   test("an agent whose model declares nothing is left alone", async () => {
     const h = harness([{ id: "a1", model: "other/y" }]);
     expect(await h.sizer.applyAll()).toContain("0 agent(s)");

@@ -5,11 +5,15 @@
  * is the service singleton, whether the profile token is on, and the mod
  * resync that runs after a save. `index.ts` calls `registerPiRoutes` where the
  * routes used to sit, so middleware order is unchanged.
+ * The session check is not here on purpose: `index.ts` gates every `/api/*` route
+ * with `requireSession` before registering these.
  */
 
 import type { Hono } from "hono";
 import { isAgentId } from "../agents/id-list.ts";
 import { errorMessage } from "../errors.ts";
+import type { RouteEnv } from "../route-env.ts";
+import { hardenedResponse } from "../security-headers.ts";
 import {
   assertEffectiveUsable,
   effectivePiSettings,
@@ -34,10 +38,9 @@ export interface PiRouteDeps {
     reason: string,
     options: { refreshCatalog: boolean; refreshProviders?: boolean },
   ) => Promise<unknown>;
+  /** Carried on the artifact response, which is built here rather than by Hono. */
+  hardened: Record<string, string>;
 }
-
-/** Any Hono app whose middleware stores the session under `session`. */
-type SessionEnv = { Variables: { session?: unknown } };
 
 /** File types a run artifact comes back as; anything else is octet-stream. */
 const PI_FILE_TYPES: Record<string, string> = {
@@ -74,8 +77,8 @@ function piCheckBody(body: unknown): { draft: Record<string, unknown>; agentId: 
   return { draft: piDraftFromBody(body), agentId };
 }
 
-export function registerPiRoutes<Env extends SessionEnv>(app: Hono<Env>, deps: PiRouteDeps): void {
-  const { piService, piEnabled, resyncMods } = deps;
+export function registerPiRoutes<Env extends RouteEnv>(app: Hono<Env>, deps: PiRouteDeps): void {
+  const { piService, piEnabled, resyncMods, hardened } = deps;
   /**
    * One agent's own Remote Pi settings: its workdir, and if it must, its own host.
    * Stored by the BFF beside the pi settings and resolved at tool-call time, so
@@ -96,7 +99,6 @@ export function registerPiRoutes<Env extends SessionEnv>(app: Hono<Env>, deps: P
   }
 
   app.get("/api/pi/settings", async (c) => {
-    if (!c.get("session")) return c.text("Unauthorized", 401);
     if (!piEnabled) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
     const settings = await piService.load();
     return c.json({
@@ -114,7 +116,6 @@ export function registerPiRoutes<Env extends SessionEnv>(app: Hono<Env>, deps: P
   });
 
   app.put("/api/pi/settings", async (c) => {
-    if (!c.get("session")) return c.text("Unauthorized", 401);
     if (!piEnabled) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
     const body = await c.req.json().catch(() => null);
     try {
@@ -132,7 +133,6 @@ export function registerPiRoutes<Env extends SessionEnv>(app: Hono<Env>, deps: P
   });
 
   app.get("/api/pi/agent/:agentId", async (c) => {
-    if (!c.get("session")) return c.text("Unauthorized", 401);
     if (!piEnabled) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
     const agentId = c.req.param("agentId");
     if (!isAgentId(agentId)) return c.text("Not an agent id", 400);
@@ -140,7 +140,6 @@ export function registerPiRoutes<Env extends SessionEnv>(app: Hono<Env>, deps: P
   });
 
   app.put("/api/pi/agent/:agentId", async (c) => {
-    if (!c.get("session")) return c.text("Unauthorized", 401);
     if (!piEnabled) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
     const agentId = c.req.param("agentId");
     if (!isAgentId(agentId)) return c.text("Not an agent id", 400);
@@ -164,7 +163,6 @@ export function registerPiRoutes<Env extends SessionEnv>(app: Hono<Env>, deps: P
 
   /** Back to inheriting everything. */
   app.delete("/api/pi/agent/:agentId", async (c) => {
-    if (!c.get("session")) return c.text("Unauthorized", 401);
     if (!piEnabled) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
     const agentId = c.req.param("agentId");
     if (!isAgentId(agentId)) return c.text("Not an agent id", 400);
@@ -175,7 +173,6 @@ export function registerPiRoutes<Env extends SessionEnv>(app: Hono<Env>, deps: P
 
   /** Check the host — saved values, or the form's, when they are not saved yet. */
   app.post("/api/pi/check", async (c) => {
-    if (!c.get("session")) return c.text("Unauthorized", 401);
     if (!piEnabled) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
     const body = await c.req.json().catch(() => null);
     try {
@@ -192,7 +189,6 @@ export function registerPiRoutes<Env extends SessionEnv>(app: Hono<Env>, deps: P
    * is a second, deliberate click.
    */
   app.post("/api/pi/pin-host", async (c) => {
-    if (!c.get("session")) return c.text("Unauthorized", 401);
     if (!piEnabled) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
     const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
     const options = {
@@ -216,7 +212,6 @@ export function registerPiRoutes<Env extends SessionEnv>(app: Hono<Env>, deps: P
 
   /** Generate or rotate the lettuce-held deploy key; only the public half is served. */
   app.post("/api/pi/generate-key", async (c) => {
-    if (!c.get("session")) return c.text("Unauthorized", 401);
     if (!piEnabled) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
     try {
       const settings = await piService.generateKeyPair();
@@ -227,14 +222,12 @@ export function registerPiRoutes<Env extends SessionEnv>(app: Hono<Env>, deps: P
   });
 
   app.get("/api/pi/runs", async (c) => {
-    if (!c.get("session")) return c.text("Unauthorized", 401);
     const limit = Math.min(Math.max(Number(c.req.query("limit")) || 10, 1), 30);
     const runs = (await piService.listRuns(limit)).map(summarizePiRun);
     return c.json({ runs });
   });
 
   app.get("/api/pi/runs/:runId", async (c) => {
-    if (!c.get("session")) return c.text("Unauthorized", 401);
     const runId = c.req.param("runId");
     if (!isPiRunId(runId)) return c.text("Not a run id", 400);
     const meta = await piService.getRun(runId);
@@ -246,7 +239,6 @@ export function registerPiRoutes<Env extends SessionEnv>(app: Hono<Env>, deps: P
   // Structured status for the in-transcript run card — the same facts pi_status
   // carries as prose, cheap enough to poll every few seconds.
   app.get("/api/pi/runs/:runId/status", async (c) => {
-    if (!c.get("session")) return c.text("Unauthorized", 401);
     const runId = c.req.param("runId");
     if (!isPiRunId(runId)) return c.text("Not a run id", 400);
     const status = await piService.statusFacts(runId);
@@ -256,7 +248,6 @@ export function registerPiRoutes<Env extends SessionEnv>(app: Hono<Env>, deps: P
 
   // The card's Stop / Force stop buttons; same paths as the pi_stop tool.
   app.post("/api/pi/runs/:runId/stop", async (c) => {
-    if (!c.get("session")) return c.text("Unauthorized", 401);
     const runId = c.req.param("runId");
     if (!isPiRunId(runId)) return c.text("Not a run id", 400);
     const body = (await c.req.json().catch(() => null)) as { force?: unknown } | null;
@@ -266,26 +257,22 @@ export function registerPiRoutes<Env extends SessionEnv>(app: Hono<Env>, deps: P
 
   // Artifacts a pi_fetch pulled in (C1): the card lists them, links open them.
   app.get("/api/pi/runs/:runId/files", async (c) => {
-    if (!c.get("session")) return c.text("Unauthorized", 401);
     const runId = c.req.param("runId");
     if (!isPiRunId(runId)) return c.text("Not a run id", 400);
     return c.json({ files: await piService.store.listFiles(runId) });
   });
 
   app.get("/api/pi/runs/:runId/files/:name", async (c) => {
-    if (!c.get("session")) return c.text("Unauthorized", 401);
     const runId = c.req.param("runId");
     if (!isPiRunId(runId)) return c.text("Not a run id", 400);
     const bytes = await piService.store.readFile(runId, c.req.param("name"));
     if (!bytes) return c.text("No such file", 404);
     const ext = c.req.param("name").split(".").pop()?.toLowerCase() ?? "";
-    return new Response(bytes, {
-      headers: {
-        "content-type": PI_FILE_TYPES[ext] ?? "application/octet-stream",
-        "x-content-type-options": "nosniff",
-        "content-disposition": `inline; filename="${c.req.param("name")}"`,
-        "cache-control": "private, max-age=300",
-      },
+    return hardenedResponse(hardened, bytes, {
+      "content-type": PI_FILE_TYPES[ext] ?? "application/octet-stream",
+      "x-content-type-options": "nosniff",
+      "content-disposition": `inline; filename="${c.req.param("name")}"`,
+      "cache-control": "private, max-age=300",
     });
   });
 }

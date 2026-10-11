@@ -334,11 +334,25 @@ export class ContextSizer {
     });
   }
 
-  /** One agent — what the Context sheet's read asks for, so a new agent is sized on sight. */
-  async ensure(agentId: string): Promise<void> {
-    await this.serialize(async () => {
-      const agent = (await this.listAgents("agent"))?.find((a) => a.id === agentId);
-      if (agent) await this.sizeAgent(agent);
+  /**
+   * One agent: keep a window the operator set by hand, else write the window its
+   * size implies.
+   *
+   * `retrieved` is the `agent_retrieve` answer the caller already holds — which is
+   * how the Context sheet's read sizes an agent without listing every one. It is
+   * `unknown` because both that answer and a row of `agent_list` are read by
+   * `agentModelHandle`, which already tolerates either shape; it is only used when
+   * it is really the agent asked about. The return says whether a window was
+   * written, so a caller that shows the stored value can read the agent back only
+   * when that is worth it.
+   */
+  async ensure(agentId: string, retrieved?: unknown): Promise<boolean> {
+    return this.serialize(async () => {
+      const reusable = !!retrieved && (retrieved as { id?: unknown }).id === agentId;
+      const agent = reusable
+        ? retrieved
+        : (await this.listAgents("agent"))?.find((a) => a.id === agentId);
+      return agent ? await this.sizeAgent(agent as { id: string }) : false;
     });
   }
 

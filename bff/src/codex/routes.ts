@@ -1,13 +1,16 @@
 /**
  * Settings → Codex and the run viewer. The files themselves are explained in
- * `service.ts`; these four routes only gate them by session, by the `codex`
- * compose-profile token and by a live app-server, because the io goes through
- * the app-server file channel. `index.ts` registers them where they used to
- * sit, so middleware order is unchanged.
- */
+ * `service.ts`; these four routes gate them by the `codex` compose-profile token
+ * and by a live app-server, because the io goes through the app-server file
+ * channel. `index.ts` registers them where they used to sit, so middleware order
+ * is unchanged.
+ * The session check is not here on purpose: `index.ts` gates every `/api/*` route
+ * with `requireSession` before registering these.
+ * */
 
 import type { Hono } from "hono";
 import { errorMessage } from "../errors.ts";
+import type { RouteEnv } from "../route-env.ts";
 import { isCodexThreadId } from "./rollout.ts";
 import {
   type CodexFileIo,
@@ -27,17 +30,13 @@ export interface CodexRouteDeps {
   io: CodexFileIo;
 }
 
-/** Any Hono app whose middleware stores the session under `session`. */
-type SessionEnv = { Variables: { session?: unknown } };
-
-export function registerCodexRoutes<Env extends SessionEnv>(
+export function registerCodexRoutes<Env extends RouteEnv>(
   app: Hono<Env>,
   deps: CodexRouteDeps,
 ): void {
   const { isReady, codexEnabled, io } = deps;
 
   app.get("/api/codex/settings", async (c) => {
-    if (!c.get("session")) return c.text("Unauthorized", 401);
     if (!isReady()) return c.text("App-server is not connected", 503);
     try {
       const [settings, suggestedBaseUrl] = await Promise.all([
@@ -51,7 +50,6 @@ export function registerCodexRoutes<Env extends SessionEnv>(
   });
 
   app.put("/api/codex/settings", async (c) => {
-    if (!c.get("session")) return c.text("Unauthorized", 401);
     // Gated by the `codex` profile token: nothing to configure without the CLI,
     // and the connect-time reapply has already forced the stored switch off.
     if (!codexEnabled) return c.text("Codex workers are off: COMPOSE_PROFILES", 404);
@@ -67,7 +65,6 @@ export function registerCodexRoutes<Env extends SessionEnv>(
   });
 
   app.get("/api/codex/runs", async (c) => {
-    if (!c.get("session")) return c.text("Unauthorized", 401);
     if (!isReady()) return c.text("App-server is not connected", 503);
     const limit = Math.min(Math.max(Number(c.req.query("limit")) || 10, 1), 30);
     try {
@@ -78,7 +75,6 @@ export function registerCodexRoutes<Env extends SessionEnv>(
   });
 
   app.get("/api/codex/runs/:threadId", async (c) => {
-    if (!c.get("session")) return c.text("Unauthorized", 401);
     if (!isReady()) return c.text("App-server is not connected", 503);
     const threadId = c.req.param("threadId");
     // The id becomes part of a file lookup; only a real Codex thread id gets that far.

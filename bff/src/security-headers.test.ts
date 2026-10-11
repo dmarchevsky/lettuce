@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { contentSecurityPolicy, securityHeaders } from "./security-headers.ts";
+import { contentSecurityPolicy, hardenedResponse, securityHeaders } from "./security-headers.ts";
 
 describe("contentSecurityPolicy", () => {
   const https = contentSecurityPolicy({ publicOrigin: "https://letta.example.com" });
@@ -58,5 +58,33 @@ describe("securityHeaders", () => {
   test("recognises https regardless of case or stray space", () => {
     const headers = securityHeaders({ publicOrigin: " HTTPS://Letta.Example.COM " });
     expect(headers["strict-transport-security"]).toBeDefined();
+  });
+});
+
+describe("hardenedResponse", () => {
+  const hardened = securityHeaders({ publicOrigin: "https://letta.example.com" });
+
+  test("carries the hardening set, because Hono does not", () => {
+    // The one reason this helper exists: headers a middleware set with
+    // `c.header()` are dropped when a handler returns its own Response, so a
+    // response built here has to bring them itself. Without this it is agent-
+    // authored bytes with no CSP and no `nosniff`.
+    const response = hardenedResponse(hardened, "body", { "content-type": "text/plain" });
+    expect(response.headers.get("content-security-policy")).toContain("default-src 'self'");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("content-type")).toBe("text/plain");
+    expect(response.status).toBe(200);
+  });
+
+  test("the caller's own header wins, and the status is theirs", () => {
+    const response = hardenedResponse(
+      hardened,
+      null,
+      { location: "/", "x-frame-options": "ALLOW" },
+      302,
+    );
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/");
+    expect(response.headers.get("x-frame-options")).toBe("ALLOW");
   });
 });

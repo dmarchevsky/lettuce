@@ -1,12 +1,15 @@
 /**
  * Settings → Claude Code and the run viewer — the sibling of `codex/routes.ts`
  * with Claude's own file names and session ids. The io is the same app-server
- * file channel, so the gating is identical: session, `claude` profile token,
- * live app-server.
- */
+ * file channel, so the gating is identical: `claude` profile token, live
+ * app-server.
+ * The session check is not here on purpose: `index.ts` gates every `/api/*` route
+ * with `requireSession` before registering these.
+ * */
 
 import type { Hono } from "hono";
 import { errorMessage } from "../errors.ts";
+import type { RouteEnv } from "../route-env.ts";
 import {
   type ClaudeFileIo,
   getClaudeRun,
@@ -24,17 +27,13 @@ export interface ClaudeRouteDeps {
   io: ClaudeFileIo;
 }
 
-/** Any Hono app whose middleware stores the session under `session`. */
-type SessionEnv = { Variables: { session?: unknown } };
-
-export function registerClaudeRoutes<Env extends SessionEnv>(
+export function registerClaudeRoutes<Env extends RouteEnv>(
   app: Hono<Env>,
   deps: ClaudeRouteDeps,
 ): void {
   const { isReady, claudeEnabled, io } = deps;
 
   app.get("/api/claude/settings", async (c) => {
-    if (!c.get("session")) return c.text("Unauthorized", 401);
     if (!isReady()) return c.text("App-server is not connected", 503);
     try {
       return c.json({ settings: toPublicClaudeSettings(await loadClaudeSettings(io)) });
@@ -44,7 +43,6 @@ export function registerClaudeRoutes<Env extends SessionEnv>(
   });
 
   app.put("/api/claude/settings", async (c) => {
-    if (!c.get("session")) return c.text("Unauthorized", 401);
     if (!claudeEnabled) return c.text("Claude Code workers are off: COMPOSE_PROFILES", 404);
     if (!isReady()) return c.text("App-server is not connected", 503);
     const body = await c.req.json().catch(() => null);
@@ -58,7 +56,6 @@ export function registerClaudeRoutes<Env extends SessionEnv>(
   });
 
   app.get("/api/claude/runs", async (c) => {
-    if (!c.get("session")) return c.text("Unauthorized", 401);
     if (!isReady()) return c.text("App-server is not connected", 503);
     const limit = Math.min(Math.max(Number(c.req.query("limit")) || 10, 1), 30);
     try {
@@ -69,7 +66,6 @@ export function registerClaudeRoutes<Env extends SessionEnv>(
   });
 
   app.get("/api/claude/runs/:sessionId", async (c) => {
-    if (!c.get("session")) return c.text("Unauthorized", 401);
     if (!isReady()) return c.text("App-server is not connected", 503);
     const sessionId = c.req.param("sessionId");
     // The id becomes part of a file lookup; only a real Claude session id gets that far.

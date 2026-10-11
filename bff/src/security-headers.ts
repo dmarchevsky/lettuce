@@ -94,3 +94,23 @@ export function securityHeaders(options: SecurityHeaderOptions): Record<string, 
 function isHttpsOrigin(publicOrigin: string): boolean {
   return publicOrigin.trim().toLowerCase().startsWith("https://");
 }
+
+/**
+ * A response built here instead of by Hono's `c.text`/`c.json`, carrying the
+ * hardening set.
+ *
+ * Headers a middleware sets with `c.header()` reach responses Hono builds —
+ * including `serveStatic`'s — but they are silently dropped when a handler
+ * returns its own `Response`. So every such response has to spread the headers
+ * itself, and this is the one place that remembers to: the four sites that build
+ * a response are the four that would otherwise serve agent-authored bytes
+ * without `nosniff`, a CSP or `frame-ancestors`.
+ */
+export function hardenedResponse(
+  hardened: Record<string, string>,
+  body: Uint8Array | string | null,
+  headers: Record<string, string> = {},
+  status = 200,
+): Response {
+  return new Response(body, { status, headers: { ...hardened, ...headers } });
+}
