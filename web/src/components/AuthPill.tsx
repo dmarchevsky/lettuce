@@ -18,16 +18,20 @@ export function AuthPill({ email }: Props) {
 
   return (
     <>
-      {/* An icon, not a pill: the top bar's room goes to where you are. */}
-      <button
-        type="button"
-        className="auth-warning"
-        onClick={() => setOpen(true)}
-        title="Authentication is disabled"
-        aria-label="Unauthenticated (dev bypass)"
-      >
-        <Icon name="warning" />
-      </button>
+      {/* The icon is the warning at every width; on a desktop browser the top bar
+          has room to name it, so the triangle is not a mystery glyph. */}
+      <span className="topbar-status">
+        <button
+          type="button"
+          className="auth-warning"
+          onClick={() => setOpen(true)}
+          title="Authentication is disabled"
+          aria-label="Unauthenticated (dev bypass)"
+        >
+          <Icon name="warning" />
+        </button>
+        <span className="topbar-word">Dev bypass</span>
+      </span>
 
       {open ? (
         <Sheet title="Unauthenticated (dev bypass)" size="compact" onClose={() => setOpen(false)}>

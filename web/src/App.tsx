@@ -724,21 +724,29 @@ function LinkPill({
   if (busy) {
     const busyLabel = `${count} conversation${count === 1 ? "" : "s"} responding — show`;
     return (
-      <button
-        type="button"
-        className={`link-dot ${tone} busy`}
-        onClick={onOpen}
-        aria-label={busyLabel}
-        title={busyLabel}
-      />
+      <span className="topbar-status">
+        <button
+          type="button"
+          className={`link-dot ${tone} busy`}
+          onClick={onOpen}
+          aria-label={busyLabel}
+          title={busyLabel}
+        />
+        <span className="topbar-word">{count} responding</span>
+      </span>
     );
   }
   return (
-    <span
-      className={`link-dot ${tone}${tone === "warn" ? " spinning" : ""}`}
-      role="img"
-      aria-label={label}
-      title={label}
-    />
+    <span className="topbar-status">
+      <span
+        className={`link-dot ${tone}${tone === "warn" ? " spinning" : ""}`}
+        role="img"
+        aria-label={label}
+        title={label}
+      />
+      {/* The dot is the state at every width; the word only where there is room
+          for it, so the state is never colour alone on a wide screen. */}
+      <span className="topbar-word">{label}</span>
+    </span>
   );
 }

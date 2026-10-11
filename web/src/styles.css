@@ -11,8 +11,17 @@
   --ok: #4ade80;
   --warn: #fbbf24;
   --bad: #f87171;
-  /* Square everywhere. Kept as a token so the few call sites stay expressive. */
+  /* The ink that sits on a saturated fill (accent or bad): dark navy rather than
+     black, so a filled control keeps a little of its own hue underneath. */
+  --on-accent: #0b1020;
+  /* Square everywhere. Kept as a token so the few call sites stay expressive —
+     and the two shapes that are not square are tokens too, so an exception is a
+     name, not a number. */
   --radius: 0;
+  --radius-pill: 999px;
+  --radius-round: 50%;
+  /* One dimming for a control that cannot be used, wherever it lives. */
+  --disabled: 0.45;
   /* One height for every form control and button: an .icon-button's, so a form,
      the sidebar and the composer line up. */
   --control-h: 40px;
@@ -118,7 +127,7 @@ pre {
   border: none;
   color: var(--muted);
   padding: 8px 8px;
-  border-radius: 0;
+  border-radius: var(--radius);
   font-size: 14px;
   font-weight: 500;
 }
@@ -224,7 +233,7 @@ pre {
   display: flex;
   align-items: center;
   gap: 4px;
-  border-radius: 0;
+  border-radius: var(--radius);
   padding: 2px 4px;
 }
 /* The same row language as the agent list above it: no box, a left bar on
@@ -348,7 +357,7 @@ pre {
   max-width: 100%;
   padding: 0;
   background: none;
-  border-radius: 0;
+  border-radius: var(--radius);
   overflow-wrap: anywhere;
   /* Markdown supplies its own block spacing; pre-wrap here would double it.
      `.md p` keeps pre-wrap so hard line breaks inside a paragraph survive. */
@@ -431,7 +440,7 @@ pre {
 
 .md code {
   background: var(--surface-2);
-  border-radius: 0;
+  border-radius: var(--radius);
   padding: 1px 5px;
   font-size: 0.9em;
 }
@@ -439,7 +448,7 @@ pre {
   margin: 8px 0;
   padding: 10px;
   background: var(--surface-2);
-  border-radius: 0;
+  border-radius: var(--radius);
   font-size: 12px;
   /* Scroll the block, never the page. */
   overflow-x: auto;
@@ -595,7 +604,7 @@ pre {
   border: none;
   padding: 0;
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: 12px;
   text-align: left;
   cursor: pointer;
 }
@@ -787,7 +796,7 @@ pre {
   gap: 6px;
   background: none;
   border: none;
-  border-radius: 0;
+  border-radius: var(--radius);
   padding: 2px 0;
   color: var(--text);
   font-size: 13px;
@@ -823,8 +832,8 @@ pre {
   margin: 0;
   padding: 10px 12px;
   background: var(--surface-2);
-  border-radius: 0;
-  font-size: 12.5px;
+  border-radius: var(--radius);
+  font-size: 12px;
   max-width: 100%;
   /* Long tokens (paths, JSON strings) break instead of scrolling: no
      horizontal scrollbars anywhere in a transcript. */
@@ -894,7 +903,7 @@ pre {
 }
 .tool-head .summary.mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12.5px;
+  font-size: 12px;
 }
 .tool-subtitle {
   margin: 0;
@@ -919,7 +928,7 @@ pre {
 .entry.notice > pre:not(.tool-args) {
   margin: 0;
   padding: 6px 12px;
-  border-radius: 0;
+  border-radius: var(--radius);
   border-left: 2px solid var(--border);
   background: var(--surface-2);
   font:
@@ -985,7 +994,7 @@ pre {
   background: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 6px 14px;
   font-size: 13px;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
@@ -1014,7 +1023,7 @@ pre {
 .working-dots i {
   width: 5px;
   height: 5px;
-  border-radius: 50%;
+  border-radius: var(--radius-round);
   background: var(--agent);
   animation: pulse 1.2s ease-in-out infinite;
 }
@@ -1060,7 +1069,7 @@ pre {
 }
 .working-line .wl-obj.mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11.5px;
+  font-size: 11px;
 }
 .working-line .wl-sep {
   color: var(--border);
@@ -1117,7 +1126,7 @@ pre {
   align-items: stretch;
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--muted);
   font-size: 12px;
   overflow: hidden;
@@ -1132,7 +1141,7 @@ pre {
   padding: 4px 11px;
   background: var(--warn);
   border: none;
-  color: #221607;
+  color: var(--on-accent);
   font-weight: 600;
   cursor: pointer;
 }
@@ -1362,7 +1371,7 @@ pre {
 .icon-button.flat.on {
   background: var(--accent);
   border-color: var(--accent);
-  color: #0b1020;
+  color: var(--on-accent);
 }
 /* The permission shield is icon-only, so all four modes need to be told apart
    by colour. Ordered by how much the agent may do without asking — unrestricted
@@ -1383,8 +1392,8 @@ pre {
 
 .badge {
   background: var(--accent);
-  color: #0b1020;
-  border-radius: 999px;
+  color: var(--on-accent);
+  border-radius: var(--radius-pill);
   font-size: 10px;
   font-weight: 700;
   min-width: 15px;
@@ -1393,7 +1402,7 @@ pre {
   text-align: center;
 }
 .icon-button.flat.on .badge {
-  background: #0b1020;
+  background: var(--on-accent);
   color: var(--accent);
 }
 
@@ -1410,7 +1419,7 @@ pre {
 /* The composer row's last control is the round action button (`.glyph-btn`),
    sticky so it stays reachable however far the chips scroll. */
 .composer textarea:disabled {
-  opacity: 0.5;
+  opacity: var(--disabled);
 }
 
 /* ── Image attachments ───────────────────────────────────────────────────── */
@@ -1561,9 +1570,9 @@ pre {
   min-height: var(--control-h);
   padding: 8px 16px;
   border: none;
-  border-radius: 0;
+  border-radius: var(--radius);
   background: var(--accent);
-  color: #0b1020;
+  color: var(--on-accent);
   text-decoration: none;
   font-weight: 600;
   font-size: 14px;
@@ -1575,7 +1584,7 @@ pre {
 }
 .button.danger {
   background: var(--bad);
-  color: #1a0a0a;
+  color: var(--on-accent);
 }
 .button.danger.ghost {
   background: var(--surface-2);
@@ -1621,7 +1630,7 @@ pre {
   /* Almost square — a small radius, not a circle. */
   border-radius: 4px;
   background: var(--accent);
-  color: #000;
+  color: var(--on-accent);
   font-size: 17px;
   display: grid;
   place-items: center;
@@ -1637,14 +1646,16 @@ pre {
    like the square it replaces: it must stay reachable however far the chips
    scroll. */
 .glyph-btn {
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
+  /* The app's primary verb, so it keeps the height every other control keeps —
+     it was 26px, the smallest target in the app. */
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-round);
   border: none;
   flex-shrink: 0;
   display: grid;
   place-items: center;
-  color: #fff;
+  color: var(--on-accent);
   cursor: pointer;
   padding: 0;
   position: sticky;
@@ -1655,17 +1666,17 @@ pre {
   touch-action: manipulation;
 }
 .glyph-btn .icon {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
 }
 .glyph-btn.go {
-  background: #2e7df6;
+  background: var(--accent);
 }
 .glyph-btn.halt {
-  background: #f0463c;
+  background: var(--bad);
 }
 .glyph-btn.go:disabled {
-  opacity: 0.35;
+  opacity: var(--disabled);
   cursor: default;
 }
 /* The round button replaces the flat send/stop squares entirely. */
@@ -1703,7 +1714,7 @@ pre {
   width: 8px;
   height: 8px;
   margin-right: 6px;
-  border-radius: 50%;
+  border-radius: var(--radius-round);
   background: var(--accent);
   vertical-align: middle;
   flex-shrink: 0;
@@ -1723,7 +1734,7 @@ pre {
   width: 8px;
   height: 8px;
   margin-right: 6px;
-  border-radius: 50%;
+  border-radius: var(--radius-round);
   background: var(--accent);
   vertical-align: middle;
   animation: activity-pulse 1.6s ease-in-out infinite;
@@ -1738,7 +1749,7 @@ pre {
   }
 }
 .icon-button:disabled {
-  opacity: 0.35;
+  opacity: var(--disabled);
 }
 
 .link {
@@ -1747,6 +1758,9 @@ pre {
   color: var(--accent);
   font-size: 13px;
   padding: 4px 6px;
+  /* A link is one line: in the Files toolbar the path shrinks first and then the
+     buttons wrapped with it — "Up" over "Up", "New file" over three lines. */
+  white-space: nowrap;
 }
 .link:disabled {
   opacity: 0.4;
@@ -1782,7 +1796,7 @@ button {
   flex-direction: column;
   min-height: 0;
   background: var(--surface);
-  border-radius: 0;
+  border-radius: var(--radius);
   overflow: hidden;
 }
 .sheet-body {
@@ -1861,7 +1875,7 @@ button {
   background: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: var(--radius);
   padding: 10px;
   font: inherit;
   font-size: 16px;
@@ -1882,7 +1896,7 @@ button {
   margin: 0;
   padding: 10px;
   background: var(--surface-2);
-  border-radius: 0;
+  border-radius: var(--radius);
   font-size: 12px;
   overflow-x: auto;
 }
@@ -1970,7 +1984,7 @@ button {
   text-align: left;
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: var(--radius);
   padding: 10px 12px;
   color: var(--text);
   display: flex;
@@ -2073,7 +2087,7 @@ pre.git-message {
 .pill {
   font-size: 12px;
   padding: 4px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: 1px solid var(--border);
   white-space: nowrap;
   flex-shrink: 0;
@@ -2144,7 +2158,7 @@ p.warning.dismissible > .icon-button {
 p.warning code {
   background: rgba(0, 0, 0, 0.28);
   padding: 1px 5px;
-  border-radius: 0;
+  border-radius: var(--radius);
 }
 
 /* ── Phone ───────────────────────────────────────────────────────────────── */
@@ -2248,7 +2262,7 @@ p.warning code {
        leave room to grow into, since that cap left almost no headroom on a
        typical laptop screen. */
     max-height: 96vh;
-    border-radius: 0;
+    border-radius: var(--radius);
     box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
     /* Draggable from the bottom-right corner. `overflow: hidden` (set above,
        for every viewport) already satisfies resize's one requirement —
@@ -2406,7 +2420,7 @@ p.warning code {
 .section-tabs button {
   background: none;
   border: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: var(--radius);
   color: var(--muted);
   padding: 5px 10px;
   font-size: 13px;
@@ -2417,6 +2431,14 @@ p.warning code {
   background: color-mix(in srgb, var(--accent) 16%, transparent);
   border-color: var(--accent);
   color: var(--text);
+}
+/* At phone width the Agent tab's five chips must share one row: at the desktop
+   padding "Memory" got a row to itself and took 40px off the tallest form in the
+   app. Same squeeze `.tabs` already uses for six tab names at 390. */
+@media (max-width: 640px) {
+  .section-tabs button {
+    padding: 5px 6px;
+  }
 }
 /* Tools: a family's chip is its on/off box and its name, welded into one pill so the
    box reads as part of the chip and not as a third chip. The box is a `<button
@@ -2451,7 +2473,7 @@ p.warning code {
 }
 .tool-chips .chip-pair .chip-check.on {
   border-color: var(--border);
-  color: #0b1020;
+  color: var(--on-accent);
 }
 .tool-chips .chip-pair .chip-check.on::before {
   background: var(--accent);
@@ -2479,7 +2501,7 @@ p.warning code {
   background: var(--surface);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: var(--radius);
   height: var(--control-h);
   padding: 0 10px;
   font: inherit;
@@ -2488,6 +2510,10 @@ p.warning code {
 .path {
   font-size: 12px;
   color: var(--muted);
+  /* Shrink before its neighbours do, so the toolbar's actions stay intact and
+     only the path loses characters (it truncates from the front already). */
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2625,7 +2651,7 @@ p.warning code {
   max-width: 100%;
   max-height: 60vh;
   margin: 0 auto;
-  border-radius: 0;
+  border-radius: var(--radius);
 }
 
 .row {
@@ -2658,6 +2684,14 @@ p.warning code {
 }
 .link .icon {
   vertical-align: -0.2em;
+}
+/* A .link is a text-sized tap target (~24px) used for real verbs — Up, New file,
+   Find, Reveal, Edit, Delete. On a fingertip that is the app's own 40/44 rule
+   missed everywhere except the composer; the same switch as --control-font. */
+@media (pointer: coarse) {
+  .link {
+    padding-block: 8px;
+  }
 }
 .grow-text {
   flex: 1;
@@ -2740,7 +2774,7 @@ p.warning code {
   background: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: var(--radius);
   padding: 9px 10px;
   font: inherit;
   font-size: var(--control-font);
@@ -2788,7 +2822,7 @@ p.warning code {
   background: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: var(--radius);
   padding: 12px;
   font:
     13px / 1.5 ui-monospace,
@@ -2807,7 +2841,7 @@ p.warning code {
   background: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: var(--radius);
   padding: 12px;
   font:
     13px / 1.5 ui-monospace,
@@ -2831,7 +2865,7 @@ p.warning code {
 
 .section-note {
   margin: 18px 12px 6px;
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--muted);
 }
@@ -2858,7 +2892,7 @@ p.warning code {
 .field textarea:disabled {
   background: var(--surface);
   color: var(--muted);
-  opacity: 0.62;
+  opacity: var(--disabled);
 }
 /* One line of a value with its own action inside the control (Remote Pi's public
    key + Copy), so the row costs no height and the button cannot be missed. */
@@ -2914,7 +2948,7 @@ textarea.mono {
   display: inline-flex;
   align-items: center;
   max-width: 100%;
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--agent);
   white-space: nowrap;
@@ -2928,13 +2962,37 @@ textarea.mono {
   text-overflow: ellipsis;
 }
 
+/* One slot for the link state: the dot at every width, plus the word where the
+   top bar has room for it (below this the bar's room all goes to where you are,
+   and a bare dot is the only room the phone can spare). */
+.topbar-status {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+}
+.topbar-word {
+  display: none;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+@media (min-width: 640px) {
+  .topbar-status {
+    gap: 7px;
+  }
+  .topbar-word {
+    display: inline;
+  }
+}
+
 /* The link state as a dot; its label is the tooltip and accessible name. */
 .link-dot {
   flex: none;
   width: 10px;
   height: 10px;
   margin: 0 8px;
-  border-radius: 50%;
+  border-radius: var(--radius-round);
 }
 .link-dot.ok {
   background: var(--ok);
@@ -3066,7 +3124,7 @@ button.link-dot.busy.warn {
 }
 .switcher-hint {
   margin: 8px 12px 0;
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--agent);
 }
 .switcher-empty {
@@ -3135,7 +3193,7 @@ button.link-dot.busy.warn {
 }
 .switcher-card-title {
   font-weight: 600;
-  font-size: 14.5px;
+  font-size: 14px;
   line-height: 1.3;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -3230,7 +3288,7 @@ button.link-dot.busy.warn {
   height: 32px;
   display: grid;
   place-items: center;
-  color: #0b1020;
+  color: var(--on-accent);
   font-weight: 700;
   font-size: 14px;
 }
@@ -3307,7 +3365,7 @@ button.link-dot.busy.warn {
 }
 .sheet-head-text:disabled,
 .sheet-head-icon:disabled {
-  opacity: 0.4;
+  opacity: var(--disabled);
   cursor: default;
 }
 /* One inset for menus and forms alike, on the app's 12px gutter. With no
@@ -3322,7 +3380,7 @@ button.link-dot.busy.warn {
 
 .menu-intro {
   margin: 0 2px 8px;
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--muted);
 }
 .menu-section {
@@ -3359,7 +3417,7 @@ button.link-dot.busy.warn {
   background: color-mix(in srgb, var(--accent) 9%, var(--surface-2));
 }
 .menu-row:disabled {
-  opacity: 0.5;
+  opacity: var(--disabled);
   cursor: default;
 }
 .menu-row-text {
@@ -3371,12 +3429,12 @@ button.link-dot.busy.warn {
 }
 .menu-row-title {
   font-weight: 600;
-  font-size: 14.5px;
+  font-size: 14px;
   line-height: 1.3;
   overflow-wrap: anywhere;
 }
 .menu-row-desc {
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 1.3;
   color: var(--muted);
   overflow-wrap: anywhere;
@@ -3399,7 +3457,7 @@ button.link-dot.busy.warn {
 .menu-row-box.on {
   background: var(--accent);
   border-color: var(--accent);
-  color: #0b1020;
+  color: var(--on-accent);
 }
 .menu-row-box .icon {
   width: 16px;
@@ -3545,7 +3603,7 @@ button.link-dot.busy.warn {
 .ctx-hint,
 .ctx-message {
   margin: 6px 2px 0;
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--muted);
 }
 
@@ -3568,7 +3626,7 @@ button.link-dot.busy.warn {
   padding: 4px 12px;
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--text);
   font: inherit;
   font-size: 13px;
@@ -3583,7 +3641,7 @@ button.link-dot.busy.warn {
   padding: 8px 10px;
   border-left: 3px solid var(--warn);
   background: color-mix(in srgb, var(--warn) 10%, transparent);
-  font-size: 12.5px;
+  font-size: 12px;
 }
 .limit-actions {
   display: flex;
@@ -3733,7 +3791,7 @@ button.link-dot.busy.warn {
 /* One line until asked: descriptions run to a paragraph and would turn the
    list into a wall of text. */
 .skill-desc {
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 1.4;
   display: -webkit-box;
   -webkit-line-clamp: 1;
@@ -3747,7 +3805,7 @@ button.link-dot.busy.warn {
   white-space: pre-line;
 }
 .skill-path {
-  font-size: 11.5px;
+  font-size: 11px;
   overflow-wrap: anywhere;
 }
 
@@ -3796,7 +3854,7 @@ button.link-dot.busy.warn {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--muted);
 }
 /* The "Models (N)" disclosure under a provider row: .tool-head carries no
@@ -3870,7 +3928,6 @@ button.link-dot.busy.warn {
    menu given only `left` otherwise spans to the viewport edge. */
 .switcher-menu {
   width: max-content;
-  min-width: 170px;
   max-width: 260px;
 }
 
@@ -3886,7 +3943,7 @@ button.link-dot.busy.warn {
 .sidebar-archived-agents {
   align-self: flex-start;
   padding: 6px 0 0;
-  font-size: 12.5px;
+  font-size: 12px;
 }
 
 /* ── Desktop sidebar: agents ─────────────────────────────────────────────── */
@@ -3948,12 +4005,12 @@ button.link-dot.busy.warn {
   flex: none;
   width: 22px;
   height: 22px;
-  border-radius: 50%;
+  border-radius: var(--radius-round);
   display: grid;
   place-items: center;
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 700;
-  color: #0b1020;
+  color: var(--on-accent);
 }
 .agent-row-name {
   flex: 1;
@@ -3993,7 +4050,7 @@ button.link-dot.busy.warn {
    the last thing pi said, live counters, and the stop buttons. */
 .pi-card {
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius);
   padding: 10px 12px;
   margin: 6px 0;
   display: flex;
@@ -4060,7 +4117,7 @@ button.link-dot.busy.warn {
 }
 .pi-card-thumb {
   height: 56px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   border: 1px solid var(--border);
   display: block;
 }

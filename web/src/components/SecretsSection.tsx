@@ -132,9 +132,13 @@ export function SecretsSection({ session, agentId }: Props) {
 
   return (
     <>
-      <p className="section-note">
-        {secrets.length} secret{secrets.length === 1 ? "" : "s"} configured
-      </p>
+      {/* The count line is the list's header; with an empty list the sentence below
+          already says the same thing, so one of the two is noise. */}
+      {secrets.length > 0 ? (
+        <p className="section-note">
+          {secrets.length} secret{secrets.length === 1 ? "" : "s"} configured
+        </p>
+      ) : null}
       {status ? <p className="muted small pad">{status}</p> : null}
 
       <ul className="list">

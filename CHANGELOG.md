@@ -5,6 +5,17 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Fixed
+- **The Files tab stops breaking into three lines on a phone.** Its toolbar holds the folder, **Up** and **New file** on one row; a long conversation folder squeezed them until the buttons wrapped — "Up" over "Up", "New file" over three lines, the bar 70 px tall instead of 40. A text link is one line now, so the path is the only thing that gives up characters.
+- **The Agent tab's five sections share one row at phone width.** *Memory* wrapped onto a row of its own and took 40 px off the tallest form in the app; the chips now squeeze the way the six tab names already do at 390 px.
+- **An agent with no secrets is told once.** Agent → Secrets printed "0 secrets configured" and then "No secrets configured for this agent." The count line appears only when there is something to count.
+
+### Changed
+- **One blue.** The composer's round send and stop carried their own blue and red (`#2e7df6`, `#f0463c`) with white ink while every other filled control uses the accent with a dark ink; they take the accent now, and the ink that sits on a saturated fill is a token (`--on-accent`) instead of five different hexes.
+- **Send is a target, not a dot.** Send and stop were 26 px — the smallest controls in the app, for its main verb — and keep the 40 px every other control keeps. Text links (Up, New file, Find, Reveal, Edit, Delete) are untouched under a mouse and get a fingertip's padding under a finger.
+- **The top bar says what it means where there is room.** The amber triangle and the green dot stay the whole state on a phone; from 640 px they are joined by their words — **Dev bypass**, **Live**, **Reconnecting…**, **2 responding** — so a state is never colour alone.
+- **Shapes and states are tokens.** `--radius` is used at its call sites at last, joined by `--radius-pill`, `--radius-round` and one `--disabled` for every control that cannot be used; the Remote Pi card — the app's only rounded card — is square like everything else; and the half-step sizes (11.5, 12.5, 14.5 px) folded into the sizes around them.
+
 ## [v0.13.1-letta_0.34.9] - 2026-10-11
 
 ### Fixed
