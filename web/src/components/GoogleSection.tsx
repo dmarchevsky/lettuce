@@ -76,7 +76,7 @@ export function GoogleSection() {
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     }
-  }, []);
+  }, [loadNativeTools]);
 
   useEffect(() => {
     void load();

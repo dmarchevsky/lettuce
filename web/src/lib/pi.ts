@@ -70,16 +70,6 @@ export interface PiAgentOverride {
   model: string | null;
 }
 
-export const DEFAULT_PI_AGENT_OVERRIDE: PiAgentOverride = {
-  mode: "global",
-  host: "",
-  port: null,
-  user: "",
-  pathPrepend: "",
-  workdir: "",
-  model: null,
-};
-
 /** What the BFF says about one agent: its own record, what it resolves to, and
  * whether the global setup exists at all (an override needs it to). */
 export interface PiAgentPayload {

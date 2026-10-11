@@ -2,7 +2,7 @@ import {
   type AskUserQuestionResponse,
   prepareAskUserQuestionNotif,
 } from "@letta-ai/letta-code/ask-user-question";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildMessageContent, type PreparedImage } from "../lib/attachments.ts";
 import { errorMessage } from "../lib/errors.ts";
 import {
@@ -353,8 +353,17 @@ export function useConversation(
   const seqRef = useRef(0);
   const startedRef = useRef<string | null>(null);
 
-  const scope: RuntimeScope | null =
-    agentId && conversationId ? { agent_id: agentId, conversation_id: conversationId } : null;
+  // Memoized so its identity changes only with the conversation: effects and
+  // callbacks depend on this object, and a fresh literal every render made them
+  // re-run every render — the request loop this hook has burned itself on
+  // before. The field-wise deps that used to work around it are gone.
+  const scope = useMemo(
+    () =>
+      agentId && conversationId
+        ? ({ agent_id: agentId, conversation_id: conversationId } as RuntimeScope)
+        : null,
+    [agentId, conversationId],
+  );
 
   /**
    * Re-render from the transcript, at most once per animation frame.
@@ -535,7 +544,7 @@ export function useConversation(
         setError(errorMessage(cause));
       }
     },
-    [agentId, conversationId, request, flush, markResynced, refreshUsage, reprimeLiveState],
+    [agentId, conversationId, request, flushSync, markResynced, refreshUsage, reprimeLiveState],
   );
 
   // Start (or resume) the runtime for this conversation, then load its history.
@@ -596,7 +605,7 @@ export function useConversation(
       }
       await loadHistory();
     })();
-  }, [ready, scope?.agent_id, scope?.conversation_id, request, setScopes, loadHistory]);
+  }, [ready, scope, request, setScopes, loadHistory]);
 
   // A resync means the BFF buffer could not cover the gap while we were away.
   useEffect(() => onResync(() => void loadHistory(true)), [onResync, loadHistory]);
@@ -771,7 +780,7 @@ export function useConversation(
           break;
       }
     });
-  }, [onFrame, scope?.conversation_id, flush, flushSync]);
+  }, [onFrame, scope, flush, flushSync, refreshUsage]);
 
   /**
    * One user message out the door, with its local echo. `raw` is the content
@@ -951,7 +960,7 @@ export function useConversation(
       setError(errorMessage(cause));
       return false;
     }
-  }, [scope, request, flush]);
+  }, [scope, request, flushSync]);
 
   const respondToApproval = useCallback(
     (requestId: string, approve: boolean, reason?: string) => {

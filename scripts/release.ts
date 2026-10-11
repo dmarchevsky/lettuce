@@ -78,10 +78,6 @@ function git(...cmd: string[]): string {
   return new TextDecoder().decode(result.stdout).trim();
 }
 
-function gitOk(cmd: string[]): boolean {
-  return Bun.spawnSync(cmd, { cwd: ROOT }).exitCode === 0;
-}
-
 async function run(cmd: string[]): Promise<number> {
   const child = Bun.spawn(cmd, { cwd: ROOT, stdout: "inherit", stderr: "inherit" });
   return await child.exited;

@@ -335,6 +335,9 @@ export function FilesTab({ session, cwd, agentId }: Props) {
         <ul className="list">
           {matches.length === 0 ? <li className="muted pad">No matches</li> : null}
           {matches.map((match, index) => (
+            // A search can hit the same line of the same file twice; the result
+            // list is replaced whole, never reordered in place.
+            // biome-ignore lint/suspicious/noArrayIndexKey: path and line alone are not unique
             <li key={`${match.path}:${match.line}:${index}`}>
               <button
                 type="button"

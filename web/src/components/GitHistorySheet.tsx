@@ -267,6 +267,7 @@ function CommitDetail({
           {detail.files.map((file, index) => (
             // Same path can appear twice (e.g. a rename pair across pages);
             // the index keeps the key unique without pretending paths are keys.
+            // biome-ignore lint/suspicious/noArrayIndexKey: a commit's file list is static while shown
             <li key={`${file.path}:${index}`} className="git-file">
               <span className="git-status" title={file.status ?? undefined}>
                 {file.status ?? "?"}

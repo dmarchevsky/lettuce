@@ -23,16 +23,22 @@
     "rules": {
       "preset": "recommended",
       "correctness": {
-        // Downgraded deliberately, not out of laziness. Several effects depend on
-        // `scope?.agent_id` / `scope?.conversation_id` rather than `scope`, because
-        // `scope` is a fresh object literal on every render (App.tsx). Satisfying
-        // this rule would re-run those effects every render and reintroduce the
-        // unbounded app-server request loop documented in use-session.ts.
-        "useExhaustiveDependencies": "warn"
+        // Gated, not advisory. Every effect that once depended on `scope?.agent_id`
+        // / `scope?.conversation_id` instead of `scope` now has a memoized
+        // `scope` to depend on (use-conversation.ts), so the one reason this was
+        // downgraded — field-wise deps standing in for an unstable object — is
+        // gone. A fresh object literal in a dependency list is the unbounded
+        // app-server request loop documented in use-session.ts.
+        "useExhaustiveDependencies": "error"
       },
       "suspicious": {
-        // Index keys are correct for the static diff-hunk and file-row lists that
-        // trigger this; the arrays are never reordered.
+        // Index keys are correct for the lists that trigger this: diff hunks,
+        // diff lines, git file rows, search matches, attachment chips and the
+        // thumbnails of one message are all static while rendered and have no
+        // id. Five of the six now carry a `biome-ignore` with its reason; the
+        // sixth (message image thumbnails) cannot, because the formatter keeps
+        // the `key` attribute off the element's own line and a suppression
+        // comment must sit directly above what it excuses.
         "noArrayIndexKey": "warn"
       },
       "style": {

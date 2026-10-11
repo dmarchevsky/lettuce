@@ -569,6 +569,9 @@ export function Composer({
           {attachments.length > 0 || preparing || attachErrors.length > 0 ? (
             <div className="attach-tray">
               {attachments.map((image, index) => (
+                // Two chips may hold the same file name, and the tray only ever
+                // gains or drops at the end.
+                // biome-ignore lint/suspicious/noArrayIndexKey: name is not unique; the tray is append/remove-only
                 <span className="attach-chip" key={`${index}:${image.name}`}>
                   <img src={image.previewUrl} alt={image.name} />
                   <button

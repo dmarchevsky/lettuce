@@ -114,7 +114,7 @@ export function Sidebar({
     if (fresh.length === 0) return;
     for (const id of fresh) refetchedFor.current.add(id);
     void agents.refreshConversations(agentId);
-  }, [agents.agentId, unlistedKey]);
+  }, [agents.agentId, unlistedKey, agents.refreshConversations]);
 
   const guard = async (action: () => Promise<void>) => {
     setBusy(true);

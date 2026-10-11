@@ -107,6 +107,9 @@ export function MessageList({
   const stuckRef = useRef(true);
   stuckRef.current = stuck;
 
+  // `entries` and `processing` are the trigger, not inputs: new content is what
+  // should pull the view down, and where to scroll is read from the DOM.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the deps say when to scroll, not what to read
   useLayoutEffect(() => {
     const container = containerRef.current;
     if (!container || !stuckRef.current) return;
@@ -555,9 +558,14 @@ const MessageItem = memo(function MessageItem({
         // `data:` from a click), so the preview lives in this entry.
         <div className="msg-images">
           {entry.images.map((image, index) => (
+            // The thumbnails of one message are fixed once it is rendered, and
+            // the index is also what `setZoom` shows — they are one array, so
+            // the position is the only identity they have. (No `biome-ignore`
+            // here: the formatter keeps `key` off the element's own line, and a
+            // suppression comment has to sit directly above what it excuses.)
             <button
-              type="button"
               key={index}
+              type="button"
               className="msg-image-thumb"
               onClick={() => setZoom(index)}
               aria-label={`View image ${index + 1} full size`}

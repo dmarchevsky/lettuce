@@ -125,7 +125,9 @@ export function useFileLinks(session: SessionApi, cwd: string | null): FileLinks
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [, bump] = useState(0);
 
-  // A new workspace invalidates every resolution.
+  // A new workspace invalidates every resolution. `cwd` is the trigger, not an
+  // input — what it clears lives in refs.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: clearing caches on a workspace change, not deriving from cwd
   useEffect(() => {
     cacheRef.current.clear();
     pendingRef.current.clear();

@@ -23,12 +23,17 @@ function DiffView({ diffs }: { diffs: unknown[] }) {
           reason?: string;
         };
         return (
+          // A diff carries no id, and its position in the list is its identity.
+          // biome-ignore lint/suspicious/noArrayIndexKey: no id to key on; the list is never reordered
           <div className="diff" key={`${diff.fileName ?? "diff"}-${index}`}>
             <div className="diff-file">{diff.fileName ?? "(file)"}</div>
             {diff.mode === "advanced" && Array.isArray(diff.hunks) ? (
               <pre>
                 {diff.hunks.flatMap((hunk, hunkIndex) =>
                   (hunk.lines ?? []).map((line, lineIndex) => (
+                    // The diff body is one fixed sequence of lines; nothing is
+                    // inserted into it while it is on screen.
+                    // biome-ignore lint/suspicious/noArrayIndexKey: positional by nature, static while rendered
                     <span className={`dl ${line.type}`} key={`${hunkIndex}-${lineIndex}`}>
                       {line.type === "add" ? "+" : line.type === "remove" ? "-" : " "}
                       {line.content}
