@@ -816,7 +816,10 @@ try {
     // Skills on a phone: long names, badges and paths must wrap, not push the
     // pane sideways — measured on the pane for the same reason as above.
     await page.locator('.section-tabs button:text-is("Skills")').click();
-    await page.locator(".skill-group-head").first().waitFor({ timeout: 10_000 });
+    // The agent skills pane is empty until the BFF has walked the agent's memfs and
+    // the global list, which after a bff restart can take half a minute — a 10s
+    // budget failed the run for a reason that had nothing to do with the UI.
+    await page.locator(".skill-group-head").first().waitFor({ timeout: 45_000 });
     await page.locator('.skill-group-head:has-text("Bundled")').click();
     await page.locator('.skill-main[aria-expanded="false"]').first().click();
     const skillsWidth = await page.evaluate(() => {
@@ -1102,7 +1105,10 @@ try {
     // populated with no turn running (bundled skills alone are ~20). Bundled
     // starts collapsed; descriptions are one line until a row is tapped.
     await page.locator('.section-tabs button:text-is("Skills")').click();
-    await page.locator(".skill-group-head").first().waitFor({ timeout: 10_000 });
+    // The agent skills pane is empty until the BFF has walked the agent's memfs and
+    // the global list, which after a bff restart can take half a minute — a 10s
+    // budget failed the run for a reason that had nothing to do with the UI.
+    await page.locator(".skill-group-head").first().waitFor({ timeout: 45_000 });
     const bundledHead = page.locator('.skill-group-head:has-text("Bundled")');
     check("skills list is populated without a turn", (await bundledHead.count()) === 1);
     check(
