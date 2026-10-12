@@ -892,6 +892,25 @@ try {
       sectionWidth,
     );
     await shot(page, "phone-settings-mcp");
+    if (featureOn(features, "pi")) {
+      // The status row used to be a single `nowrap` pill that ran off the right
+      // edge on a phone, cutting off the age that says whether the state is fresh.
+      await page.locator('.settings-screen .section-tabs button:text-is("Remote Pi")').click();
+      await page.waitForTimeout(900);
+      const statusRow = await page.evaluate(() => {
+        const el = document.querySelector(".settings-content .pi-status");
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { left: r.left, right: r.right, text: (el.textContent ?? "").trim().slice(0, 60) };
+      });
+      check("remote pi shows a status row on phone", statusRow !== null, statusRow);
+      check(
+        "remote pi status row fits the phone width",
+        statusRow !== null && statusRow.left >= 0 && statusRow.right <= PHONE.width,
+        statusRow,
+      );
+      await shot(page, "phone-settings-pi");
+    }
     await page.locator('.settings-screen button[aria-label="Close"]').click();
     check("close leaves settings", (await page.locator(".settings-screen").count()) === 0);
 
@@ -1238,6 +1257,11 @@ try {
       check(
         "remote pi section loads its settings",
         (await page.locator('.menu-row:has-text("Allow Remote Pi")').count()) === 1,
+        await page.locator(".settings-content").innerText(),
+      );
+      check(
+        "remote pi status row says one word of state",
+        (await page.locator(".settings-content .pi-status .pi-state").count()) === 1,
         await page.locator(".settings-content").innerText(),
       );
     }

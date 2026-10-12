@@ -15,9 +15,9 @@
  * in the pi store. Both are BFF-side; upstream sees four pi tools either way.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "../components/Icon.tsx";
-import { piStatusPill } from "../components/PiSection.tsx";
+import { PiCheckBanner, PiStatusLine } from "../components/PiStatus.tsx";
 import { toast } from "../components/Toast.tsx";
 import {
   type AgentToolAccess,
@@ -348,6 +348,9 @@ function PiPane({
   const [globalConfigured, setGlobalConfigured] = useState(true);
   const [globalTarget, setGlobalTarget] = useState<string | null>(null);
   const [check, setCheck] = useState<PiCheck | null>(null);
+  /** The two fields a failed check can point the operator straight at. */
+  const workdirRef = useRef<HTMLInputElement>(null);
+  const pathRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState("");
 
   const load = useCallback(async () => {
@@ -416,7 +419,11 @@ function PiPane({
     setBusy("check");
     try {
       if (pinFirst) await pinPiHostKey({ host: target.host, port: target.port, agentId });
-      setCheck(await checkPiHost(target, agentId));
+      const result = await checkPiHost(target, agentId);
+      setCheck(result);
+      // A pass is a receipt; a failure is a state of this pane and stays on it as
+      // a banner, where ssh's own words can be read at leisure.
+      if (result.ok) toast(`Checked — ${result.detail} on ${result.target}`);
     } catch (cause) {
       toast(errorMessage(cause), "bad");
     } finally {
@@ -424,7 +431,6 @@ function PiPane({
     }
   };
 
-  const pill = piStatusPill(check, dirty || stale);
   const needsPin = !check || check.state === "unpinned";
 
   return (
@@ -529,6 +535,7 @@ function PiPane({
             Workdir
             <input
               value={form.workdir}
+              ref={workdirRef}
               placeholder="/home/worker/research"
               autoComplete="off"
               spellCheck={false}
@@ -542,6 +549,7 @@ function PiPane({
             PATH prefix
             <input
               value={form.pathPrepend}
+              ref={pathRef}
               placeholder={global.pathPrepend || "/opt/node/bin:/opt/pi/bin"}
               autoComplete="off"
               spellCheck={false}
@@ -562,9 +570,20 @@ function PiPane({
             </span>
           </label>
 
-          <div className="button-row">
-            <span className={`pill ${pill.cls}`}>{pill.text}</span>
-          </div>
+          <PiStatusLine
+            check={check}
+            stale={dirty || stale}
+            checking={busy === "check"}
+            targetNote={override?.mode === "own" ? null : "inherited from Settings"}
+          />
+          <PiCheckBanner
+            check={check}
+            stale={dirty || stale}
+            checking={busy === "check"}
+            onFocusPath={() => pathRef.current?.focus()}
+            onFocusWorkdir={() => workdirRef.current?.focus()}
+            onRetry={() => void runCheck(needsPin)}
+          />
           <div className="button-row">
             <button
               type="button"

@@ -2101,6 +2101,79 @@ pre.git-message {
   white-space: nowrap;
   flex-shrink: 0;
 }
+/* The Remote Pi status row: a word of state, then whatever else is true wrapped
+   under it. A `.pill` cannot do this job — `nowrap` inside a flex row means the
+   long tail runs off a phone instead of wrapping, and the part that got cut was
+   the age, which is what says whether the green is still true. */
+.pi-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin: 8px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--border);
+  background: var(--surface);
+}
+.pi-status.ok {
+  border-left-color: var(--ok);
+}
+.pi-status.warn {
+  border-left-color: var(--warn);
+}
+.pi-status.bad {
+  border-left-color: var(--bad);
+}
+.pi-status .pi-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-round);
+  align-self: center;
+}
+.pi-status.ok .pi-dot {
+  background: var(--ok);
+}
+.pi-status.warn .pi-dot {
+  background: var(--warn);
+}
+.pi-status.bad .pi-dot {
+  background: var(--bad);
+}
+/* Same spinner the top bar's link dot uses — a check in flight should look like
+   the thing that is already waiting, not like a new kind of state. */
+.pi-status .pi-dot.spinning {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--warn);
+  border-right-color: transparent;
+  background: none;
+  animation: link-spin 0.9s linear infinite;
+}
+.pi-status .pi-state {
+  font-size: 14px;
+  font-weight: 600;
+}
+.pi-status .pi-tail {
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+/* The pinned fingerprint on its own line: short where it is shown, whole where
+   it is copied, because a truncated string nobody can compare is decoration. */
+.pi-kv {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.pi-kv code {
+  background: rgba(0, 0, 0, 0.28);
+  padding: 1px 5px;
+}
 /* The auth warning is a button, not a label; strip the form-control look. */
 .pill.as-button {
   background: none;

@@ -13,6 +13,20 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 - **A result no longer waits for a click to disappear.** The Tools tab's "Saved." sat on the page until some unrelated action overwrote it, and the app's only session-wide error had a dismiss button nobody found because nothing else surfaced it, so it never went away. They dismiss themselves now.
 
 ### Changed
+* **Remote Pi states a failure, not a pill.** The status line said one long thing
+  — pi version, host, pinned fingerprint and age on a single unwrapping line — so
+  on a phone it ran off the right edge and what got cut was the age that says
+  whether the state is still true. It is now a row: a word of state first (*Ready*,
+  *Not pinned*, *Sign-in refused*, *Pi not on PATH*, *Working folder missing*,
+  *Unreachable*), the host and the age wrapped underneath, and the pinned
+  fingerprint on its own line with a **Copy** that copies it whole. A failed check
+  keeps ssh's own sentence in a banner next to the one thing that fixes it — copy
+  the public key, focus the PATH prefix or the working folder, or try again — and a
+  passed check says so as a toast, because pressing **Check host** and seeing
+  nothing move is how people press it twice. The per-agent pane now says whose host
+  it checked (`inherited from Settings`) and no longer lets a check made against a
+  different target borrow a green dot.
+
 - **Settings says less.** The line above every global section — "What one agent may use is under Tools; what it is named and told is under Agent." — is gone, along with the toggle descriptions that restated the toggle ("Allow Codex workers" / "Agents may hand coding work to a Codex subagent"), the hint under a field that repeated the value already typed in it, and "Settings for *Olla* only.", which named the tab you are in. The one cross-tab pointer that sentence was protecting for — that per-agent Remote Pi lives under Tools while its default lives here — is now said in Remote Pi settings, where it changes what you do.
 - **Two empty states, one sentence.** The Tools tab and the Agent tab each had their own wording for "no agent selected".
 - **Text that repeats is one constant.** "Leave blank to keep the stored value" was written three times, once as "stored key"; the JSON-output button's tooltip and its screen-reader name had drifted into "is required" and "required".

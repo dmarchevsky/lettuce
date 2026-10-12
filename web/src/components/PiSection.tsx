@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ago,
   checkPiHost,
   fetchPiSettings,
   generatePiKey,
@@ -12,6 +11,7 @@ import {
 } from "../lib/pi.ts";
 import { SAVED_NOW } from "../lib/save-result.ts";
 import { ToggleRow } from "./MenuRow.tsx";
+import { PiCheckBanner, PiStatusLine, shortFingerprint } from "./PiStatus.tsx";
 import { toast } from "./Toast.tsx";
 
 interface Draft {
@@ -54,36 +54,6 @@ function isDirty(draft: Draft, settings: PiSettings): boolean {
   );
 }
 
-/** `SHA256:abcdef…uvwxyz` — a fingerprint you can read at a glance. */
-function shortFingerprint(value: string | null): string {
-  if (!value) return "none";
-  const hex = value.replace(/^SHA256:/, "");
-  return hex.length <= 12 ? value : `${hex.slice(0, 6)}…${hex.slice(-4)}`;
-}
-
-/**
- * The one line that says whether this host would work. "Saved" is not that
- * answer: every run pins, so a saved-but-unpinned host fails silently inside an
- * agent's run. The pill goes stale with the form on purpose — editing a field
- * after a good check means the good check is about another host.
- */
-export function piStatusPill(
-  check: PiCheck | null,
-  stale: boolean,
-): { cls: "ok" | "warn" | "bad"; text: string } {
-  if (stale) return { cls: "warn", text: "Changed since the last check" };
-  if (!check) return { cls: "warn", text: "Never checked — an unpinned host fails every run" };
-  const pinned = check.pinnedFingerprint
-    ? ` · pinned ${shortFingerprint(check.pinnedFingerprint)}`
-    : "";
-  if (check.ok)
-    return {
-      cls: "ok",
-      text: `${check.detail} · ${check.target}${pinned} · checked ${ago(check.at)}`,
-    };
-  return { cls: "bad", text: `${check.detail} · ${check.target} · ${ago(check.at)}` };
-}
-
 /**
  * Settings → Remote Pi: where agents reach a pi installed on another host, over
  * SSH only (see bff/src/pi/ and docs/remote-pi-plan.md).
@@ -108,6 +78,9 @@ export function PiSection() {
   const [generating, setGenerating] = useState(false);
   const [rotateArmed, setRotateArmed] = useState(false);
   const [copied, setCopied] = useState(false);
+  /** The two fields a failed check can point the operator straight at. */
+  const workdirRef = useRef<HTMLInputElement>(null);
+  const pathRef = useRef<HTMLInputElement>(null);
   /** The last word the BFF had about this host, and the form's staleness. */
   const [check, setCheck] = useState<PiCheck | null>(null);
   const [checking, setChecking] = useState(false);
@@ -187,7 +160,11 @@ export function PiSection() {
     if (!form) return;
     setChecking(true);
     try {
-      setCheck(await checkPiHost(targetOf(form)));
+      const result = await checkPiHost(targetOf(form));
+      setCheck(result);
+      // A pass is a receipt, so it toasts; a failure is a state of this screen and
+      // stays on it as a banner (PiCheckBanner), where ssh's own words can be read.
+      if (result.ok) toast(`Checked — ${result.detail} on ${result.target}`);
     } catch (error) {
       toast(
         `Could not check the host: ${error instanceof Error ? error.message : String(error)}`,
@@ -223,8 +200,10 @@ export function PiSection() {
         return;
       }
       setPinArmed(false);
-      setCheck(await checkPiHost(targetOf(form)));
+      const after = await checkPiHost(targetOf(form));
+      setCheck(after);
       toast(`Pinned ${pinned.target} (${shortFingerprint(pinned.fingerprint)}).`);
+      if (after.ok) toast(`Checked — ${after.detail} on ${after.target}`);
     } catch (error) {
       toast(
         `Could not pin the host key: ${error instanceof Error ? error.message : String(error)}`,
@@ -309,7 +288,11 @@ export function PiSection() {
   };
   const off = !draft.enabled;
   const dirty = isDirty(draft, settings);
-  const pill = piStatusPill(check, dirty);
+  // A check belongs to one target and one set of values: editing the host after a
+  // good check means the good check is about another machine, and editing PATH or
+  // the folder can flip the very thing the check tested.
+  const targetLabel = `${draft.user.trim()}@${draft.host.trim()}:${Number(draft.port) || 22}`;
+  const stale = check !== null && (dirty || check.target !== targetLabel);
   const hostTyped = draft.host.trim() !== "";
   const needsPin = !check || check.state === "unpinned";
   const busy = checking || pinning;
@@ -389,6 +372,7 @@ export function PiSection() {
         <label className="field">
           Workdir
           <input
+            ref={workdirRef}
             value={draft.workdir}
             placeholder="/home/worker/pi"
             autoComplete="off"
@@ -405,6 +389,7 @@ export function PiSection() {
         <label className="field">
           PATH prefix
           <input
+            ref={pathRef}
             value={draft.pathPrepend}
             placeholder="/opt/node/bin:/opt/pi/bin"
             autoComplete="off"
@@ -528,9 +513,16 @@ export function PiSection() {
           ) : null}
         </div>
 
-        <div className="button-row">
-          <span className={`pill ${pill.cls}`}>{pill.text}</span>
-        </div>
+        <PiStatusLine check={check} stale={stale} checking={busy} />
+        <PiCheckBanner
+          check={check}
+          stale={stale}
+          checking={busy}
+          onCopyKey={settings.publicKey ? () => void copyKey() : undefined}
+          onFocusPath={() => pathRef.current?.focus()}
+          onFocusWorkdir={() => workdirRef.current?.focus()}
+          onRetry={() => void runCheck()}
+        />
 
         <div className="button-row">
           <button
