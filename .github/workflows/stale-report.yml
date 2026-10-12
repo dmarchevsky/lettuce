@@ -42,7 +42,12 @@ jobs:
             found=0
             for branch in $(gh api "repos/$GITHUB_REPOSITORY/branches" --paginate \
                 --jq '.[].name | select(. != "main")'); do
-              state=$(gh pr list --head "$branch" --state all --json state --jq '.[0].state // "NONE"')
+              # --repo because this job checks out no code on purpose, and outside a git
+              # directory `gh pr list` cannot infer the repository and dies — which took
+              # the whole weekly report with it. The `|| unknown` keeps one API hiccup
+              # from blanking the report a human reads.
+              state=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --state all \
+                --json state --jq '.[0].state // "NONE"' 2>/dev/null || echo "unknown")
               if [ "$state" = "OPEN" ]; then
                 continue
               fi
