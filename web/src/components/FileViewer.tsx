@@ -29,6 +29,7 @@ import type { SessionApi } from "../state/use-session.ts";
 import { Icon } from "./Icon.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { Sheet } from "./Sheet.tsx";
+import { toast } from "./Toast.tsx";
 
 interface ReadResponse {
   content?: string | null;
@@ -65,6 +66,8 @@ export function FileViewer({
   const [mode, setMode] = useState<"view" | "edit">("view");
   const [draft, setDraft] = useState("");
   const [preview, setPreview] = useState(false);
+  /** In-flight text lives on the Save button; the sheet's slot is only for a read failure. */
+  const [saving, setSaving] = useState(false);
 
   // Inline handlers from the caller change identity every render; keep the
   // effect keyed on `path` alone so it does not re-read the file each time.
@@ -79,7 +82,7 @@ export function FileViewer({
     setMode("view");
     setDraft("");
     setPreview(false);
-    setStatus("Loading…");
+    setStatus("");
 
     void (async () => {
       try {
@@ -131,22 +134,24 @@ export function FileViewer({
   };
 
   const save = async () => {
-    setStatus("Saving…");
+    setSaving(true);
     try {
       const response = await session.request<{ success?: boolean; error?: string }>("write_file", {
         path,
         content: draft,
       });
       if (response?.success === false) {
-        setStatus(response.error ?? "Save failed");
+        toast(response.error ?? `Could not save ${basename(path)}`, "bad");
         return;
       }
       setContent(draft);
       setMode("view");
-      setStatus("Saved");
+      toast(`Saved ${basename(path)}.`);
       onSaved?.();
     } catch (cause) {
-      setStatus(errorMessage(cause));
+      toast(`Could not save ${basename(path)}: ${errorMessage(cause)}`, "bad");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -176,10 +181,10 @@ export function FileViewer({
             <button
               type="button"
               className="button"
-              disabled={draft === content}
+              disabled={saving || draft === content}
               onClick={() => void save()}
             >
-              Save
+              {saving ? "Saving…" : "Save"}
             </button>
           </>
         ) : (

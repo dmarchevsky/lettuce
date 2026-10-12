@@ -44,7 +44,6 @@ interface StatusProps {
   checking: boolean;
   /** Whose host this is, when that is not obvious: "inherited from Settings". */
   targetNote?: string | null;
-  /** The last check's target, shown when it is no longer this one. */
 }
 
 export function PiStatusLine({ check, stale, checking, targetNote }: StatusProps) {
