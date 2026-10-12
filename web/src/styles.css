@@ -2571,7 +2571,9 @@ p.warning code {
   height: 11px;
 }
 
-/* Under Settings' chips: who the section's settings apply to. */
+/* Under a per-agent tab's chips: who these settings belong to, and where the
+   shared ones live. Only the Tools tab earns a line — the Agent tab's sections
+   are all this agent's, so it says nothing. */
 .scope-line {
   margin: 0;
   padding: 7px 12px;

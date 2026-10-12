@@ -13,6 +13,13 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 - **A result no longer waits for a click to disappear.** The Tools tab's "Saved." sat on the page until some unrelated action overwrote it, and the app's only session-wide error had a dismiss button nobody found because nothing else surfaced it, so it never went away. They dismiss themselves now.
 
 ### Changed
+* **The Agent tab no longer implies its settings are shared.** A line above every
+  agent section read *Settings for every agent* — a link to the global Settings,
+  but standing alone above a per-agent section it read as a heading saying the
+  section below was shared, which is the opposite of what it holds. It is gone;
+  the gear in the top bar is the way there, and the Tools tab keeps its own line
+  because that one says which agent the boxes belong to.
+
 * **Remote Pi states a failure, not a pill.** The status line said one long thing
   — pi version, host, pinned fingerprint and age on a single unwrapping line — so
   on a phone it ran off the right edge and what got cut was the age that says

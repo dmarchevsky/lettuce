@@ -75,11 +75,10 @@ export function AgentTab({
           </button>
         ))}
       </div>
-      <p className="scope-line small">
-        <button type="button" className="link inline" onClick={() => onOpenGlobalSettings()}>
-          Settings for every agent
-        </button>
-      </p>
+      {/* No scope line here: every section below belongs to this agent alone, and
+          the gear in the top bar is the way to the shared settings. A link that
+          read "Settings for every agent" above a per-agent section was read as a
+          heading claiming the opposite. */}
 
       {section === "general" ? (
         <AgentGeneralSection key={agentId} session={session} agents={agents} agentId={agentId} />
