@@ -10,6 +10,7 @@ import {
 import { type ModelsApi, useModels } from "../state/use-models.ts";
 import type { SessionApi } from "../state/use-session.ts";
 import { Sheet } from "./Sheet.tsx";
+import { toast } from "./Toast.tsx";
 
 interface Props {
   session: SessionApi;
@@ -32,9 +33,9 @@ export function AgentEditor({ session, agents, onClose }: Props) {
 
   const create = async () => {
     setBusy(true);
-    setStatus("Creating agent…");
     try {
       await agents.createAgent(preset, draft);
+      toast(`Created ${draft.name.trim()}.`);
       onClose();
     } catch (cause) {
       setStatus(errorMessage(cause));
@@ -58,7 +59,7 @@ export function AgentEditor({ session, agents, onClose }: Props) {
             disabled={busy || !draft.name.trim()}
             onClick={() => void create()}
           >
-            Create
+            {busy ? "Creating…" : "Create"}
           </button>
         </>
       }

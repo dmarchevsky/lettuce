@@ -8,6 +8,7 @@ import type { SessionApi } from "../state/use-session.ts";
 import { Icon } from "./Icon.tsx";
 import { MenuRow } from "./MenuRow.tsx";
 import { Sheet } from "./Sheet.tsx";
+import { toast } from "./Toast.tsx";
 
 interface Props {
   session: SessionApi;
@@ -31,18 +32,12 @@ export function ModelPicker({
 }: Props) {
   const models = useModels(session);
   const current = currentModel;
-  const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [toolsetStatus, setToolsetStatus] = useState<string | null>(null);
   const [toolsetBusy, setToolsetBusy] = useState(false);
 
   const choose = async (model: ModelEntry) => {
-    if (!scope) {
-      setStatus("Select a conversation first.");
-      return;
-    }
+    if (!scope) return;
     setBusy(true);
-    setStatus(`Switching to ${model.label}…`);
     try {
       // `isUpdateModelCommand` requires model_id or model_handle to be a
       // string. A payload without either (the old `{ model: handle }`, or the
@@ -59,25 +54,22 @@ export function ModelPicker({
       });
 
       if (response?.success === false) {
-        setStatus(response.error ?? "Failed to switch model");
+        toast(response.error ?? `Could not switch to ${model.label}`, "bad");
         return;
       }
       current.setHandle(response?.model_handle ?? model.handle);
+      toast(`Switched to ${model.label}.`);
       onClose();
     } catch (cause) {
-      setStatus(errorMessage(cause));
+      toast(`Could not switch to ${model.label}: ${errorMessage(cause)}`, "bad");
     } finally {
       setBusy(false);
     }
   };
 
   const chooseToolset = async (toolset: ToolsetSummary) => {
-    if (!scope) {
-      setToolsetStatus("Select a conversation first.");
-      return;
-    }
+    if (!scope) return;
     setToolsetBusy(true);
-    setToolsetStatus(`Switching to ${toolset.label}…`);
     try {
       const response = await session.request<{ success?: boolean; error?: string }>(
         "update_toolset",
@@ -85,11 +77,10 @@ export function ModelPicker({
       );
       // The picked value reflects back through the next update_device_status
       // frame, same as permission mode — no optimistic local state needed.
-      setToolsetStatus(
-        response?.success === false ? (response.error ?? "Failed to switch toolset") : null,
-      );
+      if (response?.success === false) toast(response.error ?? "Could not switch toolset", "bad");
+      else toast(`Switched to the ${toolset.label} toolset.`);
     } catch (cause) {
-      setToolsetStatus(errorMessage(cause));
+      toast(`Could not switch toolset: ${errorMessage(cause)}`, "bad");
     } finally {
       setToolsetBusy(false);
     }
@@ -106,7 +97,7 @@ export function ModelPicker({
     <Sheet
       title="Model"
       onClose={onClose}
-      status={status ?? models.error}
+      status={models.error}
       headerAction={
         <button
           type="button"
@@ -120,7 +111,11 @@ export function ModelPicker({
         </button>
       }
     >
-      {notice ? <p className="warning small">{notice}</p> : null}
+      {notice ? (
+        <p className="warning small" role="status">
+          {notice}
+        </p>
+      ) : null}
 
       {models.loading ? <p className="muted">Loading models…</p> : null}
 
@@ -159,7 +154,6 @@ export function ModelPicker({
       {availableToolsets.length > 0 ? (
         <>
           <p className="menu-section">Toolset</p>
-          {toolsetStatus ? <p className="menu-intro">{toolsetStatus}</p> : null}
           <ul className="menu-list">
             {availableToolsets
               .filter((toolset) => toolset.featured || toolset.id === toolsetPreference)

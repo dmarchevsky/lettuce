@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { SAVED_NO_AGENT } from "../lib/save-result.ts";
 import {
   describeWebToolsStatus,
   fetchWebToolsEnabled,
@@ -9,6 +10,7 @@ import {
   type WebToolsTestAnswer,
 } from "../lib/web-tools.ts";
 import { ToggleRow } from "./MenuRow.tsx";
+import { toast } from "./Toast.tsx";
 
 /**
  * Settings → Web: every agent's native `web_search` and `fetch_webpage`
@@ -44,16 +46,19 @@ export function WebToolsSection() {
     try {
       const saved = await saveWebToolsEnabled(next);
       setEnabled(saved.enabled);
-      setMessage(
+      toast(
         saved.pending
-          ? "Saved. Takes effect once an agent exists."
+          ? SAVED_NO_AGENT
           : saved.enabled
-            ? "On. Agents have web_search and fetch_webpage from their next turn."
-            : "Off. Agents lose web_search and fetch_webpage from their next turn.",
+            ? "On — web_search and fetch_webpage for every agent"
+            : "Off — both tools stop from every agent's next turn",
       );
       setStatus(await fetchWebToolsStatus());
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
+      toast(
+        `Could not ${next ? "enable" : "disable"} the web tools: ${error instanceof Error ? error.message : String(error)}`,
+        "bad",
+      );
     } finally {
       setBusy(false);
     }
@@ -76,7 +81,9 @@ export function WebToolsSection() {
     return (
       <>
         {message ? (
-          <p className="small bad pad">{message}</p>
+          <p className="warning small" role="alert">
+            <span>{message}</span>
+          </p>
         ) : (
           <p className="muted pad">Loading…</p>
         )}
@@ -93,31 +100,31 @@ export function WebToolsSection() {
     <>
       <p className="muted small pad">
         Gives every agent two tools, <code>web_search</code> and <code>fetch_webpage</code>, in
-        chats, crons and Telegram alike. Searches go to the SearXNG sidecar, falling back to
-        DuckDuckGo; pages are read through DuckDuckGo&apos;s fetcher. Nothing leaves this server
-        except the searches and page requests themselves. Subagents do not get these tools.
+        chats, crons and Telegram alike; subagents do not get them. Searches go to the SearXNG
+        sidecar, falling back to DuckDuckGo; pages are read through DuckDuckGo&apos;s fetcher.
+        Nothing leaves this server except the searches and page requests themselves.
       </p>
 
       <div className="pad-x">
         <ToggleRow
           title="Native web search and page reading"
-          description="Off removes both tools from every agent's next turn"
+          description="web_search and fetch_webpage, for every agent"
           checked={enabled}
           disabled={busy}
           onChange={(next) => void toggle(next)}
         />
       </div>
 
-      {message ? <p className="muted small pad">{message}</p> : null}
       {status ? <p className="small pad">{describeWebToolsStatus(status)}</p> : null}
-      {status && !status.modInstalled ? (
-        <p className="warning small">
-          The tools are not installed in the app-server yet — they are written on the BFF&apos;s
-          next connection to it.
+      {/* One box: "not installed yet" and "the mod refused to load" are the same
+          fact seen from the two ends, and two banners stacked read as one long
+          panic. */}
+      {status && (!status.modInstalled || status.modErrors.length > 0) ? (
+        <p className="warning small" role="alert">
+          {!status.modInstalled
+            ? "The tools are not installed in the app-server yet — they are written on the BFF's next connection to it."
+            : `Loading the tools failed: ${status.modErrors.join("; ")}`}
         </p>
-      ) : null}
-      {status && status.modErrors.length > 0 ? (
-        <p className="warning small">Loading the tools failed: {status.modErrors.join("; ")}</p>
       ) : null}
 
       <p className="section-note">Try a search</p>
@@ -132,7 +139,7 @@ export function WebToolsSection() {
               if (event.key === "Enter") void runTest();
             }}
           />
-          <span className="muted small">The same search an agent&apos;s web_search runs.</span>
+          <span className="muted small">The same search agents run.</span>
         </label>
         <div className="button-row">
           <button

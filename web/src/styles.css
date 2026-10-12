@@ -1859,8 +1859,17 @@ button {
   cursor: pointer;
 }
 .toast.bad {
-  border-color: var(--danger);
-  color: var(--danger);
+  /* Was var(--danger), which no rule defines — an invalid custom property makes
+     border-color fall back to currentColor and colour to inherit, so the failure
+     toast looked exactly like the success one. */
+  border-color: var(--bad);
+  color: var(--bad);
+}
+/* "Stored, and the second half did not happen" — needs to read differently from
+   both the plain success and the hard failure. */
+.toast.warn {
+  border-color: var(--warn);
+  color: var(--warn);
 }
 
 .suggestions {
@@ -2137,8 +2146,10 @@ p.warning {
   font-size: 14px;
 }
 /* A BFF error no request owned (App.tsx), so nothing else would show it.
-   Dismissible, since nothing clears it on its own. */
-p.warning.dismissible {
+   Dismissible, since nothing clears it on its own. Any banner with a control of
+   its own (a dismiss, a retry) lays out the same way. */
+p.warning.dismissible,
+p.warning:has(> button) {
   display: flex;
   align-items: center;
   gap: 8px;

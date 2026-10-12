@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { errorMessage } from "../lib/errors.ts";
 import { Icon } from "./Icon.tsx";
 import { Sheet } from "./Sheet.tsx";
+import { toast } from "./Toast.tsx";
 
 interface GitBranchInfo {
   name: string;
@@ -97,7 +98,6 @@ export function BranchSheet({ session, cwd, onClose }: Props) {
   const runCheckout = async (branch: string, create: boolean) => {
     if (busy) return;
     setBusy(true);
-    setStatus(`${create ? "Creating" : "Checking out"} ${branch}…`);
     try {
       const response = await session.request<{
         branch?: string;
@@ -109,7 +109,7 @@ export function BranchSheet({ session, cwd, onClose }: Props) {
         return;
       }
       setCurrent(response?.branch ?? branch);
-      setStatus("");
+      toast(`Checked out ${response?.branch ?? branch}.`);
       onClose();
     } catch (cause) {
       setStatus(errorMessage(cause));

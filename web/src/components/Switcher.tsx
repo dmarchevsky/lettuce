@@ -224,7 +224,14 @@ export function Switcher({ agents, session, onClose, onNewAgent, onEditAgent }: 
               {showArchived ? "Hide archived" : `Show archived (${archivedCount})`}
             </button>
           ) : null}
-          {agents.error ? <p className="warning small">{agents.error}</p> : null}
+          {agents.error ? (
+            <p className="warning small" role="alert">
+              <span>{agents.error}</span>
+              <button type="button" className="link" onClick={() => void agents.refreshAgents()}>
+                Try again
+              </button>
+            </p>
+          ) : null}
         </div>
 
         <section className="switcher-agents" aria-label="Agents" onScroll={closeAgentMenu}>

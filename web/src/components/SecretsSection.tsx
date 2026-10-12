@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { errorMessage } from "../lib/errors.ts";
 import type { SessionApi } from "../state/use-session.ts";
 import { Sheet } from "./Sheet.tsx";
+import { toast } from "./Toast.tsx";
 
 interface SecretEntry {
   key: string;
@@ -53,7 +54,7 @@ export function SecretsSection({ session, agentId }: Props) {
         error?: string;
       }>("secret_list", { agent_id: agentId });
       if (response?.success === false) {
-        setStatus(response.error ?? "Failed to list secrets");
+        setStatus(response.error ?? "Could not list secrets");
         return;
       }
       setSecrets(response?.secrets ?? []);
@@ -78,7 +79,6 @@ export function SecretsSection({ session, agentId }: Props) {
     const set: Record<string, string> = { [key]: draft.value };
     const unset: string[] = draft.original && draft.original !== key ? [draft.original] : [];
 
-    setStatus(`Saving ${key}…`);
     try {
       const response = await session.request<{
         success?: boolean;
@@ -86,34 +86,33 @@ export function SecretsSection({ session, agentId }: Props) {
         error?: string;
       }>("secret_apply", { agent_id: agentId, set, unset });
       if (response?.success === false) {
-        setStatus(response.error ?? "Failed to save secret");
+        toast(response.error ?? `Could not save ${key}`, "bad");
         return;
       }
       setDraft(null);
-      setStatus("");
+      toast(`Saved ${key}.`);
       await load();
     } catch (cause) {
-      setStatus(errorMessage(cause));
+      toast(`Could not save ${key}: ${errorMessage(cause)}`, "bad");
     }
   };
 
   const remove = async (entry: SecretEntry) => {
     if (!agentId) return;
     if (!confirm(`Delete secret "${entry.key}"?`)) return;
-    setStatus(`Deleting ${entry.key}…`);
     try {
       const response = await session.request<{ success?: boolean; error?: string }>(
         "secret_apply",
         { agent_id: agentId, set: {}, unset: [entry.key] },
       );
       if (response?.success === false) {
-        setStatus(response.error ?? "Failed to delete secret");
+        toast(response.error ?? `Could not delete ${entry.key}`, "bad");
         return;
       }
-      setStatus("");
+      toast(`Deleted ${entry.key}.`);
       await load();
     } catch (cause) {
-      setStatus(errorMessage(cause));
+      toast(`Could not delete ${entry.key}: ${errorMessage(cause)}`, "bad");
     }
   };
 
@@ -139,7 +138,14 @@ export function SecretsSection({ session, agentId }: Props) {
           {secrets.length} secret{secrets.length === 1 ? "" : "s"} configured
         </p>
       ) : null}
-      {status ? <p className="muted small pad">{status}</p> : null}
+      {status ? (
+        <p className="warning small" role="alert">
+          <span>{status}</span>
+          <button type="button" className="link" onClick={() => void load()}>
+            Try again
+          </button>
+        </p>
+      ) : null}
 
       <ul className="list">
         {secrets.map((secret) => (

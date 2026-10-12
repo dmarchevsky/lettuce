@@ -7,7 +7,9 @@ import {
   type ReasoningEffort,
   saveCodexSettings,
 } from "../lib/codex.ts";
+import { SAVED_NEXT_WORKER } from "../lib/save-result.ts";
 import { ToggleRow } from "./MenuRow.tsx";
+import { toast } from "./Toast.tsx";
 
 interface Draft {
   enabled: boolean;
@@ -85,9 +87,12 @@ export function CodexSection() {
       const saved = await saveCodexSettings(update);
       setSettings(saved);
       setDraft(draftOf(saved, null));
-      setStatus("Saved. Applies to the next Codex worker started.");
+      toast(SAVED_NEXT_WORKER);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : String(error));
+      toast(
+        `Could not save the Codex worker settings: ${error instanceof Error ? error.message : String(error)}`,
+        "bad",
+      );
     } finally {
       setSaving(false);
     }
@@ -96,7 +101,13 @@ export function CodexSection() {
   if (!draft || !settings) {
     return (
       <>
-        {status ? <p className="small bad pad">{status}</p> : <p className="muted pad">Loading…</p>}
+        {status ? (
+          <p className="warning small" role="alert">
+            <span>{status}</span>
+          </p>
+        ) : (
+          <p className="muted pad">Loading…</p>
+        )}
         <div className="pad-x">
           <button type="button" className="button ghost" onClick={() => void load()}>
             Reload
@@ -115,12 +126,10 @@ export function CodexSection() {
         the agent&apos;s workspace inside the app-server container, with the same access as the
         agent&apos;s own shell. The endpoint must serve the OpenAI Responses API.
       </p>
-      {status ? <p className="muted small pad">{status}</p> : null}
 
       <div className="pad-x">
         <ToggleRow
           title="Allow Codex workers"
-          description="Agents may hand coding work to a Codex subagent"
           checked={draft.enabled}
           onChange={(enabled) => set({ enabled })}
         />
@@ -133,7 +142,6 @@ export function CodexSection() {
             autoComplete="off"
             onChange={(event) => set({ baseUrl: event.target.value })}
           />
-          <span className="muted small">Pre-filled with the endpoint letta itself uses.</span>
         </label>
 
         <label className="field">

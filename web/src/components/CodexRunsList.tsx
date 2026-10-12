@@ -54,7 +54,14 @@ export function CodexRunsList({ refreshKey }: { refreshKey: string }) {
   return (
     <>
       <p className="section-note">Codex runs</p>
-      {error ? <p className="small bad pad">{error}</p> : null}
+      {error ? (
+        <p className="warning small" role="alert">
+          <span>{error}</span>
+          <button type="button" className="link" onClick={() => void load()}>
+            Try again
+          </button>
+        </p>
+      ) : null}
       <ul className="list">
         {runs.map((run) => (
           <li key={run.threadId} className="task">

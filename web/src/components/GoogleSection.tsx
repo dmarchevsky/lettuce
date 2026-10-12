@@ -18,6 +18,7 @@ import {
 } from "../lib/google.ts";
 import { describeGoogleTools, fetchNativeTools, type NativeTools } from "../lib/native-tools.ts";
 import { ToggleRow } from "./MenuRow.tsx";
+import { toast } from "./Toast.tsx";
 
 interface Draft {
   enabled: boolean;
@@ -89,13 +90,16 @@ export function GoogleSection() {
       const loaded = await fetchGoogleStatus();
       setStatus(loaded);
       setDraft(draftOf(loaded));
-      setMessage(result?.warning ?? done);
+      // A warning is the part the refreshed status does not show — the levels
+      // saved but the token no longer matches them.
+      if (result?.warning) toast(result.warning, "warn");
+      else toast(done);
       // The sidecar restarts with the new access over a few seconds, and the
       // BFF re-reads its tools after it; look again once that has happened.
       loadNativeTools();
       setTimeout(loadNativeTools, 15_000);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
+      toast(error instanceof Error ? error.message : String(error), "bad");
     } finally {
       setBusy(false);
     }
@@ -174,9 +178,7 @@ export function GoogleSection() {
     <>
       <p className="muted small pad">
         Lets every agent — chats, crons and Telegram alike — use Gmail, Calendar, Tasks and Contacts
-        as one Google account. The levels below are enforced twice, out of any agent&apos;s reach:
-        Google grants the token only the scopes they need, and the Google tool server only offers
-        the matching tools.
+        as one Google account, at the access levels set below.
       </p>
 
       {!status.writable ? (
@@ -186,7 +188,11 @@ export function GoogleSection() {
           GOOGLE_ALLOW_DEV_BYPASS=true on a machine only you use.
         </p>
       ) : null}
-      {message ? <p className="muted small pad">{message}</p> : null}
+      {message ? (
+        <p className="warning small" role="alert">
+          <span>{message}</span>
+        </p>
+      ) : null}
 
       <div className="pad-x">
         {settings.grant?.lostAt ? (
@@ -248,7 +254,6 @@ export function GoogleSection() {
 
         <ToggleRow
           title="Allow agents to use Google"
-          description="With this off, the Google tool server does not run"
           checked={draft.enabled}
           disabled={locked}
           onChange={(enabled) => set({ enabled })}

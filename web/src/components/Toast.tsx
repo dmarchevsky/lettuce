@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
 
-type Kind = "ok" | "bad";
+type Kind = "ok" | "bad" | "warn";
 
 // The layer registers itself here, so any component can report without a prop
 // path from the app root to wherever the action happened.
 let emit: (text: string, kind: Kind) => void = () => {};
 
-/** Report the outcome of something the operator just did. It dismisses itself. */
+/**
+ * Report the outcome of something the operator just did. It dismisses itself.
+ * `warn` is the one that means "stored, and the second half did not happen".
+ */
 export function toast(text: string, kind: Kind = "ok"): void {
   emit(text, kind);
 }
@@ -31,7 +34,12 @@ export function ToastLayer() {
   if (!shown) return null;
   return (
     // biome-ignore lint/a11y/useKeyWithClickEvents: a tap only ends it early — it dismisses itself after 6s.
-    <div className={`toast ${shown.kind}`} role="status" onClick={() => setShown(null)}>
+    <div
+      className={`toast ${shown.kind}`}
+      role="status"
+      aria-live={shown.kind === "ok" ? "polite" : "assertive"}
+      onClick={() => setShown(null)}
+    >
       {shown.text}
     </div>
   );

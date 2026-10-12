@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { errorMessage } from "../lib/errors.ts";
+import { KEEP_STORED_HINT } from "../lib/field-hints.ts";
 import type { ModState } from "../lib/model-caps.ts";
 import {
   type Provider,
@@ -83,7 +84,6 @@ export function ProviderFormSheet({
   // a line in the form: the operator is about to act on it, not read it back.
   const checkEndpoint = async () => {
     setBusy(true);
-    const started = performance.now();
     try {
       const found = await probeModels({
         api: chosenType?.api ?? "openai-completions",
@@ -93,7 +93,9 @@ export function ProviderFormSheet({
       });
       setListed(found);
       const noun = found.length === 1 ? "model" : "models";
-      toast(`reachable in ${Math.round(performance.now() - started)} ms — ${found.length} ${noun}`);
+      // No latency: nobody acts on "412 ms", and the number made the line harder
+      // to read than the fact it reported.
+      toast(`reachable — ${found.length} ${noun}`);
       // A first add picks everything it found — ticking ten models is not a
       // decision worth forcing, and a model can be unticked.
       setDraft((current) =>
@@ -273,7 +275,7 @@ export function ProviderFormSheet({
             chosenType?.keyOptional
               ? "not needed for a local endpoint"
               : editing?.hasKey
-                ? "Leave blank to keep the stored key"
+                ? KEEP_STORED_HINT
                 : ""
           }
           onChange={(event) => setDraft({ ...draft, apiKey: event.target.value })}

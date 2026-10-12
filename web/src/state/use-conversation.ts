@@ -86,6 +86,8 @@ export interface ConversationApi {
   queue: QueuedItem[];
   approvals: PendingApproval[];
   error: string | null;
+  /** Dismiss `error` — it is shown in a box the operator closes once read. */
+  clearError: () => void;
   /**
    * Send one turn. `responseFormat` constrains the reply to a JSON schema and
    * must already pass `validateResponseFormat`; an invalid value is reported
@@ -1125,6 +1127,8 @@ export function useConversation(
     queue,
     approvals,
     error,
+    /** The box shows an action that failed; the operator closes it once read. */
+    clearError: () => setError(null),
     sendMessage,
     abort,
     respondToApproval,

@@ -382,7 +382,14 @@ export function Sidebar({
           <ToggleRow title="Show archived" checked={showArchived} onChange={setShowArchived} />
         </div>
 
-        {agents.error ? <p className="warning small">{agents.error}</p> : null}
+        {agents.error ? (
+          <p className="warning small" role="alert">
+            <span>{agents.error}</span>
+            <button type="button" className="link" onClick={() => void agents.refreshAgents()}>
+              Try again
+            </button>
+          </p>
+        ) : null}
       </aside>
     </>
   );

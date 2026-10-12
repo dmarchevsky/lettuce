@@ -69,13 +69,11 @@ export const GLOBAL_SECTION_GROUPS: { label: string; sections: SectionInfo[] }[]
 
 const ALL_SECTIONS = GLOBAL_SECTION_GROUPS.flatMap((group) => group.sections);
 /**
- * Every section here is global, and the per-agent half of the UI moved twice: what
- * an agent may use is under Tools, what an agent *is* is under Agent. Naming only
- * one of them sends a reader looking for Remote Pi's per-agent folder to the wrong
- * tab.
+ * Every section here is global: what an agent *is* lives under Agent, and what it
+ * may use lives under Tools, both reached from the agent itself. The one cross
+ * connection that actually confused people — the per-agent Remote Pi folder under
+ * Tools while its default lives here — is said where it matters, in that section.
  */
-const SCOPE_NOTE =
-  "What one agent may use is under Tools; what it is named and told is under Agent.";
 const LAST_SECTION_KEY = "lettuce:settings-section";
 
 /** The profile token each gated section rides on; others are always visible. */
@@ -233,28 +231,24 @@ export function GlobalSettings({
         </header>
 
         {wide ? null : (
-          <>
-            <nav className="pane-bar section-tabs" aria-label="Settings sections">
-              {sections.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className={item.id === section ? "active" : undefined}
-                  aria-current={item.id === section ? "true" : undefined}
-                  onClick={() => pick(item.id)}
-                >
-                  {item.short}
-                </button>
-              ))}
-            </nav>
-            <p className="scope-line small">{SCOPE_NOTE}</p>
-          </>
+          <nav className="pane-bar section-tabs" aria-label="Settings sections">
+            {sections.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={item.id === section ? "active" : undefined}
+                aria-current={item.id === section ? "true" : undefined}
+                onClick={() => pick(item.id)}
+              >
+                {item.short}
+              </button>
+            ))}
+          </nav>
         )}
 
         <div className="settings-body">
           {wide ? (
             <nav className="settings-nav" aria-label="Settings sections">
-              <p className="settings-nav-note small muted">{SCOPE_NOTE}</p>
               {groups.map((group) => (
                 <section key={group.label}>
                   <h3 className="switcher-group">{group.label}</h3>

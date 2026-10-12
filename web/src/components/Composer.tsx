@@ -166,6 +166,11 @@ export function Composer({
 }: Props) {
   const [value, setValue] = useState(() => (draftKey ? readDraft(draftKey) : ""));
   const [sheet, setSheet] = useState<OpenSheet>(null);
+  /** One string for the JSON toggle's tooltip and its accessible name, so the
+   * two cannot drift into "is required" / "required". */
+  const structuredLabel = structuredEnabled
+    ? "JSON output is required for the next message"
+    : "Require JSON output";
   const [highlight, setHighlight] = useState(0);
   /** Escape closes the popover without clearing what was typed. */
   const [dismissed, setDismissed] = useState(false);
@@ -776,16 +781,8 @@ export function Composer({
                 type="button"
                 className={`icon-button flat${structuredEnabled ? " on" : ""}`}
                 onClick={() => setSheet("structured")}
-                title={
-                  structuredEnabled
-                    ? "JSON output is required for the next message"
-                    : "Require JSON output"
-                }
-                aria-label={
-                  structuredEnabled
-                    ? "JSON output required for the next message"
-                    : "Require JSON output"
-                }
+                title={structuredLabel}
+                aria-label={structuredLabel}
               >
                 <Icon name="braces" />
               </button>

@@ -13,6 +13,7 @@ import {
   updatePushPreferences,
 } from "../lib/push.ts";
 import { MenuRow } from "./MenuRow.tsx";
+import { toast } from "./Toast.tsx";
 
 const NOTIFICATION_EVENT_TYPES: { key: keyof PushPreferences; label: string }[] = [
   { key: "completed", label: "Turn completed" },
@@ -45,18 +46,18 @@ export function NotificationsSection() {
   }, []);
 
   const toggle = async () => {
-    setStatus(enabled ? "Disabling…" : "Enabling…");
     try {
       if (enabled) {
         await unsubscribeFromPush();
         setEnabled(false);
         setPreferences(null);
+        toast("Notifications off on this device.");
       } else {
         await subscribeToPush();
         setEnabled(true);
         setPreferences(await getPushPreferences());
+        toast("Notifications on for this device.");
       }
-      setStatus("");
     } catch (cause) {
       setStatus(errorMessage(cause));
     }
@@ -70,17 +71,19 @@ export function NotificationsSection() {
       await updatePushPreferences({ [key]: value });
     } catch (cause) {
       setPreferences(previous);
-      setStatus(errorMessage(cause));
+      toast(errorMessage(cause), "bad");
     }
   };
 
   const sendTest = async () => {
-    setStatus("Sending a test notification…");
     try {
       await sendTestPush();
-      setStatus("Test notification sent. If it doesn't appear, check this device's own settings.");
+      toast(
+        "Test notification sent — if it did not appear, check this device's own settings",
+        "warn",
+      );
     } catch (cause) {
-      setStatus(errorMessage(cause));
+      toast(errorMessage(cause), "bad");
     }
   };
 
@@ -103,7 +106,11 @@ export function NotificationsSection() {
 
   return (
     <>
-      {status ? <p className="muted small pad">{status}</p> : null}
+      {status ? (
+        <p className="warning small" role="alert">
+          <span>{status}</span>
+        </p>
+      ) : null}
       <p className="muted small pad">
         Sends a notification to this device when the agent finishes a turn, hits an error, or needs
         a tool approval — while you're not watching that conversation.

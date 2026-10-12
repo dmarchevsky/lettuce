@@ -5,6 +5,7 @@ import { useModels } from "../state/use-models.ts";
 import type { SessionApi } from "../state/use-session.ts";
 import { ModelField } from "./AgentEditor.tsx";
 import { DeleteAgentSheet } from "./DeleteAgentSheet.tsx";
+import { toast } from "./Toast.tsx";
 
 interface Props {
   session: SessionApi;
@@ -23,6 +24,7 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
   /** The agent as last loaded or saved, so Save knows what changed. */
   const [saved, setSaved] = useState<AgentDraft | null>(null);
   const [deleting, setDeleting] = useState(false);
+  /** Only a failed load — a save result is a toast, it does not live on the page. */
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(true);
 
@@ -67,7 +69,6 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
 
   const save = async () => {
     setBusy(true);
-    setStatus("Saving…");
     try {
       // Re-sending the current handle would make the server redo the whole model
       // switch (and its context-window reconciliation) for no change.
@@ -76,9 +77,9 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
         modelHandle: draft.modelHandle === saved.modelHandle ? null : draft.modelHandle,
       });
       setSaved(draft);
-      setStatus("Saved.");
+      toast("Saved — agents see it on their next turn");
     } catch (cause) {
-      setStatus(errorMessage(cause));
+      toast(`Could not save: ${errorMessage(cause)}`, "bad");
     } finally {
       setBusy(false);
     }
@@ -86,7 +87,6 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
 
   return (
     <div className="pad-x">
-      {status ? <p className="muted small">{status}</p> : null}
       <label className="field">
         Name
         <input
@@ -134,7 +134,7 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
         disabled={busy || !dirty || !draft.name.trim()}
         onClick={() => void save()}
       >
-        Save
+        {busy ? "Saving…" : "Save"}
       </button>
 
       <p className="section-note agent-delete-head">Delete</p>

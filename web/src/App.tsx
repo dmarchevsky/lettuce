@@ -17,7 +17,7 @@ import { ModelPicker } from "./components/ModelPicker.tsx";
 import { PiRunsChip, usePiActiveRuns } from "./components/PiRunsChip.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { Switcher } from "./components/Switcher.tsx";
-import { ToastLayer } from "./components/Toast.tsx";
+import { ToastLayer, toast } from "./components/Toast.tsx";
 import type { PreparedImage } from "./lib/attachments.ts";
 import { draftKey } from "./lib/draft.ts";
 import { applyFavicon } from "./lib/favicon.ts";
@@ -188,6 +188,15 @@ function Workspace({ status }: { status: Status }) {
   const conversation = useConversation(session, agents.agentId, agents.conversationId, () => {
     void agents.adoptNewConversation();
   });
+
+  // A BFF error nothing else claimed is an event, so it is a toast: it says its
+  // piece and leaves, instead of covering the transcript until someone finds the
+  // dismiss button. The ring buffer and the transcript still hold the facts.
+  useEffect(() => {
+    if (!session.lastError) return;
+    toast(session.lastError, "bad");
+    session.clearError();
+  }, [session]);
 
   const contextLimit = useContextLimit(
     session.request,
@@ -406,24 +415,27 @@ function Workspace({ status }: { status: Status }) {
           ))}
         </nav>
 
-        {session.lastError ? (
-          <p className="warning small dismissible" role="alert">
-            <span>{session.lastError}</span>
-            <button
-              type="button"
-              className="icon-button flat"
-              onClick={session.clearError}
-              aria-label="Dismiss error"
-              title="Dismiss"
-            >
-              <Icon name="close" />
-            </button>
-          </p>
-        ) : null}
+        {/* A BFF error no request claimed (a rate limit, a command the browser
+            allowlist refused) is an event, not a state: it is a toast now, so it
+            says its piece and gets out of the way instead of covering the
+            transcript until someone notices the dismiss button. */}
 
         {tab === "Chat" ? (
           <>
-            {conversation.error ? <p className="warning small">{conversation.error}</p> : null}
+            {conversation.error ? (
+              <p className="warning small dismissible" role="alert">
+                <span>{conversation.error}</span>
+                <button
+                  type="button"
+                  className="icon-button flat"
+                  onClick={conversation.clearError}
+                  aria-label="Dismiss error"
+                  title="Dismiss"
+                >
+                  <Icon name="close" />
+                </button>
+              </p>
+            ) : null}
 
             <MessageList
               entries={visibleEntries}

@@ -4,6 +4,7 @@ import { FileViewer } from "../components/FileViewer.tsx";
 import { GitHistorySheet } from "../components/GitHistorySheet.tsx";
 import { Icon } from "../components/Icon.tsx";
 import { Sheet } from "../components/Sheet.tsx";
+import { toast } from "../components/Toast.tsx";
 import { shortDate } from "../lib/conversation-groups.ts";
 import { downloadUrl, formatBytes, triggerDownload } from "../lib/download.ts";
 import { errorMessage } from "../lib/errors.ts";
@@ -112,7 +113,9 @@ export function FilesTab({ session, cwd, agentId }: Props) {
   const [selected, setSelected] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [matches, setMatches] = useState<GrepMatch[] | null>(null);
+  /** A failed list or search: the amber box. Progress is `progress`, below. */
   const [status, setStatus] = useState("");
+  const [progress, setProgress] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [branchesOpen, setBranchesOpen] = useState(false);
@@ -187,7 +190,7 @@ export function FilesTab({ session, cwd, agentId }: Props) {
     async (path: string) => {
       loadedPath.current = path;
       void probeGitRepo(path);
-      setStatus("Loading…");
+      setProgress("Loading…");
       try {
         const response = await session.request<{
           entries?: TreeEntry[];
@@ -195,11 +198,12 @@ export function FilesTab({ session, cwd, agentId }: Props) {
           error?: string;
         }>("get_tree", { path, depth: 1 });
         if (response?.success === false) {
-          failed(response.error ?? "Failed to list directory");
+          failed(response.error ?? "Could not list the directory");
           return;
         }
         setEntries(response?.entries ?? []);
         setStatus("");
+        setProgress("");
       } catch (cause) {
         failed(errorMessage(cause));
       }
@@ -233,7 +237,8 @@ export function FilesTab({ session, cwd, agentId }: Props) {
       setMatches(null);
       return;
     }
-    setStatus("Searching…");
+    setStatus("");
+    setProgress("Searching…");
     try {
       // The parameter is `query`; sending `pattern` fails validation silently.
       const response = await session.request<{
@@ -248,8 +253,11 @@ export function FilesTab({ session, cwd, agentId }: Props) {
       }
       setMatches(response?.matches ?? []);
       setStatus("");
+      setProgress("");
     } catch (cause) {
       setStatus(errorMessage(cause));
+    } finally {
+      setProgress("");
     }
   };
 
@@ -329,7 +337,19 @@ export function FilesTab({ session, cwd, agentId }: Props) {
         ) : null}
       </div>
 
-      {status ? <p className="muted small pad">{status}</p> : null}
+      {progress && !status ? <p className="muted small pad">{progress}</p> : null}
+      {status ? (
+        <p className="warning small" role="alert">
+          <span>{status}</span>
+          <button
+            type="button"
+            className="link"
+            onClick={() => (query.trim() ? void search() : root ? void load(root) : null)}
+          >
+            Try again
+          </button>
+        </p>
+      ) : null}
 
       {matches ? (
         <ul className="list">
@@ -448,7 +468,9 @@ export function FilesTab({ session, cwd, agentId }: Props) {
                 </li>
               );
             })}
-            {entries.length === 0 && !status ? <li className="muted pad">Empty</li> : null}
+            {entries.length === 0 && !status && !progress ? (
+              <li className="muted pad">Empty</li>
+            ) : null}
           </ul>
         </>
       )}
@@ -521,20 +543,20 @@ function NewFileSheet({
       setStatus(`${name.trim()} already exists here.`);
       return;
     }
+    setStatus("");
     setSaving(true);
-    setStatus("Creating…");
     try {
       const response = await session.request<{ success?: boolean; error?: string }>("write_file", {
         path,
         content,
       });
       if (response?.success === false) {
-        setStatus(response.error ?? "Create failed");
+        toast(response.error ?? `Could not create ${name.trim()}`, "bad");
         return;
       }
       onCreated(path);
     } catch (cause) {
-      setStatus(errorMessage(cause));
+      toast(`Could not create ${name.trim()}: ${errorMessage(cause)}`, "bad");
     } finally {
       setSaving(false);
     }
@@ -543,7 +565,6 @@ function NewFileSheet({
   return (
     <Sheet
       title="New file"
-      status={status || null}
       onClose={onClose}
       actions={
         <>
@@ -556,7 +577,7 @@ function NewFileSheet({
             disabled={saving || !name.trim()}
             onClick={() => void create()}
           >
-            Create
+            {saving ? "Creating…" : "Create"}
           </button>
         </>
       }
@@ -566,12 +587,20 @@ function NewFileSheet({
         <input
           value={name}
           placeholder="notes.md"
-          onChange={(event) => setName(event.target.value)}
+          onChange={(event) => {
+            setName(event.target.value);
+            setStatus("");
+          }}
           onKeyDown={(event) => {
             if (event.key === "Enter") void create();
           }}
         />
       </label>
+      {status ? (
+        <p className="small bad" role="alert">
+          {status}
+        </p>
+      ) : null}
       <p className="muted small">Created in {root}</p>
       <textarea
         className="file-editor"

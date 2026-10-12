@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { errorMessage } from "../lib/errors.ts";
+import { KEEP_STORED_HINT } from "../lib/field-hints.ts";
 import { fetchModelCaps, type ModelCapsStore } from "../lib/model-caps.ts";
 import {
   fetchProviders,
@@ -8,12 +9,14 @@ import {
   removeProvider,
 } from "../lib/provider-registry.ts";
 import { handleProvider, normalizeProviderKey } from "../lib/providers.ts";
+import { SAVED_NO_AGENT, SAVED_NOW, SAVED_ON_RECONNECT } from "../lib/save-result.ts";
 import { type ModelEntry, type ModelsApi, useModels } from "../state/use-models.ts";
 import type { SessionApi } from "../state/use-session.ts";
 import { Icon } from "./Icon.tsx";
 import { ModelEditSheet, type ModelEditTarget } from "./ModelEditSheet.tsx";
 import { ProviderFormSheet } from "./ProviderFormSheet.tsx";
 import { Sheet } from "./Sheet.tsx";
+import { toast } from "./Toast.tsx";
 
 interface ProviderField {
   key: string;
@@ -101,13 +104,14 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
   const [connections, setConnections] = useState<ConnectionEntry[]>([]);
   const [caps, setCaps] = useState<ModelCapsStore>({ models: {}, endpoints: {} });
   const [status, setStatus] = useState("");
+  const [progress, setProgress] = useState("");
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [form, setForm] = useState<{ editing: Provider | null } | null>(null);
   const [editingConnection, setEditingConnection] = useState<ConnectionEntry | null>(null);
   const [editingModel, setEditingModel] = useState<ModelEditTarget | null>(null);
 
   const load = useCallback(async () => {
-    setStatus("Loading providers…");
+    setProgress("Loading providers…");
     try {
       const registry = await fetchProviders();
       setTypes(registry.types);
@@ -122,6 +126,8 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
       setStatus(response?.success === false ? (response.error ?? "") : "");
     } catch (cause) {
       setStatus(errorMessage(cause));
+    } finally {
+      setProgress("");
     }
   }, [session.request]);
 
@@ -202,27 +208,26 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
     setStatus(`Removing ${provider.name}…`);
     try {
       await removeProvider(provider.prefix);
-      setStatus(`Removed ${provider.name}.`);
+      toast(`Removed ${provider.name}.`);
       await load();
       void models.refresh();
     } catch (cause) {
-      setStatus(errorMessage(cause));
+      toast(`Could not remove ${provider.name}: ${errorMessage(cause)}`, "bad");
     }
   };
 
   const disconnect = async (entry: ConnectionEntry) => {
-    setStatus(`Disconnecting ${entry.display_name}…`);
     try {
       await session.request("disconnect_provider", {
         target: "local",
         provider_id: entry.id,
         provider_name: entry.provider_name,
       });
-      setStatus("");
+      toast(`Disconnected ${entry.display_name}.`);
       await load();
       void models.refresh();
     } catch (cause) {
-      setStatus(errorMessage(cause));
+      toast(`Could not disconnect ${entry.display_name}: ${errorMessage(cause)}`, "bad");
     }
   };
 
@@ -375,7 +380,15 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
         </button>
       </div>
 
-      {status ? <p className="muted small pad">{status}</p> : null}
+      {progress && !status ? <p className="muted small pad">{progress}</p> : null}
+      {status ? (
+        <p className="warning small" role="alert">
+          <span>{status}</span>
+          <button type="button" className="link" onClick={() => void load()}>
+            Try again
+          </button>
+        </p>
+      ) : null}
       {models.changed ? (
         <p className="warning small">
           An endpoint returned a different set of models on the last refresh —{" "}
@@ -447,12 +460,13 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
           onClose={() => setForm(null)}
           onSaved={(mod) => {
             setForm(null);
-            setStatus(
+            toast(
               mod === "failed"
-                ? "Saved, but the app-server could not be reloaded — it applies on reconnect."
+                ? SAVED_ON_RECONNECT
                 : mod === "reload-pending"
-                  ? "Saved. It applies once an agent exists to carry the reload."
-                  : "Saved. Agents see it on their next turn.",
+                  ? SAVED_NO_AGENT
+                  : SAVED_NOW,
+              mod === "failed" ? "warn" : "ok",
             );
             void load();
             void models.refresh();
@@ -479,7 +493,7 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
           onClose={() => setEditingConnection(null)}
           onSaved={() => {
             setEditingConnection(null);
-            setStatus("Saved. Agents see it on their next turn.");
+            toast(SAVED_NOW);
             void load();
             void models.refresh();
           }}
@@ -561,9 +575,7 @@ function ConnectionSheet({
           {field.label}
           <input
             type={field.secret ? "password" : "text"}
-            placeholder={
-              field.secret ? "Leave blank to keep the stored value" : (field.placeholder ?? "")
-            }
+            placeholder={field.secret ? KEEP_STORED_HINT : (field.placeholder ?? "")}
             value={values[field.key] ?? ""}
             onChange={(event) => setValues({ ...values, [field.key]: event.target.value })}
           />

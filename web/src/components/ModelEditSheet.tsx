@@ -1,8 +1,11 @@
 import { useState } from "react";
 import { errorMessage } from "../lib/errors.ts";
+import { KEEP_STORED_HINT } from "../lib/field-hints.ts";
 import { deleteModelCaps, type ModelCaps, saveModelCaps } from "../lib/model-caps.ts";
+import { SAVED_NO_AGENT, SAVED_NOW, SAVED_ON_RECONNECT } from "../lib/save-result.ts";
 import { ToggleRow } from "./MenuRow.tsx";
 import { Sheet } from "./Sheet.tsx";
+import { toast } from "./Toast.tsx";
 
 export interface ModelEditTarget {
   handle: string;
@@ -65,16 +68,11 @@ export function ModelEditSheet({
         },
         apiKey.trim() || undefined,
       );
-      // A stored-but-not-yet-live reload is still a save; surface only what
-      // the user cannot see from the row's tags.
-      if (result.mod === "failed") {
-        setError("Saved, but the app-server could not be reloaded — it will apply on reconnect.");
-        return;
-      }
-      if (result.mod === "reload-pending") {
-        setError("Saved. It applies once an agent exists to carry the reload.");
-        return;
-      }
+      // A stored-but-not-yet-live reload is still a save; say which of the three
+      // it was, then close — the row's own tags carry the rest.
+      if (result.mod === "failed") toast(SAVED_ON_RECONNECT, "warn");
+      else if (result.mod === "reload-pending") toast(SAVED_NO_AGENT);
+      else toast(SAVED_NOW);
       onSaved();
     } catch (cause) {
       setError(errorMessage(cause));
@@ -88,6 +86,7 @@ export function ModelEditSheet({
     setError(null);
     try {
       await deleteModelCaps(target.handle);
+      toast(`Removed ${target.handle}.`);
       onSaved();
     } catch (cause) {
       setError(errorMessage(cause));
@@ -166,7 +165,7 @@ export function ModelEditSheet({
           <input
             type="password"
             value={apiKey}
-            placeholder="Leave blank to keep the stored value"
+            placeholder={KEEP_STORED_HINT}
             autoComplete="off"
             onChange={(event) => setApiKey(event.target.value)}
           />

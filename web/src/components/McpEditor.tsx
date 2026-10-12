@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { errorMessage } from "../lib/errors.ts";
+import { SAVED_NOW } from "../lib/save-result.ts";
 import type { SessionApi } from "../state/use-session.ts";
 import { Icon } from "./Icon.tsx";
 import { Sheet } from "./Sheet.tsx";
+import { toast } from "./Toast.tsx";
 
 /**
  * One MCP server list shared by every agent. It is not in the app-server
@@ -29,6 +31,7 @@ const BLANK: McpServer = { name: "", transport: "stdio", command: "", args: [] }
 export function McpEditor({ session }: { session: SessionApi }) {
   const [servers, setServers] = useState<McpServer[]>([]);
   const [status, setStatus] = useState("");
+  const [progress, setProgress] = useState("");
   const [draft, setDraft] = useState<McpServer | null>(null);
   const [draftIndex, setDraftIndex] = useState<number | null>(null);
   const [argsText, setArgsText] = useState("");
@@ -39,7 +42,7 @@ export function McpEditor({ session }: { session: SessionApi }) {
   }, []);
 
   const load = useCallback(async () => {
-    setStatus("Loading settings…");
+    setProgress("Loading settings…");
     try {
       const response = await fetch("/api/mcp");
       if (!response.ok) {
@@ -51,6 +54,8 @@ export function McpEditor({ session }: { session: SessionApi }) {
       setStatus("");
     } catch (cause) {
       setStatus(errorMessage(cause));
+    } finally {
+      setProgress("");
     }
   }, []);
 
@@ -59,7 +64,6 @@ export function McpEditor({ session }: { session: SessionApi }) {
   }, [session.ready, load]);
 
   const persist = async (next: McpServer[]) => {
-    setStatus("Saving…");
     try {
       const response = await fetch("/api/mcp", {
         method: "PUT",
@@ -67,14 +71,14 @@ export function McpEditor({ session }: { session: SessionApi }) {
         body: JSON.stringify({ servers: next }),
       });
       if (!response.ok) {
-        setStatus((await response.text()) || "Save failed");
+        toast((await response.text()) || "Could not save the MCP servers", "bad");
         return;
       }
       const body = (await response.json()) as { servers?: McpServer[] };
       setServers(Array.isArray(body.servers) ? body.servers : next);
-      setStatus("Saved. Agents see the change on their next turn.");
+      toast(SAVED_NOW);
     } catch (cause) {
-      setStatus(errorMessage(cause));
+      toast(`Could not save the MCP servers: ${errorMessage(cause)}`, "bad");
     }
   };
 
@@ -139,7 +143,15 @@ export function McpEditor({ session }: { session: SessionApi }) {
         <code>mcp-servers</code> skill.
       </p>
 
-      {status ? <p className="muted small pad">{status}</p> : null}
+      {progress && !status ? <p className="muted small pad">{progress}</p> : null}
+      {status ? (
+        <p className="warning small" role="alert">
+          <span>{status}</span>
+          <button type="button" className="link" onClick={() => void load()}>
+            Try again
+          </button>
+        </p>
+      ) : null}
 
       <ul className="list">
         {servers.map((server, index) => (

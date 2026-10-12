@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { errorMessage } from "../lib/errors.ts";
 import type { RuntimeScope } from "../lib/protocol.ts";
 import type { SessionApi } from "../state/use-session.ts";
+import { toast } from "./Toast.tsx";
 
 type TriggerMode = "off" | "step-count" | "compaction-event";
 type MergeMode = "auto" | "explicit";
@@ -74,7 +75,7 @@ export function ReflectionSection({ session, agentId, conversationId }: Props) {
         runtime: { agent_id: agentId, conversation_id: conversationId } satisfies RuntimeScope,
       });
       if (response?.success === false) {
-        setStatus(response.error ?? "Failed to load reflection settings");
+        setStatus(response.error ?? "Could not load reflection settings");
         return;
       }
       const loaded = response?.reflection_settings ?? null;
@@ -95,7 +96,6 @@ export function ReflectionSection({ session, agentId, conversationId }: Props) {
   const save = async () => {
     if (!agentId || !conversationId || !settings) return;
     setSaving(true);
-    setStatus("Saving…");
     try {
       const response = await session.request<{
         success?: boolean;
@@ -111,15 +111,15 @@ export function ReflectionSection({ session, agentId, conversationId }: Props) {
         },
       });
       if (response?.success === false) {
-        setStatus(response.error ?? "Failed to save reflection settings");
+        toast(response.error ?? "Could not save reflection settings", "bad");
         return;
       }
       const saved = response?.reflection_settings ?? settings;
       setSettings(saved);
       setSavedSnapshot(JSON.stringify(saved));
-      setStatus("");
+      toast("Saved — agents see it on their next turn");
     } catch (cause) {
-      setStatus(errorMessage(cause));
+      toast(`Could not save: ${errorMessage(cause)}`, "bad");
     } finally {
       setSaving(false);
     }
@@ -140,7 +140,11 @@ export function ReflectionSection({ session, agentId, conversationId }: Props) {
   if (!settings) {
     return (
       <>
-        {status ? <p className="small bad pad">{status}</p> : null}
+        {status ? (
+          <p className="warning small" role="alert">
+            <span>{status}</span>
+          </p>
+        ) : null}
         <p className="muted pad">
           No reflection settings reported for this conversation. They appear once the runtime has
           started — send a message, then reload.
@@ -158,7 +162,14 @@ export function ReflectionSection({ session, agentId, conversationId }: Props) {
 
   return (
     <>
-      {status ? <p className="muted small pad">{status}</p> : null}
+      {status ? (
+        <p className="warning small" role="alert">
+          <span>{status}</span>
+          <button type="button" className="link" onClick={() => void load()}>
+            Try again
+          </button>
+        </p>
+      ) : null}
 
       <div className="pad-x">
         <label className="field">

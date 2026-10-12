@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Icon } from "../components/Icon.tsx";
 import { ToggleRow } from "../components/MenuRow.tsx";
 import { Sheet } from "../components/Sheet.tsx";
+import { toast } from "../components/Toast.tsx";
 import { CLAUDE_SUBAGENT_TYPE } from "../lib/claude.ts";
 import { CODEX_SUBAGENT_TYPE } from "../lib/codex.ts";
 import { shortDate } from "../lib/conversation-groups.ts";
@@ -99,6 +100,8 @@ export function TasksTab({
 }: Props) {
   const [tasks, setTasks] = useState<CronTask[]>([]);
   const [status, setStatus] = useState("");
+  /** In-flight text for the list; a failed write is a toast, a failed list is the box. */
+  const [progress, setProgress] = useState("");
   const [editing, setEditing] = useState<CronTask | null>(null);
   const [draft, setDraft] = useState({ ...BLANK });
   const [creating, setCreating] = useState(false);
@@ -108,7 +111,7 @@ export function TasksTab({
 
   const load = useCallback(async () => {
     if (!agentId) return;
-    setStatus("Loading tasks…");
+    setProgress("Loading tasks…");
     try {
       const response = await session.request<{
         tasks?: CronTask[];
@@ -116,13 +119,15 @@ export function TasksTab({
         error?: string;
       }>("cron_list", { agent_id: agentId });
       if (response?.success === false) {
-        setStatus(response.error ?? "Failed to list tasks");
+        setStatus(response.error ?? "Could not list tasks");
         return;
       }
       setTasks(response?.tasks ?? []);
       setStatus("");
     } catch (cause) {
       setStatus(errorMessage(cause));
+    } finally {
+      setProgress("");
     }
   }, [agentId, session.request]);
 
@@ -140,7 +145,6 @@ export function TasksTab({
   );
 
   const act = async (type: string, body: Record<string, unknown>, label: string) => {
-    setStatus(`${label}…`);
     try {
       const response = await session.request<{
         success?: boolean;
@@ -148,14 +152,16 @@ export function TasksTab({
         warning?: string;
       }>(type, body);
       if (response?.success === false) {
-        setStatus(response.error ?? `${label} failed`);
+        toast(response.error ?? `${label} failed`, "bad");
         return false;
       }
-      setStatus(response?.warning ?? "");
+      // A warning is the one part of a successful write that is not visible in the
+      // refreshed list — it says the schedule will not fire the way it reads.
+      if (response?.warning) toast(response.warning, "warn");
       await load();
       return true;
     } catch (cause) {
-      setStatus(errorMessage(cause));
+      toast(`${label} failed: ${errorMessage(cause)}`, "bad");
       return false;
     }
   };
@@ -218,21 +224,20 @@ export function TasksTab({
       prompt: subagent.prompt.trim(),
     };
     setLaunchBusy(true);
-    setStatus("Launching subagent…");
     try {
       const response = await session.request<LaunchSubagentResponse>("launch_subagent", {
         runtime: { agent_id: agentId, conversation_id: conversationId },
         args,
       });
       if (!response.success) {
-        setStatus(response.error);
+        toast(response.error, "bad");
         return;
       }
-      setStatus(`Subagent started (${response.task_id}); it reports back to this conversation.`);
+      toast("Subagent started — it reports back to this conversation");
       setLaunching(false);
       setSubagent({ ...BLANK_SUBAGENT });
     } catch (cause) {
-      setStatus(errorMessage(cause));
+      toast(`Could not start the subagent: ${errorMessage(cause)}`, "bad");
     } finally {
       setLaunchBusy(false);
     }
@@ -285,7 +290,15 @@ export function TasksTab({
         </button>
       </div>
 
-      {status ? <p className="muted small pad">{status}</p> : null}
+      {progress && !status ? <p className="muted small pad">{progress}</p> : null}
+      {status ? (
+        <p className="warning small" role="alert">
+          <span>{status}</span>
+          <button type="button" className="link" onClick={() => void load()}>
+            Try again
+          </button>
+        </p>
+      ) : null}
 
       {backgroundProcesses.length > 0 ? (
         <>

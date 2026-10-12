@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "../components/Icon.tsx";
 import { Sheet } from "../components/Sheet.tsx";
+import { toast } from "../components/Toast.tsx";
 import { shortDate } from "../lib/conversation-groups.ts";
 import { formatBytes, formatChars } from "../lib/download.ts";
 import { errorMessage } from "../lib/errors.ts";
@@ -31,12 +32,15 @@ export function MemoryTab({ session, agentId }: Props) {
   const [open, setOpen] = useState<MemoryEntry | null>(null);
   const [draft, setDraft] = useState("");
   const [history, setHistory] = useState<Commit[] | null>(null);
+  /** Only a failed list — a save result is a toast, and progress is a spinner's job. */
   const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [memfs, setMemfs] = useState<boolean | null>(null);
 
   const load = useCallback(async () => {
     if (!agentId) return;
-    setStatus("Loading memory…");
+    setLoading(true);
     try {
       const response = await session.request<{
         entries?: MemoryEntry[];
@@ -45,7 +49,7 @@ export function MemoryTab({ session, agentId }: Props) {
         memfs_enabled?: boolean;
       }>("list_memory", { agent_id: agentId });
       if (response?.success === false) {
-        setStatus(response.error ?? "Failed to list memory");
+        setStatus(response.error ?? "Could not list memory");
         return;
       }
       setEntries(response?.entries ?? []);
@@ -53,6 +57,8 @@ export function MemoryTab({ session, agentId }: Props) {
       setStatus("");
     } catch (cause) {
       setStatus(errorMessage(cause));
+    } finally {
+      setLoading(false);
     }
   }, [agentId, session.request]);
 
@@ -71,35 +77,36 @@ export function MemoryTab({ session, agentId }: Props) {
 
   const save = async () => {
     if (!agentId || !open) return;
-    setStatus("Saving…");
     try {
       const response = await session.request<{ success?: boolean; error?: string }>(
         "write_memory_file",
         { agent_id: agentId, path: open.relative_path, content: draft },
       );
       if (response?.success === false) {
-        setStatus(response.error ?? "Save failed");
+        toast(response.error ?? `Could not save ${open.relative_path}`, "bad");
         return;
       }
+      toast(`Saved ${open.relative_path}.`);
       setOpen(null);
       await load();
     } catch (cause) {
-      setStatus(errorMessage(cause));
+      toast(`Could not save ${open.relative_path}: ${errorMessage(cause)}`, "bad");
     }
   };
 
   const loadHistory = async (path: string) => {
     if (!agentId) return;
-    setStatus("Loading history…");
+    setHistoryLoading(true);
     try {
       const response = await session.request<{ commits?: Commit[]; error?: string }>(
         "memory_history",
         { agent_id: agentId, file_path: path, limit: 30 },
       );
       setHistory(response?.commits ?? []);
-      setStatus("");
     } catch (cause) {
-      setStatus(errorMessage(cause));
+      toast(`Could not read the history: ${errorMessage(cause)}`, "bad");
+    } finally {
+      setHistoryLoading(false);
     }
   };
 
@@ -128,7 +135,14 @@ export function MemoryTab({ session, agentId }: Props) {
         </button>
       </div>
 
-      {status ? <p className="muted small pad">{status}</p> : null}
+      {status ? (
+        <p className="warning small" role="alert">
+          <span>{status}</span>
+          <button type="button" className="link" onClick={() => void load()}>
+            Try again
+          </button>
+        </p>
+      ) : null}
 
       <ul className="list">
         {entries.map((entry) => (
@@ -163,7 +177,9 @@ export function MemoryTab({ session, agentId }: Props) {
             </button>
           </li>
         ))}
-        {entries.length === 0 && !status ? <li className="muted pad">No memory blocks</li> : null}
+        {entries.length === 0 && !status && !loading ? (
+          <li className="muted pad">No memory blocks</li>
+        ) : null}
       </ul>
 
       {open ? (
@@ -216,6 +232,8 @@ export function MemoryTab({ session, agentId }: Props) {
               ))}
               {history.length === 0 ? <li className="muted pad">No history</li> : null}
             </ul>
+          ) : historyLoading ? (
+            <p className="muted small">Loading history…</p>
           ) : null}
         </Sheet>
       ) : null}

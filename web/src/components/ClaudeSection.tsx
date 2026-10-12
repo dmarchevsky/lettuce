@@ -6,7 +6,9 @@ import {
   fetchClaudeSettings,
   saveClaudeSettings,
 } from "../lib/claude.ts";
+import { SAVED_NEXT_WORKER } from "../lib/save-result.ts";
 import { ToggleRow } from "./MenuRow.tsx";
+import { toast } from "./Toast.tsx";
 
 interface Draft {
   enabled: boolean;
@@ -85,9 +87,12 @@ export function ClaudeSection() {
       const saved = await saveClaudeSettings(update);
       setSettings(saved);
       setDraft(draftOf(saved));
-      setStatus("Saved. Applies to the next Claude Code worker started.");
+      toast(SAVED_NEXT_WORKER);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : String(error));
+      toast(
+        `Could not save the Claude Code worker settings: ${error instanceof Error ? error.message : String(error)}`,
+        "bad",
+      );
     } finally {
       setSaving(false);
     }
@@ -96,7 +101,13 @@ export function ClaudeSection() {
   if (!draft || !settings) {
     return (
       <>
-        {status ? <p className="small bad pad">{status}</p> : <p className="muted pad">Loading…</p>}
+        {status ? (
+          <p className="warning small" role="alert">
+            <span>{status}</span>
+          </p>
+        ) : (
+          <p className="muted pad">Loading…</p>
+        )}
         <div className="pad-x">
           <button type="button" className="button ghost" onClick={() => void load()}>
             Reload
@@ -116,12 +127,10 @@ export function ClaudeSection() {
         access as the agent&apos;s own shell. It signs in with your Claude subscription, or talks to
         any endpoint that serves the Anthropic Messages API.
       </p>
-      {status ? <p className="muted small pad">{status}</p> : null}
 
       <div className="pad-x">
         <ToggleRow
           title="Allow Claude Code workers"
-          description="Agents may hand coding work to a Claude Code subagent"
           checked={draft.enabled}
           onChange={(enabled) => set({ enabled })}
         />

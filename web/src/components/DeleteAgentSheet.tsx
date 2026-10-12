@@ -2,6 +2,7 @@ import { useState } from "react";
 import { errorMessage } from "../lib/errors.ts";
 import type { AgentsApi } from "../state/use-agents.ts";
 import { Sheet } from "./Sheet.tsx";
+import { toast } from "./Toast.tsx";
 
 interface Props {
   agents: AgentsApi;
@@ -23,9 +24,9 @@ export function DeleteAgentSheet({ agents, agent, onClose, onDeleted }: Props) {
 
   const remove = async () => {
     setBusy(true);
-    setStatus("Deleting agent…");
     try {
       await agents.deleteAgent(agent.id);
+      toast(`Deleted ${agent.name}.`);
       onDeleted?.();
       onClose();
     } catch (cause) {
@@ -51,7 +52,7 @@ export function DeleteAgentSheet({ agents, agent, onClose, onDeleted }: Props) {
             disabled={busy || confirmName.trim() !== agent.name.trim()}
             onClick={() => void remove()}
           >
-            Delete
+            {busy ? "Deleting…" : "Delete"}
           </button>
         </>
       }

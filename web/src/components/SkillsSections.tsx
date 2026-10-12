@@ -92,7 +92,11 @@ export function AgentSkills({ session, agentId, cwd, version, onOpenGlobal }: Ag
           <Icon name="refresh" />
         </button>
       </div>
-      {error ? <p className="muted small pad">{error}</p> : null}
+      {error ? (
+        <p className="warning small" role="alert">
+          <span>{error}</span>
+        </p>
+      ) : null}
 
       {groupSkills(skills).map((group) => {
         const open = !collapsed.has(group.source);
