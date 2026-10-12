@@ -5,6 +5,8 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.13.2-letta_0.34.9] - 2026-10-12
+
 ### Fixed
 - **A failed save is a failure everywhere.** The same fact — "that did not save" — was grey text in Secrets, Tasks, Files, Memory, MCP and Providers, red text in Reflection, Codex, Claude and Remote Pi, and an amber box in Web search, the model picker and the agent lists. Nothing said it to a screen reader either: no save failure in the app had a live region, so the message that matters most was the one a keyboard user never heard. A result of something you pressed is now a **toast** (which announces itself), a state the screen is about stays a box on the page, and every banner that can be retried has a **Try again** on it.
 - **The failure toast was not red.** It asked for a colour token that no rule defines, so an invalid property made its border and text fall back to whatever the page was already using — a failure looked exactly like a success.
