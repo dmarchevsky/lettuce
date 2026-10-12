@@ -205,7 +205,7 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
     ) {
       return;
     }
-    setStatus(`Removing ${provider.name}…`);
+    setProgress(`Removing ${provider.name}…`);
     try {
       await removeProvider(provider.prefix);
       toast(`Removed ${provider.name}.`);
@@ -213,6 +213,9 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
       void models.refresh();
     } catch (cause) {
       toast(`Could not remove ${provider.name}: ${errorMessage(cause)}`, "bad");
+    } finally {
+      // The toast says the result; the in-flight line must not outlive it.
+      setProgress("");
     }
   };
 

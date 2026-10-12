@@ -145,6 +145,9 @@ export function TasksTab({
   );
 
   const act = async (type: string, body: Record<string, unknown>, label: string) => {
+    // The row's buttons are not disabled, so this line is the only sign the press
+    // landed at all — without it a slow cron write looks dead and gets pressed twice.
+    setProgress(`${label}…`);
     try {
       const response = await session.request<{
         success?: boolean;
@@ -163,6 +166,8 @@ export function TasksTab({
     } catch (cause) {
       toast(`${label} failed: ${errorMessage(cause)}`, "bad");
       return false;
+    } finally {
+      setProgress("");
     }
   };
 

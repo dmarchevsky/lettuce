@@ -31,16 +31,21 @@ export function ToastLayer() {
     return () => clearTimeout(timer);
   }, [shown]);
 
-  if (!shown) return null;
+  // The live region is mounted from the first paint and only its text changes: a
+  // region inserted at the same moment as its text is announced by some screen
+  // readers and missed by others, which would undo the point of a toast. And one
+  // role each — role="alert" is assertive, role="status" polite — rather than a
+  // status whose aria-live says otherwise. The tap is handled by the region, since
+  // a fixed-position child's click bubbles to it, so one handler covers both states.
   return (
-    // biome-ignore lint/a11y/useKeyWithClickEvents: a tap only ends it early — it dismisses itself after 6s.
-    <div
-      className={`toast ${shown.kind}`}
-      role="status"
-      aria-live={shown.kind === "ok" ? "polite" : "assertive"}
-      onClick={() => setShown(null)}
-    >
-      {shown.text}
+    // biome-ignore lint/a11y/useKeyWithClickEvents: a tap only ends a toast early — it dismisses itself after 6s.
+    // biome-ignore lint/a11y/noStaticElementInteractions: the box is a message, not a control.
+    <div className="toast-live" onClick={shown ? () => setShown(null) : undefined}>
+      {shown ? (
+        <div className={`toast ${shown.kind}`} role={shown.kind === "ok" ? "status" : "alert"}>
+          {shown.text}
+        </div>
+      ) : null}
     </div>
   );
 }

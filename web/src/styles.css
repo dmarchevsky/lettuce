@@ -1841,6 +1841,11 @@ button {
 /* A line that floats over everything and dismisses itself: the outcome of an
    action the operator just took, where a note inside the panel scrolls away and
    a dialog would interrupt. Taps dismiss it early; 6s does it otherwise. */
+/* The always-mounted live region a toast is announced from: unstyled on purpose,
+   so the text inside it changes inside a region a screen reader already knows. */
+.toast-live {
+  position: static;
+}
 .toast {
   position: fixed;
   left: 50%;

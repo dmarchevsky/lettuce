@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { errorMessage } from "../lib/errors.ts";
 import {
   getPushPreferences,
@@ -24,26 +24,32 @@ const NOTIFICATION_EVENT_TYPES: { key: keyof PushPreferences; label: string }[] 
 export function NotificationsSection() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [preferences, setPreferences] = useState<PushPreferences | null>(null);
+  /** Only "this device cannot push", which is a state — every press reports itself
+   * as a toast, so nothing else may leave this box filled. */
   const [status, setStatus] = useState("");
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     if (!isPushSupported()) {
       setEnabled(false);
       return;
     }
-    // Without the catch a failed service worker left `enabled` null forever —
-    // a disabled button with no reason given. Surface the browser's own error;
-    // the button stays usable, and pressing it reports the same failure again.
-    void isSubscribed()
-      .then(async (subscribed) => {
-        setEnabled(subscribed);
-        if (subscribed) setPreferences(await getPushPreferences());
-      })
-      .catch((cause) => {
-        setEnabled(false);
-        setStatus(`Notifications are unavailable: ${errorMessage(cause)}`);
-      });
+    setStatus("");
+    try {
+      // Without the catch a failed service worker left `enabled` null forever —
+      // a disabled button with no reason given. Surface the browser's own error;
+      // the button stays usable, and pressing it reports the same failure again.
+      const subscribed = await isSubscribed();
+      setEnabled(subscribed);
+      if (subscribed) setPreferences(await getPushPreferences());
+    } catch (cause) {
+      setEnabled(false);
+      setStatus(`Notifications are unavailable: ${errorMessage(cause)}`);
+    }
   }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   const toggle = async () => {
     try {
@@ -59,7 +65,10 @@ export function NotificationsSection() {
         toast("Notifications on for this device.");
       }
     } catch (cause) {
-      setStatus(errorMessage(cause));
+      toast(
+        `Could not ${enabled ? "turn off" : "turn on"} notifications on this device: ${errorMessage(cause)}`,
+        "bad",
+      );
     }
   };
 
@@ -71,7 +80,7 @@ export function NotificationsSection() {
       await updatePushPreferences({ [key]: value });
     } catch (cause) {
       setPreferences(previous);
-      toast(errorMessage(cause), "bad");
+      toast(`Could not save that: ${errorMessage(cause)}`, "bad");
     }
   };
 
@@ -83,7 +92,7 @@ export function NotificationsSection() {
         "warn",
       );
     } catch (cause) {
-      toast(errorMessage(cause), "bad");
+      toast(`Could not send the test: ${errorMessage(cause)}`, "bad");
     }
   };
 
@@ -109,6 +118,9 @@ export function NotificationsSection() {
       {status ? (
         <p className="warning small" role="alert">
           <span>{status}</span>
+          <button type="button" className="link" onClick={() => void load()}>
+            Try again
+          </button>
         </p>
       ) : null}
       <p className="muted small pad">

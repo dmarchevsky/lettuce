@@ -89,6 +89,7 @@ export function PiStatusLine({ check, stale, checking, targetNote }: StatusProps
   }
 
   const state = STATES[check.state];
+  const fingerprint = check.pinnedFingerprint;
   return (
     <>
       <div className={`pi-status ${state.tone}`} role="status">
@@ -101,15 +102,15 @@ export function PiStatusLine({ check, stale, checking, targetNote }: StatusProps
         ) : null}
         <span className="pi-tail">{tail(check.ok ? null : check.detail)}</span>
       </div>
-      {check.pinnedFingerprint ? (
+      {fingerprint ? (
         <div className="pi-kv">
           <span>Pinned host key</span>
-          <code title={check.pinnedFingerprint}>{shortFingerprint(check.pinnedFingerprint)}</code>
+          <code title={fingerprint}>{shortFingerprint(fingerprint)}</code>
           <button
             type="button"
             className="link"
             onClick={() =>
-              void copyText(check.pinnedFingerprint ?? "").then((ok) => {
+              void copyText(fingerprint).then((ok) => {
                 if (!ok)
                   toast("Clipboard blocked by the browser — select the value and copy", "bad");
               })

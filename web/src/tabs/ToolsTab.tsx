@@ -251,7 +251,9 @@ async function writeAccess(
     const result = SAVED_RESULT[mods];
     toast(result.tail ? `${label} — ${result.tail}` : `${label}.`, result.kind);
   } catch (cause) {
-    toast(`Could not save ${label}: ${errorMessage(cause)}`, "bad");
+    // `label` reads as a result ("Remote Pi allowed"), so the failure does not use
+    // it — "Could not save Remote Pi allowed: …" is not a sentence.
+    toast(`Could not change this agent's tools: ${errorMessage(cause)}`, "bad");
   }
 }
 

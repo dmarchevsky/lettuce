@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { errorMessage } from "../lib/errors.ts";
 import type { RuntimeScope } from "../lib/protocol.ts";
+import { SAVED_NOW } from "../lib/save-result.ts";
 import type { SessionApi } from "../state/use-session.ts";
 import { toast } from "./Toast.tsx";
 
@@ -117,7 +118,7 @@ export function ReflectionSection({ session, agentId, conversationId }: Props) {
       const saved = response?.reflection_settings ?? settings;
       setSettings(saved);
       setSavedSnapshot(JSON.stringify(saved));
-      toast("Saved — agents see it on their next turn");
+      toast(SAVED_NOW);
     } catch (cause) {
       toast(`Could not save: ${errorMessage(cause)}`, "bad");
     } finally {

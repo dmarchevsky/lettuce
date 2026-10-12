@@ -248,14 +248,14 @@ export function FilesTab({ session, cwd, agentId }: Props) {
         error?: string;
       }>("grep_in_files", { query, cwd: root, max_results: 200 });
       if (response?.success === false) {
-        setStatus(response.error ?? "Search failed");
+        setStatus(response.error ?? `Could not search ${root}`);
         return;
       }
       setMatches(response?.matches ?? []);
       setStatus("");
       setProgress("");
     } catch (cause) {
-      setStatus(errorMessage(cause));
+      setStatus(`Could not search ${root}: ${errorMessage(cause)}`);
     } finally {
       setProgress("");
     }

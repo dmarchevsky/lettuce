@@ -36,6 +36,8 @@ export function MemoryTab({ session, agentId }: Props) {
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
+  /** A failed history read is the sheet's own content, not a toast that leaves. */
+  const [historyError, setHistoryError] = useState("");
   const [memfs, setMemfs] = useState<boolean | null>(null);
 
   const load = useCallback(async () => {
@@ -97,6 +99,7 @@ export function MemoryTab({ session, agentId }: Props) {
   const loadHistory = async (path: string) => {
     if (!agentId) return;
     setHistoryLoading(true);
+    setHistoryError("");
     try {
       const response = await session.request<{ commits?: Commit[]; error?: string }>(
         "memory_history",
@@ -104,7 +107,7 @@ export function MemoryTab({ session, agentId }: Props) {
       );
       setHistory(response?.commits ?? []);
     } catch (cause) {
-      toast(`Could not read the history: ${errorMessage(cause)}`, "bad");
+      setHistoryError(`Could not read the history: ${errorMessage(cause)}`);
     } finally {
       setHistoryLoading(false);
     }
@@ -234,6 +237,18 @@ export function MemoryTab({ session, agentId }: Props) {
             </ul>
           ) : historyLoading ? (
             <p className="muted small">Loading history…</p>
+          ) : null}
+          {historyError ? (
+            <p className="warning small" role="alert">
+              <span>{historyError}</span>
+              <button
+                type="button"
+                className="link"
+                onClick={() => open && void loadHistory(open.relative_path)}
+              >
+                Try again
+              </button>
+            </p>
           ) : null}
         </Sheet>
       ) : null}
