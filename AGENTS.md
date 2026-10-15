@@ -366,15 +366,14 @@ cannot desync them.
 
 - `.agents/skills/lettuce-*/SKILL.md` — task-scoped mechanics; pi lists names and descriptions and
   loads a body only when one is read.
-- **dev-flow** is the harness (`pi install git:github.com/dmarchevsky/dev-flow`; the install lives in the
+- **dev-flow** is the harness (`pi install git:github.com/dmarchevsky/dev-flow`, recorded in the
   gitignored `.pi/settings.json`, so a fresh machine runs that command). It owns the stages, the worktrees
-  and the safety rules, which are the `flow-guard` block in `.dev-flow/project.md`: `deny` / `confirm` /
-  `protect` / `forbid`, judged at every stage ahead of flow discipline, and blocked rather than silently
-  allowed when there is no UI to confirm in. It covers `--force` and `push -f`, worktree remove and prune,
-  `branch -d` and `-D`, the `gh pr merge` / `pr review --approve` / `api …/merge` trio,
-  `docker compose rm|down|stop|kill|restart` and a scoped `up … app-server`, `edit`/`write` of
-  `docker/.env`, and any write under `docker/secrets/`. It sees what an agent types, not what a script does
-  internally — which is why `bun run cleanup` carries its own typed confirmation.
+  and the safety rules, which are the `flow-guard` block in `.dev-flow/project.md` — `deny` / `confirm` /
+  `protect` / `forbid`, judged at every stage ahead of flow discipline and blocked rather than silently
+  allowed when there is no UI to confirm in. A force-push or a worktree prune is refused; a merge, a branch
+  delete, a `docker compose` stop or a scoped `up … app-server` needs the operator. The rules see what an
+  agent types, not what a script does internally — which is why `bun run cleanup` carries its own typed
+  confirmation.
 - `.dev-flow/project.md` — the operator-owned playbook: default branch, worktree path, the tier-1 check
   commands, each stage's checklist, and the prose rules. It is tracked; feature plans and flow state are
   not. Agents change it only through `flow init --write`, and `flow doctor` is what validates it.
