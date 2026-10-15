@@ -1,13 +1,17 @@
 ---
 name: lettuce-releasing
-description: 'Cutting a lettuce release: the `v<MAJOR>.<MINOR>.<PATCH>-letta_<version>` tag format and what bumps MINOR versus PATCH, tagging as part of the release, immediately after the release PR merges, `bun run release` as gated commands (`--pr` to open the release PR, `--deploy` to ship and tag it, or the one-shot), the VERSION file as the only machine-readable record (and why no package.json version exists), the CHANGELOG.md [Unreleased] voice and section rules, and the README / docs/CONFIGURATION.md docs-sync duty on the feature branch and at release time. Read when bumping VERSION, tagging, writing a changelog entry, or running release.'
+description: 'Cutting a lettuce release from inside a feature flow: the `v<MAJOR>.<MINOR>.<PATCH>-letta_<version>` tag format and what bumps MINOR versus PATCH, that every shipping feature bumps VERSION at the flow'\''s pre-release stage and tags its own merge (there is no batched release command), `flow release --no-version` for a flow that ships nothing, the VERSION file as the only machine-readable record (and why no package.json version exists), the CHANGELOG.md sections and entry voice, and the README / docs/CONFIGURATION.md docs-sync duty. Read when bumping VERSION, tagging, writing a changelog entry, or deciding what a flow ships.'
 ---
 
 # Versioning, tags, changelog, docs sync
 
-Loaded from `AGENTS.md`. Tags and VERSION are the only version record, and the release commit is made on main — directly, or (once `main` requires PRs) through a release PR — never on a feature branch.
+Loaded from `AGENTS.md`. Tags and `VERSION` are the only version record, and **every shipping feature cuts
+its own**: the flow's `pre-release` stage makes the bump commit on the feature branch, and the `release`
+stage tags the merge. The batched release command and its script are gone — dev-flow's gates are the
+gated commands now.
 
-Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `docs/upstream-notes.md` pointers working.
+Extracted from `AGENTS.md`; keep both in sync when you change either, and keep `docs/upstream-notes.md`
+pointers working.
 
 ### Versioning and tags
 
@@ -21,52 +25,46 @@ v<MAJOR>.<MINOR>.<PATCH>-letta_<LETTA_CODE_VERSION>     e.g. v0.1.0-letta_0.33.7
   unused for a single-user app.
 - **MINOR** (+1, PATCH resets to 0) = any new or changed user-facing functionality — a new
   feature, a changed workflow, a visible behavior change.
-- **PATCH** (+1) = anything else that ships to prod on its own: fixes and hotfixes, a
-  standalone `sync-upstream` bump, internal-only changes, a batch of small fixes.
+- **PATCH** (+1) = anything else that ships on its own: fixes and hotfixes, a standalone
+  `sync-upstream` bump, internal-only changes, a batch of small fixes.
 - The `letta_<version>` suffix is read from the pin at tag time (`docker/compose.yml`,
   proven consistent by `check-version-pin`), never from memory. It never resets the
   semver part; a letta bump riding along with a feature just changes that tag's suffix.
-- A tag is cut **as part of the release, immediately after the release PR merges** (AGENTS.md's "Stop before releasing to
-  prod") and pushed with `git push origin <tag>`. A failed deploy is never tagged.
-- Before running it, make the release-time **docs sync** commit on `main` if the
-  `[Unreleased]` range changed anything `README.md` or `docs/CONFIGURATION.md` describes
-  (see "Docs sync"). `release.ts` only stages `VERSION` and `CHANGELOG.md`.
-- **`bun run release`** (`scripts/release.ts`) is the release as gated commands. All of them
-  assert `main` is checked out, clean and level with origin, that `VERSION` is well-formed and
-  agrees with the newest `CHANGELOG.md` section, and that HEAD is not already tagged; the tag is
-  computed from `VERSION` + the compose pin, never from memory.
-  - **`--minor` / `--patch` / `--auto`** picks the bump. `--auto` reads the `[Unreleased]`
-    headings (`Added`/`Changed` → MINOR, `Fixed` only → PATCH) and falls back to the commit
-    subjects since the current tag, then prints its reasoning — read it.
-  - **`… --pr`** opens the **release PR**: branch `release/<tag>` carrying the `VERSION` bump and
-    the `[Unreleased]` rename, pushed and opened with `bump:none`. It deploys and tags nothing.
-    A human merges it; merge it **last**, because anything merged after it would ship and get
-    tagged with no changelog entry.
-  - **`--deploy`** is the second half: it refuses unless `origin/main`'s tip *is* that release
-    commit and unless that tag does not already exist, then runs `deploy-check`, asks for the one
-    confirmation, and tags immediately: tag → push tag. The prod redeploy from `origin/main` and
-    its verification are the operator's own, done after the tag.
-  - **`--minor` alone** is the original one-shot (release commit on `main` locally, then push → tag). Correct while `main` accepts direct pushes; it fails at the push
-    once require-PR is on.
-  - Confirmation is unchanged in every mode: type the tag exactly on a TTY, or
-    `RELEASE_CONFIRM=<tag>` for a non-interactive caller that has asked the human. A failure
-    stops with no rollback, and nothing is pushed or tagged before the confirmation. Doing it by hand is still
-    allowed — this is the same order — but the hand version is what forgot the VERSION bump once.
-- **`VERSION` at the repo root is the machine-readable record** — the full tag string,
-  one line, bumped in the same commit that is tagged. The bff image `COPY`s it and the
-  BFF serves it at `/api/status` (authenticated branch only — the route's
-  no-fingerprinting rule stands), which is how Settings → About shows
-  the "lettuce" row (the letta-code row in Settings → About is the live handshake's version,
-  not this file's suffix). The image cannot derive it: `.dockerignore` excludes
-  `.git/` and the image carries no `git`, so `git describe` at build time is
-  impossible. `deploy-check` asserts `VERSION` agrees with the tag pointing at `HEAD`.
-- Tags and `VERSION` are the **only** version record. No `version` field in any
-  `package.json` — it would be a seventh drift-prone pin site that nothing renders.
-- Upstream's `v<x.y.z>` tags live in the **letta-code checkout**, a different repo —
-  no collision with these, and `sync-upstream` is unaffected.
-- `-letta_0.33.7` is not valid semver (underscore is not a legal prerelease character),
-  and strict semver tools would sort such a tag below a bare `v0.1.0`. Deliberate — we
-  never publish to a registry and never emit bare `v0.1.0`. Do not "fix" the format.
+- **Derive the number in `pre-release`, from your own changelog entry**: `Added`/`Changed` → MINOR,
+  `Fixed` only → PATCH. `flow release` then refuses unless `VERSION` is ahead of the last tag and
+  `CHANGELOG.md` mentions it — so a wrong derivation shows up as a wrong *number*, never as a silent
+  collision.
+- **The tag is cut at the `release` stage, immediately after the operator squash-merges the PR**,
+  annotated (`git tag -a`), at `main`'s tip, and pushed **by name** (`git push origin v<x.y.z>…`).
+  Never `git push --follow-tags` — it silently skips annotated tags and the tag never reaches the
+  remote. Nothing is tagged before the operator confirmed that specific merge
+  (`AGENTS.md` → "Stop before publishing").
+- **Parallel branches collide on purpose.** Two branches that both claim the next PATCH conflict, and
+  the loser merges `main` in, re-derives from the entries it now sees, and asks **Release?** again. One
+  consequence of per-feature releases: two MINOR features merged in a row are now *two* MINOR releases,
+  not one release with two entries.
+- A flow that ships nothing a user notices — docs-only, CI-only — runs `flow release --no-version` on the
+  operator's word: no bump, no `[Unreleased]` rename, no tag, and `flow release-done` records the release
+  with an unversioned note. That is the operator's choice at **Release?**, never an agent's shortcut.
+- **`VERSION` at the repo root is the machine-readable record** — the full tag string, one line, bumped in
+  the release-prep commit that the tag ends up pointing at. The bff image `COPY`s it and the BFF serves it
+  at `/api/status` (authenticated branch only — the route's no-fingerprinting rule stands), which is how
+  Settings → About shows the "lettuce" row (the letta-code row there is the live handshake's version, not
+  this file's suffix). The image cannot derive it: `.dockerignore` excludes `.git/` and the image carries
+  no `git`, so `git describe` at build time is impossible. `deploy-check` asserts `VERSION` agrees with
+  the tag pointing at `HEAD`.
+- `VERSION` and the tag are the **only** version record. No `version` field in any `package.json` — it
+  would be a seventh drift-prone pin site that nothing renders.
+- `release.github = false` in `.dev-flow/project.md`, so no GitHub release is published from a tag;
+  `flow release-done` only verifies the tag is on `main` and on `origin`. Flipping it is the operator's
+  call.
+- Upstream's `v<x.y.z>` tags live in the **letta-code checkout**, a different repo — no collision with
+  these, and `sync-upstream` is unaffected.
+- `-letta_0.33.7` is not valid semver (underscore is not a legal prerelease character), and strict semver
+  tools would sort such a tag below a bare `v0.1.0`. Deliberate — we never publish to a registry and
+  never emit bare `v0.1.0`. Do not "fix" the format. `versionTag = {version}` in the playbook is a bare
+  `{version}` for the same reason: `VERSION` already holds the whole tag, so do not let `flow init`
+  re-add the `v`.
 
 #### Changelog
 
@@ -78,40 +76,28 @@ to this repo's tag scheme:
 - **Entry voice**: one line, imperative ("Add…", "Fix…", "Remove…"), ≤ ~140 chars, phrased as
   what a user of the app notices — not the implementation. "Edit text files from the Files
   tab", not "wire `conversation_files_update` through the BFF".
-- **Who writes them**: on the feature branch, in the same commit as the change (Definition of
-  done step 2). Any change with user-visible behavior needs ≥1 entry; internal-only changes
-  (refactors, CI, docs, test-only) need none.
-- **On version bump**: the release commit that bumps `VERSION` renames `## [Unreleased]` to
-  `## [v<new-tag>] - <YYYY-MM-DD>` (date of that commit) and starts a fresh empty
-  `[Unreleased]` above it. This keeps `VERSION` and the changelog consistent by construction
-  even if the deploy later fails and the tag is never created.
-- **The release commit is made on `main`, never on a feature branch** — by
-  `bun run release`, after every merge for that release and before the push. Parallel
-  worktrees cannot know the next version: two MINOR features merged together are **one**
-  MINOR release, and two branches each bumping `VERSION` would both claim the same tag.
-  Between releases `main` sits at the last tag with entries accumulating under
-  `[Unreleased]`, which `deploy-check` passes — nothing forces the bump early.
-- **No links section** — private repo, no GitHub releases; do not add Keep-a-Changelog link
-  references.
-- `deploy-check` asserts `CHANGELOG.md` has `## [Unreleased]` and that its newest
-  `## [v...]` section equals `VERSION`.
+- **Who writes them**: in the flow. Internal-only changes (refactors, CI, docs, test-only) need no
+  entry; anything with user-visible behavior needs ≥1.
+- **The bump commit renames the section**: the release-prep commit turns `## [Unreleased]` into
+  `## [v<new-tag>] - <YYYY-MM-DD>` (that commit's date) and leaves a fresh empty `[Unreleased]` above it.
+  `check-release-hygiene` requires the `[Unreleased]` heading *and* asserts `VERSION` equals the newest
+  released section, so the rename and the VERSION bump are one commit or the branch is red — which is
+  what keeps `VERSION` and the changelog consistent by construction.
+- **`deploy-check`** re-asserts the same pair after the merge, from `main`, next to the tag at `HEAD`.
+- **No links section** — private repo, no GitHub releases; do not add Keep-a-Changelog link references.
 
 #### Docs sync (README and CONFIGURATION)
 
 `README.md` (what the app is, architecture, how to run it) and `docs/CONFIGURATION.md`
-(every environment variable and setting) describe the **shipped product**, so a release
-must not be cut from a `main` whose docs describe the previous one.
+(every environment variable and setting) describe the **shipped product**, so a release must not be cut
+from a tree whose docs describe the previous one.
 
-- **Primary place — the feature branch, in the same commit as the change** (Definition of
-  done step 2), exactly like the changelog entry: any change that adds or changes an env
+- **Primary place — the change's own commit**: any change that adds or changes an env
   var, setting, port, sidecar, default, or user-facing workflow carries its `README.md`
   and/or `docs/CONFIGURATION.md` update with it. That is where the knowledge is fresh and
   where the diff is reviewed together with the code.
-- **Release-time safety net — on `main`, right before `bun run release`**: skim the
-  `CHANGELOG.md` `[Unreleased]` entries since the last tag and update anything the
-  per-change commits missed, as a `docs:` commit on `main`. It must be its own commit
-  because release requires a clean tree and `release.ts` stages only `VERSION` and
-  `CHANGELOG.md`; being on `main` before the release commit, it rides into the tagged
-  range and ships with the tag.
-- A prose gate `deploy-check` cannot check: correctness of docs is a human/agent judgment
-  at these two points, not an assertion.
+- **The safety net is `pre-release`**: before asking **Release?**, reread what the branch actually
+  changed and fix anything the per-change commits missed, in the same release-prep commit — the gate is
+  about to check `VERSION` and the changelog and nothing checks the prose for you.
+- A prose gate `deploy-check` cannot check: correctness of docs is a human/agent judgment at these two
+  points, not an assertion.

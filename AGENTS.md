@@ -20,8 +20,9 @@ narratives in `docs/upstream-notes.md`, pointed at as `docs/upstream-notes.md#<a
    command from anywhere hits the same state.
 4. **Never recreate `app-server` on its own** — its network namespace holds `bff` and
    `channel-gateway`. Always `docker compose -f docker/compose.yml up -d` unscoped.
-5. **Never push `main`, tag, or redeploy prod without asking, every time.** A feature-branch push is
-   routine; a `main`/tag push *is* the release. `.pi/extensions/guard.ts` enforces that split.
+5. **Never push `main` or a tag without asking, every time.** A feature-branch push is routine; a
+   `main`/tag push *is* the release, and only dev-flow's `release` stage may write it. Production deploy
+   is the operator's alone — the agent publishes and stops.
 6. **Done means the operator tested it in the container** — see "Definition of done". Typecheck and
    tests passing is not done. A **docs-only** change stops at `bun run check-docs`. **UI changes**
    carry two more gates — approved target-state mockups (desktop + phone) before implementing, a
@@ -101,7 +102,7 @@ Corollaries — do not break these:
 `bff/src/shutdown.ts` holds SIGTERM until `ActivityTracker` reports no turn in progress (up to
 `SHUTDOWN_DRAIN_TIMEOUT_SECONDS`, 9 min default; a second signal skips the wait), and
 `stop_grace_period: 10m` in `docker/compose.yml` is what lets it — Docker's default 10 s SIGKILLs the
-drain. Both must stay inside the prod deploy manager's 900 s `compose up` timeout. Without the drain the cancel
+drain. Both must stay inside the deploy manager's own `compose up` timeout. Without the drain the cancel
 cannot reach llama.cpp; the signature is an error push five minutes after a BFF restart
 (`BUSY_RUN_WAIT_TIMEOUT_MS`): docs/upstream-notes.md#bff-redeploy-drain.
 
@@ -111,7 +112,7 @@ process services start on *first client attach* (`listener/lifecycle.ts` →
 
 **`web/dist` is baked into the bff image, never mounted** — the image builds the SPA in its
 `web-build` stage and copies it in. So `docker compose up -d` alone serves a months-old UI and a
-local `bun run build` changes nothing the container sees: step 7 builds the image and `bun run
+local `bun run build` changes nothing the container sees: the release stage builds the image and `bun run
 deploy-check` compares the served `assets/index-*.js` with the local one.
 
 ### All durable state lives under one host root
@@ -186,7 +187,7 @@ working in that area.
 | Any `web/` UI change: mockups before implementing, visual pass after | `lettuce-ui-verification` |
 | PRs, `.github/workflows/`, `bump:*` labels, branch protection, CI tiers | `lettuce-pr-and-ci` |
 | `bun run sync-upstream`, `LETTA_CODE_VERSION` | `lettuce-upstream-sync` |
-| `VERSION`, `CHANGELOG.md`, tagging, `bun run release` | `lettuce-releasing` |
+| `VERSION`, `CHANGELOG.md`, tagging, the bump labels | `lettuce-releasing` |
 
 ## Facts that are easy to get wrong
 
@@ -255,13 +256,13 @@ its own PR.**
 
 ### Versioning, tags, changelog — summary
 
-Releases are annotated tags on `main` shaped `v<MAJOR>.<MINOR>.<PATCH>-letta_<LETTA_CODE_VERSION>`, cut
-as part of the release, immediately after the release PR merges. MINOR is new or changed user-facing functionality; PATCH is
-everything else that ships. `VERSION` is the only machine-readable record and is bumped in the commit
-that gets tagged. A user-visible change carries its `CHANGELOG.md` `[Unreleased]` entry — plus any
-`README.md` / `docs/CONFIGURATION.md` update — in the same commit. `bun run release --auto --pr` opens
-the release PR; `bun run release --deploy` ships and tags it. Format rules, the changelog voice, the
-bump labels and the docs-sync duty: **`lettuce-releasing`**.
+Every shipping feature cuts its own release: the flow's `pre-release` stage bumps `VERSION` and renames
+`## [Unreleased]` to that version in one commit, and the `release` stage tags the merge — annotated,
+shaped `v<MAJOR>.<MINOR>.<PATCH>-letta_<LETTA_CODE_VERSION>`, pushed by name. MINOR is new or changed
+user-facing functionality; PATCH is everything else that ships. `VERSION` is the only machine-readable
+record. A user-visible change carries its `CHANGELOG.md` entry — plus any `README.md` /
+`docs/CONFIGURATION.md` update — in that same commit. Format rules, the changelog voice, the bump labels
+and the docs-sync duty: **`lettuce-releasing`**.
 
 ## Upstream sync
 
@@ -272,92 +273,63 @@ full-redeploy rule are in **`lettuce-upstream-sync`** — read it before running
 
 ## Definition of done
 
-The ordered shape of a change **and** the checklist each step has to satisfy. Work is not done until
-every step passes. Typecheck is not done. Tests are not done. **Running in the container is done.**
-Origin story: docs/upstream-notes.md#definition-of-done-origin-story. A **docs-only** change stops
-after step 2.
+Every change runs through dev-flow — the `flow` tool for an agent, `/flow` for the operator: **plan →
+implement → pre-release → release → done**, one feature at a time, one worktree and branch each. The
+commands, the scripted checks and the per-stage checklists are `.dev-flow/project.md`; this is the shape.
+Work is not done until every gate passes. Typecheck is not done. Tests are not done. **Running in the
+container is done.** Origin story: docs/upstream-notes.md#definition-of-done-origin-story.
 
-1. **Worktree.** `git worktree add .worktrees/<name> -b <branch>` from the main checkout — never branch
-   in the main checkout. Already sitting in someone else's worktree? Use it; the gate only cares that
-   you are not in the main checkout.
-2. **Implement, commit, `bun run verify` green** — the offline half (worktree, version pins,
-   prod-info, release hygiene, docs, lint, typecheck, tests, build), failing fast. The `CHANGELOG.md`
-   `[Unreleased]` entry, any `README.md` / `docs/CONFIGURATION.md` update and the `bump:*` label go in
-   the same commit; the **release commit** itself comes from `bun run release --pr`, never a feature
-   branch.
-3. **Build, deploy and run it locally from the worktree.** Copy the gitignored env in first
-   (`cp ../../docker/.env docker/.env`) or the state-dir default lands inside `.worktrees/`, then
-   `bun run build:bff && docker compose -f docker/compose.yml up -d` (unscoped — hard rule 4). The
-   stack is **one per machine, shared by every worktree**, so your `up -d` replaces whatever another
-   session was testing — say so.
-4. **Human verification — stop.** Say what to click and what should happen, then wait for the
-   operator to run it in the container and say it works. Nothing replaces this gate: no machine check,
-   no unit test, no CI job. **Untested code does not leave the machine** — a failed test goes back to
-   step 2 and no PR is opened.
-5. **Open the PR.** `git push -u origin <branch>`, then `gh pr create` with
-   `.github/pull_request_template.md` filled in — including who ran the container test and what they
-   answered, since that is now a precondition of the PR, not a review checkbox. CI re-runs the offline
-   gates independently; a branch cut before `.github/workflows/` existed reports no checks until you
-   merge `main` in.
-6. **Merge is the human's** (squash). An agent merges only after the operator confirms that specific
-   PR; a general "continue" is not that authorization.
-7. **Prove the artifact that ships from `main`.** Rebuild the image
-   (`docker compose -f docker/compose.yml build bff && … up -d bff`) and get `bun run deploy-check`
-   green: clean tree on `main`, served bundle byte-identical to `web/dist`, `VERSION` agreeing with the
-   tag at `HEAD`, `/readyz` and the upstream connection healthy. Then `bun run ui-check` for any `web/`
-   change and `bun run smoke` for BFF session/protocol/settings changes — both need the live stack, and
-   `smoke` mutates real state and needs an agent to exist. Then `bun run cleanup`.
-8. **Release — only after asking.** `bun run release --auto --pr` opens the release PR, the human
-   merges it, `bun run release --deploy` runs deploy-check → the one confirmation → tag → push tag,
-   immediately after that merge; the prod redeploy from `origin/main` is the operator's own. Never
-   push `main` or tag without the confirmation in "Stop before releasing to prod".
+- **plan** — research, clarify in chat, then a written `plan/plan.md` the operator approves
+  (`flow approve`, which creates the worktree and branch and runs its setup). `--ui` for anything
+  user-visible; `--patch` / `--docs` are operator-granted lanes for a small or docs-only change that skip
+  the plan file and nothing else.
+- **implement** — work only in that worktree, `flow check` green (`bun run verify`, plus `/readyz` once
+  it runs), then **stop**: say what to click, and wait for the operator to run it in the local container
+  and say it works. Nothing replaces that gate — no type check, no unit test, no CI job. **Untested code
+  does not leave the machine.** A web/ change needs `bun run build:bff` first or the container serves the
+  old bundle; the stack is one per machine and shared, so an `up -d` replaced whatever another session was
+  testing — say so.
+- **pre-release** — `/ponytail-review` with its must-have and should-have findings fixed, the docs sync,
+  and the `VERSION` bump + `[Unreleased]` rename in one commit; `flow check` again, then **Release?** —
+  naming the commit range and whether `app-server` gets recreated.
+- **release** — push the branch, open the PR from `.github/pull_request_template.md` (who ran the
+  container test and what they answered is a precondition of the PR, not a review checkbox), the operator
+  confirms *that* PR and squash-merges, then the annotated tag. Prove the artifact from `main`: rebuild
+  `bff`, `bun run deploy-check` green, plus `bun run ui-check` for a `web/` change and `bun run smoke`
+  for session/protocol/settings changes — both need the live stack, and `smoke` mutates real state.
+- **done** — `flow finish` closes the feature out and removes the worktree and branch; `bun run cleanup`
+  reports anything a session left behind.
 
-**UI changes carry two extra gates.** *Before* implementing (during steps 1–2): mock the target state
+A **docs-only** change keeps the flow and the worktree and has nothing to run: `bun run check-docs` is its
+check, and it ships unversioned when the operator says so.
+
+**UI changes carry two extra gates.** *Before* implementing (during plan): mock the target state
 of every changed surface at phone (390px) and desktop width and get the mockups approved — a static
 page linking `web/src/styles.css`, screenshotted with Playwright, is the proven method. *After*
-(before step 4): `bun run ui-check`'s screenshots plus a live look at both widths, reviewed
+(before the container test): `bun run ui-check`'s screenshots plus a live look at both widths, reviewed
 holistically — task accomplishable, reads like its neighbours, nothing clipped or overflowing, no
 stray scrollbars; not pixel accuracy. Mechanics: `lettuce-ui-verification`.
 
-### Stop before releasing to prod
+### Stop before publishing
 
-**Never `git push` and never redeploy prod without asking, every time.** After step 7, halt and ask for
-explicit confirmation of the whole release. Standing approval does not carry over: a yes on one change
-is not a yes on the next, and "go ahead" before the preflight was shown is not a yes. Pushing is the
-one step that leaves this machine, and `origin` (`dmarchevsky/lettuce`, private) is the only copy of
-this project not on one laptop. `docker/.env` and `docker/secrets/` are gitignored and no secret values
-are in history — re-check that before pushing a configuration change.
+**Never push `main` or a tag without asking, every time.** Halt before the push and ask for explicit
+confirmation of that specific release. Standing approval does not carry over: a yes on one change is not a
+yes on the next, and "go ahead" before the commits were shown is not a yes. Pushing is the one step that
+leaves this machine, and `origin` (`dmarchevsky/lettuce`, private) is the only copy of this project not on
+one laptop. `docker/.env` and `docker/secrets/` are gitignored and no secret values are in history —
+re-check that before pushing a configuration change.
 
-**Prod deploys from `origin`, not from this machine.** The prod deploy manager (its address and token
-live in the operator's own config, never a tracked file) builds from `dmarchevsky/lettuce` `main` at
-deploy time, so the push must land first. It is the operator's own tooling: this repo keeps no
-commands, ids or addresses for it.
+**Production deploy is the operator's own, and out of scope here.** The flow stops at the tag: the agent
+never deploys prod and never asks whether a deploy happened. This repo keeps no prod hostname, address,
+container list or deploy-manager detail — `bun run check-prod-info` fails the tree if one appears
+(private IPv4 ranges and personal mail domains fail it; use RFC 5737's `192.0.2.0/24` in examples and
+tests). Prod builds from `origin/main` at the tag, so the push has to land first.
 
-**`bun run release --deploy` cuts the release as part of the release, immediately after the release
-PR merged**: deploy-check → the exact-tag confirmation → push `main` (one-shot mode) → tag → push
-the tag.
+Call out an `app-server` recreate before shipping one: an unscoped `compose up` after an image or compose
+change recreates it and kills every in-flight turn with no drain (the drain covers only `bff`), and a cron
+or Telegram turn does not show in the BFF log.
 
-The release question **names the target exactly** — environment `letta`, stack `letta-code-ui-prod`
-(compose `docker/compose.yml`, containers `letta-code-ui-prod-app-server-1`, `-bff-1`,
-`-channel-gateway-1`, `-cloudflared-1`) — read live from the operator's tooling, never from memory,
-and states the commit range (`plan`: deployed commit → `origin/main`), whether `docker/compose.yml`
-changed, **which containers get recreated**, and the last deploy's duration. If the live target does
-not match this list, stop and ask rather than deploying.
-
-Call out an `app-server` recreate: the prod deploy runs an unscoped `compose up`, so any image or compose
-change recreates it and kills every in-flight turn with no drain (the drain covers only `bff`), and a
-cron or Telegram turn does not show in the BFF log. **No prod hostnames, IP addresses or deploy-manager
-ids are kept in this repo** — `bun run check-prod-info` enforces it (private IPv4 ranges and personal
-mail domains fail it; use RFC 5737's `192.0.2.0/24` in examples and tests).
-
-Order, once confirmed: `bun run release --deploy` pushes `main` and the tag (the tag points at the
-release commit the moment the release PR merged) → the operator redeploys prod from `origin/main` and
-verifies: the BFF log must show `Upstream connected: letta-code <pinned version>` (prod's image is
-built where there is no git metadata, so its `/versionz` says `+unknown` and the commit is the deploy
-manager's own record). A version other than the pin means the stored stack variables override it. On
-any failure, stop and report — no retry, no rollback, no restart without the user choosing it.
-
-Only `bff` is rebuilt in step 7 — the only service carrying our code. Recreate `app-server` or
+Only `bff` is rebuilt to prove an artifact — the only service carrying our code. Recreate `app-server` or
 `channel-gateway` only when `LETTA_CODE_VERSION` or their compose config changes, and a search or
 Google sidecar only when its own pin or `docker/<name>/` changes. `bun run lint` fails on Biome
 **errors** only; `biome.jsonc` explains which few warnings are load-bearing.
@@ -378,10 +350,10 @@ Google sidecar only when its own pin or `docker/<name>/` changes. `bun run lint`
 | `bun run build:bff` | Rebuild the bff image (it bakes `web/dist`) — **required** to ship UI changes |
 | `bun run cleanup` | Report merged worktrees/branches; `--apply` removes ones merged, clean, unoccupied |
 | `bun run sync-upstream v<x.y.z>` | Move the upstream checkout to a release, report drift, re-pin |
-| `bun run release --minor\|--patch\|--auto` | Release commit on `main` via `--pr`, then gated push and tag via `--deploy` |
+| `flow` / `/flow` | The stage gates: `status`, `check`, `approve`, `verify`, `release`, `release-done`, `finish` |
 | `bun run migrate-state` | Older installs only: copy the old `letta-home`/`letta-data` named volumes onto the host |
 | `docker compose -f docker/compose.yml up -d` | App-server + BFF; sidecars and `channel-gateway` only with their profiles |
-| `git push origin main` | The release push — normally done by `bun run release --deploy`; **ask for confirmation first, every time** |
+| `git push origin v<x>` | The release-stage tag push, at the merge that just landed on `main`; **ask for confirmation first, every time** |
 
 The obvious ones are not listed: `lint`, `format`, `typecheck`, `test`, `build`, `dev`, `build-info`,
 `screenshots`. `check-docs` asserts every other `package.json` script appears here.
@@ -394,15 +366,20 @@ cannot desync them.
 
 - `.agents/skills/lettuce-*/SKILL.md` — task-scoped mechanics; pi lists names and descriptions and
   loads a body only when one is read.
-- `.pi/extensions/guard.ts` — confirms or blocks what this file forbids; rules are pure functions in
-  `scripts/guard-core.ts` (tests: `tests/guard-core.test.ts`). `git push` to `main` or a tag, a bare
-  `git push`, `git tag -a`, `gh pr merge` / `pr review --approve` / `api …/merge` / `release create`,
-  `--force` and `push -f`, `worktree remove` and `prune`, `branch -d` and `-D`,
-  `docker compose rm|down|stop|kill|restart`, a scoped `up … app-server`, and any `edit`/`write` of
-  `docker/.env`, `docker/secrets/` or `VERSION` (a shell redirect is not seen). With no UI a confirmable
-  action is blocked, never silently allowed. It guards what an agent types, not what a script does
-  internally — which is why `release.ts` carries its own typed confirmation.
-- `.pi/prompts/*.md` — `/verify`, `/finish`, `/release`, `/sync-upstream` runbooks.
+- **dev-flow** is the harness (`pi install git:github.com/dmarchevsky/dev-flow`; the install lives in the
+  gitignored `.pi/settings.json`, so a fresh machine runs that command). It owns the stages, the worktrees
+  and the safety rules, which are the `flow-guard` block in `.dev-flow/project.md`: `deny` / `confirm` /
+  `protect` / `forbid`, judged at every stage ahead of flow discipline, and blocked rather than silently
+  allowed when there is no UI to confirm in. It covers `--force` and `push -f`, worktree remove and prune,
+  `branch -d` and `-D`, the `gh pr merge` / `pr review --approve` / `api …/merge` trio,
+  `docker compose rm|down|stop|kill|restart` and a scoped `up … app-server`, `edit`/`write` of
+  `docker/.env`, and any write under `docker/secrets/`. It sees what an agent types, not what a script does
+  internally — which is why `bun run cleanup` carries its own typed confirmation.
+- `.dev-flow/project.md` — the operator-owned playbook: default branch, worktree path, the tier-1 check
+  commands, each stage's checklist, and the prose rules. It is tracked; feature plans and flow state are
+  not. Agents change it only through `flow init --write`, and `flow doctor` is what validates it.
+- `.pi/prompts/sync-upstream.md` — the one runbook left; the stage gates replaced `/verify`, `/finish`
+  and `/release`.
 - The gate that owns each rule: `check-worktree` (worktrees), `check-release-hygiene` (changelog entry
   and bump label), `check-version-pin` (pins), `check-prod-info` (prod details out of the tree),
   `check-docs` (this file and the skills), `deploy-check` (the container serves `main`).

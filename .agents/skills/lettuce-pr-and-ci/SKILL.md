@@ -5,24 +5,23 @@ description: 'lettuce PR and CI mechanics: worktree → local container test →
 
 # PR flow and CI
 
-Loaded from `AGENTS.md`. The short version: work happens in a worktree, the operator tests it there,
-and only then does it become a PR that squash-merges into `main`. Landing is not shipping.
+Loaded from `AGENTS.md`. The short version: work happens in a worktree driven by dev-flow, the operator
+tests it there, and only then does it become a PR that squash-merges into `main`. Landing is not shipping.
 
 ## The lifecycle
 
 ```
-.worktrees/<branch>                       main
+.worktrees/<slug>                         main
 ─────────────────                        ────
-branch + worktree
-verify green
+flow approve (plan) → the worktree and branch
+flow check green
 build + run locally
 user tests it in the browser  ←── the gate, and it happens here, before any push
-  │
+  │  pre-release: ponytail-review, then VERSION bump + changelog rename in one commit
   └──push──▶  PR opens (template filled, test already recorded)
               ├─ CI Tier A (`.github/workflows/ci.yml`)
-              ├─ human review
-              └─ squash merge ───────────────────────▶ main
-release PR (`bun run release --pr`) → merge → `bun run release --deploy` → tag
+              ├─ the operator confirms this PR and squash-merges ──▶ main
+              └─ tag main's tip, push it by name ──▶ flow release-done → flow finish
 ```
 
 The order is the point: **untested code never leaves the machine.** The PR is the record of a change
@@ -170,8 +169,8 @@ branch — see the `lettuce-releasing` skill.
   `refs/pull/<N>/head` — `git fetch origin pull/<N>/head:<name>` — which is also why PRs are never
   tidied away: they are the record.
 
-Because a PR is required, `bun run release --pr` is not optional for a release — see
-`lettuce-releasing`.
+Because a PR is required, the tag is always cut *after* the merge: the version and its changelog section
+ride the feature's own branch — see `lettuce-releasing`.
 
 ## After merge: `bun run cleanup`
 
