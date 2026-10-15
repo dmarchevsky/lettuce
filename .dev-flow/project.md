@@ -1,6 +1,7 @@
 # lettuce — dev-flow playbook
 
-<!-- Operator-owned. Agent changes go through `flow init --write`; `flow init` alone runs the doctor. -->
+<!-- Operator-owned and tracked: a change rides a flow and a PR like any other file. `flow init --write`
+     writes the live copy on the operator's word; `flow init` alone runs the doctor. -->
 
 ## global
 
@@ -62,7 +63,10 @@ health = curl -fsS http://127.0.0.1:${BFF_PORT:-8090}/readyz
 ```
 
 `bun run verify` is the whole offline half (worktree, version pins, prod-info, release hygiene, docs,
-lint, typecheck, tests, build), so no separate `build` key. A fresh worktree has no `docker/.env`
+lint, typecheck, tests, build), so no separate `build` key. The commands assume `bun` on PATH, which the
+harness env does not guarantee: `bun: command not found` means pi was started without `~/.bun/bin`, and
+the fix is a symlink into a directory already on PATH (`ln -s ~/.bun/bin/bun ~/.local/bin/bun`) — a
+machine fix, not a playbook edit. A fresh worktree has no `docker/.env`
 (gitignored) — `setup` copies it in when `flow approve` creates the worktree, or the state-dir default
 lands inside `.worktrees/`. Never recreate `app-server` on its own and never a scoped `up`: `bff` and
 `channel-gateway` share its network namespace. The local stack is one per machine and shared, so an
@@ -87,7 +91,9 @@ why `versionTag` is a bare `{version}` — do not let the doctor re-add the `v`.
 user-facing functionality, PATCH for everything else that ships. The version is cut here, per feature:
 **one commit** bumps VERSION and renames `## [Unreleased]` to `## [v…] - <date>`, leaving an empty
 `## [Unreleased]` above it — `check-release-hygiene` fails the branch when the two disagree, so a rename
-without a bump is red. A flow that ships no version runs `flow release --no-version` on the operator's
+without a bump is red. The heading an entry lands under is what CI derives the bump from: `### Added` and
+`### Changed` are proof of a MINOR, so a PATCH flow files its entry under `### Fixed` or `### Removed`
+— otherwise the derivation answers `unknown` against a `bump:patch` label. A flow that ships no version runs `flow release --no-version` on the operator's
 word instead. Parallel branches collide on `VERSION` and `CHANGELOG.md`: merge `main` in and re-derive
 the version before asking Release?, because the gate refuses a tag that already exists.
 

@@ -376,11 +376,13 @@ cannot desync them.
   confirmation.
 - `.dev-flow/project.md` — the operator-owned playbook: default branch, worktree path, the tier-1 check
   commands, each stage's checklist, and the prose rules. It is tracked; feature plans and flow state are
-  not. Agents change it only through `flow init --write`, and `flow doctor` is what validates it.
+  not. Since it is tracked, a change rides a flow and a PR like any other file; `flow init --write` is
+  the operator-driven path that writes the live copy, and `flow doctor` validates either.
 - `.pi/prompts/sync-upstream.md` — the one runbook left; the stage gates replaced `/verify`, `/finish`
   and `/release`.
 - The gate that owns each rule: `check-worktree` (worktrees), `check-release-hygiene` (changelog entry
   and bump label), `check-version-pin` (pins), `check-prod-info` (prod details out of the tree),
   `check-docs` (this file and the skills), `deploy-check` (the container serves `main`).
-- `.pi/remote-pi/`, `.pi/npm/`, `.pi/sessions/`, `.pi/goals/`, `.pi/skills/`, `.pi/plans/`,
-  `.pi/settings.json` and `.pendant/` are per-machine and gitignored.
+- `.pi/remote-pi/`, `.pi/npm/`, `.pi/git/`, `.pi/sessions/`, `.pi/goals/`, `.pi/skills/`,
+  `.pi/plans/`, `.pi/settings.json` and `.pendant/` are per-machine and gitignored. `.pi/git/` is pi's
+  own package cache (`pi install git:…`) and appears the first time a package is installed.

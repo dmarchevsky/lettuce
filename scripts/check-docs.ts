@@ -70,6 +70,7 @@ const ABSENT_OK = [
   "web/dist",
   ".pi/remote-pi",
   ".pi/npm/",
+  ".pi/git/",
   ".pi/sessions/",
   ".pi/settings.json",
   ".pi/skills/",

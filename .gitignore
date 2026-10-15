@@ -16,6 +16,7 @@ docker/secrets/
 
 # pi harness: tracked config is .pi/extensions, .pi/prompts; the rest is local.
 .pi/npm/
+.pi/git/
 .pi/sessions/
 .pi/remote-pi/
 .pi/settings.json
