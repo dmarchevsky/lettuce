@@ -1,7 +1,6 @@
 /**
  * Pure decision logic for `bun run cleanup` — kept free of IO so the rules are testable
- * (`tests/cleanup-core.test.ts`) exactly the way `guard-core.ts` keeps the guard's rules
- * testable. The script that uses this is `scripts/cleanup-merged.ts`.
+ * (`tests/cleanup-core.test.ts`). The script that uses this is `scripts/cleanup-merged.ts`.
  *
  * The policy these functions encode (see the `lettuce-pr-and-ci` skill):
  *

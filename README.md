@@ -241,11 +241,10 @@ bun run verify       # worktree, version-pin, docs, lint, typecheck, tests, buil
 bun run check-docs   # AGENTS.md and .agents/skills stay honest
 ```
 
-Feature work happens in a worktree on a feature branch
-(`git worktree add .worktrees/<name> -b <branch>`), and nothing is
-"done" until it is running in the container and you have tested it there — `AGENTS.md` holds the
-gate and the workflow, and `.pi/extensions/guard.ts` asks you (or refuses outright) before
-`git push`, worktree/branch removal, and `docker compose … rm|down|stop`.
+Feature work runs through dev-flow (`flow start` → plan → implement → pre-release → release), in a
+worktree on a feature branch, and nothing is "done" until it is running in the container and you have
+tested it there. `.dev-flow/project.md` is the playbook and the safety-rule file: it asks you (or refuses
+outright) before worktree/branch removal, `gh pr merge`, and `docker compose … rm|down|stop`.
 
 ## License
 

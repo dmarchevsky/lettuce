@@ -1,6 +1,6 @@
 ---
 name: lettuce-pr-and-ci
-description: 'lettuce PR and CI mechanics: worktree → local container test → PR → squash merge (the human test happens before the branch is pushed), which branch protections are on and which are deliberately not yet, the bump:minor / bump:patch / bump:none labels and how a missing one is derived, the Tier A job list in .github/workflows/ci.yml, the advisory Tier B live stack in .github/workflows/live.yml, the gates that stay local because CI has no stack and no secret, and why no job gets a secret, why a PR branch only runs checks if it contains the workflow file, why `git push` inside a `&&` chain kills the whole command, why feature branches get `main` merged into them instead of rebased, and the rule that an agent merges only after the operator confirms that specific PR. Read before opening, reviewing, updating or merging a PR, or before touching `.github/workflows/` or the guard rules around merges.'
+description: 'lettuce PR and CI mechanics: worktree → local container test → PR → squash merge (the human test happens before the branch is pushed), which branch protections are on and which are deliberately not yet, the bump:minor / bump:patch / bump:none labels and how a missing one is derived, the Tier A job list in .github/workflows/ci.yml, the advisory Tier B live stack in .github/workflows/live.yml, the gates that stay local because CI has no stack and no secret, and why no job gets a secret, why a PR branch only runs checks if it contains the workflow file, why `git push` inside a `&&` chain kills the whole command, why feature branches get `main` merged into them instead of rebased, and the rule that an agent merges only after the operator confirms that specific PR. Read before opening, reviewing, updating or merging a PR, or before touching `.github/workflows/` or the `flow-guard` rules around merges.'
 ---
 
 # PR flow and CI
@@ -202,23 +202,25 @@ the output, never assumed.
 Abandoned branches — the kind a merge never triggers on — are not the script's business. The weekly
 `stale-report` workflow lists branches with no open PR and lets a human decide; it never deletes.
 
-The guard follows the same shape: `git branch -D` is confirmable (it has to be, because squash
-ancestry means `-d` can never succeed), every `--force` variant, `git push -f` and worktree pruning
-stay hard blocks, and `bun run cleanup` — like `release.ts` — carries its own confirmation because
-the guard only sees what an agent types.
+The guard follows the same shape, and it is now the playbook's: the rules are the `flow-guard` block in
+`.dev-flow/project.md` `## global`, which dev-flow judges **ahead of** its own stage rules, at every
+stage. `git branch -D` is confirmable (it has to be, because squash ancestry means `-d` can never
+succeed); every `--force` variant, `git push -f` and worktree pruning are hard denies; and
+`bun run cleanup` carries its own confirmation because a rule only ever sees what an agent types.
 
-What it sees, exactly, is worth knowing before you rely on it (`scripts/guard-core.ts`, tests in
-`tests/guard-core.test.ts`):
+What it sees, exactly, is worth knowing before you rely on it:
 
-- A push is gated when the refspec is `main`, a tag (`refs/tags/…` or a refspec starting `v1.2.3`,
-  which is what `bun run release` tags), or missing entirely. A branch named `release/v0.8.0-…` is
-  free — only a refspec that *begins* with the version counts as the tag.
+- A rule matches one **segment** of a command line (`&&`, `||`, `;`, `|`, newline) whose head verb is
+  *doing* something. Read-only heads are skipped — `grep "git push --force" AGENTS.md` and
+  `git log --grep=--force` are free, so writing about a forbidden command is not a violation.
+- A quoted body is still shell text: `gh pr create --body "…git branch -D…"` trips the branch rule,
+  because `gh pr create` is a doing-verb. A body that quotes a command goes in a file written with the
+  file tools and comes in with `--body-file`.
 - Merging is gated on `gh pr merge`, and on `gh api …/merge` / `…/merges`, which is the same act with
-  the gate walked around. `gh release create` is gated for the same reason as `git tag -a`.
-- Protected files (`docker/.env`, `docker/secrets/`, `VERSION`) are matched on the `edit` and
-  `write` tools only. A shell redirect (`echo … > VERSION`) or `sed -i` is invisible to it, because
+  the gate walked around.
+- Path rules (`protect docker/.env`, `forbid docker/secrets`) are matched on the `edit` and `write`
+  tools only. A shell redirect (`echo … > docker/.env`) or `sed -i` is invisible to them, because
   parsing a path out of arbitrary shell is how you get a rule nobody trusts.
-- Every segment of a command line is scanned, including text an agent only *quoted* — an
-  `--body-file` body, or a heredoc body writing docs about the guard. That is why quoting
-  `git push --force` inside a `cat > file <<EOF` gets the whole call blocked. To write about a
-  blocked command, write the file with the file tools: those are checked by path, not by content.
+- What the rules no longer gate, because dev-flow's stages own them: pushing `main` or a tag
+  (only the release stage may write the default branch), `git tag -a`, `gh release create`, and edits
+  to `VERSION` — which is bumped on the feature branch at `pre-release` now, not by a release commit.
