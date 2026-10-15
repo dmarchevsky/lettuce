@@ -76,14 +76,15 @@ if (failed) {
 
 console.log(`\n✓ verify passed — ${STAGES.map((s) => s.name).join(", ")}`);
 console.log(`
-  This is NOT done yet. AGENTS.md → "Definition of done" still requires:
+  This is NOT done yet. It is the offline half only — the stage ladder in
+  .dev-flow/project.md still requires:
 
-    3. build, deploy and run it locally from the worktree (copy docker/.env in first)
-    4. STOP — the operator tests it in the container and says it works
-    5. only then: push the branch and open the PR (fill in the template)
-    6. the human merges it (squash)
-    7. after the merge, from main: build bff, bun run deploy-check, ui-check / smoke where they apply
-    8. git push / tag / prod deploy   <- STOP. Ask for confirmation first, every time.
+    implement     build, deploy and run it locally from the worktree (setup copies docker/.env in),
+                  then STOP: the operator tests it in the container and says it works
+    pre-release   ponytail-review, the CHANGELOG entry + VERSION bump in one commit, then Release?
+    release       push the branch, open the PR, the operator merges it (squash), tag main's tip
+                  and only then bun run deploy-check, ui-check / smoke where they apply
 
-  Report your worktree as merged and safe to remove; never remove it or its branch yourself.
+  Production deploy is the operator's alone — the flow stops at the tag and never asks about it.
+  Never remove a worktree or a branch by hand: bun run cleanup and flow finish do the checking.
 `);

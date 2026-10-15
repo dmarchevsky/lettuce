@@ -1,6 +1,6 @@
 <!--
 What the reviewer needs to say yes to. Delete nothing: an empty section is a
-failed gate, not a shortcut. See AGENTS.md → Definition of done.
+failed gate, not a shortcut. See the stage ladder in `AGENTS.md` and `.dev-flow/project.md`.
 -->
 
 ## What changes, and why

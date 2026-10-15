@@ -4,8 +4,10 @@
  * `AGENTS.md` and the `lettuce-releasing` skill state three rules that nothing
  * used to enforce: a user-visible change carries a `CHANGELOG.md` `[Unreleased]`
  * entry in the same commit; the bump type follows from what that entry says; and
- * `VERSION` agrees with the changelog's newest released section. `deploy-check`
- * asserts the third one, but only at release time and only on a machine with a
+ * `VERSION` agrees with the changelog's newest released section. That last one is what
+ * makes a per-feature release safe — the release-prep commit bumps VERSION and renames
+ * `[Unreleased]` together, and this gate is red if either half is missing. `deploy-check`
+ * asserts the same pair, but only after the merge and only on a machine with a
  * running stack — so a PR could land with no changelog entry at all and the first
  * anyone heard was a red `deploy-check` weeks later. This runs the same rules
  * where they belong: on the change, in CI, and inside `bun run verify`.
@@ -134,7 +136,7 @@ export function reviewPr(input: PrInput): Findings {
     errors.push(
       `touches ${touched.join(", ")} but CHANGELOG.md is untouched. Add an ` +
         "`## [Unreleased]` entry in this PR, or label it bump:none if users " +
-        "cannot notice it (see AGENTS.md → Definition of done).",
+        "cannot notice it (see the playbook's `## pre-release`).",
     );
   }
   if (declaredNone && changelogEdited)

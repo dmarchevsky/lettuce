@@ -15,7 +15,7 @@ then:
    invariants in `AGENTS.md` and the matching skill, and say what each change means for us.
 3. If `check-version-pin` warns about `docker/.env` or a shell `LETTA_CODE_VERSION`, say so —
    that precedence once hid a stale pin for a whole cycle.
-4. `bun run verify` green, commit on a feature branch, and remember this is a **full redeploy**
-   (new app-server base image, new channel-gateway image): recreating `app-server` drops the
-   BFF's permanent upstream connection and every in-flight turn, so it goes through the normal
-   release gate with the `app-server` recreate called out (`/release`).
+4. `bun run verify` green, commit in a flow on a feature branch, and remember this is a **full
+   redeploy** (new app-server base image, new channel-gateway image): recreating `app-server` drops the
+   BFF's permanent upstream connection and every in-flight turn, so it goes through the normal release
+   gate with the `app-server` recreate called out when the flow asks **Release?**.

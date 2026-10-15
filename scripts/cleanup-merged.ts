@@ -20,7 +20,7 @@
  *
  * There is deliberately no `--force`. A refusal means go look, not override me.
  *
- * Confirmation is like `release.ts`: on a TTY you type the exact phrase it prints; a
+ * Confirmation is typed: on a TTY you type the exact phrase it prints; a
  * non-interactive caller sets CLEANUP_CONFIRM to that phrase.
  *
  * Run it from the main checkout.
