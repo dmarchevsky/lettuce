@@ -5,6 +5,11 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.13.3-letta_0.34.9] - 2026-10-15
+
+### Removed
+- **The batched release command, the guard extension, and the `/release`, `/finish` and `/verify` runbooks.** The harness is dev-flow now: every shipping feature's flow bumps `VERSION` and tags its own merge, and the safety rules the extension enforced are a `flow-guard` block in the tracked playbook.
+
 ## [v0.13.2-letta_0.34.9] - 2026-10-12
 
 ### Fixed
