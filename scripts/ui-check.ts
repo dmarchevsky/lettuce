@@ -185,9 +185,13 @@ try {
       }
       await page.locator('nav.tabs button:text-is("Chat")').click();
     }
+    const whereAgent = (await page.locator(".topbar .where-agent").innerText()).trim();
+    check("the top bar names the agent", whereAgent !== "");
+    const tabTitle = await page.title();
     check(
-      "the top bar names the agent",
-      (await page.locator(".topbar .where-agent").innerText()).trim() !== "",
+      "the browser tab names the agent",
+      tabTitle === (whereAgent === "No agent" ? "Lettuce" : `${whereAgent} | Lettuce`),
+      tabTitle,
     );
     check("no drawer on a phone", !(await page.locator(".sidebar").isVisible()));
 

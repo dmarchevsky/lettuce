@@ -19,6 +19,7 @@ import { Sidebar } from "./components/Sidebar.tsx";
 import { Switcher } from "./components/Switcher.tsx";
 import { ToastLayer, toast } from "./components/Toast.tsx";
 import type { PreparedImage } from "./lib/attachments.ts";
+import { applyDocumentTitle } from "./lib/document-title.ts";
 import { draftKey } from "./lib/draft.ts";
 import { applyFavicon } from "./lib/favicon.ts";
 import { type FeatureFlags, featureEnabled } from "./lib/features.ts";
@@ -328,6 +329,11 @@ function Workspace({ status }: { status: Status }) {
   useEffect(() => {
     applyFavicon(session.link);
   }, [session.link]);
+
+  // The tab title names the open agent, so a strip of tabs says which is which.
+  useEffect(() => {
+    applyDocumentTitle(agentName);
+  }, [agentName]);
 
   return (
     <div className="app">
