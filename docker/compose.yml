@@ -405,6 +405,7 @@ services:
       # uid 0 and agent shells run in it, so a password hash parked there is
       # readable by anything an agent can convince to run a command. Losing it
       # means the first visitor sets a new password.
+      - bff-auth:/app/auth
       # Same host directory the app-server mounts read-write at /work, and at
       # the same absolute path inside the container — file-stat.ts stats paths
       # exactly as the app-server reported them.
