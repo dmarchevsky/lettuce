@@ -54,9 +54,15 @@ could not ask for a password and a tunneled one could not ask for anything but A
   sign-in screen, not enough to fingerprint a deployment. `host_bind`, `public_origin` and
   `password_updated_at` (what Settings → Access / → Sign-in render) are behind the session like every
   other operational field. `password_updated_at` comes from the boot read that warms `claimed()`.
-- **Sessions keep one shape.** `SessionPayload` stays `{email, exp}`; `password` and `none` mint the
-  fixed identity `owner`, so nothing downstream branches on the method. The web UI keys its warning
-  pill off `signin === "none"` (`AuthPill`), which is the only method where the session is a formality.
+- **Sessions keep one shape and carry the method that minted them.** `SessionPayload` is
+  `{email, exp, via}` — `password` and `none` mint the fixed identity `owner`, so nothing downstream
+  branches on the method, but `decodeSession(token, secret, via)` refuses a cookie whose `via` is not
+  the current `config.signin`. That check is load-bearing: a signature only proves the cookie came
+  from this BFF, and `none` (like the old dev bypass) hands one to every visitor, so without it a
+  tightened `SIGNIN` would keep honouring those sessions for the whole TTL. A cookie predating the
+  field fails the same way, which is why an upgrade from the bypass signs everyone out. The web UI
+  keys its warning pill off `signin === "none"` (`AuthPill`), the only method where the session is a
+  formality.
 - **`/auth/*` is throttled by the same `HttpRateLimiter` as the API**, per identity, and
   `ANONYMOUS_API_PATHS` does not need the Google login callback added — it lives under `/auth`, which
   `requireSession` never gated.

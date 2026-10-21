@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import type { Signin } from "../config.ts";
 
 export const SESSION_COOKIE = "letta_session";
 
@@ -6,6 +7,15 @@ export interface SessionPayload {
   email: string;
   /** Unix seconds. */
   exp: number;
+  /**
+   * The method that minted this session. A session is proof of what the visitor
+   * actually did, so one minted under a looser method must not pass for a
+   * stricter one: the cookie `SIGNIN=none` hands to every visitor would otherwise
+   * stay valid for its whole TTL after the operator tightens to `password`, and
+   * the pre-split `DEV_BYPASS_EMAIL` cookie is still sitting in browsers today.
+   * Absent means older than this check, which is also a refusal.
+   */
+  via: Signin;
 }
 
 function b64url(input: Buffer | string): string {
@@ -30,7 +40,7 @@ export function encodeSession(payload: SessionPayload, secret: string): string {
   return `${body}.${sign(body, secret)}`;
 }
 
-export function decodeSession(token: string, secret: string): SessionPayload | null {
+export function decodeSession(token: string, secret: string, via: Signin): SessionPayload | null {
   const dot = token.lastIndexOf(".");
   if (dot <= 0) return null;
 
@@ -62,6 +72,7 @@ export function decodeSession(token: string, secret: string): SessionPayload | n
 
   const session = payload as SessionPayload;
   if (session.exp * 1000 < Date.now()) return null;
+  if (session.via !== via) return null;
   return session;
 }
 

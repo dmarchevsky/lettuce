@@ -1755,6 +1755,7 @@ function mintSession(email: string): { session: SessionPayload; cookie: string }
   const session: SessionPayload = {
     email,
     exp: Math.floor(Date.now() / 1000) + config.sessionTtlSeconds,
+    via: config.signin,
   };
   const token = encodeSession(session, config.sessionSecret);
   return { session, cookie: buildSessionCookie(token, config.sessionTtlSeconds, secureCookies) };

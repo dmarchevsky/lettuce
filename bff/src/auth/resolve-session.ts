@@ -39,7 +39,10 @@ export async function resolveSession(
 ): Promise<ResolvedSession | null> {
   const { config } = deps;
   const token = readCookie(request.headers.get("cookie"), SESSION_COOKIE);
-  const existing = token ? decodeSession(token, config.sessionSecret) : null;
+  // `config.signin` is part of the check, not just of the minting below: a
+  // signature this valid only proves the cookie came from us, and the method that
+  // issued it is the half that says what it proves.
+  const existing = token ? decodeSession(token, config.sessionSecret, config.signin) : null;
   if (existing) return { session: existing };
 
   // Only the method that reads Cloudflare's header looks at it. A stray
