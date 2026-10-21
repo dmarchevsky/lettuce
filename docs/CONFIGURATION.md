@@ -118,14 +118,15 @@ where the port is listening.
 | `cf-access` | Cloudflare Access, ahead of the tunnel | `ACCESS=cloudflared`, the `CF_ACCESS_*` trio, `ALLOWED_USERS` | the Access policy, then `ALLOWED_USERS` |
 | `google` | a Google account, over OAuth | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, `ALLOWED_USERS` | a verified address in `ALLOWED_USERS` |
 
-Unset derives: `cf-access` when the tunnel token is present, `none` without it,
-which is what an older file expected. Setting `ALLOWED_USERS` for a method that
+Unset derives: `cf-access` when the tunnel token is present, `password` without
+it — a deliberate change of behaviour on upgrade, since the bypass an older file
+relied on authenticated nobody. Setting `ALLOWED_USERS` for a method that
 receives no address is warned about at boot — it reads like protection and is
 not any.
 
 | Goal | Set |
 |---|---|
-| This machine only | the defaults: loopback `PUBLIC_ORIGIN`, `BFF_BIND=127.0.0.1`, `SIGNIN=none` |
+| This machine only | the defaults: loopback `PUBLIC_ORIGIN`, `BFF_BIND=127.0.0.1`, and the first-run password |
 | Your phone on the LAN | `SIGNIN=password`, `BFF_BIND=0.0.0.0`, `PUBLIC_ORIGIN=http://<lan-ip>:8090` |
 | The internet, one owner | `COMPOSE_PROFILES=cloudflared`, `SIGNIN=cf-access`, `ALLOWED_USERS=you@example.com` |
 | The internet, family Google accounts | the above with `SIGNIN=google` and the client below |
@@ -492,12 +493,14 @@ cp docker/.env.example docker/.env
 # PUBLIC_ORIGIN=http://localhost:8090
 # SESSION_SECRET=$(openssl rand -hex 32)
 # LETTA_STATE_DIR=/absolute/path/to/state
-# everything else defaults: ACCESS=lan, SIGNIN=none, BFF_BIND=127.0.0.1
+# everything else defaults: ACCESS=lan, SIGNIN=password, BFF_BIND=127.0.0.1
 docker compose -f docker/compose.yml up -d --build
 ```
 
-Nothing signs you in — `SIGNIN=none` is the default, and the boot rule only
-allows it while the port is loopback, so this is "the machine I am sitting at".
+Open it and it asks you to choose a password — the default method — and signs
+you in from that same page. The port is loopback by default, so nothing outside
+this machine can reach it, and `SIGNIN=none` remains an option for someone who
+wants no credential at all on a machine only they use.
 
 Then point it at a model once:
 

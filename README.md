@@ -189,7 +189,7 @@ different questions: `ACCESS` (`lan` | `cloudflared`) and `SIGNIN`
 | | On this machine (default) | On your network | Behind a tunnel |
 |---|---|---|---|
 | `ACCESS` | `lan` | `lan` | `cloudflared` |
-| `SIGNIN` | `none` | `password` | `cf-access` or `google` |
+| `SIGNIN` | password, first run | `password` | `cf-access` or `google` |
 | `BFF_BIND` | `127.0.0.1` | `0.0.0.0` | `127.0.0.1` |
 | Cloudflare account | not needed | not needed | required |
 | Good for | the machine you sit at | a network you trust | anything on the internet |

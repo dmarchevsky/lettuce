@@ -9,7 +9,7 @@ Loaded from `AGENTS.md`. One setting used to answer both questions, which is why
 could not ask for a password and a tunneled one could not ask for anything but Access.
 
 - **`config.access` is the route, `config.signin` is the method.** Both come from env
-  (`LETTA_ACCESS` ← `ACCESS`, `LETTA_SIGNIN` ← `SIGNIN` in `docker/compose.yml`) and both **derive
+ (compose passes `ACCESS` and `SIGNIN` through under those names — no `LETTA_` prefix here, unlike `LETTA_MODE`) and both **derive
   from `COMPOSE_PROFILES` when unset** — `cloudflared`/`cf-access` with the tunnel token,
   `lan`/`none` without — so an existing `docker/.env` boots with the behaviour it had. `LETTA_MODE`
   stays what it always was: the feature-token list. Nothing in `web/` or the BFF should read `mode`

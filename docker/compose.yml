@@ -313,10 +313,10 @@ services:
       # `docker/.env` boots with the behaviour it had. Empty = derive.
       # ACCESS must agree with the `cloudflared` profile token, in both
       # directions — a disagreement is a boot error, not a silent choice.
-      LETTA_ACCESS: ${ACCESS:-}
+      ACCESS: ${ACCESS:-}
       # none | password | cf-access | google. `none` is loopback-only, `cf-access`
       # needs the tunnel; the boot checks say the rest (bff/src/config.ts).
-      LETTA_SIGNIN: ${SIGNIN:-}
+      SIGNIN: ${SIGNIN:-}
       # The host interface the port above is published on, so the BFF can refuse
       # a wide bind it cannot otherwise see. Same variable, two names.
       LETTA_HOST_BIND: ${BFF_BIND:-127.0.0.1}
