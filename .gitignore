@@ -3,6 +3,10 @@ node_modules/
 dist/
 .env
 .env.local
+# A backup of a live .env is a copy of its secrets, and `.env.*` is what an
+# editor or a flip leaves behind — never let one reach the index.
+.env.*
+!.env.example
 docker/secrets/
 *.log
 .DS_Store
