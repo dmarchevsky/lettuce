@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import type { BffConfig } from "../config.ts";
 import type { Fetch } from "../google/oauth.ts";
+import googleTokenFixture from "./fixtures/google-token-response.json";
+import googleUserinfoFixture from "./fixtures/google-userinfo-response.json";
 import type { SessionPayload } from "./session-cookie.ts";
 import { GoogleSignIn, GoogleSignInError, registerGoogleSignInRoutes } from "./signin-google.ts";
 
@@ -24,7 +26,15 @@ function fakeFetch(token: unknown, userinfo: unknown): Fetch {
   };
 }
 
-const GOOD_TOKEN = { access_token: "ya29.token", expires_in: 3600, scope: "openid email" };
+/**
+ * Pinned response bodies, so a change to what Google sends is a fixture edit and
+ * not a silent break in the one flow no local test can reach. These are Google's
+ * documented shapes for the token exchange and the userinfo endpoint, not a live
+ * capture — record live ones the first time a real client is configured here, and
+ * the diff will say whether the parser still holds.
+ */
+const GOOD_TOKEN = googleTokenFixture;
+const GOOD_USERINFO = googleUserinfoFixture;
 
 function stateOf(url: string): string {
   return new URL(url).searchParams.get("state") ?? "";
@@ -50,9 +60,7 @@ describe("GoogleSignIn.startUrl", () => {
 
 describe("GoogleSignIn.finish", () => {
   test("the address comes from userinfo, lower-cased", async () => {
-    const service = signIn(
-      fakeFetch(GOOD_TOKEN, { email: "Me@Example.com", email_verified: true }),
-    );
+    const service = signIn(fakeFetch(GOOD_TOKEN, { ...GOOD_USERINFO, email: "Me@Example.com" }));
     const state = stateOf(service.startUrl());
     expect(await service.finish({ state, code: "code" })).toEqual({ email: "me@example.com" });
   });

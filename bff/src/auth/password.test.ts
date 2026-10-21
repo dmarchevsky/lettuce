@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -167,5 +167,24 @@ describe("AttemptLockout", () => {
     // Five more failures are a fresh five, not the fifth of the old run.
     for (let i = 0; i < 4; i += 1) expect(lockout.recordFailure()).toBe(0);
     expect(lockout.recordFailure()).toBe(60);
+  });
+});
+
+describe("concurrent first sets", () => {
+  test("the file survives both writers and no temp file is left behind", async () => {
+    const store = await tempStore();
+    const dir = await storeDir(store);
+    await Promise.all([
+      store.setPassword("first correct horse"),
+      store.setPassword("second correct horse"),
+      store.setPassword("third correct horse"),
+    ]);
+    expect(await exists(store)).toBe(true);
+    const intact =
+      (await store.verify("first correct horse")) ||
+      (await store.verify("second correct horse")) ||
+      (await store.verify("third correct horse"));
+    expect(intact).toBe(true);
+    expect((await readdir(dir)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
   });
 });

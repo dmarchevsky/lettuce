@@ -11,16 +11,16 @@
  * Auth is one navigation: under `SIGNIN=none` (what a local stack derives)
  * /auth/login mints the session cookie and redirects to /, so no profile or
  * cookie juggling is needed. Under `SIGNIN=password` the same URL is the form,
- * and the harness needs UI_CHECK_PASSWORD — a script is not entitled to a
+ * and the harness needs LETTUCE_TEST_PASSWORD — a script is not entitled to a
  * password a human typed.
  *
  * Usage: bun run ui-check [bffOrigin]
  */
 
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
-import { homedir } from "node:os";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { type Browser, chromium, type Page } from "playwright";
+import { chromiumExecutable, requireTestPassword } from "./harness.ts";
 
 const ORIGIN = process.argv[2] ?? "http://127.0.0.1:8090";
 const OUT_DIR = new URL("../.ui-check/", import.meta.url).pathname;
@@ -43,37 +43,13 @@ function section(title: string): void {
 }
 
 /**
- * Playwright pins a Chromium build that may not be the one cached on this
- * machine, and downloading ~150MB to assert on CSS is not a good trade. Reuse
- * whatever chromium-* build is already present; fall back to Playwright's own
- * resolution when none is.
- */
-function chromiumExecutable(): string | undefined {
-  if (process.env.PLAYWRIGHT_CHROMIUM) return process.env.PLAYWRIGHT_CHROMIUM;
-  const cache = join(homedir(), ".cache", "ms-playwright");
-  if (!existsSync(cache)) return undefined;
-  const builds = readdirSync(cache)
-    .filter((name) => name.startsWith("chromium-"))
-    .sort()
-    .reverse();
-  for (const build of builds) {
-    const candidate = join(cache, build, "chrome-linux64", "chrome");
-    if (existsSync(candidate)) return candidate;
-  }
-  return undefined;
-}
-
-/**
  * Land on the app with a session, by whatever method this stack signed in with.
  * A password field on the page is how `SIGNIN=password` shows up here.
  */
 async function signIn(page: Page): Promise<void> {
   await page.goto(ORIGIN, { waitUntil: "networkidle" });
   if (await page.locator('input[type="password"]').first().count()) {
-    const password = process.env.UI_CHECK_PASSWORD;
-    if (!password) {
-      throw new Error("This stack signs in with a password — set UI_CHECK_PASSWORD for ui-check.");
-    }
+    const password = requireTestPassword("ui-check");
     await page.locator('input[type="password"]').first().fill(password);
     await page.getByRole("button", { name: /sign in/i }).click();
     // The success path is a reload of the whole app, so wait for the app itself

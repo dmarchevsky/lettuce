@@ -11,7 +11,7 @@
  * time it is used.
  */
 
-import { randomBytes, scrypt, timingSafeEqual } from "node:crypto";
+import { randomBytes, randomUUID, scrypt, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -25,11 +25,11 @@ export const MIN_PASSWORD_LENGTH = 10;
 const SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 } as const;
 const KEY_LENGTH = 64;
 
-export const MAX_ATTEMPTS_BEFORE_LOCKOUT = 5;
-export const LOCKOUT_BASE_SECONDS = 60;
-export const LOCKOUT_MAX_SECONDS = 15 * 60;
+const MAX_ATTEMPTS_BEFORE_LOCKOUT = 5;
+const LOCKOUT_BASE_SECONDS = 60;
+const LOCKOUT_MAX_SECONDS = 15 * 60;
 
-export class PasswordError extends Error {}
+class PasswordError extends Error {}
 
 interface StoredHash {
   kdf: "scrypt";
@@ -120,9 +120,12 @@ export class PasswordStore {
     const updatedAt = new Date().toISOString();
     const stored: StoredHash = { kdf: "scrypt", salt, hash: await hash(password, salt), updatedAt };
     // Write-then-rename, so a crash mid-write cannot leave a half-written file
-    // that reads as "the credential is unreadable" and locks the owner out.
+    // that reads as "the credential is unreadable" and locks the owner out. The
+    // temp name is unique because two first-run posts (phone and laptop, or a
+    // retried submit) share this path: with a fixed name the second rename can
+    // move the first writer's half-written file into place.
     await mkdir(this.dir, { recursive: true });
-    const temp = `${this.file}.tmp`;
+    const temp = `${this.file}.${randomUUID()}.tmp`;
     await writeFile(temp, `${JSON.stringify(stored, null, 2)}\n`, { mode: 0o600 });
     await rename(temp, this.file);
     this.claimedCache = true;
@@ -147,8 +150,11 @@ export class PasswordStore {
  * (`http-rate-limit.ts`) bounds request *volume* for everyone, this bounds
  * *guessing* at one credential, and reports a wait the browser can show.
  *
- *shortcut: counts live in memory, so a BFF restart clears them — reaching a
- * restart needs host access, which is already past what this pause defends.
+ * shortcut: counts live in memory, so any restart clears them — including the
+ * one every deploy does. Persisting them means keeping `failures` and
+ * `lockedUntilMs` beside the hash in `signin.json`, which is not worth the extra
+ * file writes while a restart needs host access: that is already past what this
+ * pause defends.
  */
 export class AttemptLockout {
   private failures = 0;

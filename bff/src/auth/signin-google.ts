@@ -43,7 +43,7 @@ interface PendingLogin {
   expiresAt: number;
 }
 
-export interface GoogleSignInOptions {
+interface GoogleSignInOptions {
   clientId: string;
   clientSecret: string;
   redirectUri: string;
@@ -136,7 +136,7 @@ export class GoogleSignIn {
   }
 }
 
-export interface GoogleSignInRouteDeps {
+interface GoogleSignInRouteDeps {
   config: BffConfig;
   signIn: GoogleSignIn;
   /** Whether the method is live at all — false when the credentials are missing. */
@@ -181,12 +181,15 @@ export function registerGoogleSignInRoutes<Env extends RouteEnv>(
       return hardenedResponse(hardened, null, { location: "/", "set-cookie": cookie }, 302);
     } catch (error) {
       log(`Google sign-in failed: ${errorMessage(error)}`);
+      // A failure page must not read like a success one, and the one hint it can
+      // give has to fit every failure here — an expired state, a cancelled
+      // consent, an unverified address and a misregistered redirect URI alike.
       return resultPage({
         hardened,
-        title: "Signed in with Google",
+        title: "Sign-in did not finish",
         detail: errorMessage(error),
         status: 400,
-        note: `This origin's redirect URI must be ${redirectUri} on the Google client.`,
+        note: `If this repeats, the Google client must list this origin's redirect URI: ${redirectUri}.`,
       });
     }
   });

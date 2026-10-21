@@ -11,6 +11,7 @@
  */
 
 import { MAX_REPLAY_FRAMES } from "../bff/src/session/buffer.ts";
+import { requireTestPassword } from "./harness.ts";
 
 const ORIGIN = process.argv[2] ?? "http://127.0.0.1:8090";
 const WS_ORIGIN = ORIGIN.replace(/^http/, "ws");
@@ -29,7 +30,7 @@ function section(title: string): void {
   console.log(`\n${title}`);
 }
 
-/** Whatever method this stack signs in with. `password` needs SMOKE_PASSWORD. */
+/** Whatever method this stack signs in with. `password` needs LETTUCE_TEST_PASSWORD. */
 async function login(): Promise<string> {
   const method = ((await status()) as { signin?: string }).signin;
   const response =
@@ -37,7 +38,7 @@ async function login(): Promise<string> {
       ? await fetch(`${ORIGIN}/auth/login`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ password: process.env.SMOKE_PASSWORD ?? "" }),
+          body: JSON.stringify({ password: requireTestPassword("smoke") }),
         })
       : await fetch(`${ORIGIN}/auth/login`, { redirect: "manual" });
   const cookie = response.headers.get("set-cookie");

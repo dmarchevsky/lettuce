@@ -29,7 +29,7 @@ import type { SessionPayload } from "./session-cookie.ts";
 /** The identity behind `password` and `none`: one instance, one owner, no address. */
 export const OWNER_IDENTITY = "owner";
 
-export interface SignInRouteDeps {
+interface SignInRouteDeps {
   config: BffConfig;
   passwords: PasswordStore;
   lockout: AttemptLockout;
@@ -40,9 +40,64 @@ export interface SignInRouteDeps {
   hardened: Record<string, string>;
 }
 
-async function readPostedPassword(c: Context): Promise<string> {
-  const body = (await c.req.json().catch(() => null)) as { password?: unknown } | null;
-  return typeof body?.password === "string" ? body.password : "";
+/**
+ * A credential post is one password and a field name. Anything bigger is not a
+ * sign-in attempt, and these three routes answer before anybody is
+ * authenticated, so the cap is applied to the bytes actually read: a
+ * `content-length` is a claim the client makes, and a chunked request can claim
+ * nothing at all.
+ */
+const MAX_CREDENTIAL_BODY_BYTES = 1024;
+
+type PostedBody =
+  | { readonly kind: "body"; readonly fields: Record<string, unknown> }
+  | { readonly kind: "too-large" }
+  | { readonly kind: "invalid" };
+
+async function readPostedBody(request: Request): Promise<PostedBody> {
+  const declared = Number(request.headers.get("content-length") ?? "0");
+  if (declared > MAX_CREDENTIAL_BODY_BYTES) return { kind: "too-large" };
+
+  const reader = request.body?.getReader();
+  if (!reader) return { kind: "invalid" };
+  const decoder = new TextDecoder();
+  let text = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    text += decoder.decode(value, { stream: true });
+    if (text.length > MAX_CREDENTIAL_BODY_BYTES) {
+      await reader.cancel();
+      return { kind: "too-large" };
+    }
+  }
+
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (!parsed || typeof parsed !== "object") return { kind: "invalid" };
+    return { kind: "body", fields: parsed as Record<string, unknown> };
+  } catch {
+    return { kind: "invalid" };
+  }
+}
+
+/**
+ * The parsed body, or the refusal that explains the problem. Every route here
+ * takes exactly one kind of body, so the refusal is phrased as a fact about the
+ * request rather than a description of the limit.
+ */
+async function readFields(c: Context): Promise<Record<string, unknown> | Response> {
+  const posted = await readPostedBody(c.req.raw);
+  if (posted.kind === "body") return posted.fields;
+  return posted.kind === "too-large"
+    ? c.text("That request is too large to be a sign-in.", 413)
+    : c.text("Send a JSON body.", 400);
+}
+
+/** One string field, or empty: a missing field is a wrong answer, not a crash. */
+function field(fields: Record<string, unknown>, name: string): string {
+  const value = fields[name];
+  return typeof value === "string" ? value : "";
 }
 
 export function registerSignInRoutes<Env extends RouteEnv>(
@@ -97,7 +152,10 @@ export function registerSignInRoutes<Env extends RouteEnv>(
       return c.json({ ok: false, error: "No password has been chosen on this instance." }, 409);
     }
 
-    const password = await readPostedPassword(c);
+    const posted = await readFields(c);
+    if (posted instanceof Response) return posted;
+
+    const password = field(posted, "password");
     if (await passwords.verify(password)) {
       lockout.recordSuccess();
       const { cookie } = mint(OWNER_IDENTITY);
@@ -129,7 +187,10 @@ export function registerSignInRoutes<Env extends RouteEnv>(
       return c.text("A password is already set on this instance.", 410);
     }
 
-    const password = await readPostedPassword(c);
+    const posted = await readFields(c);
+    if (posted instanceof Response) return posted;
+
+    const password = field(posted, "password");
     try {
       assertPasswordIsUsable(password);
     } catch (error) {
@@ -150,12 +211,11 @@ export function registerSignInRoutes<Env extends RouteEnv>(
     // guards this instance is not something an anonymous request gets to do.
     if (!c.get("session")) return c.text("Unauthorized", 401);
 
-    const body = (await c.req.json().catch(() => null)) as {
-      current?: unknown;
-      next?: unknown;
-    } | null;
-    const current = typeof body?.current === "string" ? body.current : "";
-    const next = typeof body?.next === "string" ? body.next : "";
+    const posted = await readFields(c);
+    if (posted instanceof Response) return posted;
+
+    const current = field(posted, "current");
+    const next = field(posted, "next");
 
     if (!(await passwords.verify(current))) {
       log("Refused a password change: the current password did not match.");

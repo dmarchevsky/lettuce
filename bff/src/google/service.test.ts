@@ -416,6 +416,7 @@ describe("where the Google client comes from", () => {
     });
     return {
       service,
+      google,
       connect: async () => {
         const state = google.ask(await service.startConnect());
         return service.finishConnect({ state, code: "c" });
@@ -466,6 +467,29 @@ describe("where the Google client comes from", () => {
     expect((await t.service.status()).clientSource).toBe("stored");
     expect(t.sidecar().clientId).toBe(CLIENT.clientId);
     expect(t.credential().client_id).toBe(CLIENT.clientId);
+  });
+
+  test("editing the stored client while env provides one keeps the grant", async () => {
+    const t = await connected(ENVED);
+    const before = (await t.service.status()).grant?.email;
+    // The typed pair is not the live one, so nothing about the token changed and
+    // nothing should have been revoked — the warning used to claim it had.
+    const { warning } = await t.service.save({
+      clientId: "typed-again.apps.googleusercontent.com",
+    });
+    expect(warning).toBeNull();
+    expect(t.google.revoked).toEqual([]);
+    expect((await t.service.status()).grant?.email).toBe(before);
+  });
+
+  test("rotating the env pair out of band is not a client change anyone sees", async () => {
+    // Honest about the one case this design cannot detect: a rotated env pair is
+    // invisible to a save, because both sides of the comparison resolve to it.
+    // The token simply stops refreshing, and `verify()` marks it lost then — the
+    // same path Google's own out-of-band revoke takes (see "verify marks a token
+    // Google refuses as lost"), so nothing extra is worth storing for it.
+    const t = await connected(ENVED);
+    expect((await t.service.verify()).warning).toBeNull();
   });
 
   test("a half-set pair is not a client", async () => {

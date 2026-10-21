@@ -68,4 +68,4 @@ could not ask for a password and a tunneled one could not ask for anything but A
   `requireSession` never gated.
 - **The test harness logs in like anyone else.** `scripts/ui-check.ts` and
   `scripts/persistence-smoke.ts` hit `GET /auth/login` (mints a session under `none`); under
-  `SIGNIN=password` they need `UI_CHECK_PASSWORD` / `SMOKE_PASSWORD`. There is no dev-login route.
+  `SIGNIN=password` they need `LETTUCE_TEST_PASSWORD`. There is no dev-login route.

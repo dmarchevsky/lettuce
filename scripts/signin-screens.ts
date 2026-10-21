@@ -7,37 +7,14 @@
  * it covers is the part `ui-check` cannot — a flow with state — and it leaves the
  * PNGs in .ui-check/ for the look at 390 and 1280.
  *
- *   UI_CHECK_PASSWORD=… bun scripts/signin-screens.ts [bffOrigin]
+ *   LETTUCE_TEST_PASSWORD=… bun scripts/signin-screens.ts [bffOrigin]
  */
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { mkdirSync } from "node:fs";
 import { chromium, type Page } from "playwright";
+import { chromiumExecutable, requireTestPassword } from "./harness.ts";
 
 const ORIGIN = process.argv[2] ?? "http://127.0.0.1:8090";
-const PASSWORD = process.env.UI_CHECK_PASSWORD;
 const OUT = ".ui-check";
-
-/** Same trick ui-check uses: reuse a cached Chromium build instead of a 150 MB download. */
-function chromiumExecutable(): string | undefined {
-  if (process.env.PLAYWRIGHT_CHROMIUM) return process.env.PLAYWRIGHT_CHROMIUM;
-  const cache = join(homedir(), ".cache", "ms-playwright");
-  if (!existsSync(cache)) return undefined;
-  const builds = readdirSync(cache)
-    .filter((name) => name.startsWith("chromium"))
-    .sort()
-    .reverse();
-  for (const build of builds) {
-    for (const rel of [
-      join(build, "chrome-linux64", "chrome"),
-      join(build, "chrome-headless-shell-linux64", "chrome-headless-shell"),
-    ]) {
-      const candidate = join(cache, rel);
-      if (existsSync(candidate)) return candidate;
-    }
-  }
-  return undefined;
-}
 
 const SIZES = [
   { name: "390", width: 390, height: 844 },
@@ -50,10 +27,11 @@ async function shot(page: Page, name: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  if (!PASSWORD) throw new Error("UI_CHECK_PASSWORD is required");
+  const PASSWORD = requireTestPassword("the sign-in screens");
   mkdirSync(OUT, { recursive: true });
+  const executablePath = chromiumExecutable();
   const browser = await chromium.launch({
-    ...(chromiumExecutable() ? { executablePath: chromiumExecutable() } : {}),
+    ...(executablePath ? { executablePath } : {}),
   });
 
   // 1. Unclaimed first run: the setup form.

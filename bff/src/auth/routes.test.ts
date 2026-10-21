@@ -182,3 +182,34 @@ describe("GET /auth/login", () => {
     expect(googleResponse.headers.get("location")).toBe("/auth/google/start");
   });
 });
+
+describe("the credential body cap", () => {
+  test("a body bigger than a credential is refused, not buffered", async () => {
+    const { app } = await setup();
+    expect((await post(app, "/auth/setup", { password: "x".repeat(4000) })).status).toBe(413);
+    const { app: loginApp, passwords } = await setup();
+    await passwords.setPassword(GOOD);
+    const response = await post(loginApp, "/auth/login", { password: "x".repeat(4000) });
+    expect(response.status).toBe(413);
+  });
+
+  test("a stream that claims no length is capped as it arrives", async () => {
+    const { app } = await setup();
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode('{"password":"'));
+        for (let i = 0; i < 40; i += 1) controller.enqueue(encoder.encode("a".repeat(200)));
+        controller.close();
+      },
+    });
+    const response = await app.request("/auth/setup", { method: "POST", body: stream });
+    expect(response.status).toBe(413);
+  });
+
+  test("a body that is not JSON is refused as one", async () => {
+    const { app } = await setup();
+    const response = await app.request("/auth/setup", { method: "POST", body: "password=plain" });
+    expect(response.status).toBe(400);
+  });
+});

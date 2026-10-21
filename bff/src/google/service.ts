@@ -288,8 +288,13 @@ export class GoogleService {
       let warning: string | null = null;
 
       if (next.grant) {
+        // Compare the client that *takes effect*. With the env pair in force the
+        // stored one is inert, and revoking a working token because someone typed
+        // into an inert field is a worse surprise than leaving the grant alone.
+        const before = this.clientOf(current);
+        const after = this.clientOf(next);
         const clientChanged =
-          next.clientId !== current.clientId || next.clientSecret !== current.clientSecret;
+          after.clientId !== before.clientId || after.clientSecret !== before.clientSecret;
         if (clientChanged) {
           warning = await this.dropGrant(next, "OAuth client changed");
         } else if (this.excessScopes(next, next.grant.scopes).length > 0) {

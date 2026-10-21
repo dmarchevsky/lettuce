@@ -294,7 +294,7 @@ export interface PublicGoogleSettings {
   needsReconnect: boolean;
 }
 
-export type GoogleClientSource = "env" | "stored";
+type GoogleClientSource = "env" | "stored";
 
 export function toPublicGoogleSettings(
   settings: GoogleSettings,
