@@ -5,6 +5,20 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.20.0-letta_0.34.16] - 2026-10-21
+
+### Added
+- **A password you choose in the browser.** A fresh instance asks you to pick one (ten characters or more) and signs you in from the same page — nothing is generated into a log and nothing goes in `.env`, and Settings → Sign-in changes it later, asking for the current one.
+- **Sign in with Google.** `SIGNIN=google` puts a Google button on the sign-in screen and lets in only the addresses in `ALLOWED_USERS`, on the same OAuth client as Settings → Google Workspace.
+
+### Changed
+- **How you are reached and how you prove who you are are now two settings.** `ACCESS=lan|cloudflared` picks the route and `SIGNIN=none|password|cf-access|google` the method, they are independent of each other, and Settings reports both — including where the port is actually listening.
+- **The UI port binds `127.0.0.1` by default.** An install that was reachable from the LAN through the old open port needs `BFF_BIND=0.0.0.0` to stay that way, and any install with a wide port now has to name a sign-in method.
+- **Settings → Google is Settings → Google Workspace**, and Settings gained Access and Sign-in under a new Deployment group.
+
+### Removed
+- **`DEV_BYPASS_EMAIL` and `DEV_BYPASS_ALLOW_REMOTE` are gone** — having them in `docker/.env` now stops the BFF at boot and names the replacement: `SIGNIN=none` for an instance that only ever answers this machine, `SIGNIN=password` everywhere else.
+
 ## [v0.19.0-letta_0.34.16] - 2026-10-20
 
 ### Changed
