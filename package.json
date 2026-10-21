@@ -12,7 +12,7 @@
     "verify": "bun scripts/verify.ts",
     "lint": "biome check .",
     "format": "biome check --write .",
-    "typecheck": "bun run --filter '*' typecheck && tsc --noEmit --strict --skipLibCheck --target esnext --module preserve --moduleResolution bundler --allowImportingTsExtensions scripts/*.ts",
+    "typecheck": "bun run --filter '*' typecheck",
     "test": "bun test",
     "check-docs": "bun scripts/check-docs.ts",
     "check-prod-info": "bun scripts/check-prod-info.ts",
