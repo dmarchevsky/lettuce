@@ -43,38 +43,27 @@ export function SignInSection({ signin, email, passwordUpdatedAt }: Props) {
           <p className="section-note">Change password</p>
           <ChangePasswordForm />
           <p className="muted small">
-            Five wrong attempts in a row pause sign-in for a minute, doubling up to fifteen minutes.
-            The password itself is never stored — only a scrypt hash, on the BFF's own volume, which
-            is why a lost one is reset by hand rather than recovered here.
+            Five wrong attempts pause sign-in for a minute, doubling to fifteen. A lost password is
+            reset on the server — there is no recovery from here.
           </p>
         </>
       ) : signin === "google" ? (
         <p className="section-note">
-          Sign-in uses the Google client in <code>docker/.env</code> — the same one the Google
-          Workspace section uses once its profile token is on — and admits only the addresses listed
-          in <code>ALLOWED_USERS</code>. Adding someone means adding their address there and
-          redeploying.
+          The client and the <code>ALLOWED_USERS</code> allowlist live in <code>docker/.env</code>:
+          adding someone means adding their address there and redeploying.
         </p>
       ) : signin === "cf-access" ? (
         <p className="section-note">
-          Cloudflare Access decides who gets in, before a request reaches this instance;{" "}
-          <code>ALLOWED_USERS</code> is the second gate behind it. Both live in{" "}
-          <code>docker/.env</code>. Sign out here would sign you out of the app but not of Access,
-          so there is nothing to do from this page.
+          Cloudflare Access decides who gets in before a request reaches this instance, and{" "}
+          <code>ALLOWED_USERS</code> is the second gate behind it. Signing out here does not sign
+          you out of Access.
         </p>
       ) : (
         <p className="warning section-note">
-          Nobody is asked to sign in: whoever reaches this address is the owner. Boot only allows
-          this while the port listens on this machine — see Settings → Access. To open the port to a
-          network, set <code>SIGNIN=password</code> first.
+          Nobody is asked to sign in — whoever reaches this address is the owner. The BFF boots this
+          way only while the port listens on this machine; see Access.
         </p>
       )}
-
-      <p className="muted small">
-        The method is <code>SIGNIN</code> in <code>docker/.env</code> — <code>none</code>,{" "}
-        <code>password</code>, <code>cf-access</code> or <code>google</code> — and it is independent
-        of how the instance is reached, which Settings → Access reports.
-      </p>
     </>
   );
 }

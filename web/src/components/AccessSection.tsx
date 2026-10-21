@@ -55,25 +55,24 @@ export function AccessSection({ access, signin, hostBind, publicOrigin, componen
 
       {access === "cloudflared" ? (
         <p className="section-note">
-          Nothing reaches this instance except through the tunnel, and the port is closed to the
-          network — a direct address will not answer, which is the point. Who gets in is{" "}
+          Only the tunnel reaches this instance — a direct address will not answer. Who gets in is{" "}
           <strong>{SIGNIN_LABELS[signin]}</strong>.
         </p>
       ) : openToNetwork === false ? (
         <p className="section-note">
-          The port listens on this machine only, so nothing outside it can knock. Sign-in is{" "}
-          <strong>{SIGNIN_LABELS[signin]}</strong>.
+          The port listens on this machine only. Sign-in is <strong>{SIGNIN_LABELS[signin]}</strong>
+          .
         </p>
       ) : openToNetwork === true ? (
         <>
           <p className="warning section-note">
             The port listens on <code>{hostBind}</code>, so anyone on this network can reach it.
-            Sign-in is <strong>{SIGNIN_LABELS[signin]}</strong> — that is the only thing between
-            them and this agent.
+            Sign-in is <strong>{SIGNIN_LABELS[signin]}</strong> — the only thing between them and
+            this agent.
           </p>
           <p className="muted small">
-            To close it, set <code>BFF_BIND=127.0.0.1</code> in <code>docker/.env</code> and
-            redeploy, or put a tunnel in front with <code>ACCESS=cloudflared</code>.
+            To close it: <code>BFF_BIND=127.0.0.1</code>, or tunnel it with
+            <code>ACCESS=cloudflared</code>.
           </p>
         </>
       ) : (
@@ -83,10 +82,8 @@ export function AccessSection({ access, signin, hostBind, publicOrigin, componen
       )}
 
       <p className="muted small">
-        These are deployment settings, so they are read from <code>docker/.env</code> and are not
-        editable here: <code>ACCESS</code> picks the route, <code>BFF_BIND</code> the interface, and
-        a mismatch between <code>ACCESS</code> and the <code>cloudflared</code> profile token stops
-        the BFF at boot rather than leaving it reachable by a route nobody meant to open.
+        Read from <code>docker/.env</code> — <code>ACCESS</code> and <code>BFF_BIND</code> — so a
+        change needs a redeploy, not a click here.
       </p>
     </>
   );

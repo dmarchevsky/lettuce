@@ -155,7 +155,10 @@ https://your-origin/api/google/oauth/callback     # Settings → Google Workspac
 
 Google accepts https only (plus `localhost`), so a plain-http LAN origin needs
 `GOOGLE_OAUTH_REDIRECT_URI` — see
-[Google Workspace](#google-gmail-calendar-tasks-contacts).
+[Google Workspace](#google-gmail-calendar-tasks-contacts). Google also names the
+half that is wrong: `invalid_client` is the pair in `.env`, and
+`redirect_uri_mismatch` is the console entry — matched against the address in the
+browser bar, which is why a phone reaching a LAN IP can never finish this flow.
 
 Under `SIGNIN=none` an agent shell shares this container's network namespace and
 can reach the loopback port, so changing Google access from an unauthenticated
