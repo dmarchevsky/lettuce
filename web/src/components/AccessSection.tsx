@@ -21,6 +21,13 @@ interface Props {
  * `ACCESS` is where it is reachable, `SIGNIN` is who gets in, and only the
  * combination of the two says whether the instance is exposed.
  */
+/** "127.0.0.1" and "0.0.0.0" are not the same sentence, and only one of them is safe. */
+function bindLabel(hostBind: string): string {
+  return hostBind === "127.0.0.1" || hostBind === "localhost"
+    ? `${hostBind} — this machine only`
+    : `${hostBind} — every interface`;
+}
+
 export function AccessSection({ access, signin, hostBind, publicOrigin, components }: Props) {
   const openToNetwork = hostBind ? hostBind !== "127.0.0.1" && hostBind !== "localhost" : null;
   const tunnel = components?.find((component) => component.name === "Cloudflare Tunnel");
@@ -31,9 +38,7 @@ export function AccessSection({ access, signin, hostBind, publicOrigin, componen
       access === "cloudflared" ? "Cloudflare Tunnel" : "Direct (LAN / localhost)",
     ],
     ...(publicOrigin ? ([["Public origin", publicOrigin]] as [string, ReactNode][]) : []),
-    ...(hostBind
-      ? ([["Port listens on", `${hostBind} (this machine)`]] as [string, ReactNode][])
-      : []),
+    ...(hostBind ? ([["Port listens on", bindLabel(hostBind)]] as [string, ReactNode][]) : []),
     ...(tunnel ? ([["Cloudflare Tunnel", tunnel.version]] as [string, ReactNode][]) : []),
   ];
 

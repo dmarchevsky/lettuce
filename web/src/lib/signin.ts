@@ -18,6 +18,14 @@ export const SIGNIN_LABELS: Record<Signin, string> = {
   google: "Google account",
 };
 
+/**
+ * The two address-free methods share one identity, `owner`, which is a good log
+ * line and a strange thing to tell a person. Everything else is an email.
+ */
+export function identityLabel(email: string | null): string | null {
+  return email === "owner" ? "the owner" : email;
+}
+
 export class SignInPaused extends Error {
   constructor(
     message: string,

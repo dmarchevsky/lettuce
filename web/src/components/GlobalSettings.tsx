@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { type FeatureFlags, type FeatureName, featureEnabled } from "../lib/features.ts";
 import type { Component } from "../lib/protocol.ts";
-import { type Access, SIGNIN_LABELS, type Signin } from "../lib/signin.ts";
+import { type Access, identityLabel, SIGNIN_LABELS, type Signin } from "../lib/signin.ts";
 import { defaultStorage, readStored } from "../lib/storage.ts";
 import { useBackToClose } from "../state/use-back-to-close.ts";
 import type { SessionApi } from "../state/use-session.ts";
@@ -328,7 +328,7 @@ function AboutSection({
   components?: Component[];
 }) {
   const rows: [string, ReactNode][] = [
-    ["Signed in as", user?.email ?? "—"],
+    ["Signed in as", identityLabel(user?.email ?? null) ?? "—"],
     ["Sign-in", SIGNIN_LABELS[signin]],
     ["lettuce", version ?? "—"],
   ];

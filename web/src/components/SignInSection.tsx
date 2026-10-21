@@ -1,6 +1,6 @@
 import { type FormEvent, useState } from "react";
 import { errorMessage } from "../lib/errors.ts";
-import { changePassword, SIGNIN_LABELS, type Signin } from "../lib/signin.ts";
+import { changePassword, identityLabel, SIGNIN_LABELS, type Signin } from "../lib/signin.ts";
 import { toast } from "./Toast.tsx";
 
 interface Props {
@@ -21,7 +21,8 @@ interface Props {
  */
 export function SignInSection({ signin, email, passwordUpdatedAt }: Props) {
   const rows: [string, string][] = [["Sign-in", SIGNIN_LABELS[signin]]];
-  if (email) rows.push(["Signed in as", email]);
+  const who = identityLabel(email);
+  if (who) rows.push(["Signed in as", who]);
   if (signin === "password" && passwordUpdatedAt) {
     rows.push(["Password set", passwordUpdatedAt.slice(0, 10)]);
   }
