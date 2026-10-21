@@ -68,7 +68,7 @@ function chromiumExecutable(): string | undefined {
  * A password field on the page is how `SIGNIN=password` shows up here.
  */
 async function signIn(page: Page): Promise<void> {
-  await page.goto(`${ORIGIN}/auth/login`, { waitUntil: "networkidle" });
+  await page.goto(ORIGIN, { waitUntil: "networkidle" });
   if (await page.locator('input[type="password"]').first().count()) {
     const password = process.env.UI_CHECK_PASSWORD;
     if (!password) {
@@ -76,7 +76,9 @@ async function signIn(page: Page): Promise<void> {
     }
     await page.locator('input[type="password"]').first().fill(password);
     await page.getByRole("button", { name: /sign in/i }).click();
-    await page.waitForLoadState("networkidle");
+    // The success path is a reload of the whole app, so wait for the app itself
+    // rather than for the load event, which fires on the sign-in page.
+    await page.waitForSelector(".app", { timeout: 20_000 });
   }
 }
 
@@ -940,11 +942,14 @@ try {
       "Models",
       ...(featureOn(features, "web") ? ["Web"] : []),
       "MCP",
-      ...(featureOn(features, "google") ? ["Google"] : []),
+      ...(featureOn(features, "google") ? ["Workspace"] : []),
       ...(featureOn(features, "codex") ? ["Codex"] : []),
       ...(featureOn(features, "claude") ? ["Claude"] : []),
       ...(featureOn(features, "pi") ? ["Remote Pi"] : []),
       "Skills",
+      // Deployment: the two halves of what used to be one mode, reported read-only.
+      "Access",
+      "Sign-in",
       "Push",
       "About",
     ];
@@ -1325,11 +1330,13 @@ try {
       "Providers & models",
       ...(featureOn(desktopFeatures, "web") ? ["Web search"] : []),
       "MCP servers",
-      ...(featureOn(desktopFeatures, "google") ? ["Google"] : []),
+      ...(featureOn(desktopFeatures, "google") ? ["Google Workspace"] : []),
       ...(featureOn(desktopFeatures, "codex") ? ["Codex workers"] : []),
       ...(featureOn(desktopFeatures, "claude") ? ["Claude Code workers"] : []),
       ...(featureOn(desktopFeatures, "pi") ? ["Remote Pi"] : []),
       "Global skills",
+      "Access",
+      "Sign-in",
       "Notifications",
       "About",
     ];
@@ -2184,8 +2191,8 @@ try {
     await page.goto(`${ORIGIN}/?settings=google`, { waitUntil: "networkidle" });
     await page.locator(".settings-screen").waitFor({ timeout: 10_000 });
     check(
-      "?settings=google opens Settings on Google",
-      (await page.locator(".settings-content-title").innerText()) === "Google",
+      "?settings=google opens Settings on Google Workspace",
+      (await page.locator(".settings-content-title").innerText()) === "Google Workspace",
     );
     check("the param is stripped", !page.url().includes("settings="), page.url());
     await page.close();
