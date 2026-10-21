@@ -54,36 +54,27 @@ export function AccessSection({ access, signin, hostBind, publicOrigin, componen
       </ul>
 
       {access === "cloudflared" ? (
-        <p className="section-note">
+        <p className="section-copy">
           Only the tunnel reaches this instance — a direct address will not answer. Who gets in is{" "}
           <strong>{SIGNIN_LABELS[signin]}</strong>.
         </p>
-      ) : openToNetwork === false ? (
-        <p className="section-note">
-          The port listens on this machine only. Sign-in is <strong>{SIGNIN_LABELS[signin]}</strong>
-          .
-        </p>
       ) : openToNetwork === true ? (
-        <>
-          <p className="warning section-note">
-            The port listens on <code>{hostBind}</code>, so anyone on this network can reach it.
-            Sign-in is <strong>{SIGNIN_LABELS[signin]}</strong> — the only thing between them and
-            this agent.
-          </p>
-          <p className="muted small">
-            To close it: <code>BFF_BIND=127.0.0.1</code>, or tunnel it with
-            <code>ACCESS=cloudflared</code>.
-          </p>
-        </>
+        <p className="warning">
+          The port listens on <code>{hostBind}</code>, so anyone on this network can reach it, and
+          sign-in is <strong>{SIGNIN_LABELS[signin]}</strong> — the only thing between them and this
+          agent. To close it, set <code>BFF_BIND=127.0.0.1</code> or put the tunnel in front with{" "}
+          <code>ACCESS=cloudflared</code>.
+        </p>
       ) : (
-        <p className="section-note">
-          Sign-in is <strong>{SIGNIN_LABELS[signin]}</strong>.
+        <p className="section-copy">
+          {openToNetwork === false ? "The port listens on this machine only. " : ""}Sign-in is{" "}
+          <strong>{SIGNIN_LABELS[signin]}</strong>.
         </p>
       )}
 
-      <p className="muted small">
-        Read from <code>docker/.env</code> — <code>ACCESS</code> and <code>BFF_BIND</code> — so a
-        change needs a redeploy, not a click here.
+      <p className="section-copy">
+        Read from <code>docker/.env</code>: <code>ACCESS</code> picks the route and{" "}
+        <code>BFF_BIND</code> the interface, so a change needs a redeploy, not a click here.
       </p>
     </>
   );

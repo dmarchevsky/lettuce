@@ -2262,7 +2262,8 @@ p.warning.dismissible > .icon-button {
 .sheet-body p.warning {
   margin-inline: 0;
 }
-p.warning code {
+p.warning code,
+.section-copy code {
   background: rgba(0, 0, 0, 0.28);
   padding: 1px 5px;
   border-radius: var(--radius);
@@ -2984,6 +2985,14 @@ p.warning code {
   margin: 18px 12px 6px;
   font-size: 12px;
   font-weight: 600;
+  color: var(--muted);
+}
+/* The prose that explains a settings section, as opposed to the heading
+   `.section-note` is. The rows and the banners are inset 12px and this was
+   neither its size nor its inset, which is what made a section read as clutter. */
+.section-copy {
+  margin: 10px 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .row.static {

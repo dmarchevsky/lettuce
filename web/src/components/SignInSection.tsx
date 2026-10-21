@@ -42,24 +42,24 @@ export function SignInSection({ signin, email, passwordUpdatedAt }: Props) {
         <>
           <p className="section-note">Change password</p>
           <ChangePasswordForm />
-          <p className="muted small">
+          <p className="section-copy">
             Five wrong attempts pause sign-in for a minute, doubling to fifteen. A lost password is
             reset on the server — there is no recovery from here.
           </p>
         </>
       ) : signin === "google" ? (
-        <p className="section-note">
+        <p className="section-copy">
           The client and the <code>ALLOWED_USERS</code> allowlist live in <code>docker/.env</code>:
           adding someone means adding their address there and redeploying.
         </p>
       ) : signin === "cf-access" ? (
-        <p className="section-note">
+        <p className="section-copy">
           Cloudflare Access decides who gets in before a request reaches this instance, and{" "}
           <code>ALLOWED_USERS</code> is the second gate behind it. Signing out here does not sign
           you out of Access.
         </p>
       ) : (
-        <p className="warning section-note">
+        <p className="warning">
           Nobody is asked to sign in — whoever reaches this address is the owner. The BFF boots this
           way only while the port listens on this machine; see Access.
         </p>

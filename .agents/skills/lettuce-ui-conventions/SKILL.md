@@ -49,4 +49,9 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   `.chip-check.on` for a chip box, which is what `ui-check` counts (`input[type=checkbox]` must be
   0 anywhere in the DOM). The Agent tab's chip list is exactly
   `General/Secrets/Reflection/Skills` since Tools moved out, and `GlobalSettings`'s
-  `SHARED_NOTE` has to name **both** per-agent tabs.
+  `SHARED_NOTE` has to name **both** per-agent tabs. Inside a settings section body
+  `.section-note` is a **heading** (12px bold, like "Change password") and the prose that
+  explains the rows is `.section-copy` — their inset and size, with the banner's code chip —
+  so a section is rows, one statement, one provenance line; a `p.warning` that also carries a
+  `.section-note` renders the banner's text at heading weight, which is what made a section
+  read as clutter.
