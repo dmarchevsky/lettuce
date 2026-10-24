@@ -214,6 +214,7 @@ $LETTA_STATE_DIR/
   letta-home/     settings, global skills, CLI logins
   letta-data/     conversations and agent memory
   workspaces/     the directories agents work in
+  tools/          the tools agents install
 ```
 
 Back that one directory up and you have everything.

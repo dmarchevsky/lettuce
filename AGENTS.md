@@ -53,7 +53,8 @@ narratives in `docs/upstream-notes.md`, pointed at as `docs/upstream-notes.md#<a
 **The upstream clone is dev tooling, not a build input.** Nothing in `letta-code/` is compiled into any
 image and nothing outside `lettuce/` is in any build context: the channel-gateway runs upstream's
 published `letta/letta:<version>` as-is; the app-server runs a thin image built `FROM` it that only
-adds the coding CLIs and our shims (`lettuce-coding-workers`); the UI consumes
+adds the coding CLIs and our shims (`lettuce-coding-workers`) and the env that keeps agent-installed
+tools in `tools/` (`lettuce-runtime-and-ops`); the UI consumes
 `@letta-ai/letta-code` from npm. The checkout exists so `sync-upstream.sh` can diff it and so you can
 read source the npm package does not ship. A prod host needs only `git` and `docker`. There is no fork
 of upstream: the zero-delta rule means one could hold nothing upstream lacks.
@@ -136,6 +137,7 @@ $LETTA_STATE_DIR/
   letta-home/     -> /root/.letta   settings.json, mcp-home/ (shared MCP list), global skills
   letta-data/     -> /data          conversations + agent memory (memfs git repos)
   workspaces/     -> /work          agent working directories
+  tools/          -> /opt/agent-tools  what agents install (npm -g, cargo, go, uv), via image ENV
 ```
 
 It defaults to `../..` relative to the compose file, which is **a trap in a worktree** — `../..` from
@@ -196,7 +198,7 @@ working in that area.
 | `bff/src/agents/tool-access.ts`, the policy mod, the Tools tab, `bff/src/pi/agent-settings.ts` | `lettuce-per-agent-tool-access` |
 | `ACCESS`/`SIGNIN`, `bff/src/auth/`, the password store, Settings → Access / Sign-in | `lettuce-access-and-signin` |
 | `web/src/lib/messages.ts`, question/approval cards, `turn-errors.ts`, `turn-usage.ts`, `push/turn-watcher.ts` | `lettuce-transcript-and-streaming` |
-| LLM timeout env, agent app ports, failing subagent spawns | `lettuce-runtime-and-ops` |
+| LLM timeout env, agent app ports, failing subagent spawns, the agent-tools ENV in `docker/codex/Dockerfile` | `lettuce-runtime-and-ops` |
 | Memory tab, `persona.md`, "the system prompt did not update" | `lettuce-memory-and-system-prompt` |
 | `AgentMenu`, the sidebar agent list, pin/archive lists, Settings vs Agent tab layout | `lettuce-ui-conventions` |
 | Any `web/` UI change: mockups before implementing, visual pass after | `lettuce-ui-verification` |

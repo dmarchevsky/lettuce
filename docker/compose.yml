@@ -28,11 +28,11 @@
 # ── Durable state lives under one host root ──────────────────────────────────
 # LETTA_STATE_DIR anchors every bind mount. Relative values resolve against
 # this file's directory, and the `../..` default reproduces the original dev
-# layout exactly (workspaces/ alongside the two repos). Prod sets an absolute
-# path (e.g. /srv/letta) so the mounts cannot wander into whatever directory a
-# compose manager happens to clone the stack into. Docker creates missing bind
-# sources as root, which is correct here — the app-server runs as uid 0 — so a
-# first boot on a clean host needs no mkdir.
+# layout exactly (workspaces/ and tools/ alongside the two repos). Prod sets an
+# absolute path (e.g. /srv/letta) so the mounts cannot wander into whatever
+# directory a compose manager happens to clone the stack into. Docker creates
+# missing bind sources as root, which is correct here — the app-server runs as
+# uid 0 — so a first boot on a clean host needs no mkdir.
 #
 # ── Why every service shares one network namespace ───────────────────────────
 # The app-server refuses to listen on a non-loopback address without
@@ -102,7 +102,7 @@ services:
         CODING_FEATURES: ${COMPOSE_PROFILES:-}
     # Tagged by release, not by pins: what is inside is what the tag's commit
     # built, and /opt/lettuce/features plus Settings → About report the CLIs.
-    image: ${LETTA_IMAGE_NS:-}lettuce-app-server:${LETTA_IMAGE_TAG:-v0.20.2-letta_0.34.21}
+    image: ${LETTA_IMAGE_NS:-}lettuce-app-server:${LETTA_IMAGE_TAG:-v0.21.0-letta_0.34.21}
     # An init process as PID 1, so exited orphans are reaped. Without it PID 1
     # is `node … letta server`, which waits only on children it spawned: every
     # process an agent shell backgrounds (`&`, nohup, servers) and outlives is
@@ -230,6 +230,11 @@ services:
       - ${LETTA_STATE_DIR:-../..}/letta-home:/root/.letta
       - ${LETTA_STATE_DIR:-../..}/letta-data:/data
       - ${LETTA_STATE_DIR:-../..}/workspaces:/work
+      # What agents install (npm -g, cargo, go, uv, downloaded binaries). The
+      # image points each package manager here and appends its bin dirs to
+      # PATH (docker/codex/Dockerfile), because /usr/local and /root/.local are
+      # container-layer storage that a recreate wipes. Shared by every agent.
+      - ${LETTA_STATE_DIR:-../..}/tools:/opt/agent-tools
     extra_hosts:
       - "host.docker.internal:host-gateway"
     # The UI port is published here because the BFF shares this namespace.
@@ -273,7 +278,7 @@ services:
       # and `bun run build:bff` passes it from the host checkout.
       args:
         GIT_SHA: ${GIT_SHA:-}
-    image: ${LETTA_IMAGE_NS:-}lettuce-bff:${LETTA_IMAGE_TAG:-v0.20.2-letta_0.34.21}
+    image: ${LETTA_IMAGE_NS:-}lettuce-bff:${LETTA_IMAGE_TAG:-v0.21.0-letta_0.34.21}
     depends_on:
       app-server:
         condition: service_healthy
@@ -491,7 +496,7 @@ services:
       context: searxng
       args:
         SEARXNG_VERSION: ${SEARXNG_VERSION:-2026.10.23-629368e40}
-    image: ${LETTA_IMAGE_NS:-}lettuce-searxng:${LETTA_IMAGE_TAG:-v0.20.2-letta_0.34.21}
+    image: ${LETTA_IMAGE_NS:-}lettuce-searxng:${LETTA_IMAGE_TAG:-v0.21.0-letta_0.34.21}
     environment:
       TZ: ${TZ:-America/Los_Angeles}
     restart: unless-stopped
@@ -508,7 +513,7 @@ services:
       context: ddg-mcp
       args:
         DDG_MCP_VERSION: ${DDG_MCP_VERSION:-0.7.0}
-    image: ${LETTA_IMAGE_NS:-}lettuce-ddg-mcp:${LETTA_IMAGE_TAG:-v0.20.2-letta_0.34.21}
+    image: ${LETTA_IMAGE_NS:-}lettuce-ddg-mcp:${LETTA_IMAGE_TAG:-v0.21.0-letta_0.34.21}
     environment:
       TZ: ${TZ:-America/Los_Angeles}
       DDG_REGION: ${DDG_REGION:-us-en}
@@ -539,7 +544,7 @@ services:
       context: google-mcp
       args:
         WORKSPACE_MCP_VERSION: ${WORKSPACE_MCP_VERSION:-2.1.0}
-    image: ${LETTA_IMAGE_NS:-}lettuce-google-mcp:${LETTA_IMAGE_TAG:-v0.20.2-letta_0.34.21}
+    image: ${LETTA_IMAGE_NS:-}lettuce-google-mcp:${LETTA_IMAGE_TAG:-v0.21.0-letta_0.34.21}
     environment:
       TZ: ${TZ:-America/Los_Angeles}
     volumes:

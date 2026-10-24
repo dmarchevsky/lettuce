@@ -1,6 +1,7 @@
 # The app-server image: upstream's letta/letta, unmodified, plus optionally the
 # Codex and Claude Code CLIs that letta-code's external coding workers run, and
-# always the GitHub CLI its `WatchPR` tool shells out to. Build context is this
+# always the GitHub CLI its `WatchPR` tool shells out to, and the variables that
+# send what agents install to /opt/agent-tools (the end). Build context is this
 # directory only (see compose.yml), so nothing else from the repo — least of
 # all docker/.env — ever reaches the daemon.
 #
@@ -69,9 +70,8 @@ COPY claude-shim-core.mjs claude-shim.mjs /opt/claude-shim/
 RUN chmod 755 /opt/claude-shim/claude-shim.mjs \
     && ln -s /opt/claude-shim/claude-shim.mjs /usr/local/bin/claude
 
-# GitHub CLI for WatchPR (letta-code 0.33.3+ runs `gh api …`). The base image
-# has no apt, gzip or git, so this is the release tarball, checked against the
-# release's own checksum list and gunzipped with node's zlib.
+# GitHub CLI for WatchPR (letta-code 0.33.3+ runs `gh api …`). The release
+# tarball, checked against the release's own checksum list.
 ARG GH_VERSION
 ARG TARGETARCH
 RUN set -eu; \
@@ -80,10 +80,58 @@ RUN set -eu; \
     cd /tmp; \
     curl -fsSLO "$base/$asset"; \
     curl -fsSL "$base/gh_${GH_VERSION}_checksums.txt" | grep " $asset\$" | sha256sum -c -; \
-    node -e 'process.stdin.pipe(require("zlib").createGunzip()).pipe(process.stdout)' < "$asset" \
-      | tar -x -C /tmp; \
+    tar -xzf "$asset" -C /tmp; \
     install -m 755 "/tmp/gh_${GH_VERSION}_linux_${TARGETARCH}/bin/gh" /usr/local/bin/gh; \
     rm -rf /tmp/gh_*; \
     v="$(gh --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"; \
     test -n "$v"; \
     printf 'gh %s\n' "$v" >> /opt/lettuce/features
+
+# Where the tools agents install go: /opt/agent-tools, the `tools/` bind mount
+# under LETTA_STATE_DIR (see compose.yml), so they survive a recreate. Each
+# package manager's own variable points there, so `npm i -g`, `go install`,
+# `uv tool install` and cargo-binstall land in it without the agent having to
+# remember; the installing-tools agent skill covers what no variable can
+# (downloaded binaries, the go toolchain, prebuilt Rust tools because there is
+# no C linker, no apt, cron jobs).
+# Only what is worth keeping goes on the mount: tools, uv's Pythons and the Go
+# toolchain. Caches (uv's ~/.cache/uv, Go's module cache under the default
+# GOPATH /root/go, npm's ~/.npm) stay in the container layer, so a backup of
+# LETTA_STATE_DIR does not carry gigabytes it can download again. uv copies
+# instead of hardlinking because cache and targets are on different filesystems.
+# Appended to PATH, never prepended: an agent's `npm i -g @letta-ai/letta-code`
+# or `npm i -g npm` must not shadow the pinned `letta` the container starts, or
+# the `codex`/`claude` shims. In ENV, not compose, so `docker exec` shells, every
+# child process, and anything else run from this image get them too.
+# Login shells are the exception: Debian's /etc/profile resets PATH for root, and
+# letta-code's exec_command tool and the coding workers run `bash -lc`. The
+# profile.d script appends AGENT_TOOLS_PATH again; the other variables survive a
+# login shell untouched.
+# uv only ever uses its own Pythons (only-managed), kept in the folder: a tool
+# environment built on the image's /usr/bin/python3 would break the day the base
+# image moves to a new Python.
+RUN printf '%s\n' \
+      '# Login shells reset PATH (/etc/profile); add the agent-tools dirs back. See docker/codex/Dockerfile.' \
+      'case ":$PATH:" in *":$AGENT_TOOLS_PATH:"*) ;; *) [ -n "$AGENT_TOOLS_PATH" ] && PATH="$PATH:$AGENT_TOOLS_PATH" ;; esac' \
+      > /etc/profile.d/agent-tools.sh
+ENV AGENT_TOOLS_PATH=/opt/agent-tools/bin:/opt/agent-tools/cargo/bin:/opt/agent-tools/go/bin \
+    NPM_CONFIG_PREFIX=/opt/agent-tools \
+    CARGO_HOME=/opt/agent-tools/cargo \
+    GOBIN=/opt/agent-tools/bin \
+    UV_TOOL_DIR=/opt/agent-tools/uv/tools \
+    UV_TOOL_BIN_DIR=/opt/agent-tools/bin \
+    UV_PYTHON_INSTALL_DIR=/opt/agent-tools/uv/python \
+    UV_PYTHON_BIN_DIR=/opt/agent-tools/bin \
+    UV_PYTHON_PREFERENCE=only-managed \
+    UV_LINK_MODE=copy
+ENV PATH="${PATH}:${AGENT_TOOLS_PATH}"
+
+# A cron job starts with almost no environment, so the installing-tools skill
+# has cron lines run their script through agent-env, which loads what PID 1 was
+# started with. Checked here, where the build step is PID 1 and holds this ENV:
+# a broken agent-env fails the build instead of every agent's cron job.
+COPY agent-env /usr/local/bin/agent-env
+RUN chmod 755 /usr/local/bin/agent-env \
+    && env -i PATH=/usr/bin:/bin /usr/local/bin/agent-env sh -c \
+      'command -v node >/dev/null && test "$NPM_CONFIG_PREFIX" = /opt/agent-tools \
+       && case ":$PATH:" in *":/opt/agent-tools/bin:"*) ;; *) exit 1 ;; esac'

@@ -112,6 +112,30 @@ jobs:
           fi
           echo "readyz after $((i * 5))s (upper bound)"
 
+      # The agent-tools ENV (docker/codex/Dockerfile) holds only if /opt/agent-tools
+      # is the mount, its folders stay LAST on PATH, a login shell gets them back
+      # (`bash -lc` is what exec_command and the coding workers run), and npm -g
+      # lands on the mount. A cron job starts from cron's near-empty environment,
+      # so agent-env must hand it the container's own, compose's variables
+      # included. tests/agent-tools.test.ts checks the files offline; this checks
+      # the running container.
+      - name: Agent tools on PATH
+        run: |
+          docker compose -f docker/compose.yml exec -T app-server bash -lc '
+            set -e
+            mountpoint -q /opt/agent-tools || { echo "::error::/opt/agent-tools is not a mount"; exit 1; }
+            test -n "$AGENT_TOOLS_PATH"
+            case ":$PATH:" in *":$AGENT_TOOLS_PATH:") ;; *) echo "::error::agent tools not last on PATH: $PATH"; exit 1 ;; esac
+            test "$(command -v letta)" = /usr/local/bin/letta
+            test "$(npm prefix -g)" = /opt/agent-tools'
+          docker compose -f docker/compose.yml exec -T app-server \
+            env -i PATH=/usr/bin:/bin /usr/local/bin/agent-env sh -c '
+            set -e
+            command -v node >/dev/null
+            case ":$PATH:" in *":/opt/agent-tools/bin:"*) ;; *) echo "::error::cron job lacks agent tools: $PATH"; exit 1 ;; esac
+            test "$(npm prefix -g)" = /opt/agent-tools
+            test -n "$TZ" && test -n "$GH_CONFIG_DIR"'
+
       # ui-check drives the real UI, and the real UI is about agents: the switcher,
       # the composer, the Settings tabs reached through a selected agent. A CI stack
       # has an empty state dir, so it has no agent — the first run proved it out by

@@ -24,7 +24,7 @@ it, and the full deployment walkthroughs. The engineering guide
 |---|---|
 | `PUBLIC_ORIGIN` | The origin people actually open the app on. Not cosmetic: the session cookie's `Secure` flag, the CSP's websocket allowance and the Google OAuth redirect are all derived from it. A trailing `/` is stripped. |
 | `SESSION_SECRET` | Signs the session cookie (HMAC-SHA256 over `{email, exp}`). Generate with `openssl rand -hex 32`. |
-| `LETTA_STATE_DIR` | Absolute path anchoring `letta-home/`, `letta-data/` and `workspaces/`. |
+| `LETTA_STATE_DIR` | Absolute path anchoring `letta-home/`, `letta-data/`, `workspaces/` and `tools/`. |
 
 `SESSION_SECRET` is checked at boot and the BFF **refuses to start** if it is
 shorter than 32 characters, one character repeated, or a short pattern tiled
@@ -402,6 +402,35 @@ Agents can run small web apps inside the app-server container. Only ports
 Changing either recreates `app-server`: run
 `docker compose -f docker/compose.yml up -d` unscoped.
 
+## Tools agents install
+
+A recreate starts `app-server` from its image again, so anything an agent
+installed into the container itself (`/usr/local`, `~/.local`) is gone. The
+image points the package managers at `/opt/agent-tools` instead, the `tools/`
+directory under `LETTA_STATE_DIR`, so `npm install -g`, `go install`,
+`uv tool install` and Rust's `cargo-binstall` survive a recreate. Caches stay
+in the container, so a backup of the state directory holds only the tools.
+The bundled `installing-tools` skill tells agents the rest: downloaded binaries
+are checked against the release's sha256 and go in `/opt/agent-tools/bin`, Go
+installs into the same folder, Python goes through uv (with its own Python,
+downloaded into the folder on first use), and Rust tools come prebuilt because
+the image has no C linker. Its bin directories come last on `PATH`, so nothing
+installed there replaces a command the image ships.
+
+Every agent shares the folder, and whatever lands there runs for all of them
+and survives every update, so look at `$LETTA_STATE_DIR/tools/bin` now and
+then. `apt-get install` still does not survive: it writes to system
+directories. A tool that stops working after an upgrade (a new Node.js or base
+image) needs reinstalling. A recreate no longer resets what agents installed;
+to start clean, stop the stack and delete the folder as root (Docker creates
+it, and the app-server writes it, as root): `sudo rm -rf "$LETTA_STATE_DIR/tools"`.
+
+Plain commands an agent schedules with cron survive too. Each job is one file
+in `letta-home/system-cron/`, which the container copies into `/etc/cron.d` at
+every start, and runs its script through `/usr/local/bin/agent-env`, which
+gives it the container's environment. Work that needs the agent itself is its
+own scheduled turn instead, not a cron job.
+
 ## Telegram
 
 Needs the `telegram` profile. There are no environment variables for it —
@@ -469,6 +498,7 @@ $LETTA_STATE_DIR/
   letta-home/     settings, global skills, CLI logins
   letta-data/     conversations and agent memory
   workspaces/     the directories agents work in
+  tools/          the tools agents install
 ```
 
 The default is `../..` relative to `docker/compose.yml`, which is a trap:
