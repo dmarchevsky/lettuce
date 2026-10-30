@@ -61,6 +61,8 @@ export interface GoogleSettings {
   effective: GooglePermissions;
   serving: boolean;
   needsReconnect: boolean;
+  /** Addresses and `@domain`s Gmail may send to and Calendar may invite; empty: anyone. */
+  allowedRecipients: string[];
 }
 
 export interface GoogleStatus {
@@ -77,6 +79,7 @@ export interface GoogleSettingsUpdate {
   /** Absent keeps the stored secret, "" clears it. */
   clientSecret?: string;
   permissions?: Partial<GooglePermissions>;
+  allowedRecipients?: string[];
 }
 
 export interface GoogleResult {
@@ -126,6 +129,22 @@ export function shortScope(scope: string): string {
 export function levelLabel(service: GoogleService, level: string | null): string {
   if (level === null) return "Off";
   return GOOGLE_LEVELS[service].find((entry) => entry.level === level)?.label ?? level;
+}
+
+/** Whether these levels let an agent reach an address: send mail, or invite to an event. */
+export function reachesAddresses(permissions: GooglePermissions): boolean {
+  return (
+    permissions.gmail === "send" || permissions.gmail === "full" || permissions.calendar === "full"
+  );
+}
+
+/** The allowed-recipients textarea as the list the BFF stores (it validates the entries). */
+export function recipientLines(text: string): string[] {
+  const lines = text
+    .split("\n")
+    .map((line) => line.trim().toLowerCase())
+    .filter((line) => line !== "");
+  return [...new Set(lines)];
 }
 
 /**

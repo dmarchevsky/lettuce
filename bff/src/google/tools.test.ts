@@ -85,6 +85,7 @@ describe("curated Google tools against workspace-mcp 2.1.0", () => {
           attendees: ["x@y.z"],
         },
         { action: "delete", event_id: "e1" },
+        { action: "update", event_id: "e1", summary: "s", notify_attendees: false },
       ],
       tasks_list: [{}, { lists: true }],
       tasks_update: [
@@ -219,6 +220,18 @@ describe("googleHandlers", () => {
     );
     expect((await handlers.get("gmail_read")?.({}))?.isError).toBe(true);
     expect(calls).toEqual([]);
+  });
+
+  test("calendar_event notifies attendees unless told not to", () => {
+    const curated = CURATED_GOOGLE_TOOLS.find((tool) => tool.spec.name === "calendar_event");
+    const build = (args: Record<string, unknown>) => {
+      const call = curated?.build({ action: "delete", event_id: "e1", ...args });
+      if (!call || typeof call === "string") throw new Error(String(call));
+      return call.arguments;
+    };
+    expect(build({}).send_updates).toBeUndefined();
+    expect(build({ notify_attendees: true }).send_updates).toBe("all");
+    expect(build({ notify_attendees: false }).send_updates).toBe("none");
   });
 });
 

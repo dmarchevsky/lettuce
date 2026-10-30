@@ -281,7 +281,7 @@ export const CURATED_GOOGLE_TOOLS: readonly CuratedGoogleTool[] = [
   {
     spec: {
       name: "calendar_event",
-      description: `Create, update or delete a Google Calendar event. Adding attendees emails them an invitation. Times are ${TIME}. The user may be asked to approve the change.`,
+      description: `Create, update or delete a Google Calendar event. Adding attendees emails them an invitation; the user may limit whom agents can invite or notify, and a refusal says how to retry. Times are ${TIME}. The user may be asked to approve the change.`,
       parameters: {
         type: "object",
         properties: {
@@ -301,6 +301,10 @@ export const CURATED_GOOGLE_TOOLS: readonly CuratedGoogleTool[] = [
             description: "Email addresses to invite.",
           },
           calendar_id: { type: "string", description: 'Default "primary".' },
+          notify_attendees: {
+            type: "boolean",
+            description: "Email the attendees about this change (default true).",
+          },
         },
         required: ["action"],
         additionalProperties: false,
@@ -334,6 +338,13 @@ export const CURATED_GOOGLE_TOOLS: readonly CuratedGoogleTool[] = [
           location: str(args, "location"),
           attendees: emails(args.attendees),
           calendar_id: str(args, "calendar_id") ?? "primary",
+          // Unset keeps workspace-mcp's own default ("all").
+          send_updates:
+            typeof args.notify_attendees === "boolean"
+              ? args.notify_attendees
+                ? "all"
+                : "none"
+              : undefined,
         }),
       };
     },

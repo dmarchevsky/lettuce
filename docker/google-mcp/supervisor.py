@@ -9,7 +9,9 @@ widens or narrows what agents can do in Google is decided here, at launch:
   * a clean environment, so no inherited WORKSPACE_MCP_* variable can add to
     it (workspace-mcp reads env fallbacks for its mode flags);
   * the one tool that starts an OAuth consent, removed — the BFF owns consent;
-  * server-side file paths refused, or an agent could attach /creds to a mail.
+  * server-side file paths refused, or an agent could attach /creds to a mail;
+  * the allowed recipients list, enforced inside workspace-mcp by
+    recipient_guard.py (launch.py installs it before the server starts).
 
 The file is polled; any change restarts the server with the new arguments. When
 it says disabled (or is missing, or unreadable) nothing listens at all.
@@ -23,6 +25,7 @@ import sys
 import time
 
 POLICY = "/policy/sidecar.json"
+LAUNCHER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "launch.py")
 POLL_SECONDS = 2
 # Tools that start or alter authentication. workspace-mcp would otherwise let
 # any agent generate a consent link and send it to the user.
@@ -54,17 +57,23 @@ def read_policy():
         return None
     if not raw.get("clientId") or not raw.get("clientSecret"):
         return None
+    # Absent means none set; anything else malformed serves nothing, like the rest.
+    allowed = raw.get("allowedRecipients", [])
+    if not isinstance(allowed, list) or not all(isinstance(entry, str) for entry in allowed):
+        return None
     return {
         "email": email,
         "permissions": permissions,
         "clientId": str(raw["clientId"]),
         "clientSecret": str(raw["clientSecret"]),
+        "allowedRecipients": allowed,
     }
 
 
 def command_for(policy):
     return [
-        "workspace-mcp",
+        sys.executable,
+        LAUNCHER,
         "--transport", "streamable-http",
         "--single-user",
         "--permissions", *policy["permissions"],
@@ -84,6 +93,7 @@ def environment_for(policy):
         "GOOGLE_OAUTH_CLIENT_ID": policy["clientId"],
         "GOOGLE_OAUTH_CLIENT_SECRET": policy["clientSecret"],
         "USER_GOOGLE_EMAIL": policy["email"],
+        "LETTUCE_ALLOWED_RECIPIENTS": json.dumps(policy["allowedRecipients"]),
     }
     return env
 

@@ -83,7 +83,7 @@ aggregate is what keeps a PR from waiting forever on a job a path filter skipped
 | `lint-and-types`, `test`, `build` | `biome`, typecheck (the protocol-drift detector), `bun test`, the SPA build |
 | `hygiene` | `check-version-pin`, `check-docs`, `check-prod-info`, and `check-release-hygiene --pr` fed with the PR's labels and title |
 | `compose-config` | `docker compose config` bare and with every profile token |
-| `image` | builds `docker/bff.Dockerfile` twice with a layer cache and pushes nothing: once stamped (asserts the image names this commit) and once from an export with **no `.git`** (asserts it succeeds and stamps `+unknown`) |
+| `image` | builds `docker/bff.Dockerfile` twice with a layer cache and pushes nothing: once stamped (asserts the image names this commit) and once from an export with **no `.git`** (asserts it succeeds and stamps `+unknown`); then builds `google-mcp` through compose, whose Dockerfile runs the recipient-guard tests against the pinned workspace-mcp |
 | `actionlint` | the workflows themselves, from the pinned image |
 | `secrets-scan` | gitleaks, **required** since 2026-10-24 (it was `continue-on-error` while a live `SESSION_SECRET` rode a green `ci`); the committed test fake is allowlisted in `.gitleaks.toml` |
 
