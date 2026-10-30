@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type Ref } from "react";
+import { type Ref, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { agentActivity } from "../lib/activity.ts";
 import { groupByDate, listDate, visibleConversations } from "../lib/conversation-groups.ts";
 import type { AgentsApi, ConversationSummary } from "../state/use-agents.ts";

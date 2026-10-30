@@ -30,8 +30,8 @@ import { type FeatureFlags, featureEnabled } from "./lib/features.ts";
 import { userHistory } from "./lib/input-history.ts";
 import { type FilterGroup, filterEntries, toggleShown } from "./lib/messages.ts";
 import { readRunsDeepLink } from "./lib/pi.ts";
-import { agentBlockHeight } from "./lib/rail-size.ts";
 import { type Component, type RuntimeScope, scopeKey } from "./lib/protocol.ts";
+import { agentBlockHeight } from "./lib/rail-size.ts";
 import type { LinkState } from "./lib/session-client.ts";
 import { readSettingsDeepLink } from "./lib/settings-link.ts";
 import type { Access, Signin } from "./lib/signin.ts";
@@ -370,6 +370,7 @@ function Workspace({ status }: { status: Status }) {
     });
   };
   // A height change can leave a stale scrollTop misaligning the pair: both start over.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: agentBlock is the trigger, not a read — the effect resets the scroll boxes themselves.
   useEffect(() => {
     if (railBlockRef.current) railBlockRef.current.scrollTop = 0;
     if (panelBlockRef.current) panelBlockRef.current.scrollTop = 0;

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type Ref } from "react";
+import { type Ref, useEffect, useRef, useState } from "react";
 import type { Tab } from "../lib/tabs.ts";
 import type { AgentSummary, AgentsApi } from "../state/use-agents.ts";
 import { AgentAvatar } from "./AgentAvatar.tsx";
@@ -190,8 +190,9 @@ export function NavRail({
       </button>
 
       {/* The divider between the panes and the agents: fixed, not draggable, and
-          the same hairline row as the panel's agent block (`lib/rail-size`). */}
-      <hr className="rail-split" aria-hidden="true" />
+          the same hairline row as the panel's agent block (`lib/rail-size`). A div,
+          not an hr: a separator with no semantics to announce and no drag to do. */}
+      <div className="rail-split" aria-hidden="true" />
 
       <div
         ref={blockRef}

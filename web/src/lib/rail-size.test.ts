@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { RAIL_ROW_PITCH, agentBlockHeight, agentBlockMax } from "./rail-size.ts";
+import { agentBlockHeight, agentBlockMax, RAIL_ROW_PITCH } from "./rail-size.ts";
 
 describe("agentBlockMax", () => {
   test("leaves the band, the panes and the conversations' room standing", () => {

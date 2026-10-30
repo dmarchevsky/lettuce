@@ -24,10 +24,7 @@ const BLOCK_FOOT = 4;
 
 /** The tallest the agent block can be in a window this tall — never below one row. */
 export function agentBlockMax(viewportHeight: number): number {
-  return Math.max(
-    RAIL_ROW_PITCH,
-    viewportHeight - BAND_H - PANES_TOP - CONVERSATIONS_MIN_ROOM,
-  );
+  return Math.max(RAIL_ROW_PITCH, viewportHeight - BAND_H - PANES_TOP - CONVERSATIONS_MIN_ROOM);
 }
 
 /**
