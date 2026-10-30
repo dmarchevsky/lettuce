@@ -262,7 +262,7 @@ async function openSwitcher(page: Page): Promise<void> {
 }
 
 async function openSettings(page: Page): Promise<void> {
-  const foot = page.locator('.rail .rail-foot button:text-is("Settings")');
+  const foot = page.locator('.rail .rail-item:text-is("Settings")');
   if ((await foot.count()) > 0 && (await foot.first().isVisible())) {
     await foot.first().click();
     return;
@@ -1286,18 +1286,20 @@ try {
       !(await page.locator(".topbar .where-avatar").isVisible()),
     );
     check(
-      "the rail lists every agent as an avatar, plus a cell for the switcher",
+      "the rail lists every agent as an avatar, plus cells for the switcher and a new agent",
       (await page.locator(".rail .rail-agent[data-agent-id]").count()) >= 1 &&
-        (await page.locator(".rail .rail-all").count()) === 1,
+        (await page.locator(".rail .rail-all").count()) === 1 &&
+        (await page.locator(".rail .rail-new").count()) === 1,
     );
     check(
       "the rail has no agent rows of its own any more",
       (await page.locator(".rail .agent-row").count()) === 0,
     );
     check(
-      "the conversation panel is only conversations, apart from the head",
-      (await page.locator(".sidebar .agent-avatar").count()) === 1 &&
-        (await page.locator(".sidebar .conversation-row").count()) >= 1,
+      "the panel carries conversations on top and names-only agents at the bottom",
+      (await page.locator(".sidebar .agent-avatar").count()) === 0 &&
+        (await page.locator(".sidebar .conversation-row").count()) >= 1 &&
+        (await page.locator(".sidebar .panel-agent").count()) >= 2,
     );
     // An initial is a riddle once two agents share a first letter, so the rail spells
     // the names out under the faces.
@@ -1309,15 +1311,16 @@ try {
       railNames.length >= 1 && railNames.every((name) => name.trim().length > 0),
       railNames,
     );
-    // And the glance that lands on the panel head says which agent a click acts on.
-    const headName = (await page.locator(".sidebar .panel-head .section-label").innerText()).trim();
+    // The agent block under the divider names the list the way the rail's faces
+    // own it: one name beside one face, per agent.
+    const panelActive = (await page.locator(".sidebar .panel-agent.active").first().innerText()).trim();
     const railActive = (
       await page.locator(".rail .rail-agent.active .rail-agent-name").first().innerText()
     ).trim();
     check(
-      "the panel head names the agent whose list it is",
-      headName.length > 0 && headName === railActive,
-      { headName, railActive },
+      "the panel's active name is the rail's active agent",
+      panelActive.length > 0 && panelActive === railActive,
+      { panelActive, railActive },
     );
     const bars = await page.evaluate(() => {
       const left = (sel: string) =>
@@ -1495,11 +1498,9 @@ try {
       await page.waitForTimeout(400);
       await otherAgent.hover();
       await page.waitForTimeout(700);
-      const borrowed = (
-        await page.locator(".sidebar .panel-head .section-label").innerText()
-      ).trim();
+      const borrowed = (await page.locator(".sidebar .panel-agent.preview").innerText()).trim();
       check(
-        "hovering another agent opens the same panel with their conversations",
+        "hovering another agent marks its row and opens its conversations",
         (await panelOn()) && borrowed === otherName,
         { borrowed, otherName },
       );
@@ -1576,60 +1577,72 @@ try {
       console.log("  SKIP  the borrowed panel needs a second agent");
     }
 
-    // The divider between the avatars and the panes is the one place the rail
-    // resizes: how many agents fit is nobody's guess but the person who has them.
-    const split = page.locator(".rail-split");
-    const splitBox = await split.boundingBox();
-    const blockH = () =>
-      page.locator(".rail-agents").evaluate((el) => Math.round(el.getBoundingClientRect().height));
-    const blockBefore = await blockH();
-    const dragSplit = async (dy: number) => {
-      const box = await split.boundingBox();
-      if (!box) return;
-      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + dy, { steps: 8 });
-      await page.mouse.up();
-      await page.waitForTimeout(200);
-    };
-    await dragSplit(90);
-    const blockBigger = await blockH();
-    check("dragging the divider down shows more agent room", blockBigger >= blockBefore + 80, {
-      blockBefore,
-      blockBigger,
-    });
-    await page.reload({ waitUntil: "networkidle" });
-    await page.waitForTimeout(1500);
-    check(
-      "and the rail remembers it across a reload",
-      Math.abs((await blockH()) - blockBigger) <= 2,
-      { blockBigger, blockReloaded: await blockH() },
-    );
-    // And the other way: shrink it below the agents and the block scrolls inside
-    // the rail instead of pushing the panes off the bottom.
-    await dragSplit(-600);
-    const shrunk = await page.evaluate(() => {
-      const el = document.querySelector(".rail-agents");
-      if (!el) return null;
+    // The divider is computed, not dragged: one hairline row shared across rail and
+    // panel, the two agent blocks one height, both flush under the band.
+    const seam = await page.evaluate(() => {
+      const rect = (sel: string) => {
+        const el = document.querySelector(sel);
+        return el ? el.getBoundingClientRect() : null;
+      };
+      const band = rect(".band");
+      const split = rect(".rail-split");
+      const railBlock = rect(".rail-agents");
+      const panelBlock = rect(".panel-agents");
+      const firstPane = rect(".rail .rail-item");
+      if (!band || !split || !railBlock || !panelBlock || !firstPane) return null;
       return {
-        height: Math.round(el.getBoundingClientRect().height),
-        scrolls: el.scrollHeight > el.clientHeight + 1,
+        bandBottom: Math.round(band.bottom),
+        bandRight: Math.round(band.right),
+        splitTop: Math.round(split.top),
+        panelTop: Math.round(panelBlock.top),
+        railH: Math.round(railBlock.height),
+        panelH: Math.round(panelBlock.height),
+        firstPaneTop: Math.round(firstPane.top),
+        window: window.innerWidth,
       };
     });
     check(
-      "dragging it up shows fewer agents, and the rest scroll inside",
-      shrunk !== null && shrunk.height <= blockBefore - 80 && shrunk.scrolls,
-      shrunk,
+      "rail and panel share one divider row",
+      seam !== null && Math.abs(seam.splitTop - seam.panelTop) <= 1,
+      seam,
     );
-    // Keyboard parity: the same drag is an arrow key away, and Home forgets it.
-    await page.locator(".rail-split").focus();
-    await page.keyboard.press("ArrowDown");
-    await page.keyboard.press("Home");
-    const blockHome = await blockH();
-    check("Home forgets the size", Math.abs(blockHome - blockBefore) <= 2, {
-      blockBefore,
-      blockHome,
-    });
+    check("the two agent blocks carry the same height", seam !== null && seam.railH === seam.panelH, seam);
+    check(
+      "the band spans the whole window",
+      seam !== null && seam.bandRight >= seam.window - 1,
+      seam,
+    );
+    check(
+      "the rail sits flush under the band",
+      seam !== null && seam.firstPaneTop - seam.bandBottom <= 2,
+      seam,
+    );
+    check(
+      "the panel's agent block mirrors the rail's list",
+      (await page.locator(".sidebar .panel-agent").count()) ===
+        (await page.locator(".rail .rail-agent[data-agent-id]").count()) + 2,
+    );
+
+    // The band's identity is the panel verb on desktop: it never opens the sheet.
+    await page.locator(".sidebar .panel-pin").click(); // unpin: the toggle has to show
+    await page.waitForTimeout(300);
+    await page.locator(".messages").click({ position: { x: 40, y: 40 } });
+    await page.waitForTimeout(300);
+    check("the panel is away before the band opens it", !(await panelOn()));
+    await page.locator(".topbar .where").click();
+    await page.waitForTimeout(400);
+    check(
+      "clicking the identity opens the panel, never the sheet",
+      (await panelOn()) && (await page.locator(".switcher").count()) === 0,
+    );
+    await page.locator(".topbar .where").click();
+    await page.waitForTimeout(400);
+    check("and clicking it again puts the peek away", !(await panelOn()));
+    await page.locator(".rail .rail-item:text-is('Chat')").click();
+    await page.waitForTimeout(300);
+    await page.locator(".sidebar .panel-pin").click();
+    await page.waitForTimeout(300);
+    check("and the panel is pinned again for what follows", await panelOn());
 
     // Pinned agents are the first avatars, and say so with a notch — the order is
     // the whole point of pinning, and an unlabeled order is invisible.
