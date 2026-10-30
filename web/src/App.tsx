@@ -30,6 +30,7 @@ import { type FeatureFlags, featureEnabled } from "./lib/features.ts";
 import { userHistory } from "./lib/input-history.ts";
 import { type FilterGroup, filterEntries, toggleShown } from "./lib/messages.ts";
 import { readRunsDeepLink } from "./lib/pi.ts";
+import { agentBlockHeight } from "./lib/rail-size.ts";
 import { type Component, type RuntimeScope, scopeKey } from "./lib/protocol.ts";
 import type { LinkState } from "./lib/session-client.ts";
 import { readSettingsDeepLink } from "./lib/settings-link.ts";
@@ -332,6 +333,93 @@ function Workspace({ status }: { status: Status }) {
   /** The agents-and-conversations menu (phone); see `Switcher`. */
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const openSwitcher = useCallback(() => setSwitcherOpen(true), []);
+
+  /**
+   * The bottom agent blocks — the rail's and the panel's — are one row: one
+   * computed height from the same row count (visible agents plus the all and
+   * new cells, `lib/rail-size`), recomputed when the window changes. No drag,
+   * no storage: the divider is fixed.
+   */
+  const [viewportH, setViewportH] = useState(() =>
+    typeof window === "undefined" ? 900 : window.innerHeight,
+  );
+  useEffect(() => {
+    const onResize = () => setViewportH(window.innerHeight);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  const agentBlock = agentBlockHeight(
+    agents.agents.filter((agent) => !agents.archivedAgents.has(agent.id)).length + 2,
+    viewportH,
+  );
+  // The two blocks mirror each other's scroll when the window clamps them. The
+  // guard keeps the mirror from echoing: setting the other's scrollTop fires its
+  // scroll event, which would otherwise fire a copy straight back.
+  const railBlockRef = useRef<HTMLDivElement | null>(null);
+  const panelBlockRef = useRef<HTMLDivElement | null>(null);
+  const scrollMirror = useRef<"rail" | "panel" | null>(null);
+  const syncAgentScroll = (source: "rail" | "panel") => {
+    if (scrollMirror.current) return;
+    const from = source === "rail" ? railBlockRef.current : panelBlockRef.current;
+    const to = source === "rail" ? panelBlockRef.current : railBlockRef.current;
+    if (!from || !to || to.scrollTop === from.scrollTop) return;
+    scrollMirror.current = source;
+    to.scrollTop = from.scrollTop;
+    requestAnimationFrame(() => {
+      scrollMirror.current = null;
+    });
+  };
+  // A height change can leave a stale scrollTop misaligning the pair: both start over.
+  useEffect(() => {
+    if (railBlockRef.current) railBlockRef.current.scrollTop = 0;
+    if (panelBlockRef.current) panelBlockRef.current.scrollTop = 0;
+  }, [agentBlock]);
+  /**
+   * The band's identity is the panel verb on desktop — never the phone sheet:
+   * ensure the Chat pane and bring the panel (a pinned one simply stays), and
+   * clicking again closes a peek or borrow that is currently open.
+   */
+  const identityClick = useCallback(() => {
+    if (!wide) {
+      openSwitcher();
+      return;
+    }
+    if (tab === "Chat" && !panelPinned && (panelPeek || previewAgent !== null)) {
+      setPanelPeek(false);
+      setPreviewId(null);
+      return;
+    }
+    selectPane("Chat");
+  }, [wide, openSwitcher, tab, panelPinned, panelPeek, previewAgent, selectPane]);
+  /** New conversation for the agent a list is showing — the switcher's "with X". */
+  const newConversationWith = useCallback(
+    async (agentId: string) => {
+      if (!agentId) return;
+      setPreviewId(null);
+      if (agentId === agents.agentId) {
+        await agents.createConversation();
+        return;
+      }
+      agents.selectAgent(agentId);
+      const response = await session.request<{ conversation?: { id?: string } }>(
+        "conversation_create",
+        { body: { agent_id: agentId } },
+      );
+      await agents.refreshConversations(agentId);
+      const id = response?.conversation?.id;
+      if (typeof id === "string") agents.selectConversation(id);
+    },
+    [agents, session],
+  );
+  // A bottom-block row is the same "who" the rail's avatar is: the borrow ends,
+  // the agent switches if it must, and its list — with verbs — becomes the panel's own.
+  const pickPanelAgent = useCallback(
+    (agentId: string) => {
+      setPreviewId(null);
+      if (agentId !== agents.agentId) agents.selectAgent(agentId);
+    },
+    [agents],
+  );
   const closeGlobalSettings = useCallback(() => setGlobalSettings(null), []);
   const [showModels, setShowModels] = useState(false);
   /** The New agent sheet. Editing an agent is the Agent tab's General section. */
@@ -450,8 +538,94 @@ function Workspace({ status }: { status: Status }) {
     applyDocumentTitle(agentName);
   }, [agentName]);
 
+  /** The top bar, hoisted so one component serves both widths: a band across
+   * the whole desktop window, the old in-column topbar on a phone. */
+  const topbar = (
+    <header className={wide ? "topbar band" : "topbar"}>
+      {/* The agent's face, in the corner the eye starts at, opening the same
+              switcher its own name beside it does. Phone only: on desktop the rail
+              is a column of these, and one more in the header would be a duplicate.
+              It left the bottom bar because an agent you cannot see is an agent you
+              lose track of — the bar's letter-sized glyph never said which agent. */}
+      <button
+        type="button"
+        className="where-avatar"
+        onClick={openSwitcher}
+        aria-label={
+          agentResponding
+            ? `${agentName ?? "Agent"}: switch agent or conversation, responding`
+            : `${agentName ?? "Agent"}: switch agent or conversation`
+        }
+        title="Agents and conversations"
+      >
+        <AgentAvatar
+          agentId={agents.agentId ?? ""}
+          name={agentName ?? ""}
+          pref={agents.agentId ? agents.avatars[agents.agentId] : undefined}
+          className="where-avatar-face"
+          ariaHidden
+        >
+          {agentResponding ? <span className="activity-dot" /> : null}
+        </AgentAvatar>
+      </button>
+      {/* Where you are: the agent over the conversation. On a phone it is
+              also a way into the switcher from every tab, not just Chat. */}
+      <button
+        type="button"
+        className="where"
+        onClick={identityClick}
+        aria-label={
+          wide
+            ? `${agentName ?? "Agent"}: ${title}. ${
+                panelVisible && !panelPinned ? "Hide" : "Show"
+              } conversations`
+            : respondingElsewhere > 0
+              ? `${agentName ?? "Agent"}: ${title}. Switch — ${respondingElsewhere} responding elsewhere`
+              : `${agentName ?? "Agent"}: ${title}. Switch agent or conversation`
+        }
+        title={
+          wide
+            ? panelVisible && !panelPinned
+              ? "Hide conversations"
+              : "Show conversations"
+            : undefined
+        }
+      >
+        <span className="where-agent">
+          {agentName ?? "No agent"}
+          {respondingElsewhere > 0 ? <span className="activity-dot badge-dot" /> : null}
+        </span>
+        <h1 className="title">{title}</h1>
+        {/* The button has always opened the switcher; the chevron is what says
+                so now that nothing else in the top bar is a button at all. */}
+        <Icon name="chevron-down" className="where-caret" />
+      </button>
+      <ContextGauge
+        usage={conversation.turnUsage}
+        limit={contextLimit.limit}
+        accounting={contextSize.accounting}
+        onOpen={() => {
+          setContextOpen(true);
+          void contextLimit.refresh();
+          void contextSize.refresh();
+        }}
+      />
+      {unauthenticated ? <AuthPill email={status.user?.email} /> : null}
+      <LinkPill
+        link={session.link}
+        busy={respondingCount > 0}
+        count={respondingCount}
+        onOpen={() => setActivityOpen(true)}
+      />
+      {featureEnabled(status.features, "pi") ? (
+        <PiRunsChip active={piActive} onOpen={() => selectPane("Runs")} />
+      ) : null}
+    </header>
+  );
+
   return (
     <div className="app">
+      {wide ? topbar : null}
       <NavRail
         agents={agents}
         activeAgentIds={session.activeAgentIds}
@@ -464,6 +638,10 @@ function Workspace({ status }: { status: Status }) {
         onOpenSettings={() => setGlobalSettings({})}
         onOpenSwitcher={openSwitcher}
         onEditAgent={editAgent}
+        blockHeight={agentBlock}
+        blockRef={railBlockRef}
+        onBlockScroll={() => syncAgentScroll("rail")}
+        onNewAgent={() => setCreatingAgent(true)}
       />
       <Sidebar
         agents={agents}
@@ -484,78 +662,19 @@ function Workspace({ status }: { status: Status }) {
         }
         onPreviewPick={previewPick}
         onHold={holdPanel}
+        blockHeight={agentBlock}
+        blockRef={panelBlockRef}
+        onBlockScroll={() => syncAgentScroll("panel")}
+        onOpenSwitcher={openSwitcher}
+        onNewAgent={() => setCreatingAgent(true)}
+        onNewConversation={newConversationWith}
+        onPickAgent={pickPanelAgent}
       />
 
       <div className="main">
-        <header className="topbar">
-          {/* The agent's face, in the corner the eye starts at, opening the same
-              switcher its own name beside it does. Phone only: on desktop the rail
-              is a column of these, and one more in the header would be a duplicate.
-              It left the bottom bar because an agent you cannot see is an agent you
-              lose track of — the bar's letter-sized glyph never said which agent. */}
-          <button
-            type="button"
-            className="where-avatar"
-            onClick={openSwitcher}
-            aria-label={
-              agentResponding
-                ? `${agentName ?? "Agent"}: switch agent or conversation, responding`
-                : `${agentName ?? "Agent"}: switch agent or conversation`
-            }
-            title="Agents and conversations"
-          >
-            <AgentAvatar
-              agentId={agents.agentId ?? ""}
-              name={agentName ?? ""}
-              pref={agents.agentId ? agents.avatars[agents.agentId] : undefined}
-              className="where-avatar-face"
-              ariaHidden
-            >
-              {agentResponding ? <span className="activity-dot" /> : null}
-            </AgentAvatar>
-          </button>
-          {/* Where you are: the agent over the conversation. On a phone it is
-              also a way into the switcher from every tab, not just Chat. */}
-          <button
-            type="button"
-            className="where"
-            onClick={openSwitcher}
-            aria-label={
-              respondingElsewhere > 0
-                ? `${agentName ?? "Agent"}: ${title}. Switch — ${respondingElsewhere} responding elsewhere`
-                : `${agentName ?? "Agent"}: ${title}. Switch agent or conversation`
-            }
-          >
-            <span className="where-agent">
-              {agentName ?? "No agent"}
-              {respondingElsewhere > 0 ? <span className="activity-dot badge-dot" /> : null}
-            </span>
-            <h1 className="title">{title}</h1>
-            {/* The button has always opened the switcher; the chevron is what says
-                so now that nothing else in the top bar is a button at all. */}
-            <Icon name="chevron-down" className="where-caret" />
-          </button>
-          <ContextGauge
-            usage={conversation.turnUsage}
-            limit={contextLimit.limit}
-            accounting={contextSize.accounting}
-            onOpen={() => {
-              setContextOpen(true);
-              void contextLimit.refresh();
-              void contextSize.refresh();
-            }}
-          />
-          {unauthenticated ? <AuthPill email={status.user?.email} /> : null}
-          <LinkPill
-            link={session.link}
-            busy={respondingCount > 0}
-            count={respondingCount}
-            onOpen={() => setActivityOpen(true)}
-          />
-          {featureEnabled(status.features, "pi") ? (
-            <PiRunsChip active={piActive} onOpen={() => selectPane("Runs")} />
-          ) : null}
-        </header>
+        {/* On desktop the top bar is hoisted into the grid's band above every
+            column; the phone keeps it inside .main, exactly where it was. */}
+        {wide ? null : topbar}
 
         {/* A BFF error no request claimed (a rate limit, a command the browser
             allowlist refused) is an event, not a state: it is a toast now, so it
