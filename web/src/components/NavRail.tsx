@@ -1,12 +1,4 @@
-import { useEffect, useRef, useState } from "react";
-import {
-  AGENT_BLOCK_MIN,
-  agentBlockMax,
-  clampAgentBlock,
-  clearAgentBlock,
-  readAgentBlock,
-  writeAgentBlock,
-} from "../lib/rail-size.ts";
+import { useEffect, useRef, useState, type Ref } from "react";
 import type { Tab } from "../lib/tabs.ts";
 import type { AgentSummary, AgentsApi } from "../state/use-agents.ts";
 import { AgentAvatar } from "./AgentAvatar.tsx";
@@ -33,6 +25,17 @@ interface Props {
   onOpenSettings: () => void;
   onOpenSwitcher: () => void;
   onEditAgent: (agentId: string) => void;
+  /**
+   * The height of the bottom agent block, shared with the conversation panel's
+   * own bottom block (`lib/rail-size`): one row count, one divider row across
+   * both columns. App computes it and hands it to both.
+   */
+  blockHeight: number;
+  /** This block's scroll element — App mirrors its scrollTop with the panel's. */
+  blockRef: Ref<HTMLDivElement>;
+  onBlockScroll: () => void;
+  /** The `new` cell: the same New-agent editor the switcher opens. */
+  onNewAgent: () => void;
 }
 
 /** The panes the rail offers, in order. `Runs` is inserted only when enabled. */
@@ -51,12 +54,13 @@ function paneItems(runsEnabled: boolean): { tab: Tab; label: string; icon: IconN
 }
 
 /**
- * The desktop rail: the agents, then the panes, then the two settings verbs.
+ * The desktop rail: the panes on top, the agents anchored at the bottom.
  *
- * It replaces the old top tab strip and the sidebar's agent list, which is why
- * one column answers "which agent" and "which pane" and the panel beside it only
- * ever shows conversations. Chat is primary in the literal sense: it is the
- * default pane, the only one with a composer, and the only one with a panel.
+ * One column answers "which pane" and "which agent", and it shares its bottom
+ * row with the conversation panel beside it: the fixed divider above the agents
+ * is one hairline across both columns, at the height `lib/rail-size` computes.
+ * Chat is primary in the literal sense: it is the default pane, the only one with
+ * a composer, and the only one with a panel.
  */
 export function NavRail({
   agents,
@@ -70,72 +74,14 @@ export function NavRail({
   onOpenSettings,
   onOpenSwitcher,
   onEditAgent,
+  blockHeight,
+  blockRef,
+  onBlockScroll,
+  onNewAgent,
 }: Props) {
   const [menu, setMenu] = useState<{ agent: AgentSummary; anchor: DOMRect } | null>(null);
   const [deleting, setDeleting] = useState<AgentSummary | null>(null);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // How tall the agent block is: dragged by the divider between it and the panes,
-  // and kept in this browser (`lib/rail-size.ts`). null is the stylesheet default.
-  const blockRef = useRef<HTMLDivElement>(null);
-  const [blockPx, setBlockPx] = useState<number | null>(() => readAgentBlock());
-  const [dragging, setDragging] = useState(false);
-  const livePx = useRef<number | null>(blockPx);
-
-  /** The height the block is drawn at, never more than the window can show. Dragged
-   * as a height rather than a cap: dragging a cap whose content already fits moves
-   * nothing on screen, so the one gesture that is supposed to answer immediately
-   * would be silent until you had enough agents to notice. */
-  const blockHeight = blockPx === null ? null : clampAgentBlock(blockPx, window.innerHeight);
-
-  /**
-   * One drag: the block grows by however far the pointer went down, clamped so the
-   * panes and the footer can never be crowded out. Pointer capture would be the
-   * tidy form, but the pointer leaves the 9px grip the moment it moves, so the
-   * window owns the move and the up.
-   */
-  const startDrag = (event: React.PointerEvent) => {
-    const el = blockRef.current;
-    if (!el || event.button !== 0) return;
-    event.preventDefault();
-    const startH = el.getBoundingClientRect().height;
-    const startY = event.clientY;
-    setDragging(true);
-    const move = (moveEvent: PointerEvent) => {
-      const next = clampAgentBlock(startH + (moveEvent.clientY - startY), window.innerHeight);
-      livePx.current = next;
-      setBlockPx(next);
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      setDragging(false);
-      if (livePx.current !== null) writeAgentBlock(livePx.current);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  };
-
-  /** The keyboard's version of the same drag, for anyone not holding a mouse. */
-  const nudgeBlock = (event: React.KeyboardEvent) => {
-    const step = event.shiftKey ? 120 : 40;
-    const current = blockRef.current?.getBoundingClientRect().height ?? 0;
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      const next = clampAgentBlock(
-        current + (event.key === "ArrowDown" ? step : -step),
-        window.innerHeight,
-      );
-      livePx.current = next;
-      setBlockPx(next);
-      writeAgentBlock(next);
-    } else if (event.key === "Home") {
-      event.preventDefault();
-      livePx.current = null;
-      setBlockPx(null);
-      clearAgentBlock();
-    }
-  };
 
   // A hover is a *deliberate* rest, not a sweep of the pointer down the rail: 120ms
   // is the point where passing through stops opening the panel. What it opens is the
@@ -188,7 +134,8 @@ export function NavRail({
     [],
   );
   // A menu hanging from an avatar moves with it, so anything that moves the avatar —
-  // the window resizing — closes it rather than leaving it floating in the old place.
+  // the window resizing, the shared block height changing — closes it rather than
+  // leaving it floating in the old place.
   useEffect(() => {
     if (!menu) return;
     const close = () => setMenu(null);
@@ -218,16 +165,42 @@ export function NavRail({
   const panes = paneItems(runsEnabled);
 
   return (
-    <nav className={`rail${dragging ? " dragging" : ""}`} aria-label="Agents and sections">
+    <nav className="rail" aria-label="Sections and agents">
+      {panes.map((pane) => (
+        <button
+          key={pane.tab}
+          type="button"
+          className={`rail-item${tab === pane.tab ? " active" : ""}`}
+          aria-current={tab === pane.tab ? "page" : undefined}
+          onClick={() => onSelectPane(pane.tab)}
+        >
+          <Icon name={pane.icon} />
+          {pane.label}
+        </button>
+      ))}
+
+      <button
+        type="button"
+        className="rail-item"
+        onClick={onOpenSettings}
+        title="Settings for every agent"
+      >
+        <Icon name="settings" />
+        Settings
+      </button>
+
+      {/* The divider between the panes and the agents: fixed, not draggable, and
+          the same hairline row as the panel's agent block (`lib/rail-size`). */}
+      <hr className="rail-split" aria-hidden="true" />
+
       <div
         ref={blockRef}
         className="rail-agents"
-        style={
-          blockHeight === null
-            ? undefined
-            : { height: `${blockHeight}px`, maxHeight: `${blockHeight}px` }
-        }
-        onScroll={() => setMenu(null)}
+        style={{ height: `${blockHeight}px`, maxHeight: `${blockHeight}px` }}
+        onScroll={() => {
+          setMenu(null);
+          onBlockScroll();
+        }}
       >
         {visible.map((agent) => (
           <button
@@ -273,45 +246,15 @@ export function NavRail({
           <Icon name="more" />
           <span className="rail-agent-name">all</span>
         </button>
-      </div>
-
-      {/* The one draggable seam in the app: the avatars are the only block whose
-          right size depends on how many agents a person has. */}
-      <hr
-        className={`rail-split${dragging ? " dragging" : ""}`}
-        aria-orientation="horizontal"
-        aria-label="Agent list height"
-        aria-valuenow={blockHeight === null ? undefined : blockHeight}
-        aria-valuemin={AGENT_BLOCK_MIN}
-        aria-valuemax={agentBlockMax(window.innerHeight)}
-        tabIndex={0}
-        title="Drag to show more or fewer agents"
-        onPointerDown={startDrag}
-        onKeyDown={nudgeBlock}
-      />
-
-      {panes.map((pane) => (
-        <button
-          key={pane.tab}
-          type="button"
-          className={`rail-item${tab === pane.tab ? " active" : ""}`}
-          aria-current={tab === pane.tab ? "page" : undefined}
-          onClick={() => onSelectPane(pane.tab)}
-        >
-          <Icon name={pane.icon} />
-          {pane.label}
-        </button>
-      ))}
-
-      <div className="rail-foot">
         <button
           type="button"
-          className="rail-item"
-          onClick={onOpenSettings}
-          title="Settings for every agent"
+          className="rail-agent rail-new"
+          onClick={onNewAgent}
+          title="New agent"
+          aria-label="New agent"
         >
-          <Icon name="settings" />
-          Settings
+          <Icon name="plus" />
+          <span className="rail-agent-name">new</span>
         </button>
       </div>
 
