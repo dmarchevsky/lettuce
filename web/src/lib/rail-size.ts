@@ -1,54 +1,42 @@
 /**
- * How tall the rail's agent block is — the one part of the rail a person sizes.
+ * The shared geometry of the two bottom-anchored agent blocks — the rail's and
+ * the conversation panel's — which are one row: the fixed divider between the
+ * panes and the agents sits at the same computed height in both columns, so the
+ * hairlines land on a single pixel row across the seam.
  *
- * The rail itself is a fixed 74px column, but how many agents fit before the
- * block scrolls is nobody's guess but the person with the agents, so the divider
- * between the avatars and the panes drags it. Stored in pixels, the same reason
- * the panel's pin is: it is this browser's layout, not the conversation's, and
- * the app-server has no idea what window it is in.
+ * There used to be a localStorage here and a draggable divider. The divider is
+ * fixed now, so the height is *computed*, never stored — and a stale stored key
+ * an old build left behind is simply never read again.
  */
 
-const KEY = "lettuc…ckPx";
-/** One avatar and its breathing room: below this the block is a slot, not a list. */
-export const AGENT_BLOCK_MIN = 46;
-/** The pane items, the separator and the footer: what the block can never crowd out. */
-const PANE_ROOM = 330;
+/** One avatar cell inside the pitch: below this the block is a slot, not a list. */
+export const RAIL_CELL_HEIGHT = 52;
+/** One row and its breathing room: 52px cell + 4px gap. Both blocks use it. */
+export const RAIL_ROW_PITCH = 56;
+/** The header band every column hangs under (`--topbar-h`). */
+const BAND_H = 52;
+/** The pane items (Chat…Agent, Settings) with their gaps: what the block can never crowd out. */
+const PANES_TOP = 320;
+/** Tool row + search + a group + two rows + the archived link: the conversations' floor. */
+const CONVERSATIONS_MIN_ROOM = 260;
+/** The `+ 4` bottom breathing room on a block that fits entirely. */
+const BLOCK_FOOT = 4;
 
-/** The tallest the agent block can be in a window this tall. */
+/** The tallest the agent block can be in a window this tall — never below one row. */
 export function agentBlockMax(viewportHeight: number): number {
-  return Math.max(AGENT_BLOCK_MIN, viewportHeight - PANE_ROOM);
+  return Math.max(
+    RAIL_ROW_PITCH,
+    viewportHeight - BAND_H - PANES_TOP - CONVERSATIONS_MIN_ROOM,
+  );
 }
 
-/** Keeps a dragged or stored height inside what the window can show. */
-export function clampAgentBlock(px: number, viewportHeight: number): number {
-  return Math.min(Math.max(px, AGENT_BLOCK_MIN), agentBlockMax(viewportHeight));
-}
-
-/** `null` means never dragged: the stylesheet's own default holds. */
-export function readAgentBlock(): number | null {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return null;
-    const px = Number(raw);
-    return Number.isFinite(px) ? px : null;
-  } catch {
-    return null;
-  }
-}
-
-export function writeAgentBlock(px: number): void {
-  try {
-    localStorage.setItem(KEY, String(Math.round(px)));
-  } catch {
-    // A private mode that refuses storage is not worth failing a drag over.
-  }
-}
-
-/** Home: back to the stylesheet's own default, which is what "never dragged" means. */
-export function clearAgentBlock(): void {
-  try {
-    localStorage.removeItem(KEY);
-  } catch {
-    // Same as above.
-  }
+/**
+ * The block height for `rows` rows — visible agents plus the "all" and "new"
+ * cells, the same count in both columns — capped by what the window can show
+ * above the conversations' minimum room. When the cap bites, both blocks
+ * scroll, in sync.
+ */
+export function agentBlockHeight(rows: number, viewportHeight: number): number {
+  const needed = RAIL_ROW_PITCH * Math.max(1, rows) + BLOCK_FOOT;
+  return Math.min(needed, agentBlockMax(viewportHeight));
 }
