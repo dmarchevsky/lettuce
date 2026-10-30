@@ -49,7 +49,6 @@ interface Props {
    * matching avatar and borrows that agent's conversations into the list above —
    * the mirror of a rail hover, and honored even while pinned. */
   onHoverAgent: (agentId: string | null) => void;
-  onOpenSwitcher: () => void;
   onNewAgent: () => void;
   /** New conversation for the agent the list is showing (switching first if borrowed). */
   onNewConversation: (agentId: string) => Promise<void>;
@@ -83,7 +82,6 @@ export function Sidebar({
   blockRef,
   onBlockScroll,
   onHoverAgent,
-  onOpenSwitcher,
   onNewAgent,
   onNewConversation,
   onPickAgent,
@@ -403,25 +401,20 @@ export function Sidebar({
             {agent.name}
           </button>
         ))}
-        <button
-          type="button"
-          className="panel-agent all"
-          onClick={onOpenSwitcher}
-          title="All agents: search, archived, new agent"
-          aria-label="All agents"
-        >
-          <Icon name="menu" /> All agents
-        </button>
-        <button
-          type="button"
-          className="panel-agent all"
-          onClick={onNewAgent}
-          title="New agent"
-          aria-label="New agent"
-        >
-          <Icon name="plus" /> New agent
-        </button>
       </div>
+
+      {/* Docked under the scrolling names, the counterpart of the rail's fixed
+          all cell across the seam: New-agent never scrolls out of reach. There
+          is no "all agents" row in the panel — this list IS all of them. */}
+      <button
+        type="button"
+        className="panel-new"
+        onClick={onNewAgent}
+        title="New agent"
+        aria-label="New agent"
+      >
+        <Icon name="plus" /> New agent
+      </button>
     </aside>
   );
 }

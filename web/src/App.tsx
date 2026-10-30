@@ -702,7 +702,6 @@ function Workspace({ status }: { status: Status }) {
         blockRef={panelBlockRef}
         onBlockScroll={() => syncAgentScroll("panel")}
         onHoverAgent={hoverPanelAgent}
-        onOpenSwitcher={openSwitcher}
         onNewAgent={() => setCreatingAgent(true)}
         onNewConversation={newConversationWith}
         onPickAgent={pickPanelAgent}

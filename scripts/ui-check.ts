@@ -249,14 +249,9 @@ async function openSkillsSection(page: Page): Promise<boolean> {
   return false;
 }
 
-/** Open the agents-and-conversations switcher at either width: the rail's "All
- * agents" cell on desktop, the header's agent face on a phone. */
+/** Open the agents-and-conversations switcher — phone only: on desktop the
+ * rail's all cell opens the conversation panel and the sheet is unreachable. */
 async function openSwitcher(page: Page): Promise<void> {
-  const cell = page.locator('.rail button[aria-label="All agents"]');
-  if (await cell.first().isVisible()) {
-    await cell.first().click();
-    return;
-  }
   await page.locator(".topbar .where-avatar").click();
   await page.locator(".switcher").waitFor();
 }
@@ -1300,7 +1295,7 @@ try {
       "the panel carries conversations on top and names-only agents at the bottom",
       (await page.locator(".sidebar .agent-avatar").count()) === 0 &&
         (await page.locator(".sidebar .conversation-row").count()) >= 1 &&
-        (await page.locator(".sidebar .panel-agent").count()) >= 2,
+        (await page.locator(".sidebar .panel-agent").count()) >= 1,
     );
     // The rail's face is the agent's one icon — no name under it. The name lives
     // in the panel's bottom block, the other half of the same selection control.
@@ -1645,10 +1640,32 @@ try {
       seam !== null && seam.firstPaneTop - seam.bandBottom <= 2,
       seam,
     );
+    // Faces and names are one list cut in half: same count, and each pair rides
+    // the same line — measured center to center, not trusted from pitch math.
+    const pairs = await page.evaluate(() => {
+      const centers = (sel: string) =>
+        [...document.querySelectorAll(sel)].map((el) => {
+          const r = el.getBoundingClientRect();
+          return Math.round(r.top + r.height / 2);
+        });
+      return {
+        rail: centers(".rail .rail-agents .rail-agent[data-agent-id]"),
+        panel: centers(".sidebar .panel-agents .panel-agent[data-agent-id]"),
+      };
+    });
     check(
-      "the panel's agent block mirrors the rail's list",
-      (await page.locator(".sidebar .panel-agent").count()) ===
-        (await page.locator(".rail .rail-agent[data-agent-id]").count()) + 2,
+      "every face rides the same line as its name",
+      pairs.rail.length >= 1 &&
+        pairs.rail.length === pairs.panel.length &&
+        pairs.rail.every((c, i) => Math.abs(c - pairs.panel[i]) <= 1),
+      pairs,
+    );
+    check(
+      "New agent docks the panel under its list, outside the scroll",
+      (await page.evaluate(() => {
+        const el = document.querySelector(".sidebar .panel-new");
+        return el ? el.getBoundingClientRect().bottom >= window.innerHeight - 12 : false;
+      })) && (await page.locator(".sidebar .panel-agents .panel-new").count()) === 0,
     );
 
     // The band's identity is the panel verb on desktop: it never opens the sheet.
@@ -3031,10 +3048,9 @@ try {
       "and the sheet closes on the pick",
       (await page.locator('.sheet-panel[aria-label="Model"]').count()) === 0,
     );
-    // Nested case: the model sheet over the New agent sheet.
-    await openSwitcher(page);
-    // Named by its own label, not an aria-label the switcher never had.
-    await page.getByRole("button", { name: "New agent", exact: true }).click();
+    // Nested case: the model sheet over the New agent sheet. The panel's docked
+    // New-agent row opens the editor directly — on desktop that is the only door.
+    await page.locator('.sidebar .panel-new[aria-label="New agent"]').click();
     await page.locator('.sheet-panel[aria-label="New agent"]').waitFor();
     await page.locator('.sheet-panel[aria-label="New agent"] .field-trigger').click();
     await sheet.waitFor({ timeout: 8_000 });

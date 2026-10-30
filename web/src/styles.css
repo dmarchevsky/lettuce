@@ -425,8 +425,31 @@ pre {
   background: var(--surface-2);
   box-shadow: inset 3px 0 0 var(--warn);
 }
-.panel-agent.all {
+/* Docked under the scrolling names — the panel's counterpart of the rail's
+   fixed all cell, same 62px box (2 + 52 + 8) so both columns' scroll regions
+   end on the same line. New-agent is a verb, not a row of the list. */
+.panel-new {
+  flex: none;
+  height: var(--rail-cell);
+  margin: 2px 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  border: none;
+  background: none;
   color: var(--muted);
+  font-size: 13px;
+  text-align: left;
+}
+.panel-new .icon {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+.panel-new:hover {
+  background: var(--surface-2);
+  color: var(--text);
 }
 .panel-pin .icon {
   width: 15px;
