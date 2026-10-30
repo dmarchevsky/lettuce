@@ -14,6 +14,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseCronFile } from "../bff/src/system-cron.ts";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const read = (path: string): string => readFileSync(join(ROOT, path), "utf8");
@@ -117,4 +118,30 @@ test("the skill's cron recipe calls the agent-env the image installs", () => {
   expect(agentEnv).toContain("/proc/1/environ");
   // Fails closed: a job run with no PATH would only log a stray "command not found".
   expect(agentEnv).toContain("no PATH in /proc/1/environ; refusing to run");
+});
+
+test("the skill's cron file names its agent, as the Tasks tab reads it", () => {
+  // The schedule's heredoc is quoted, so the owner line must be written outside it or
+  // `$LETTA_AGENT_ID` lands literally and the job shows under every agent. Run the
+  // recipe's own lines, placeholders filled, and parse what they write. The description
+  // is the agent's own words, so it gets an apostrophe: a quote that closes early leaves
+  // the file unwritten while the agent reports the job as set up.
+  const skill = read("docker/agent-skills/installing-tools/SKILL.md");
+  const recipe = /^ {3}\{ printf[\s\S]*?^ {3}\} > \/root\/\.letta\/system-cron\/<job>$/m.exec(
+    skill,
+  );
+  expect(recipe).not.toBeNull();
+  const script = recipe![0]
+    .replace(/^ {3}/gm, "")
+    .replace(/<what it does[^>\n]*>/, "Logs the user's free memory")
+    .replace(/<[^>\n]+>/g, "x")
+    .replace("> /root/.letta/system-cron/x", "");
+  const run = Bun.spawnSync(["bash", "-c", script], {
+    env: { PATH: process.env.PATH, LETTA_AGENT_ID: "agent-123" },
+  });
+  expect(run.exitCode).toBe(0);
+  const file = parseCronFile(run.stdout.toString());
+  expect(file.agentId).toBe("agent-123");
+  expect(file.description).toBe("Logs the user's free memory");
+  expect(file.entries).toHaveLength(1);
 });

@@ -130,13 +130,17 @@ Those directories are on `PATH`, **after** the system ones.
    <the commands, written exactly as in your own shell>
    EOF
    chmod +x /work/<dir>/<job>.sh
-   cat > /root/.letta/system-cron/<job> <<'EOF'
+   { printf '# agent: %s\n' "$LETTA_AGENT_ID"
+     printf '# description: %s\n' "<what it does, in one line>"
+     cat <<'EOF'
    0 7 * * * root /usr/local/bin/agent-env /work/<dir>/<job>.sh >> /work/<dir>/<job>.log 2>&1
    EOF
+   } > /root/.letta/system-cron/<job>
    install -m 0644 /root/.letta/system-cron/<job> /etc/cron.d/<job>   # starts it now
    ```
 
-   Tell the user where the log is; every agent can read it. To stop a job, delete **both**
+   Cron ignores the two comment lines; the user's task list reads them to show the job as yours,
+   so keep both. Tell the user where the log is; every agent can read it. To stop a job, delete **both**
    `/root/.letta/system-cron/<job>` and `/etc/cron.d/<job>`: the container copies the folder into
    `/etc/cron.d` at start and never deletes, so removing only the source leaves the job running
    until the next recreate.

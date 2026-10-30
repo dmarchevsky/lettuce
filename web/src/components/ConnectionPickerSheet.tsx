@@ -10,7 +10,9 @@ import {
   saveConnectionModels,
   saveProvider,
 } from "../lib/provider-registry.ts";
+import { matchesQuery } from "../lib/text-filter.ts";
 import { EndpointFields } from "./EndpointFields.tsx";
+import { FilterField } from "./FilterField.tsx";
 import { MenuRow } from "./MenuRow.tsx";
 import { Sheet } from "./Sheet.tsx";
 
@@ -126,8 +128,7 @@ export function ConnectionPickerSheet({
     }
   };
 
-  const needle = query.trim().toLowerCase();
-  const shown = (served ?? []).filter((id) => !needle || id.toLowerCase().includes(needle));
+  const shown = (served ?? []).filter((id) => matchesQuery(id, query));
   const label = target.type.label;
   const endpointNote = customEndpointNote(target.type, baseUrl);
   return (
@@ -183,15 +184,12 @@ export function ConnectionPickerSheet({
           ? "Models — loading…"
           : `Models — ${selected.length} of ${served.length} selected`}
       </p>
-      <label className="field">
-        Find a model
-        <input
-          value={query}
-          placeholder="Filter by name…"
-          spellCheck={false}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-      </label>
+      <FilterField
+        label="Find a model"
+        placeholder="Filter by name…"
+        value={query}
+        onChange={setQuery}
+      />
       {served !== null && served.length === 0 ? (
         <p className="muted small pad">The connection serves nothing yet — try Refresh.</p>
       ) : (

@@ -912,14 +912,21 @@ try {
         shortRows: [...document.querySelectorAll(".sheet-panel .menu-row")].filter(
           (row) => row.getBoundingClientRect().height < 44,
         ).length,
+        // The Model sheet's pinned filter box once reached into the body's side
+        // padding and gave it a horizontal scrollbar (only with >10 models).
+        wide: (() => {
+          const body = document.querySelector(".sheet-panel .sheet-body");
+          return body ? body.scrollWidth > body.clientWidth + 1 : false;
+        })(),
       }));
       check(
-        `"${label}" menu: header ✕, no footer, shared rows ≥44px`,
+        `"${label}" menu: header ✕, no footer, shared rows ≥44px, no sideways scroll`,
         shape.close === 1 &&
           shape.footer === 0 &&
           shape.oldRows === 0 &&
           shape.rows > 0 &&
-          shape.shortRows === 0,
+          shape.shortRows === 0 &&
+          !shape.wide,
         shape,
       );
       await page.locator(".sheet-panel .sheet-close").click();

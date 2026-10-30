@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { clearDraft, draftKey, readDraft, writeDraft } from "./draft.ts";
+import { appendToDraft, clearDraft, draftKey, readDraft, writeDraft } from "./draft.ts";
 
 /** A Storage stand-in; `bun:test` has no DOM localStorage to lean on. */
 function fakeStorage(seed: Record<string, string> = {}) {
@@ -108,5 +108,16 @@ describe("draft memory", () => {
   test("absent storage is not an error", () => {
     expect(readDraft("a::c", null)).toBe("");
     expect(() => writeDraft("a::c", "text", null)).not.toThrow();
+  });
+});
+
+describe("appendToDraft", () => {
+  test("an empty draft takes the text as it is", () => {
+    expect(appendToDraft("", "Change it: ")).toBe("Change it: ");
+    expect(appendToDraft("  \n", "Change it: ")).toBe("Change it: ");
+  });
+
+  test("a draft is kept, with the text after a blank line", () => {
+    expect(appendToDraft("half a thought\n", "Change it: ")).toBe("half a thought\n\nChange it: ");
   });
 });

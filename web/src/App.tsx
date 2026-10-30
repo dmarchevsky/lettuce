@@ -24,7 +24,7 @@ import { Switcher } from "./components/Switcher.tsx";
 import { ToastLayer, toast } from "./components/Toast.tsx";
 import type { PreparedImage } from "./lib/attachments.ts";
 import { applyDocumentTitle } from "./lib/document-title.ts";
-import { draftKey } from "./lib/draft.ts";
+import { appendToDraft, draftKey, readDraft } from "./lib/draft.ts";
 import { applyFavicon } from "./lib/favicon.ts";
 import { type FeatureFlags, featureEnabled } from "./lib/features.ts";
 import { userHistory } from "./lib/input-history.ts";
@@ -840,6 +840,14 @@ function Workspace({ status }: { status: Status }) {
             onStopMonitor={conversation.stopMonitor}
             onStopSubagent={conversation.stopSubagent}
             conversations={agents.conversations}
+            onAskAgent={(text) => {
+              // After any unsent text, not over it; the Composer remounts on Chat
+              // and takes the prefill over the draft it reloads.
+              const key = draftKey(agents.agentId, agents.conversationId);
+              setPrefill(appendToDraft(key ? readDraft(key) : "", text));
+              setTab("Chat");
+            }}
+            agentIds={agents.agents.map((agent) => agent.id)}
           />
         ) : tab === "Runs" ? (
           <RunsTab

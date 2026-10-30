@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { errorMessage } from "../lib/errors.ts";
+import { FilterField } from "./FilterField.tsx";
 import { Icon } from "./Icon.tsx";
 import { Sheet } from "./Sheet.tsx";
 import { toast } from "./Toast.tsx";
@@ -150,15 +151,12 @@ export function BranchSheet({ session, cwd, onClose }: Props) {
       ) : null}
       {status ? <p className="muted small">{status}</p> : null}
 
-      <label className="field">
-        Find a branch
-        <input
-          value={query}
-          placeholder="Filter by name…"
-          spellCheck={false}
-          onChange={(event) => onQuery(event.target.value)}
-        />
-      </label>
+      <FilterField
+        label="Find a branch"
+        placeholder="Filter by name…"
+        value={query}
+        onChange={onQuery}
+      />
 
       <ul className="picker">
         {branches.map((branch) => {

@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { errorMessage } from "../lib/errors.ts";
 import type { RuntimeScope } from "../lib/protocol.ts";
 import { groupByProvider } from "../lib/providers.ts";
+import { matchesQuery } from "../lib/text-filter.ts";
 import type { ToolsetSummary } from "../state/use-conversation.ts";
-import { type ModelsApi, useModels } from "../state/use-models.ts";
+import { type ModelEntry, type ModelsApi, useModels } from "../state/use-models.ts";
 import type { SessionApi } from "../state/use-session.ts";
+import { FilterField } from "./FilterField.tsx";
 import { Icon } from "./Icon.tsx";
 import { MenuRow } from "./MenuRow.tsx";
 import { Sheet } from "./Sheet.tsx";
@@ -19,6 +21,26 @@ interface Props {
   toolsetPreference: string | null;
   availableToolsets: ToolsetSummary[];
   onClose: () => void;
+}
+
+/** Past this many models the list gets a filter box; a llama.cpp box serves a handful. */
+const FILTER_MIN = 10;
+
+/**
+ * Each provider's models narrowed to the query, matched on label and handle, with
+ * the group's unfiltered size kept for its heading. A group left empty is dropped.
+ */
+export function filterGroups(
+  groups: readonly { provider: string; models: ModelEntry[] }[],
+  query: string,
+): { provider: string; models: ModelEntry[]; total: number }[] {
+  return groups
+    .map(({ provider, models }) => ({
+      provider,
+      models: models.filter((model) => matchesQuery(`${model.label} ${model.handle}`, query)),
+      total: models.length,
+    }))
+    .filter((group) => group.models.length > 0);
 }
 
 /**
@@ -47,8 +69,18 @@ export function ModelChoices({
   onPick: (handle: string | null) => void;
   disabled?: boolean;
 }) {
+  const [query, setQuery] = useState("");
   const list = models.models;
   const served = list.some((model) => model.handle === currentHandle);
+  // Counted on the whole list, so the box does not vanish as a query narrows it.
+  const filtering = list.length > FILTER_MIN;
+  // A Refresh that drops the list to a handful hides the box; its query goes
+  // with it, or it would come back pre-filled when the list grows again.
+  useEffect(() => {
+    if (!filtering) setQuery("");
+  }, [filtering]);
+  const searching = filtering && query.trim() !== "";
+  const groups = filterGroups(groupByProvider(list), filtering ? query : "");
   const notice =
     models.availability === "lookup-failed"
       ? "Could not reach the provider to check availability — showing the built-in list."
@@ -57,6 +89,14 @@ export function ModelChoices({
         : null;
   return (
     <>
+      {filtering ? (
+        <FilterField
+          placeholder="Filter models by name…"
+          value={query}
+          onChange={setQuery}
+          pinned
+        />
+      ) : null}
       {notice ? (
         <p className="warning small" role="status">
           {notice}
@@ -94,10 +134,14 @@ export function ModelChoices({
           />
         </ul>
       ) : null}
-      {groupByProvider(list).map(({ provider, models: group }) => (
+      {searching && groups.length === 0 ? (
+        <p className="muted">No model matches “{query.trim()}”.</p>
+      ) : null}
+      {groups.map(({ provider, models: group, total }) => (
         <section key={provider}>
           <p className="menu-section">
-            {provider} · {group.length} {group.length === 1 ? "model" : "models"}
+            {provider} · {searching ? `${group.length} of ` : ""}
+            {total} {total === 1 ? "model" : "models"}
           </p>
           <ul className="menu-list">
             {group.map((model) => (

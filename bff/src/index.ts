@@ -154,6 +154,7 @@ import { JsonUsageDisk, TurnUsageLog } from "./session/turn-usage.ts";
 import { drainActiveTurns } from "./shutdown.ts";
 import { hostSkillFs, upstreamSkillFs } from "./skills/fs.ts";
 import { InvalidSkillScopeError, SkillCatalog } from "./skills/service.ts";
+import { listSystemCron, withTopLevelOwners } from "./system-cron.ts";
 import { UpstreamConnection } from "./upstream/connection.ts";
 import { readUiVersion } from "./version.ts";
 import { ddgCaller } from "./web-tools/ddg.ts";
@@ -1286,6 +1287,21 @@ app.put("/api/agents/tool-access/:agentId", async (c) => {
     return c.json({ ...agentToolAccess.get(agentId), mods: mods ?? "failed" });
   }
   return c.json({ ...agentToolAccess.get(agentId), mods: "unchanged" });
+});
+
+// The Tasks tab's read-only cron jobs (`system-cron.ts`), every agent's: the tab
+// picks which to show. Read by the BFF itself, so the browser never names a path
+// outside the workspace.
+app.get("/api/system-cron", async (c) => {
+  if (!upstream.isReady()) return c.text("App-server is not connected", 503);
+  try {
+    const jobs = await withTopLevelOwners(await listSystemCron(codexIo), (id) =>
+      agentAncestry.chain(id),
+    );
+    return c.json({ timezone: process.env.TZ || "UTC", jobs });
+  } catch (error) {
+    return c.text(errorMessage(error), 502);
+  }
 });
 
 app.get("/api/skills", async (c) => {

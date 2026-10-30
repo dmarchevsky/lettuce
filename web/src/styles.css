@@ -2176,6 +2176,28 @@ button {
   font-size: 16px;
 }
 
+/* A filter box that heads a sheet stays put while its list scrolls under it:
+   the negative margin and matching padding take over the body's own top padding
+   (10px under a header, `.sheet-head ~ .sheet-body`), so its background starts
+   at the body's top edge and nothing shows through above it once the list
+   scrolls. Top only: the rows never reach the side padding.
+   `pinned` only on the first thing in a sheet body: lower down, the negative
+   margin would paint over the element above it. */
+.sheet-body > .filter-field.pinned {
+  position: sticky;
+  top: -10px;
+  z-index: 1;
+  background: var(--surface);
+  margin-top: -10px;
+  margin-bottom: 0;
+  padding: 10px 0;
+}
+/* ...and the sheet keeps its height while a query narrows the list, or the box
+   would move under the pointer with every letter typed. */
+.sheet-panel:has(> .sheet-body > .filter-field.pinned) .sheet-body {
+  height: 72vh;
+}
+
 /* Outside the scrolling body on purpose: an error the user has scrolled past
    reads as "nothing happened". */
 .sheet-status {
@@ -2804,6 +2826,13 @@ p.warning code,
   .sheet-panel.fill {
     height: min(88vh, 940px);
   }
+  /* A centred modal, so the panel holds the height rather than the body. */
+  .sheet-panel:has(> .sheet-body > .filter-field.pinned) {
+    height: min(88vh, 940px);
+  }
+  .sheet-panel:has(> .sheet-body > .filter-field.pinned) .sheet-body {
+    height: auto;
+  }
 }
 
 /* `fill` is about the CONTENT, not the size: a body that is one document to
@@ -3244,6 +3273,11 @@ p.warning code,
   display: flex;
   gap: 12px;
   margin-top: 6px;
+}
+/* A cron job's command is one long unbroken line of paths; it wraps anywhere
+   rather than pushing the pane sideways on a phone. */
+.cron-command {
+  overflow-wrap: anywhere;
 }
 .link.danger {
   color: var(--bad);

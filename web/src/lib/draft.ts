@@ -97,3 +97,12 @@ export function writeDraft(
 export function clearDraft(key: string, storage: MaybeStorage = defaultStorage()): void {
   writeDraft(key, "", storage);
 }
+
+/**
+ * Text a button puts in the composer, after whatever is already being typed there
+ * rather than over it: the draft is the user's, the addition is only a start.
+ */
+export function appendToDraft(draft: string, text: string): string {
+  const kept = draft.trimEnd();
+  return kept ? `${kept}\n\n${text}` : text;
+}

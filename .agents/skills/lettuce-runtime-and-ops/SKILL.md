@@ -60,7 +60,10 @@ Loaded from `AGENTS.md`. Timeouts, ports, and the two things that break spawns.
   PID 1 lacks. At every start the base image's entrypoint copies the files in
   `/root/.letta/system-cron/` into `/etc/cron.d` and never deletes one (stopping a job means
   removing both copies), and replaces root's crontab with `/root/.letta/system-crontab/root`,
-  else `crontab -r`, so `crontab -e` is cleared. That folder is where a cron job survives. What
+  else `crontab -r`, so `crontab -e` is cleared. That folder is where a cron job survives, and
+  what the Tasks tab lists read-only (`GET /api/system-cron`, `bff/src/system-cron.ts`): the skill's
+  `# agent:` header names the owner, mapped to its top-level agent so a subagent's job is not
+  orphaned. What
   no variable covers (verified release downloads, the Go toolchain replaced whole, uv for Python,
   Rust only prebuilt via cargo-binstall since the image has no C linker, `Wake` vs cron, no apt)
   is in `docker/agent-skills/installing-tools`. The image's own
