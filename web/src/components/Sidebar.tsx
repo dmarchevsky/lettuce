@@ -34,13 +34,20 @@ interface Props {
   /** The pointer is inside the panel, which is what keeps a borrowed list open. */
   onHold: (held: boolean) => void;
   /**
-   * The height of the bottom agent block, shared with the rail's: one row count,
-   * one divider row across both columns (`lib/rail-size`). App computes it.
+   * The height of the bottom agent block, shared with the rail's: the rail
+   * fills whatever the panes leave under the fixed divider, App measures it,
+   * and this block wears the same height so the divider is one row across both
+   * columns.
    */
   blockHeight: number;
-  /** The block's scroll element — App mirrors its scrollTop with the rail's. */
+  /**
+   * The block's scroll element — App mirrors its scrollTop with the rail's.
+   */
   blockRef: Ref<HTMLDivElement>;
   onBlockScroll: () => void;
+  /** The pointer resting on one of this block's agent names: App marks the rail's
+   * matching avatar, so the rail and the panel read as one selection control. */
+  onHoverAgent: (agentId: string | null) => void;
   onOpenSwitcher: () => void;
   onNewAgent: () => void;
   /** New conversation for the agent the list is showing (switching first if borrowed). */
@@ -74,6 +81,7 @@ export function Sidebar({
   blockHeight,
   blockRef,
   onBlockScroll,
+  onHoverAgent,
   onOpenSwitcher,
   onNewAgent,
   onNewConversation,
@@ -375,6 +383,7 @@ export function Sidebar({
           <button
             key={agent.id}
             type="button"
+            data-agent-id={agent.id}
             className={[
               "panel-agent",
               agent.id === agents.agentId ? "active" : "",
@@ -384,6 +393,11 @@ export function Sidebar({
               .join(" ")}
             title={`${agent.name} — conversations`}
             onClick={() => onPickAgent(agent.id)}
+            onPointerEnter={(event) => {
+              if (event.pointerType !== "mouse") return;
+              onHoverAgent(agent.id);
+            }}
+            onPointerLeave={() => onHoverAgent(null)}
           >
             {agent.name}
           </button>
@@ -395,7 +409,7 @@ export function Sidebar({
           title="All agents: search, archived, new agent"
           aria-label="All agents"
         >
-          <Icon name="more" /> All agents
+          <Icon name="menu" /> All agents
         </button>
         <button
           type="button"

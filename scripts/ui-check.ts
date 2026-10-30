@@ -1301,24 +1301,25 @@ try {
         (await page.locator(".sidebar .conversation-row").count()) >= 1 &&
         (await page.locator(".sidebar .panel-agent").count()) >= 2,
     );
-    // An initial is a riddle once two agents share a first letter, so the rail spells
-    // the names out under the faces.
-    const railNames = await page
-      .locator(".rail .rail-agent[data-agent-id] .rail-agent-name")
-      .allInnerTexts();
+    // The rail's face is the agent's one icon — no name under it. The name lives
+    // in the panel's bottom block, the other half of the same selection control.
     check(
-      "every agent in the rail says its name under its face",
-      railNames.length >= 1 && railNames.every((name) => name.trim().length > 0),
-      railNames,
+      "the rail wears faces only: no names under them any more",
+      (await page.locator(".rail .rail-agent-name").count()) === 0 &&
+        (await page.locator('.rail .rail-agent[data-agent-id][title*="conversations"]').count()) >=
+          1,
     );
-    // The agent block under the divider names the list the way the rail's faces
-    // own it: one name beside one face, per agent.
+    // The agent block under the divider calls the list what the face does: the two
+    // halves mark the same agent across the seam.
     const panelActive = (
       await page.locator(".sidebar .panel-agent.active").first().innerText()
     ).trim();
     const railActive = (
-      await page.locator(".rail .rail-agent.active .rail-agent-name").first().innerText()
-    ).trim();
+      (await page.locator(".rail .rail-agent.active").first().getAttribute("title")) ?? ""
+    )
+      .replace(/\s*\(pinned\)/, "")
+      .split(" —")[0]
+      .trim();
     check(
       "the panel's active name is the rail's active agent",
       panelActive.length > 0 && panelActive === railActive,
@@ -1579,8 +1580,10 @@ try {
       console.log("  SKIP  the borrowed panel needs a second agent");
     }
 
-    // The divider is computed, not dragged: one hairline row shared across rail and
-    // panel, the two agent blocks one height, both flush under the band.
+    // The divider is fixed and flush: it sits directly under the Settings button,
+    // the two agent blocks take everything below it to the foot of the window,
+    // and the rail's measured height is the panel's — one hairline row across
+    // the seam at any window size.
     const seam = await page.evaluate(() => {
       const rect = (sel: string) => {
         const el = document.querySelector(sel);
@@ -1591,16 +1594,23 @@ try {
       const railBlock = rect(".rail-agents");
       const panelBlock = rect(".panel-agents");
       const firstPane = rect(".rail .rail-item");
-      if (!band || !split || !railBlock || !panelBlock || !firstPane) return null;
+      const settings = [...document.querySelectorAll(".rail .rail-item")].find(
+        (b) => b.textContent?.trim() === "Settings",
+      );
+      if (!band || !split || !railBlock || !panelBlock || !firstPane || !settings) return null;
       return {
         bandBottom: Math.round(band.bottom),
         bandRight: Math.round(band.right),
         splitTop: Math.round(split.top),
+        settingsBottom: Math.round(settings.getBoundingClientRect().bottom),
         panelTop: Math.round(panelBlock.top),
         railH: Math.round(railBlock.height),
         panelH: Math.round(panelBlock.height),
+        railFoot: Math.round(railBlock.bottom),
+        panelFoot: Math.round(panelBlock.bottom),
         firstPaneTop: Math.round(firstPane.top),
         window: window.innerWidth,
+        height: window.innerHeight,
       };
     });
     check(
@@ -1611,6 +1621,16 @@ try {
     check(
       "the two agent blocks carry the same height",
       seam !== null && seam.railH === seam.panelH,
+      seam,
+    );
+    check(
+      "the divider sits directly under the Settings button",
+      seam !== null && seam.splitTop - seam.settingsBottom <= 10,
+      seam,
+    );
+    check(
+      "the agent blocks take everything to the foot of the window",
+      seam !== null && seam.railFoot >= seam.height - 10 && seam.panelFoot >= seam.height - 1,
       seam,
     );
     check(
@@ -1649,6 +1669,24 @@ try {
     await page.locator(".sidebar .panel-pin").click();
     await page.waitForTimeout(300);
     check("and the panel is pinned again for what follows", await panelOn());
+
+    // One selection control across the seam: resting on an agent's NAME in the
+    // panel marks that agent's FACE in the rail (the borrow marks the other way).
+    const heldRow = page.locator(".sidebar .panel-agent[data-agent-id]:not(.active)").first();
+    if ((await heldRow.count()) > 0) {
+      const heldId = await heldRow.getAttribute("data-agent-id");
+      await heldRow.hover();
+      await page.waitForTimeout(250);
+      check(
+        "resting on a name marks that agent's face in the rail",
+        (await page.locator(`.rail .rail-agent[data-agent-id="${heldId}"].held`).count()) === 1,
+      );
+      await page.mouse.move(600, 400);
+      await page.waitForTimeout(250);
+      check("and leaving unmarks it", (await page.locator(".rail .rail-agent.held").count()) === 0);
+    } else {
+      console.log("  SKIP  the cross-selection mark needs a second agent");
+    }
 
     // Pinned agents are the first avatars, and say so with a notch — the order is
     // the whole point of pinning, and an unlabeled order is invisible.

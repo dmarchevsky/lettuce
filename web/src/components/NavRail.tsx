@@ -26,11 +26,12 @@ interface Props {
   onOpenSwitcher: () => void;
   onEditAgent: (agentId: string) => void;
   /**
-   * The height of the bottom agent block, shared with the conversation panel's
-   * own bottom block (`lib/rail-size`): one row count, one divider row across
-   * both columns. App computes it and hands it to both.
+   * The agent whose *name* in the conversation panel's bottom block the pointer
+   * rests on: the rail marks that avatar, so the pair reads as one selection
+   * control (the reverse direction — a rail hover marking the panel row — is
+   * the borrow's amber mark). App owns the state; the rail only shows it.
    */
-  blockHeight: number;
+  heldAgentId: string | null;
   /** This block's scroll element — App mirrors its scrollTop with the panel's. */
   blockRef: Ref<HTMLDivElement>;
   onBlockScroll: () => void;
@@ -58,7 +59,8 @@ function paneItems(runsEnabled: boolean): { tab: Tab; label: string; icon: IconN
  *
  * One column answers "which pane" and "which agent", and it shares its bottom
  * row with the conversation panel beside it: the fixed divider above the agents
- * is one hairline across both columns, at the height `lib/rail-size` computes.
+ * is one hairline across both columns, sitting flush under the pane buttons —
+ * the agent block takes everything below it, and the panel mirrors its height.
  * Chat is primary in the literal sense: it is the default pane, the only one with
  * a composer, and the only one with a panel.
  */
@@ -74,7 +76,7 @@ export function NavRail({
   onOpenSettings,
   onOpenSwitcher,
   onEditAgent,
-  blockHeight,
+  heldAgentId,
   blockRef,
   onBlockScroll,
   onNewAgent,
@@ -190,14 +192,16 @@ export function NavRail({
       </button>
 
       {/* The divider between the panes and the agents: fixed, not draggable, and
-          the same hairline row as the panel's agent block (`lib/rail-size`). A div,
-          not an hr: a separator with no semantics to announce and no drag to do. */}
+          the same hairline row as the panel's agent block. It sits directly under
+          the last pane button — the agents take everything below it to the foot
+          of the column, and the panel beside mirrors that height (App measures
+          this block and hands the number across the seam). A div, not an hr:
+          a separator with no semantics to announce and no drag to do. */}
       <div className="rail-split" aria-hidden="true" />
 
       <div
         ref={blockRef}
         className="rail-agents"
-        style={{ height: `${blockHeight}px`, maxHeight: `${blockHeight}px` }}
         onScroll={() => {
           setMenu(null);
           onBlockScroll();
@@ -210,6 +214,7 @@ export function NavRail({
             className={[
               "rail-agent",
               agent.id === agents.agentId ? "active" : "",
+              agent.id === heldAgentId ? "held" : "",
               agents.pinned.has(agent.id) ? "pinned" : "",
               activeAgentIds.has(agent.id) ? "responding" : "",
             ]
@@ -234,7 +239,6 @@ export function NavRail({
             }}
           >
             <AgentAvatar agentId={agent.id} name={agent.name} pref={agents.avatars[agent.id]} />
-            <span className="rail-agent-name">{agent.name}</span>
           </button>
         ))}
         <button
@@ -244,8 +248,7 @@ export function NavRail({
           title="All agents: search, archived, new agent"
           aria-label="All agents"
         >
-          <Icon name="more" />
-          <span className="rail-agent-name">all</span>
+          <Icon name="menu" />
         </button>
         <button
           type="button"
@@ -255,7 +258,6 @@ export function NavRail({
           aria-label="New agent"
         >
           <Icon name="plus" />
-          <span className="rail-agent-name">new</span>
         </button>
       </div>
 

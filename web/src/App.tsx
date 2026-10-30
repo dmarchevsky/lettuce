@@ -31,7 +31,6 @@ import { userHistory } from "./lib/input-history.ts";
 import { type FilterGroup, filterEntries, toggleShown } from "./lib/messages.ts";
 import { readRunsDeepLink } from "./lib/pi.ts";
 import { type Component, type RuntimeScope, scopeKey } from "./lib/protocol.ts";
-import { agentBlockHeight } from "./lib/rail-size.ts";
 import type { LinkState } from "./lib/session-client.ts";
 import { readSettingsDeepLink } from "./lib/settings-link.ts";
 import type { Access, Signin } from "./lib/signin.ts";
@@ -335,23 +334,20 @@ function Workspace({ status }: { status: Status }) {
   const openSwitcher = useCallback(() => setSwitcherOpen(true), []);
 
   /**
-   * The bottom agent blocks — the rail's and the panel's — are one row: one
-   * computed height from the same row count (visible agents plus the all and
-   * new cells, `lib/rail-size`), recomputed when the window changes. No drag,
-   * no storage: the divider is fixed.
+   * The bottom agent blocks — the rail's and the panel's — are one row across
+   * the column seam. The rail's takes every pixel between the fixed divider
+   * (which sits directly under the Settings button) and the foot of the column
+   * — CSS `flex: 1`, not a row-count formula: what fits is the layout's
+   * business. App only measures the rail and hands the number across the seam,
+   * so the two hairlines land on one pixel row whatever the window is.
    */
-  const [viewportH, setViewportH] = useState(() =>
-    typeof window === "undefined" ? 900 : window.innerHeight,
-  );
-  useEffect(() => {
-    const onResize = () => setViewportH(window.innerHeight);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-  const agentBlock = agentBlockHeight(
-    agents.agents.filter((agent) => !agents.archivedAgents.has(agent.id)).length + 2,
-    viewportH,
-  );
+  const [agentBlock, setAgentBlock] = useState(168);
+  /**
+   * The pointer resting on an agent's name in the panel's bottom block: the
+   * rail marks that avatar. The pair answers “which agent” as one control —
+   * the borrow marks the other way, an amber row for a rail hover.
+   */
+  const [heldAgent, setHeldAgent] = useState<string | null>(null);
   // The two blocks mirror each other's scroll when the window clamps them. The
   // guard keeps the mirror from echoing: setting the other's scrollTop fires its
   // scroll event, which would otherwise fire a copy straight back.
@@ -369,6 +365,19 @@ function Workspace({ status }: { status: Status }) {
       scrollMirror.current = null;
     });
   };
+  // The rail's block is the source of truth for the shared height; the panel's
+  // mirrors it. (Below the desktop breakpoint the rail is display:none and
+  // measures 0 — the panel is hidden there too.)
+  useEffect(() => {
+    const el = railBlockRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      const h = Math.round(el.getBoundingClientRect().height);
+      setAgentBlock((prev) => (Math.abs(prev - h) < 1 ? prev : h));
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   // A height change can leave a stale scrollTop misaligning the pair: both start over.
   // biome-ignore lint/correctness/useExhaustiveDependencies: agentBlock is the trigger, not a read — the effect resets the scroll boxes themselves.
   useEffect(() => {
@@ -639,7 +648,7 @@ function Workspace({ status }: { status: Status }) {
         onOpenSettings={() => setGlobalSettings({})}
         onOpenSwitcher={openSwitcher}
         onEditAgent={editAgent}
-        blockHeight={agentBlock}
+        heldAgentId={heldAgent}
         blockRef={railBlockRef}
         onBlockScroll={() => syncAgentScroll("rail")}
         onNewAgent={() => setCreatingAgent(true)}
@@ -666,6 +675,7 @@ function Workspace({ status }: { status: Status }) {
         blockHeight={agentBlock}
         blockRef={panelBlockRef}
         onBlockScroll={() => syncAgentScroll("panel")}
+        onHoverAgent={setHeldAgent}
         onOpenSwitcher={openSwitcher}
         onNewAgent={() => setCreatingAgent(true)}
         onNewConversation={newConversationWith}

@@ -31,7 +31,8 @@
   /* A menu row's floor (it was a literal 44px on .menu-row). */
   --menu-row-h: 36px;
   /* The desktop header band (grid row 1) and one agent cell in the two bottom
-     blocks that share the fixed divider row (see `lib/rail-size`). */
+     blocks that share the fixed divider row — the rail measures itself and the
+     panel beside it wears the same height. */
   --topbar-h: 52px;
   --rail-cell: 52px;
   /* The one padding every list row, task row and .pad shares. */
@@ -166,15 +167,19 @@ pre {
      the pane items and the footer sit in the same place with 3 agents or 30. */
   overflow: hidden;
 }
-/* The agent block hangs at the bottom under the fixed divider, its height
-   computed by App (`lib/rail-size`) — bounded, scrolling on its own, scrollbar
-   hidden: past the cap the answer is the switcher, not a long rail. */
+/* The agent block fills everything the panes leave: it starts directly under
+   the fixed divider (which sits under the Settings button) and reaches the
+   foot of the column — the panel beside it mirrors this block's measured
+   height, so the two hairlines are one row across the seam. It scrolls on its
+   own; the scrollbar is hidden: the column is 74px wide, the thumb would be
+   the whole of it. */
 .rail-agents {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  flex: none;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   scrollbar-width: none;
   padding: 0 0 8px;
@@ -191,32 +196,16 @@ pre {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
+  justify-content: center;
   background: none;
   border: none;
-  /* Fixed pitch height (52 inside the 56 pitch, `lib/rail-size`) so every cell
-     is deterministic; the 4px of own top padding is the ring safety — the
-     active avatar's outline needs air at the block's top edge without a gap
-     above the first cell. */
+  /* Fixed pitch height (52, with the block's 4px gap the pitch is 56): every
+     cell is deterministic and the faces pair-align with the panel's name rows
+     across the seam. Centering leaves 9px around the 34px avatar, which is the
+     ring safety at the block's top edge without a gap above the first cell. */
   height: var(--rail-cell);
-  padding: 4px 0 2px;
   color: var(--muted);
   border-radius: var(--radius);
-}
-/* The name, not just the initial: the rail is where you ask "which agent", and an
-   initial is a riddle once you have four of the same letter. It is the same 9px
-   label the panes below use, so the column reads as one list of things. */
-.rail-agent-name {
-  max-width: 54px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 9px;
-  line-height: 1.15;
-  letter-spacing: 0.01em;
-}
-.rail-agent.active .rail-agent-name {
-  color: var(--text);
 }
 .rail-agent .agent-avatar {
   /* The responding dot and the pinned notch hang off the avatar, not the taller
@@ -232,6 +221,14 @@ pre {
 }
 .rail-agent.active .agent-avatar {
   outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* The pointer rests on this agent's NAME in the conversation panel's bottom
+   block: the rail marks the matching face, because the pair is one selection
+   control and the mark should land on both halves. The borrow (amber) marks
+   the other direction — a rail hover lighting up the panel's row. */
+.rail-agent.held .agent-avatar {
+  outline: 2px solid var(--border);
   outline-offset: 1px;
 }
 /* The agent's own responding marker, on the avatar rather than beside it: the
@@ -260,8 +257,9 @@ pre {
   border: 2px solid var(--surface);
   border-radius: var(--radius-round);
 }
-/* The last cell is not an agent: it opens the switcher, which is where search,
-   archived agents and "new agent" live. Same square, so it reads as one list. */
+/* The two cells that are not agents: the all cell (the full list — search,
+   archived, every agent) and the new cell. Icon-only squares like the avatars
+   they follow, so the column reads as one list. */
 .rail-all .icon {
   width: 17px;
   height: 17px;
@@ -275,17 +273,17 @@ pre {
   width: 17px;
   height: 17px;
 }
-/* The divider between the panes and the agents, FIXED: the same hairline row
-   as the panel's agent block, both at the height App computes from one row
-   count (`lib/rail-size`), so the two lines sit on one pixel row across the
-   column seam. `margin-top: auto` is the spacer that anchors everything below
-   it, and the UA hr's own default margin must be zeroed — that default is the
-   7px step one line is not allowed to have. */
+/* The divider between the panes and the agents, FIXED and flush: it sits
+   directly under the last pane button (Settings), and the agent block below
+   it takes every pixel to the foot of the column. The panel beside it mirrors
+   the block's measured height, so the two hairlines sit on one pixel row
+   across the column seam — which is why this is a div with a border and not a
+   UA-margin hr. */
 .rail-split {
   flex: none;
   width: 100%;
   height: 0;
-  margin: auto 0 0;
+  margin: 2px 0 0;
   border: none;
   border-top: 1px solid var(--border);
 }
@@ -365,10 +363,10 @@ pre {
   flex-direction: column;
   gap: 6px;
 }
-/* The panel's two verbs, inline. New acts on the agent the list is showing —
-   borrowed included, where it reads after their name; the pin lives here and
-   nowhere else on purpose — you can only ask a panel to always be there while
-   you are looking at it. */
+/* The panel's two verbs, inline, one at each end. New acts on the agent the
+   list is showing — borrowed included, where it reads after their name; the
+   pin lives here and nowhere else on purpose — you can only ask a panel to
+   always be there while you are looking at it. */
 .panel-tools {
   display: flex;
   align-items: center;
@@ -376,9 +374,9 @@ pre {
   min-height: 34px;
   padding: 0 2px;
 }
-/* The rail's agent list in names only, anchored at the bottom under the same
-   computed divider row: same pitch and padding, so the rows pair-align with
-   the rail's faces and the two hairlines are one row across the seam. */
+/* The rail's agent list in names only, filling whatever the conversations
+   leave under the same divider row: same pitch and padding, so the rows
+   pair-align with the rail's faces and the two hairlines are one row. */
 .panel-agents {
   flex: none;
   border-top: 1px solid var(--border);
@@ -432,8 +430,18 @@ pre {
   width: 15px;
   height: 15px;
 }
+/* The pin rides the row's right end and stays quiet: it is a setting you set
+   once, not a button you press. Full weight only when it is on, or asked for. */
+.panel-pin {
+  margin-left: auto;
+  opacity: 0.5;
+}
+.panel-pin:hover {
+  opacity: 1;
+}
 .panel-pin.on {
   color: var(--accent);
+  opacity: 0.9;
 }
 
 /* The top bar's "where you are" is the switcher on every width; the caret is
