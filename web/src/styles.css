@@ -30,6 +30,10 @@
   --control-h: 34px;
   /* A menu row's floor (it was a literal 44px on .menu-row). */
   --menu-row-h: 36px;
+  /* The desktop header band (grid row 1) and one agent cell in the two bottom
+     blocks that share the fixed divider row (see `lib/rail-size`). */
+  --topbar-h: 52px;
+  --rail-cell: 52px;
   /* The one padding every list row, task row and .pad shares. */
   --pad-row-y: 6px;
   --pad-row-x: 10px;
@@ -162,17 +166,18 @@ pre {
      the pane items and the footer sit in the same place with 3 agents or 30. */
   overflow: hidden;
 }
-/* The agent block is bounded and scrolls on its own, scrollbar hidden: past the
-   cap the answer is the switcher (search, archived, new agent), not a long rail. */
+/* The agent block hangs at the bottom under the fixed divider, its height
+   computed by App (`lib/rail-size`) — bounded, scrolling on its own, scrollbar
+   hidden: past the cap the answer is the switcher, not a long rail. */
 .rail-agents {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  max-height: 52vh;
+  flex: none;
   overflow-y: auto;
   scrollbar-width: none;
-  padding: 1px;
+  padding: 0 0 8px;
 }
 .rail-agents::-webkit-scrollbar {
   display: none;
@@ -189,7 +194,12 @@ pre {
   gap: 3px;
   background: none;
   border: none;
-  padding: 1px 0 2px;
+  /* Fixed pitch height (52 inside the 56 pitch, `lib/rail-size`) so every cell
+     is deterministic; the 4px of own top padding is the ring safety — the
+     active avatar's outline needs air at the block's top edge without a gap
+     above the first cell. */
+  height: var(--rail-cell);
+  padding: 4px 0 2px;
   color: var(--muted);
   border-radius: var(--radius);
 }
@@ -256,42 +266,28 @@ pre {
   width: 17px;
   height: 17px;
 }
-.rail-all:hover {
+.rail-all:hover,
+.rail-new:hover {
   color: var(--text);
   background: var(--surface-2);
 }
-/* The one draggable seam in the app: 1px of line inside a 9px grip, because a
-   1px target is not a target. `touch-action: none` so dragging on a touchscreen
-   resizes the block instead of scrolling it. */
+.rail-new .icon {
+  width: 17px;
+  height: 17px;
+}
+/* The divider between the panes and the agents, FIXED: the same hairline row
+   as the panel's agent block, both at the height App computes from one row
+   count (`lib/rail-size`), so the two lines sit on one pixel row across the
+   column seam. `margin-top: auto` is the spacer that anchors everything below
+   it, and the UA hr's own default margin must be zeroed — that default is the
+   7px step one line is not allowed to have. */
 .rail-split {
   flex: none;
   width: 100%;
-  height: 9px;
-  display: grid;
-  place-items: center;
-  cursor: row-resize;
-  touch-action: none;
+  height: 0;
+  margin: auto 0 0;
   border: none;
-  background: none;
-  padding: 0;
-}
-.rail-split::before {
-  content: "";
-  width: 42px;
-  height: 3px;
-  border-radius: 2px;
-  background: var(--border);
-}
-.rail-split:hover::before,
-.rail-split:focus-visible::before,
-.rail-split.dragging::before {
-  background: var(--muted);
-}
-.rail.dragging {
-  user-select: none;
-}
-.rail.dragging * {
-  cursor: row-resize;
+  border-top: 1px solid var(--border);
 }
 .rail-item {
   width: 100%;
@@ -320,15 +316,6 @@ pre {
   color: var(--text);
   background: var(--surface-2);
   box-shadow: inset 3px 0 0 var(--accent);
-}
-.rail-foot {
-  margin-top: auto;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  border-top: 1px solid var(--border);
-  padding-top: 6px;
 }
 
 /* The phone's bar, under the composer: five equal slots — the Chat pane, the
@@ -367,34 +354,79 @@ pre {
   height: 20px;
 }
 
-/* The panel's own header: what it is, whether it stays, and the new conversation.
-   The pin lives here and nowhere else on purpose — you can only ask a panel to
-   always be there while you are looking at it. */
-.sidebar .panel-head {
+/* The panel's scroll region: tool row, search, the list. It starts at the band's
+   hairline with no gap of its own — the tool row touches the line. */
+.convo {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+/* The panel's two verbs, inline. New acts on the agent the list is showing —
+   borrowed included, where it reads after their name; the pin lives here and
+   nowhere else on purpose — you can only ask a panel to always be there while
+   you are looking at it. */
+.panel-tools {
   display: flex;
   align-items: center;
+  gap: 2px;
+  min-height: 34px;
+  padding: 0 2px;
+}
+/* The rail's agent list in names only, anchored at the bottom under the same
+   computed divider row: same pitch and padding, so the rows pair-align with
+   the rail's faces and the two hairlines are one row across the seam. */
+.panel-agents {
+  flex: none;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
   gap: 4px;
+  padding: 0 0 8px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
 }
-.sidebar .panel-head .section-label {
-  flex: 1;
+.panel-agents::-webkit-scrollbar {
+  display: none;
 }
-/* The head says a borrowed agent's name instead of the section's, and the agent tint is
-   the app's one colour for "this is an agent" (the top bar's name, the switcher). */
-.sidebar .panel-head .panel-who {
+.panel-agent {
+  flex: none;
+  height: var(--rail-cell);
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: 1;
-  min-width: 0;
+  padding: 0 14px;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
 }
-.sidebar .panel-head .panel-who-face {
-  width: 20px;
-  height: 20px;
-  font-size: 10px;
+.panel-agent .icon {
+  width: 15px;
+  height: 15px;
+  flex: none;
 }
-.sidebar .panel-head .section-label.agent {
-  color: var(--agent);
-  font-weight: 700;
+.panel-agent:hover {
+  background: var(--surface-2);
+}
+.panel-agent.active {
+  background: var(--surface-2);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+/* The borrowed row is amber, not accent: the borrow is a hold, not a choice. */
+.panel-agent.preview {
+  background: var(--surface-2);
+  box-shadow: inset 3px 0 0 var(--warn);
+}
+.panel-agent.all {
+  color: var(--muted);
 }
 .panel-pin .icon {
   width: 15px;
@@ -2649,6 +2681,38 @@ p.warning code,
 /* ── Desktop ─────────────────────────────────────────────────────────────── */
 
 @media (min-width: 900px) {
+  /* The window is a grid: one full-width band carrying the identity and the
+     status cluster, its hairline the one horizontal line across everything,
+     over a body row of rail, panel and main. */
+  .app {
+    display: grid;
+    grid-template-columns: auto auto 1fr;
+    grid-template-rows: var(--topbar-h) minmax(0, 1fr);
+    height: 100dvh;
+  }
+  .band {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+  /* No gap under the band: the Chat cell and the panel's tool row touch its
+     hairline. Tagged selectors keep these off the tool-call `.rail` an entry
+     draws inside the transcript — the class is taken twice in this app. */
+  nav.rail {
+    grid-row: 2;
+    grid-column: 1;
+    padding: 0 5px env(safe-area-inset-bottom);
+  }
+  aside.sidebar {
+    grid-row: 2;
+    grid-column: 2;
+    padding: 0;
+    gap: 0;
+    overflow: hidden;
+  }
+  .main {
+    grid-row: 2;
+    grid-column: 3;
+  }
   /* The bar is a phone surface; here the rail owns navigation and there is no
      More. Mounted and hidden, exactly as the phone block above hides the rail. */
   .bottombar {
