@@ -409,6 +409,11 @@ Needs the `google` profile. The per-service permission levels are entered in
 [sign-in](#sign-in) uses — and falls back to whatever Settings holds when those
 are unset.
 
+When Gmail can send or Calendar can create events, Settings also offers **Allowed
+recipients**: addresses and whole `@domain`s that agents may email or invite. The
+Google sidecar enforces it on every request it makes, so an agent cannot get
+around it by calling the sidecar directly; empty means anyone.
+
 | Variable | Default | Effect |
 |---|---|---|
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | unset | the one Google OAuth client, shared with sign-in. Unset means Settings → Google Workspace uses its own stored pair. |

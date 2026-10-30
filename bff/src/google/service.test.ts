@@ -304,6 +304,76 @@ describe("changing the policy", () => {
   });
 });
 
+describe("allowed recipients", () => {
+  test("saved normalised, served to the sidecar, and the token left alone", async () => {
+    const t = setup();
+    await t.service.save({ ...CLIENT, enabled: true, permissions: { ...POLICY, gmail: "send" } });
+    await t.connect();
+    const { settings } = await t.service.save({
+      allowedRecipients: [" Friend@Example.com ", "", "@Example.ORG", "friend@example.com"],
+    });
+    expect(settings.allowedRecipients).toEqual(["friend@example.com", "@example.org"]);
+    expect(t.sidecar().allowedRecipients).toEqual(["friend@example.com", "@example.org"]);
+    expect(t.google.revoked).toEqual([]);
+    expect(settings.needsReconnect).toBe(false);
+  });
+
+  test("an empty list means no restriction, and is the default", async () => {
+    const t = setup();
+    await t.service.save({ ...CLIENT, enabled: true, permissions: POLICY });
+    await t.connect();
+    expect(t.sidecar().allowedRecipients).toEqual([]);
+    await t.service.save({ allowedRecipients: ["a@example.com"] });
+    await t.service.save({ allowedRecipients: [] });
+    expect(t.sidecar().allowedRecipients).toEqual([]);
+  });
+
+  test("other saves keep the list", async () => {
+    const t = setup();
+    await t.service.save({ ...CLIENT, enabled: true, permissions: POLICY });
+    await t.service.save({ allowedRecipients: ["a@example.com"] });
+    const { settings } = await t.service.save({ permissions: { gmail: "readonly" } });
+    expect(settings.allowedRecipients).toEqual(["a@example.com"]);
+  });
+
+  test("a sidecar that serves nothing gets no list", async () => {
+    const t = setup();
+    await t.service.save({ allowedRecipients: ["a@example.com"] });
+    expect(t.sidecar()).toMatchObject({ enabled: false, allowedRecipients: [] });
+  });
+
+  test("an entry that is not an address or @domain is refused, naming it", async () => {
+    const t = setup();
+    for (const bad of [
+      "alice",
+      "a@b",
+      "Alice <a@example.com>",
+      "a@example.com, b@example.com",
+      "a b@example.com",
+      "@",
+    ]) {
+      await expect(t.service.save({ allowedRecipients: [bad] })).rejects.toThrow(bad.trim());
+    }
+    await expect(t.service.save({ allowedRecipients: "a@example.com" })).rejects.toThrow();
+    await expect(t.service.save({ allowedRecipients: [1] })).rejects.toThrow();
+  });
+
+  test("a stored list with junk in it loads what is valid", async () => {
+    const t = setup();
+    t.policy.set(
+      GOOGLE_SETTINGS_FILE,
+      JSON.stringify({
+        enabled: false,
+        allowedRecipients: ["ok@example.com", 3, "nope", "@example.org"],
+      }),
+    );
+    expect((await t.service.status()).allowedRecipients).toEqual([
+      "ok@example.com",
+      "@example.org",
+    ]);
+  });
+});
+
 describe("disconnect and verify", () => {
   test("disconnect revokes and clears", async () => {
     const t = setup();

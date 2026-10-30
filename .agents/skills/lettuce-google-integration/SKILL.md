@@ -5,7 +5,7 @@ description: 'lettuce Google integration mechanics: the google-mcp sidecar and i
 
 # Google (Gmail, Calendar, Tasks, Contacts)
 
-Loaded from `AGENTS.md`. The sidecar is reachable by anything in the container; what it may do is fixed in two places no agent can change.
+Loaded from `AGENTS.md`. The sidecar is reachable by anything in the container; what it may do is fixed in places no agent can change.
 
 - **Google (Gmail / Calendar / Tasks / Contacts) is a sidecar whose access no agent can change.**
   Agents reach `http://google-mcp:8000/mcp` (`docker/google-mcp`:
@@ -14,7 +14,7 @@ Loaded from `AGENTS.md`. The sidecar is reachable by anything in the container; 
   token off, reapply and status run on effective settings (stored switch forced off, sidecar
   config and MCP-list entry out) while the stored client, switch and grant survive, and the
   settings save route 404s. Reaching it is not the control — agent shells
-  reach everything. What it may do is fixed in two places no agent can touch:
+  reach everything. What it may do is fixed in three places no agent can touch:
   1. **The token's OAuth scopes.** The BFF runs the consent (`bff/src/google/`), asking for
      exactly the levels' scopes, never `include_granted_scopes`. Invariant: the token never
      holds a scope the policy does not want — narrowing a level **revokes** it, a consent that
@@ -31,6 +31,20 @@ Loaded from `AGENTS.md`. The sidecar is reachable by anything in the container; 
      (**load-bearing**: without it tools accept server-side `file_path`, and an agent could
      mail itself `/creds`), and launches from a clean env so no `WORKSPACE_MCP_*` fallback
      widens it.
+  3. **The allowed recipients list** (Settings → Google Workspace, `allowedRecipients` in
+     `sidecar.json`; empty = no restriction). Enforced **inside the workspace-mcp process**,
+     because a BFF-side check — the curated tools, `mcp_call_write`, `approval: "ask"` — is one
+     `curl google-mcp:8000/mcp` away from skipped. `launch.py` (what the supervisor runs instead
+     of the `workspace-mcp` script; it refuses to start without `LETTUCE_ALLOWED_RECIPIENTS`)
+     installs `recipient_guard.py` on `google_auth_httplib2.AuthorizedHttp.request`, the one call
+     every credentialed request goes through, batches included. It reads what Google would act
+     on: every To/Cc/Bcc of a `messages.send` raw message (so reply-all and forwards are
+     covered), a filter's `forward`, event attendees, and who a calendar patch/delete/RSVP
+     notifies (it GETs the event first). Unknown mutating Gmail/Calendar requests are refused,
+     so a version bump that adds an endpoint fails closed. The connected account itself is
+     always allowed. Its tests run in the image build (`docker/google-mcp/tests/`, also built by
+     CI's `image` job) against the installed version — on a `WORKSPACE_MCP_VERSION` bump, also
+     re-read which mutating calls `gmail/` and `gcalendar/` make.
 
   Both live on the `google-policy` / `google-creds` volumes, mounted by `bff` and `google-mcp`
   **only — never mount them into `app-server` or `channel-gateway`.** The token file is
@@ -48,8 +62,10 @@ Loaded from `AGENTS.md`. The sidecar is reachable by anything in the container; 
 
   Limits by design: the sidecar holds one policy for every agent (a per-agent *boundary* would
   need per-agent containers; the Tools tab narrows who is *offered* what, see the
-  `lettuce-per-agent-tool-access` skill), and allowed tools still combine — Calendar `full` can invite any address, which
-  mails them even with Gmail read-only, and email content is prompt-injection input.
+  `lettuce-per-agent-tool-access` skill), and allowed tools still combine — without an allowed
+  recipients list, Calendar `full` can invite any address, which mails them even with Gmail
+  read-only. Email content is prompt-injection input either way, and the list guards the
+  account's identity, not data: agent shells still have open egress.
 
   **A token Google stops accepting is kept, marked lost — never silently dropped.**
   `google/lost-access.ts` recognises Google's own refusals (`invalid_grant`,

@@ -187,6 +187,13 @@ jobs:
           docker run --rm lettuce-ci:unstamped sh -c 'test -s BUILD_INFO'
           docker run --rm lettuce-ci:unstamped cat BUILD_INFO
           test "$(docker run --rm lettuce-ci:unstamped cat BUILD_INFO | head -n1)" = "sha="
+      # The google-mcp image runs the recipient-guard tests while it builds, against the
+      # workspace-mcp it pins: a bump that moves the guard's hook point fails here, not in
+      # a publish. Built through compose so the pin is the one compose.yml holds.
+      - name: Build the google-mcp image (runs the recipient-guard tests)
+        env:
+          SESSION_SECRET: not-a-secret-ci-only
+        run: docker compose -f docker/compose.yml --profile google build google-mcp
 
   actionlint:
     runs-on: ubuntu-latest

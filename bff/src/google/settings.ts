@@ -54,6 +54,12 @@ export interface GoogleSettings {
   /** The levels the user wants. What runs is capped by the grant. */
   permissions: GooglePermissions;
   grant: GoogleGrant | null;
+  /**
+   * Who Gmail may send to and Calendar may invite: addresses and `@domain`
+   * entries, lowercased. Empty means no restriction. Enforced in the sidecar
+   * (docker/google-mcp/recipient_guard.py), not here.
+   */
+  allowedRecipients: string[];
 }
 
 export const DEFAULT_GOOGLE_SETTINGS: GoogleSettings = {
@@ -62,9 +68,28 @@ export const DEFAULT_GOOGLE_SETTINGS: GoogleSettings = {
   clientSecret: null,
   permissions: { ...NO_PERMISSIONS },
   grant: null,
+  allowedRecipients: [],
 };
 
 export class InvalidGoogleSettingsError extends Error {}
+
+// A bare address or `@domain`, nothing an address header could read as more
+// than one: no spaces, commas, brackets, quotes or a second `@`.
+const RECIPIENT_ENTRY = /^([^\s@,;<>()[\]"'\\]+)?@([a-z0-9-]+\.)+[a-z0-9-]+$/;
+
+function recipientEntry(value: string): string | null {
+  const entry = value.trim().toLowerCase();
+  return RECIPIENT_ENTRY.test(entry) ? entry : null;
+}
+
+function recipientsOf(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const entries = value
+    .filter((entry): entry is string => typeof entry === "string")
+    .map(recipientEntry)
+    .filter((entry): entry is string => entry !== null);
+  return [...new Set(entries)];
+}
 
 function permissionsOf(value: unknown): GooglePermissions {
   const raw = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
@@ -109,6 +134,7 @@ export function parseStoredGoogleSettings(text: string | null): GoogleSettings {
         : null,
     permissions: permissionsOf(raw.permissions),
     grant: grantOf(raw.grant),
+    allowedRecipients: recipientsOf(raw.allowedRecipients),
   };
 }
 
@@ -118,6 +144,8 @@ export interface GoogleSettingsUpdate {
   /** Absent keeps the stored secret; "" or null clears it. */
   clientSecret?: string | null;
   permissions?: Partial<Record<string, string | null>>;
+  /** Replaces the list; blank entries are dropped. */
+  allowedRecipients?: string[];
 }
 
 /**
@@ -172,6 +200,18 @@ export function applyGoogleSettingsUpdate(current: GoogleSettings, body: unknown
       }
     }
   }
+  if ("allowedRecipients" in input) {
+    const raw = input.allowedRecipients;
+    if (!Array.isArray(raw) || !raw.every((entry) => typeof entry === "string")) {
+      throw new InvalidGoogleSettingsError("allowedRecipients must be a list of text");
+    }
+    const given = raw.map((entry) => entry.trim()).filter((entry) => entry !== "");
+    const invalid = given.filter((entry) => recipientEntry(entry) === null);
+    if (invalid.length > 0) {
+      throw new InvalidGoogleSettingsError(`Not an address or @domain: ${invalid.join(", ")}`);
+    }
+    next.allowedRecipients = recipientsOf(given);
+  }
   return next;
 }
 
@@ -205,6 +245,8 @@ export interface SidecarConfig {
   clientSecret: string;
   /** workspace-mcp `--permissions` arguments. */
   permissions: string[];
+  /** Empty: no restriction. */
+  allowedRecipients: string[];
 }
 
 /**
@@ -221,8 +263,16 @@ export function renderSidecarConfig(settings: GoogleSettings): string {
         clientId: settings.clientId,
         clientSecret: settings.clientSecret ?? "",
         permissions: permissionArgs(effectivePermissions(settings)),
+        allowedRecipients: settings.allowedRecipients,
       }
-    : { enabled: false, email: null, clientId: "", clientSecret: "", permissions: [] };
+    : {
+        enabled: false,
+        email: null,
+        clientId: "",
+        clientSecret: "",
+        permissions: [],
+        allowedRecipients: [],
+      };
   return `${JSON.stringify(config, null, 2)}\n`;
 }
 
@@ -292,6 +342,7 @@ export interface PublicGoogleSettings {
   effective: GooglePermissions;
   serving: boolean;
   needsReconnect: boolean;
+  allowedRecipients: string[];
 }
 
 type GoogleClientSource = "env" | "stored";
@@ -310,5 +361,6 @@ export function toPublicGoogleSettings(
     effective: effectivePermissions(settings),
     serving: isServing(settings),
     needsReconnect: needsReconnect(settings),
+    allowedRecipients: settings.allowedRecipients,
   };
 }

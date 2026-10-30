@@ -9,6 +9,8 @@ import {
   type GoogleSettingsUpdate,
   type GoogleStatus,
   levelLabel,
+  reachesAddresses,
+  recipientLines,
   SERVICE_LABELS,
   saveGoogleSettings,
   shortScope,
@@ -26,6 +28,8 @@ interface Draft {
   /** Typed only; the stored secret is never sent back. */
   clientSecret: string;
   permissions: GooglePermissions;
+  /** The textarea, one entry per line. */
+  allowedRecipients: string;
 }
 
 function draftOf(status: GoogleStatus): Draft {
@@ -35,6 +39,7 @@ function draftOf(status: GoogleStatus): Draft {
     clientId: settings.clientId,
     clientSecret: "",
     permissions: { ...settings.permissions },
+    allowedRecipients: settings.allowedRecipients.join("\n"),
   };
 }
 
@@ -44,7 +49,10 @@ function isDirty(draft: Draft, status: GoogleStatus): boolean {
     draft.enabled !== settings.enabled ||
     draft.clientId.trim() !== settings.clientId ||
     draft.clientSecret.trim() !== "" ||
-    GOOGLE_SERVICES.some((service) => draft.permissions[service] !== settings.permissions[service])
+    GOOGLE_SERVICES.some(
+      (service) => draft.permissions[service] !== settings.permissions[service],
+    ) ||
+    recipientLines(draft.allowedRecipients).join("\n") !== settings.allowedRecipients.join("\n")
   );
 }
 
@@ -134,12 +142,16 @@ export function GoogleSection() {
     settings.clientId !== "" &&
     settings.hasClientSecret &&
     anyService;
+  const limitsRecipients =
+    reachesAddresses(draft.permissions) && recipientLines(draft.allowedRecipients).length > 0;
 
   const save = () => {
     const update: GoogleSettingsUpdate = {
       enabled: draft.enabled,
       clientId: draft.clientId,
       permissions: draft.permissions,
+      // Sent even while the field is hidden: unchanged, it keeps the stored list.
+      allowedRecipients: recipientLines(draft.allowedRecipients),
     };
     if (draft.clientSecret.trim()) update.clientSecret = draft.clientSecret.trim();
     const revokes =
@@ -281,11 +293,38 @@ export function GoogleSection() {
             </select>
           </label>
         ))}
-        <p className="muted small">
-          Mind what combines: an agent that can create calendar events can invite any address, which
-          sends that person mail even when Gmail is read-only — and email it reads can carry
-          instructions aimed at it.
-        </p>
+        {limitsRecipients ? (
+          <p className="muted small">
+            Mind what combines: email an agent reads can carry instructions aimed at it. Mail and
+            calendar invitations still reach only the allowed recipients below.
+          </p>
+        ) : (
+          <p className="muted small">
+            Mind what combines: an agent that can create calendar events can invite any address,
+            which sends that person mail even when Gmail is read-only — and email it reads can carry
+            instructions aimed at it.
+          </p>
+        )}
+        {reachesAddresses(draft.permissions) ? (
+          // Hidden is not cleared: the stored list stays, and comes back with a sending level.
+          <label className="field">
+            Allowed recipients
+            <textarea
+              rows={4}
+              value={draft.allowedRecipients}
+              disabled={locked}
+              placeholder={"alice@example.com\n@example.org"}
+              autoComplete="off"
+              spellCheck={false}
+              onChange={(event) => set({ allowedRecipients: event.target.value })}
+            />
+            <span className="muted small">
+              Gmail recipients and calendar invitees. One address per line, or <code>@domain</code>{" "}
+              for a whole domain. Matching is exact: <code>alice+news@</code> is not{" "}
+              <code>alice@</code>. Empty: agents can email anyone.
+            </span>
+          </label>
+        ) : null}
 
         {settings.clientSource === "env" ? (
           <p className="muted small">

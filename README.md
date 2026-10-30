@@ -82,7 +82,8 @@ before exposing anything.
   SearXNG with a DuckDuckGo fallback. No API key, no per-search cost.
 - **Gmail, Calendar, Tasks and Contacts** through your own Google OAuth grant, with a
   permission level per service (e.g. mail read-only, calendar read-write).
-  Turning a level down revokes the token.
+  Turning a level down revokes the token, and an allowed-recipients list limits whom agents
+  can email or invite.
 - **GitHub pull-request watching** through the GitHub CLI.
 - **Any MCP server** you add, in one list shared by every agent.
 - **Tool approvals.** A tool call that needs permission surfaces as a sheet you

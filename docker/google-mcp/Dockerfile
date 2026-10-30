@@ -13,7 +13,15 @@ FROM python:3.12-slim
 ARG WORKSPACE_MCP_VERSION
 RUN pip install --no-cache-dir "workspace-mcp==${WORKSPACE_MCP_VERSION}"
 
-COPY supervisor.py /usr/local/lib/google-mcp/supervisor.py
+COPY supervisor.py launch.py recipient_guard.py /usr/local/lib/google-mcp/
+
+# The recipient guard hooks into workspace-mcp's own HTTP client, so prove it
+# against exactly what was just installed: a version bump that moves the hook
+# point fails here instead of shipping a guard that guards nothing.
+COPY tests /tmp/guard-tests
+RUN cd /usr/local/lib/google-mcp \
+    && PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s /tmp/guard-tests \
+    && rm -rf /tmp/guard-tests
 
 # Reached only on the compose network, as http://google-mcp:8000/mcp.
 EXPOSE 8000
