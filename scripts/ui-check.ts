@@ -1313,7 +1313,9 @@ try {
     );
     // The agent block under the divider names the list the way the rail's faces
     // own it: one name beside one face, per agent.
-    const panelActive = (await page.locator(".sidebar .panel-agent.active").first().innerText()).trim();
+    const panelActive = (
+      await page.locator(".sidebar .panel-agent.active").first().innerText()
+    ).trim();
     const railActive = (
       await page.locator(".rail .rail-agent.active .rail-agent-name").first().innerText()
     ).trim();
@@ -1606,7 +1608,11 @@ try {
       seam !== null && Math.abs(seam.splitTop - seam.panelTop) <= 1,
       seam,
     );
-    check("the two agent blocks carry the same height", seam !== null && seam.railH === seam.panelH, seam);
+    check(
+      "the two agent blocks carry the same height",
+      seam !== null && seam.railH === seam.panelH,
+      seam,
+    );
     check(
       "the band spans the whole window",
       seam !== null && seam.bandRight >= seam.window - 1,
