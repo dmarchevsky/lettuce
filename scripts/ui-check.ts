@@ -1186,7 +1186,7 @@ try {
         .count()) === 0,
     );
     check(
-      "the rail is what opens the switcher on desktop",
+      "the rail carries the all-agents cell",
       (await page.locator(".rail .rail-all").count()) === 1,
     );
     check(
@@ -1286,10 +1286,11 @@ try {
       !(await page.locator(".topbar .where-avatar").isVisible()),
     );
     check(
-      "the rail lists every agent as an avatar, plus cells for the switcher and a new agent",
+      "the rail lists every agent as an avatar, plus one fixed all cell outside the list",
       (await page.locator(".rail .rail-agent[data-agent-id]").count()) >= 1 &&
         (await page.locator(".rail .rail-all").count()) === 1 &&
-        (await page.locator(".rail .rail-new").count()) === 1,
+        (await page.locator(".rail .rail-agents .rail-all").count()) === 0 &&
+        (await page.locator(".rail .rail-new").count()) === 0,
     );
     check(
       "the rail has no agent rows of its own any more",
@@ -1594,6 +1595,7 @@ try {
       const railBlock = rect(".rail-agents");
       const panelBlock = rect(".panel-agents");
       const firstPane = rect(".rail .rail-item");
+      const railAll = rect(".rail .rail-all");
       const settings = [...document.querySelectorAll(".rail .rail-item")].find(
         (b) => b.textContent?.trim() === "Settings",
       );
@@ -1606,8 +1608,8 @@ try {
         panelTop: Math.round(panelBlock.top),
         railH: Math.round(railBlock.height),
         panelH: Math.round(panelBlock.height),
-        railFoot: Math.round(railBlock.bottom),
         panelFoot: Math.round(panelBlock.bottom),
+        railAllFoot: railAll ? Math.round(railAll.bottom) : -1,
         firstPaneTop: Math.round(firstPane.top),
         window: window.innerWidth,
         height: window.innerHeight,
@@ -1629,8 +1631,8 @@ try {
       seam,
     );
     check(
-      "the agent blocks take everything to the foot of the window",
-      seam !== null && seam.railFoot >= seam.height - 10 && seam.panelFoot >= seam.height - 1,
+      "the panel block reaches the foot and the rail's all cell docks it",
+      seam !== null && seam.panelFoot >= seam.height - 1 && seam.railAllFoot >= seam.height - 12,
       seam,
     );
     check(
@@ -1664,6 +1666,14 @@ try {
     await page.locator(".topbar .where").click();
     await page.waitForTimeout(400);
     check("and clicking it again puts the peek away", !(await panelOn()));
+    await page.locator(".rail .rail-all").click();
+    await page.waitForTimeout(400);
+    check(
+      "the all cell opens the panel with the full agent list, never the sheet",
+      (await panelOn()) &&
+        (await page.locator(".switcher").count()) === 0 &&
+        (await page.locator(".sidebar .panel-agent[data-agent-id]").count()) >= 1,
+    );
     await page.locator(".rail .rail-item:text-is('Chat')").click();
     await page.waitForTimeout(300);
     await page.locator(".sidebar .panel-pin").click();
@@ -1676,14 +1686,19 @@ try {
     if ((await heldRow.count()) > 0) {
       const heldId = await heldRow.getAttribute("data-agent-id");
       await heldRow.hover();
-      await page.waitForTimeout(250);
+      await page.waitForTimeout(400);
       check(
-        "resting on a name marks that agent's face in the rail",
-        (await page.locator(`.rail .rail-agent[data-agent-id="${heldId}"].held`).count()) === 1,
+        "resting on a name marks that face and borrows its conversations — even pinned",
+        (await page.locator(`.rail .rail-agent[data-agent-id="${heldId}"].held`).count()) === 1 &&
+          (await page.locator('.sidebar [aria-label^="New conversation with"]').count()) === 1,
       );
       await page.mouse.move(600, 400);
       await page.waitForTimeout(250);
-      check("and leaving unmarks it", (await page.locator(".rail .rail-agent.held").count()) === 0);
+      check(
+        "and leaving unmarks it and returns the list",
+        (await page.locator(".rail .rail-agent.held").count()) === 0 &&
+          (await page.locator('.sidebar [aria-label^="New conversation with"]').count()) === 0,
+      );
     } else {
       console.log("  SKIP  the cross-selection mark needs a second agent");
     }

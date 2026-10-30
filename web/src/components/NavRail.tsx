@@ -23,7 +23,8 @@ interface Props {
   /** Resting on the **open** agent's avatar asks for its own list back, not a borrow. */
   onOwnAvatar: () => void;
   onOpenSettings: () => void;
-  onOpenSwitcher: () => void;
+  /** The `all` cell: the conversation panel, open, with the full agent list. */
+  onShowAll: () => void;
   onEditAgent: (agentId: string) => void;
   /**
    * The agent whose *name* in the conversation panel's bottom block the pointer
@@ -35,8 +36,6 @@ interface Props {
   /** This block's scroll element — App mirrors its scrollTop with the panel's. */
   blockRef: Ref<HTMLDivElement>;
   onBlockScroll: () => void;
-  /** The `new` cell: the same New-agent editor the switcher opens. */
-  onNewAgent: () => void;
 }
 
 /** The panes the rail offers, in order. `Runs` is inserted only when enabled. */
@@ -74,12 +73,11 @@ export function NavRail({
   onPreviewAgent,
   onOwnAvatar,
   onOpenSettings,
-  onOpenSwitcher,
+  onShowAll,
   onEditAgent,
   heldAgentId,
   blockRef,
   onBlockScroll,
-  onNewAgent,
 }: Props) {
   const [menu, setMenu] = useState<{ agent: AgentSummary; anchor: DOMRect } | null>(null);
   const [deleting, setDeleting] = useState<AgentSummary | null>(null);
@@ -241,25 +239,22 @@ export function NavRail({
             <AgentAvatar agentId={agent.id} name={agent.name} pref={agents.avatars[agent.id]} />
           </button>
         ))}
-        <button
-          type="button"
-          className="rail-agent rail-all"
-          onClick={onOpenSwitcher}
-          title="All agents: search, archived, new agent"
-          aria-label="All agents"
-        >
-          <Icon name="menu" />
-        </button>
-        <button
-          type="button"
-          className="rail-agent rail-new"
-          onClick={onNewAgent}
-          title="New agent"
-          aria-label="New agent"
-        >
-          <Icon name="plus" />
-        </button>
       </div>
+
+      {/* The all cell is not part of the scrolling list: it is the fixed verb at the
+          foot of the column — pressing it opens the conversation panel with the full
+          agent list (on desktop there is no sheet any more), and it never scrolls
+          out of reach. There is no new-agent cell in the rail: New-agent lives in
+          the panel's list, where the agents are. */}
+      <button
+        type="button"
+        className="rail-agent rail-all"
+        onClick={onShowAll}
+        title="All agents: the full list in the conversation panel"
+        aria-label="All agents"
+      >
+        <Icon name="menu" />
+      </button>
 
       {menu ? (
         <AgentMenu

@@ -217,8 +217,15 @@ function Workspace({ status }: { status: Status }) {
   const panelHeld = useRef(false);
   const previewList = useAgentConversations(session.request);
   const loadPreview = previewList.load;
+  // A name resting in the panel's bottom block borrows even while pinned (see
+  // `hoverPanelAgent`): the pointer is already inside the column you are reading,
+  // which is an ask a sweep past the rail is not.
+  const panelRest = useRef(false);
   const previewAgent =
-    tab === "Chat" && !panelPinned && previewId && previewId !== agents.agentId
+    tab === "Chat" &&
+    previewId &&
+    previewId !== agents.agentId &&
+    (!panelPinned || panelRest.current)
       ? (agents.agents.find((agent) => agent.id === previewId) ?? null)
       : null;
   const panelVisible = tab === "Chat" && (panelPinned || panelPeek || previewAgent !== null);
@@ -244,7 +251,21 @@ function Workspace({ status }: { status: Status }) {
   }, []);
   const holdPanel = useCallback((held: boolean) => {
     panelHeld.current = held;
-    if (!held) setPreviewId(null);
+    if (!held) {
+      panelRest.current = false;
+      setPreviewId(null);
+    }
+  }, []);
+  /**
+   * The seam is bidirectional: a face in the rail borrows the panel (above), and a
+   * NAME in the panel's bottom block borrows its conversations into the list and
+   * marks the rail's face. Unlike the rail's sweep, this one is honored while
+   * pinned — resting on a name inside the panel is deliberate.
+   */
+  const hoverPanelAgent = useCallback((agentId: string | null) => {
+    setHeldAgent(agentId);
+    panelRest.current = agentId !== null;
+    setPreviewId(agentId);
   }, []);
   /** Choosing from a borrowed list is a switch: that agent, that conversation. */
   const previewPick = useCallback(
@@ -304,6 +325,12 @@ function Workspace({ status }: { status: Status }) {
     },
     [panelPinned, panelPeek, tab],
   );
+
+  /** The rail's all cell: Chat's panel, on screen, its full agent list at the foot. */
+  const showAllAgents = useCallback(() => {
+    if (tab !== "Chat") selectPane("Chat");
+    openPanel();
+  }, [tab, selectPane, openPanel]);
 
   // An unpinned panel is a popover, and popovers get out of the way when you
   // press anywhere else. Pinned, it is a column and stays put.
@@ -646,12 +673,11 @@ function Workspace({ status }: { status: Status }) {
         onPreviewAgent={previewFromRail}
         onOwnAvatar={ownAvatar}
         onOpenSettings={() => setGlobalSettings({})}
-        onOpenSwitcher={openSwitcher}
+        onShowAll={showAllAgents}
         onEditAgent={editAgent}
         heldAgentId={heldAgent}
         blockRef={railBlockRef}
         onBlockScroll={() => syncAgentScroll("rail")}
-        onNewAgent={() => setCreatingAgent(true)}
       />
       <Sidebar
         agents={agents}
@@ -675,7 +701,7 @@ function Workspace({ status }: { status: Status }) {
         blockHeight={agentBlock}
         blockRef={panelBlockRef}
         onBlockScroll={() => syncAgentScroll("panel")}
-        onHoverAgent={setHeldAgent}
+        onHoverAgent={hoverPanelAgent}
         onOpenSwitcher={openSwitcher}
         onNewAgent={() => setCreatingAgent(true)}
         onNewConversation={newConversationWith}

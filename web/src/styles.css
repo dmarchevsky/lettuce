@@ -257,21 +257,23 @@ pre {
   border: 2px solid var(--surface);
   border-radius: var(--radius-round);
 }
-/* The two cells that are not agents: the all cell (the full list — search,
-   archived, every agent) and the new cell. Icon-only squares like the avatars
-   they follow, so the column reads as one list. */
+/* The two cells that are not agents: the all cell, docked under the scrolling
+   list as the fixed verb at the foot of the column, and (historically) the new
+   cell — new-agent lives in the panel's list now. Icon-only squares like the
+   avatars they sit beside, so the column reads as one list. */
 .rail-all .icon {
   width: 17px;
   height: 17px;
 }
-.rail-all:hover,
-.rail-new:hover {
+.rail-all:hover {
   color: var(--text);
   background: var(--surface-2);
 }
-.rail-new .icon {
-  width: 17px;
-  height: 17px;
+/* Fixed at the foot: the block above is `flex: 1`, so this cell never scrolls —
+   it is the one rail button that answers "all of them" from any scroll state. */
+.rail .rail-all {
+  flex: none;
+  margin: 2px 0 8px;
 }
 /* The divider between the panes and the agents, FIXED and flush: it sits
    directly under the last pane button (Settings), and the agent block below
@@ -2731,6 +2733,13 @@ p.warning code,
     grid-row: 2;
     grid-column: 1;
     padding: 0 5px env(safe-area-inset-bottom);
+  }
+  /* The pane buttons carry a 7px top pad of their own; on the first one that
+     reads as a gap under the band's hairline (the operator saw it twice). The
+     Chat cell touches the line: its icon sits at the same height the panel's
+     tool row does. */
+  nav.rail > .rail-item:first-child {
+    padding-top: 2px;
   }
   aside.sidebar {
     grid-row: 2;

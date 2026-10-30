@@ -46,7 +46,8 @@ interface Props {
   blockRef: Ref<HTMLDivElement>;
   onBlockScroll: () => void;
   /** The pointer resting on one of this block's agent names: App marks the rail's
-   * matching avatar, so the rail and the panel read as one selection control. */
+   * matching avatar and borrows that agent's conversations into the list above —
+   * the mirror of a rail hover, and honored even while pinned. */
   onHoverAgent: (agentId: string | null) => void;
   onOpenSwitcher: () => void;
   onNewAgent: () => void;
