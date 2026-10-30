@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type Ref } from "react";
 import { agentActivity } from "../lib/activity.ts";
 import { groupByDate, listDate, visibleConversations } from "../lib/conversation-groups.ts";
 import type { AgentsApi, ConversationSummary } from "../state/use-agents.ts";
-import { AgentAvatar } from "./AgentAvatar.tsx";
 import { ConversationMenu } from "./ConversationMenu.tsx";
 import { Icon } from "./Icon.tsx";
 import { toast } from "./Toast.tsx";
@@ -20,8 +19,9 @@ interface Props {
   /**
    * Another agent's conversations, borrowed for the moment a pointer rests on their
    * avatar. One panel shows either its own agent's list or a borrowed one — never a
-   * second list beside it — and a borrowed one is read-only: its rows switch agent
-   * rather than offering archive and rename for someone else's conversation.
+   * second list beside it — and a borrowed one hides its rows' verbs: archive and
+   * rename are not verbs for someone else's conversation. New stays: it is the
+   * Switcher's own "new conversation with X", and it acts on the agent the list shows.
    */
   preview: {
     agentId: string;
@@ -33,17 +33,34 @@ interface Props {
   onPreviewPick: (agentId: string, conversationId: string) => void;
   /** The pointer is inside the panel, which is what keeps a borrowed list open. */
   onHold: (held: boolean) => void;
+  /**
+   * The height of the bottom agent block, shared with the rail's: one row count,
+   * one divider row across both columns (`lib/rail-size`). App computes it.
+   */
+  blockHeight: number;
+  /** The block's scroll element — App mirrors its scrollTop with the rail's. */
+  blockRef: Ref<HTMLDivElement>;
+  onBlockScroll: () => void;
+  onOpenSwitcher: () => void;
+  onNewAgent: () => void;
+  /** New conversation for the agent the list is showing (switching first if borrowed). */
+  onNewConversation: (agentId: string) => Promise<void>;
+  /** A row in the bottom agent block: that agent becomes the panel's own. */
+  onPickAgent: (agentId: string) => void;
 }
 
 /**
- * The desktop conversation panel: one agent's conversations, nothing else.
+ * The desktop conversation panel: one agent's conversations on top, the agent
+ * list anchored at the bottom.
  *
- * The agents left for the rail, so this column is one list instead of two, which
- * is what it needed — the list is the busiest thing on the screen. Whether it is
- * on screen at all is not its call: `pinned` and visibility live in `App`,
- * because the rail's hover and the pane switch both have a say. What it shows can
- * be a borrowed agent's list (`preview`), which is how the rail's hover opens this
- * panel instead of growing a second one beside it.
+ * The top is a tool row (New, pin), search, and the list; the bottom block
+ * mirrors the rail's own agent list in names only — the rail avatar is the
+ * agent's one icon — and shares its fixed divider row across the column seam.
+ * Whether the panel is on screen at all is not its call: `pinned` and visibility
+ * live in `App`, because the rail's hover and the pane switch both have a say.
+ * What the list shows can be a borrowed agent's (`preview`), which is how the
+ * rail's hover opens this panel instead of growing a second one beside it; the
+ * borrow marks that agent's row in the bottom block.
  */
 export function Sidebar({
   agents,
@@ -54,6 +71,13 @@ export function Sidebar({
   preview,
   onPreviewPick,
   onHold,
+  blockHeight,
+  blockRef,
+  onBlockScroll,
+  onOpenSwitcher,
+  onNewAgent,
+  onNewConversation,
+  onPickAgent,
 }: Props) {
   const [showArchived, setShowArchived] = useState(false);
   const [query, setQuery] = useState("");
@@ -140,12 +164,8 @@ export function Sidebar({
 
   const closeMenu = useCallback(() => setMenuFor(null), []);
 
-  // The head names whoever the rows belong to: the borrowed agent while a rail hover
-  // borrows the panel, otherwise the agent this pane is open on.
-  const openAgent = agents.agents.find((agent) => agent.id === agents.agentId);
-  const whose = preview
-    ? { id: preview.agentId, name: preview.name }
-    : (openAgent ?? { id: "", name: "Conversations" });
+  // The bottom block mirrors the rail's list, names only, same order.
+  const visibleAgents = agents.agents.filter((agent) => !agents.archivedAgents.has(agent.id));
 
   return (
     <aside
@@ -154,22 +174,21 @@ export function Sidebar({
       onPointerEnter={() => onHold(true)}
       onPointerLeave={() => onHold(false)}
     >
-      <div className="sidebar-section grow">
-        <div className="panel-head">
-          {/* Whose list this is, named and faced, on the top line — the one place a
-              glance lands that says which agent a click will act on. "Conversations"
-              would be a lie while borrowed, and mute even when it is yours: the list is
-              the agent's, and with names on the rail the head is the only place a
-              screenful of chat says who it belongs to. */}
-          <span className="panel-who">
-            <AgentAvatar
-              agentId={whose.id ?? ""}
-              name={whose.name}
-              pref={whose.id ? agents.avatars[whose.id] : undefined}
-              className="agent-avatar panel-who-face"
-            />
-            <span className="section-label agent">{whose.name}</span>
-          </span>
+      <div className="convo">
+        <div className="panel-tools">
+          {/* The panel's two verbs, always present — including borrowed, where New
+              reads after the shown agent and acts on it ("new conversation with
+              Grove", the switcher's own semantics), while pin remains refused: a
+              borrow is a hover, and App decides what a press on it means. */}
+          <button
+            type="button"
+            className="button ghost compact"
+            disabled={busy || !listAgentId}
+            onClick={() => void guard(() => onNewConversation(listAgentId ?? ""))}
+            aria-label={preview ? `New conversation with ${preview.name}` : "New conversation"}
+          >
+            <Icon name="plus" /> {preview ? `New ${preview.name}` : "New"}
+          </button>
           <button
             type="button"
             className={`icon-button flat panel-pin${pinned ? " on" : ""}`}
@@ -184,17 +203,6 @@ export function Sidebar({
           >
             <Icon name="pin" />
           </button>
-          {preview ? null : (
-            <button
-              type="button"
-              className="button ghost compact"
-              disabled={busy || !agents.agentId}
-              onClick={() => void guard(agents.createConversation)}
-              aria-label="New conversation"
-            >
-              <Icon name="plus" /> New
-            </button>
-          )}
         </div>
 
         <label className="switcher-search sidebar-search">
@@ -343,16 +351,62 @@ export function Sidebar({
             {showArchived ? "Hide archived" : `Show archived (${archivedCount})`}
           </button>
         ) : null}
+
+        {agents.error ? (
+          <p className="warning small" role="alert">
+            <span>{agents.error}</span>
+            <button type="button" className="link" onClick={() => void agents.refreshAgents()}>
+              Try again
+            </button>
+          </p>
+        ) : null}
       </div>
 
-      {agents.error ? (
-        <p className="warning small" role="alert">
-          <span>{agents.error}</span>
-          <button type="button" className="link" onClick={() => void agents.refreshAgents()}>
-            Try again
+      {/* The rail's list in names, anchored at the bottom under the same fixed
+          divider row: the active agent wears the accent bar, a borrowed one the
+          amber one — the borrow is a hold, not a choice. */}
+      <div
+        ref={blockRef}
+        className="panel-agents"
+        style={{ height: `${blockHeight}px`, maxHeight: `${blockHeight}px` }}
+        onScroll={onBlockScroll}
+      >
+        {visibleAgents.map((agent) => (
+          <button
+            key={agent.id}
+            type="button"
+            className={[
+              "panel-agent",
+              agent.id === agents.agentId ? "active" : "",
+              preview?.agentId === agent.id ? "preview" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            title={`${agent.name} — conversations`}
+            onClick={() => onPickAgent(agent.id)}
+          >
+            {agent.name}
           </button>
-        </p>
-      ) : null}
+        ))}
+        <button
+          type="button"
+          className="panel-agent all"
+          onClick={onOpenSwitcher}
+          title="All agents: search, archived, new agent"
+          aria-label="All agents"
+        >
+          <Icon name="more" /> All agents
+        </button>
+        <button
+          type="button"
+          className="panel-agent all"
+          onClick={onNewAgent}
+          title="New agent"
+          aria-label="New agent"
+        >
+          <Icon name="plus" /> New agent
+        </button>
+      </div>
     </aside>
   );
 }
