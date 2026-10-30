@@ -190,9 +190,10 @@ pre {
 .rail-agent {
   position: relative;
   flex: none;
-  /* 54, not wider: the rail is 74 with a 10px inset on the wide layout, so the
-     avatar block has 58 to live in and a wider cell hangs past the column. */
-  width: 54px;
+  /* Full column width: the hover/selected background is a ROW segment that
+     meets the panel's name row across the seam — face and name read as one
+     regular list row, whichever half the pointer rests on. */
+  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -215,21 +216,22 @@ pre {
   height: 34px;
   font-size: 14px;
 }
-.rail-agent:hover .agent-avatar {
-  outline: 2px solid var(--border);
-  outline-offset: 1px;
+/* Hover, held, active — one language across both columns: a row background,
+   no outlines, no bars. Hovering either half lights both halves (`.held` is
+   shared state); the SELECTED agent stays lit — its row in both columns and
+   the accent ring on the avatar, which is the mark that never leaves. */
+.rail-agent:hover {
+  background: var(--surface-2);
+}
+.rail-agent.active {
+  background: var(--surface-2);
 }
 .rail-agent.active .agent-avatar {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
-/* The pointer rests on this agent's NAME in the conversation panel's bottom
-   block: the rail marks the matching face, because the pair is one selection
-   control and the mark should land on both halves. The borrow (amber) marks
-   the other direction — a rail hover lighting up the panel's row. */
-.rail-agent.held .agent-avatar {
-  outline: 2px solid var(--border);
-  outline-offset: 1px;
+.rail-agent.held {
+  background: var(--surface-2);
 }
 /* The agent's own responding marker, on the avatar rather than beside it: the
    rail has no room for a second column, and the dot belongs to the agent. */
@@ -416,14 +418,17 @@ pre {
 .panel-agent:hover {
   background: var(--surface-2);
 }
+/* Same row language as the rail, and no inset color bars: “this one” is the
+   row staying lit, the borrow is the row lit by the pointer in the OTHER
+   column (`.held`) or loading its list (`.preview`) — row highlighting only. */
 .panel-agent.active {
   background: var(--surface-2);
-  box-shadow: inset 3px 0 0 var(--accent);
 }
-/* The borrowed row is amber, not accent: the borrow is a hold, not a choice. */
+.panel-agent.held {
+  background: var(--surface-2);
+}
 .panel-agent.preview {
   background: var(--surface-2);
-  box-shadow: inset 3px 0 0 var(--warn);
 }
 /* Docked under the scrolling names — the panel's counterpart of the rail's
    fixed all cell, same 62px box (2 + 52 + 8) so both columns' scroll regions

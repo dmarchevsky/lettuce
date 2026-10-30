@@ -1503,6 +1503,23 @@ try {
         (await panelOn()) && borrowed === otherName,
         { borrowed, otherName },
       );
+      // One row, both halves: the rail's hover lights the panel's row too, and
+      // no row anywhere in this pair wears an inset color bar — hover, held and
+      // selected are all one language: the row background.
+      check(
+        "the rail's hover lights the panel's row as one row",
+        (await page.locator(".sidebar .panel-agent.held").count()) === 1,
+      );
+      const rowMarks = await page.evaluate(() =>
+        [...document.querySelectorAll(".sidebar .panel-agent, .rail .rail-agent")].map(
+          (el) => getComputedStyle(el).boxShadow,
+        ),
+      );
+      check(
+        "no agent row wears an inset bar — only row highlighting",
+        rowMarks.length >= 2 && rowMarks.every((s) => s === "none"),
+        rowMarks,
+      );
       // Moving from one avatar to the next is one gesture: a panel that blinks back
       // to your own list on the way is a flicker nobody asked for. Sample it — a
       // screenshot of the settled state cannot see the blink.
@@ -1659,6 +1676,17 @@ try {
         pairs.rail.length === pairs.panel.length &&
         pairs.rail.every((c, i) => Math.abs(c - pairs.panel[i]) <= 1),
       pairs,
+    );
+    const activeRing = await page.evaluate(() => {
+      const el = document.querySelector(".rail .rail-agent.active .agent-avatar");
+      if (!el) return null;
+      const s = getComputedStyle(el);
+      return { width: s.outlineWidth, color: s.outlineColor };
+    });
+    check(
+      "the selected avatar keeps its ring whatever the hover does",
+      activeRing !== null && activeRing.width !== "0px" && activeRing.color !== "none",
+      activeRing,
     );
     check(
       "New agent docks the panel under its list, outside the scroll",

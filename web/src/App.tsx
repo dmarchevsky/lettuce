@@ -676,6 +676,7 @@ function Workspace({ status }: { status: Status }) {
         onShowAll={showAllAgents}
         onEditAgent={editAgent}
         heldAgentId={heldAgent}
+        onHoverAgent={(agentId) => setHeldAgent(agentId)}
         blockRef={railBlockRef}
         onBlockScroll={() => syncAgentScroll("rail")}
       />
@@ -702,6 +703,7 @@ function Workspace({ status }: { status: Status }) {
         blockRef={panelBlockRef}
         onBlockScroll={() => syncAgentScroll("panel")}
         onHoverAgent={hoverPanelAgent}
+        heldAgentId={heldAgent}
         onNewAgent={() => setCreatingAgent(true)}
         onNewConversation={newConversationWith}
         onPickAgent={pickPanelAgent}

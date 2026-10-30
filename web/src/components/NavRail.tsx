@@ -33,6 +33,10 @@ interface Props {
    * the borrow's amber mark). App owns the state; the rail only shows it.
    */
   heldAgentId: string | null;
+  /** The pointer entered/left one of this rail's faces: App marks the matching
+   * NAME in the conversation panel too — hover highlights one row across both
+   * halves, whichever half the pointer is in. */
+  onHoverAgent: (agentId: string | null) => void;
   /** This block's scroll element — App mirrors its scrollTop with the panel's. */
   blockRef: Ref<HTMLDivElement>;
   onBlockScroll: () => void;
@@ -76,6 +80,7 @@ export function NavRail({
   onShowAll,
   onEditAgent,
   heldAgentId,
+  onHoverAgent,
   blockRef,
   onBlockScroll,
 }: Props) {
@@ -227,10 +232,14 @@ export function NavRail({
             onClick={() => pick(agent)}
             onPointerEnter={(event) => {
               if (event.pointerType !== "mouse") return;
+              onHoverAgent(agent.id);
               if (agent.id === agents.agentId) armOwn();
               else armPreview(agent.id);
             }}
-            onPointerLeave={leaveAvatar}
+            onPointerLeave={() => {
+              onHoverAgent(null);
+              leaveAvatar();
+            }}
             onContextMenu={(event) => {
               event.preventDefault();
               setMenu({ agent, anchor: event.currentTarget.getBoundingClientRect() });

@@ -49,6 +49,9 @@ interface Props {
    * matching avatar and borrows that agent's conversations into the list above —
    * the mirror of a rail hover, and honored even while pinned. */
   onHoverAgent: (agentId: string | null) => void;
+  /** The agent whose rail FACE (or this row) the pointer rests on: the row is
+   * highlighted in both columns — one row, whichever half is under the cursor. */
+  heldAgentId: string | null;
   onNewAgent: () => void;
   /** New conversation for the agent the list is showing (switching first if borrowed). */
   onNewConversation: (agentId: string) => Promise<void>;
@@ -82,6 +85,7 @@ export function Sidebar({
   blockRef,
   onBlockScroll,
   onHoverAgent,
+  heldAgentId,
   onNewAgent,
   onNewConversation,
   onPickAgent,
@@ -386,6 +390,7 @@ export function Sidebar({
             className={[
               "panel-agent",
               agent.id === agents.agentId ? "active" : "",
+              agent.id === heldAgentId ? "held" : "",
               preview?.agentId === agent.id ? "preview" : "",
             ]
               .filter(Boolean)
