@@ -1622,6 +1622,10 @@ try {
         panelH: Math.round(panelBlock.height),
         panelFoot: Math.round(panelBlock.bottom),
         railAllFoot: railAll ? Math.round(railAll.bottom) : -1,
+        panelNewFoot: (() => {
+          const r = rect(".sidebar .panel-new");
+          return r ? Math.round(r.bottom) : -1;
+        })(),
         firstPaneTop: Math.round(firstPane.top),
         window: window.innerWidth,
         height: window.innerHeight,
@@ -1643,8 +1647,11 @@ try {
       seam,
     );
     check(
-      "the panel block reaches the foot and the rail's all cell docks it",
-      seam !== null && seam.panelFoot >= seam.height - 1 && seam.railAllFoot >= seam.height - 12,
+      "both columns dock their foot cell on the same line at the foot",
+      seam !== null &&
+        seam.railAllFoot >= seam.height - 12 &&
+        seam.panelNewFoot >= seam.height - 12 &&
+        Math.abs(seam.railAllFoot - seam.panelNewFoot) <= 2,
       seam,
     );
     check(

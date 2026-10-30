@@ -30,11 +30,12 @@
   --control-h: 34px;
   /* A menu row's floor (it was a literal 44px on .menu-row). */
   --menu-row-h: 36px;
-  /* The desktop header band (grid row 1) and one agent cell in the two bottom
+  /* The desktop header band (grid row 1) and one agent row in the two bottom
      blocks that share the fixed divider row — the rail measures itself and the
-     panel beside it wears the same height. */
+     panel beside it wears the same height. One row height for the avatar and
+     the name keeps their centers on one line; the pitch is this + the 4px gap. */
   --topbar-h: 52px;
-  --rail-cell: 52px;
+  --rail-cell: 44px;
   /* The one padding every list row, task row and .pad shares. */
   --pad-row-y: 6px;
   --pad-row-x: 10px;
@@ -182,7 +183,7 @@ pre {
   min-height: 0;
   overflow-y: auto;
   scrollbar-width: none;
-  padding: 0 0 8px;
+  padding: 0 0 4px;
 }
 .rail-agents::-webkit-scrollbar {
   display: none;
@@ -190,9 +191,9 @@ pre {
 .rail-agent {
   position: relative;
   flex: none;
-  /* Full column width: the hover/selected background is a ROW segment that
-     meets the panel's name row across the seam — face and name read as one
-     regular list row, whichever half the pointer rests on. */
+  /* Full column width with square ends: the hover/selected background is a ROW
+     segment that meets the panel's name row across the seam — face and name
+     read as one regular list row, whichever half the pointer rests on. */
   width: 100%;
   display: flex;
   flex-direction: column;
@@ -200,13 +201,11 @@ pre {
   justify-content: center;
   background: none;
   border: none;
-  /* Fixed pitch height (52, with the block's 4px gap the pitch is 56): every
-     cell is deterministic and the faces pair-align with the panel's name rows
-     across the seam. Centering leaves 9px around the 34px avatar, which is the
-     ring safety at the block's top edge without a gap above the first cell. */
+  /* One shared row height (var above, 44 inside the 48 pitch): the 34px avatar
+     keeps 5px of vertical air — enough for its 3px ring at the block's top
+     edge — and the face center and the name center land on the same line. */
   height: var(--rail-cell);
   color: var(--muted);
-  border-radius: var(--radius);
 }
 .rail-agent .agent-avatar {
   /* The responding dot and the pinned notch hang off the avatar, not the taller
@@ -272,10 +271,12 @@ pre {
   background: var(--surface-2);
 }
 /* Fixed at the foot: the block above is `flex: 1`, so this cell never scrolls —
-   it is the one rail button that answers "all of them" from any scroll state. */
+   it is the one rail button that answers "all of them" from any scroll state.
+   Compact, and its box (height + 4px foot) matches `.panel-new` across the
+   seam so both columns' scroll regions end on the same line. */
 .rail .rail-all {
   flex: none;
-  margin: 2px 0 8px;
+  margin: 0 0 4px;
 }
 /* The divider between the panes and the agents, FIXED and flush: it sits
    directly under the last pane button (Settings), and the agent block below
@@ -387,7 +388,7 @@ pre {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 0 0 8px;
+  padding: 0 0 4px;
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-width: none;
@@ -431,12 +432,12 @@ pre {
   background: var(--surface-2);
 }
 /* Docked under the scrolling names — the panel's counterpart of the rail's
-   fixed all cell, same 62px box (2 + 52 + 8) so both columns' scroll regions
+   fixed all cell, same box (44 + a 4px foot) so both columns' scroll regions
    end on the same line. New-agent is a verb, not a row of the list. */
 .panel-new {
   flex: none;
   height: var(--rail-cell);
-  margin: 2px 0 8px;
+  margin: 0 0 4px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -2760,7 +2761,9 @@ p.warning code,
   nav.rail {
     grid-row: 2;
     grid-column: 1;
-    padding: 0 5px env(safe-area-inset-bottom);
+    /* No horizontal gutter: the agent rows' highlight runs edge to edge, so a
+       lit row crosses the rail and the panel as one unbroken line. */
+    padding: 0 0 env(safe-area-inset-bottom);
   }
   /* The pane buttons carry a 7px top pad of their own; on the first one that
      reads as a gap under the band's hairline (the operator saw it twice). The
