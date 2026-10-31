@@ -198,6 +198,16 @@ pre {
   margin-top: 2px;
   padding: 0 0 4px;
 }
+
+/* The list rides the FOOT, not the divider: a short agent list sinks until its
+   last row sits on the docked all cell, instead of floating under the
+   seam with dead air below. First-child auto margin, not justify-content:
+   flex-end in a scroll container strands the first rows above the scroll
+   origin — auto margins collapse to 0 once the list overflows, so a long one
+   still scrolls from the top. The panel's block pairs to the same rule. */
+.rail-agents > :first-child {
+  margin-top: auto;
+}
 .rail-agents::-webkit-scrollbar {
   display: none;
 }
@@ -399,6 +409,12 @@ pre {
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-width: none;
+}
+
+/* Same foot-riding list as the rail's — see .rail-agents: short lists sit on
+   New-agent, long ones still scroll from the top. */
+.panel-agents > :first-child {
+  margin-top: auto;
 }
 .panel-agents::-webkit-scrollbar {
   display: none;

@@ -1685,6 +1685,33 @@ try {
         pairs.rail.every((c, i) => Math.abs(c - pairs.panel[i]) <= 1),
       pairs,
     );
+    // The lists ride the foot: the last face sits on the all cell and the last
+    // name on New-agent — a short list sinks to them instead of hanging under
+    // the divider (and a long one fills to them, so this holds either way).
+    const footSeat = await page.evaluate(() => {
+      const bot = (sel: string) => {
+        const els = document.querySelectorAll(sel);
+        return els.length ? Math.round(els[els.length - 1].getBoundingClientRect().bottom) : -1;
+      };
+      const top = (sel: string) => {
+        const el = document.querySelector(sel);
+        return el ? Math.round(el.getBoundingClientRect().top) : -1;
+      };
+      return {
+        lastFaceToAll:
+          top(".rail .rail-all") - bot(".rail .rail-agents .rail-agent[data-agent-id]"),
+        lastNameToNew:
+          top(".sidebar .panel-new") - bot(".sidebar .panel-agents .panel-agent[data-agent-id]"),
+      };
+    });
+    check(
+      "the last face and the last name sit on their docked foot cell",
+      footSeat.lastFaceToAll >= 0 &&
+        footSeat.lastFaceToAll <= 10 &&
+        footSeat.lastNameToNew >= 0 &&
+        footSeat.lastNameToNew <= 10,
+      footSeat,
+    );
     const activeRing = await page.evaluate(() => {
       const el = document.querySelector(".rail .rail-agent.active .agent-avatar");
       if (!el) return null;
