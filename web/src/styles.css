@@ -238,15 +238,29 @@ pre {
   height: 34px;
   font-size: 14px;
 }
-/* Hover, held, active — one language across both columns: a row background,
-   no outlines, no bars. Hovering either half lights both halves (`.held` is
-   shared state); the SELECTED agent stays lit — its row in both columns and
-   the accent ring on the avatar, which is the mark that never leaves. */
+/* Hover, held, active — one language across both columns: a row background
+   and, for the selection, the same left bar the selected conversation wears.
+   Hovering either half lights both halves (`.held` is shared state); the
+   SELECTED agent stays lit — its row in both columns, the accent ring on the
+   avatar, and a bar in the agent's own tint (set inline on the cell). */
 .rail-agent:hover {
   background: var(--surface-2);
 }
 .rail-agent.active {
   background: var(--surface-2);
+}
+/* The conversation list marks its pick with a 3px border-left in the accent;
+   the rail's pick answers it at the window's edge in the agent's OWN color.
+   A pseudo-element, not a border: a border would shift the centered avatar
+   half its width between unselected and selected. */
+.rail-agent.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--agent, var(--accent));
 }
 .rail-agent.active .agent-avatar {
   outline: 2px solid var(--accent);

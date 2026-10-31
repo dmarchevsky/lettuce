@@ -1,4 +1,5 @@
 import { type Ref, useEffect, useRef, useState } from "react";
+import { resolveAvatar } from "../lib/agent-tint.ts";
 import type { Tab } from "../lib/tabs.ts";
 import type { AgentSummary, AgentsApi } from "../state/use-agents.ts";
 import { AgentAvatar } from "./AgentAvatar.tsx";
@@ -219,6 +220,12 @@ export function NavRail({
               .filter(Boolean)
               .join(" ")}
             data-agent-id={agent.id}
+            // The face's own tint, one level up: the active row's left bar (see
+            // .rail-agent.active::before) is the agent's own color, and only
+            // resolveAvatar knows it — same call AgentAvatar is about to make.
+            style={{
+              "--agent": resolveAvatar(agent.id, agent.name, agents.avatars[agent.id]).background,
+            }}
             title={
               agents.pinned.has(agent.id)
                 ? `${agent.name} (pinned) — conversations`
