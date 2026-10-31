@@ -1716,11 +1716,24 @@ try {
       const el = document.querySelector(".rail .rail-agent.active .agent-avatar");
       if (!el) return null;
       const s = getComputedStyle(el);
-      return { width: s.outlineWidth, color: s.outlineColor };
+      const row = el.closest(".rail-agent");
+      const bar = row ? getComputedStyle(row, "::before") : null;
+      return {
+        width: s.outlineWidth,
+        color: s.outlineColor,
+        barWidth: bar?.width,
+        barLeft: bar?.left,
+        barColor: bar?.backgroundColor,
+      };
     });
     check(
       "the selected avatar keeps its ring whatever the hover does",
       activeRing !== null && activeRing.width !== "0px" && activeRing.color !== "none",
+      activeRing,
+    );
+    check(
+      "the selected agent wears the 3px edge bar in its own tint",
+      activeRing !== null && activeRing.barWidth === "3px" && activeRing.barLeft === "0px",
       activeRing,
     );
     check(
