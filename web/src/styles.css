@@ -158,7 +158,10 @@ pre {
   width: 74px;
   flex-shrink: 0;
   background: var(--surface);
-  border-right: 1px solid var(--border);
+  /* No vertical hairline beside the panel: an agent row is one row across the
+   seam, and any border here draws a crack through every lit row. The seam
+   divider is horizontal (the blocks' own border-top) and the sidebar's own
+   border-right still separates the list from the transcript. */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -179,10 +182,20 @@ pre {
   flex-direction: column;
   align-items: center;
   gap: 4px;
+  /* The rail is a centered flex column, which would shrink this block to its
+     content (~46px) — and then every lit row is a floating pill, not a row.
+     Full column width is what makes the rail half meet the panel half. */
+  width: 100%;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   scrollbar-width: none;
+  /* The seam divider is the block's own top border — the panel's agent block
+     carries the identical border-top, and the App-mirrored height makes the
+     two boxes congruent: one hairline row, and the first face and the first
+     name start on exactly the same y. */
+  border-top: 1px solid var(--border);
+  margin-top: 2px;
   padding: 0 0 4px;
 }
 .rail-agents::-webkit-scrollbar {
@@ -284,14 +297,8 @@ pre {
    the block's measured height, so the two hairlines sit on one pixel row
    across the column seam — which is why this is a div with a border and not a
    UA-margin hr. */
-.rail-split {
-  flex: none;
-  width: 100%;
-  height: 0;
-  margin: 2px 0 0;
-  border: none;
-  border-top: 1px solid var(--border);
-}
+/* The seam divider is drawn by .rail-agents' and .panel-agents' own border-top
+   — one hairline row at the same y in both columns, with congruent boxes. */
 .rail-item {
   width: 100%;
   flex: none;
@@ -432,12 +439,13 @@ pre {
   background: var(--surface-2);
 }
 /* Docked under the scrolling names — the panel's counterpart of the rail's
-   fixed all cell, same box (44 + a 4px foot) so both columns' scroll regions
-   end on the same line. New-agent is a verb, not a row of the list. */
+   fixed all cell: same 2px air above, same height, same 4px foot, so the two
+   columns' scroll boxes come out congruent and the foot cells end on one
+   line. New-agent is a verb, not a row of the list. */
 .panel-new {
   flex: none;
   height: var(--rail-cell);
-  margin: 0 0 4px;
+  margin: 2px 0 4px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1233,8 +1241,12 @@ pre {
 }
 
 /* IN and OUT sit on one inset rail under the header — a 2px left border and a
-   small indent — so a call and its result read as a single block. */
-.rail {
+   small indent — so a call and its result read as a single block.
+   Scoped `.entry .rail`, never bare `.rail`: the navigation column is
+   `nav.rail`, and an unscoped rule here leaked its 2px border-left,
+   1px margin-left and 4px margin-top onto the nav — stealing width from the
+   agent rows and shifting the whole column under the band. */
+.entry .rail {
   align-self: stretch;
   min-width: 0;
   margin-top: 4px;
@@ -1251,7 +1263,7 @@ pre {
   color: var(--muted);
 }
 /* A second and later rail-label (the OUT after the IN) needs air above it. */
-.rail .rail-label ~ .rail-label {
+.entry .rail .rail-label ~ .rail-label {
   margin-top: 5px;
 }
 .entry.tool.error .rail,
@@ -1260,7 +1272,7 @@ pre {
 }
 
 /* Collapsed, the block still shows one line of output on the same rail. */
-.rail.peek {
+.entry .rail.peek {
   margin-top: 3px;
 }
 .tool-peek {

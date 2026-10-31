@@ -1603,7 +1603,6 @@ try {
         return el ? el.getBoundingClientRect() : null;
       };
       const band = rect(".band");
-      const split = rect(".rail-split");
       const railBlock = rect(".rail-agents");
       const panelBlock = rect(".panel-agents");
       const firstPane = rect(".rail .rail-item");
@@ -1611,11 +1610,13 @@ try {
       const settings = [...document.querySelectorAll(".rail .rail-item")].find(
         (b) => b.textContent?.trim() === "Settings",
       );
-      if (!band || !split || !railBlock || !panelBlock || !firstPane || !settings) return null;
+      if (!band || !railBlock || !panelBlock || !firstPane || !settings) return null;
       return {
         bandBottom: Math.round(band.bottom),
         bandRight: Math.round(band.right),
-        splitTop: Math.round(split.top),
+        // The divider is the block's own border-top now — its top row IS the
+        // hairline, in both columns, so the two tops are compared directly.
+        splitTop: Math.round(railBlock.top),
         settingsBottom: Math.round(settings.getBoundingClientRect().bottom),
         panelTop: Math.round(panelBlock.top),
         railH: Math.round(railBlock.height),
