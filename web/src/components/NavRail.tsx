@@ -194,14 +194,9 @@ export function NavRail({
         Settings
       </button>
 
-      {/* The divider between the panes and the agents: fixed, not draggable, and
-          the same hairline row as the panel's agent block. It sits directly under
-          the last pane button — the agents take everything below it to the foot
-          of the column, and the panel beside mirrors that height (App measures
-          this block and hands the number across the seam). A div, not an hr:
-          a separator with no semantics to announce and no drag to do. */}
-      <div className="rail-split" aria-hidden="true" />
-
+      {/* No divider element here: the seam hairline is .rail-agents' own
+          border-top — the same 1px box edge the panel's agent block carries,
+          so the two blocks are congruent and their rows ride one line. */}
       <div
         ref={blockRef}
         className="rail-agents"
