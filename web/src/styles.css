@@ -308,7 +308,9 @@ pre {
   color: var(--text);
   background: var(--surface-2);
 }
-/* Fixed at the foot: the block above is `flex: 1`, so this cell never scrolls —
+/* Fixed at the foot, OUTSIDE the scroll: the agent block above it is
+   content-height and bottom-docked (`margin-top: auto`, not fill), and this cell
+   sits below that block in the column with `flex: none`, so it never scrolls —
    it is the one rail button that answers "all of them" from any scroll state.
    Compact, and its box (height + 4px foot) matches `.panel-new` across the
    seam so both columns' scroll regions end on the same line. */
@@ -316,14 +318,10 @@ pre {
   flex: none;
   margin: 0 0 4px;
 }
-/* The divider between the panes and the agents, FIXED and flush: it sits
-   directly under the last pane button (Settings), and the agent block below
-   it takes every pixel to the foot of the column. The panel beside it mirrors
-   the block's measured height, so the two hairlines sit on one pixel row
-   across the column seam — which is why this is a div with a border and not a
-   UA-margin hr. */
 /* The seam divider is drawn by .rail-agents' and .panel-agents' own border-top
-   — one hairline row at the same y in both columns, with congruent boxes. */
+   — one hairline row at the same y in both columns, with congruent boxes, riding
+   the FIRST agent (the blocks are bottom-docked, not filled from a fixed line).
+   Borders on each block, not a UA-margin hr, so the pair cannot drift a pixel. */
 .rail-item {
   width: 100%;
   flex: none;
@@ -411,9 +409,10 @@ pre {
   min-height: 34px;
   padding: 0 2px;
 }
-/* The rail's agent list in names only, filling whatever the conversations
-   leave under the same divider row: same pitch and padding, so the rows
-   pair-align with the rail's faces and the two hairlines are one row. */
+/* The rail's agent list in names only, docked at the foot: the conversations
+   list above is what fills, reaching down to this block's own border-top (the
+   seam). It wears the rail block's mirrored height; same pitch and padding, so
+   the rows pair-align with the rail's faces and the two hairlines are one row. */
 .panel-agents {
   flex: none;
   border-top: 1px solid var(--border);

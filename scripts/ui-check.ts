@@ -1298,8 +1298,8 @@ try {
         (await page.locator('.rail .rail-agent[data-agent-id][title*="conversations"]').count()) >=
           1,
     );
-    // The agent block under the divider calls the list what the face does: the two
-    // halves mark the same agent across the seam.
+    // The agent block that draws the seam marks the same agent the face does:
+    // the two halves mark one agent across the seam.
     const panelActive = (
       await page.locator(".sidebar .panel-agent.active").first().innerText()
     ).trim();
