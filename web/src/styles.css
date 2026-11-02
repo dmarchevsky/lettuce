@@ -544,13 +544,6 @@ pre {
   border: 2px solid var(--surface);
 }
 
-.where-caret {
-  flex: none;
-  width: 15px;
-  height: 15px;
-  color: var(--muted);
-}
-
 /* The old top tab strip: six labels squeezed to 13px at 390px and stretched into
    slabs on desktop, replaced by the two surfaces above. */
 

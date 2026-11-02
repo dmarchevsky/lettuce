@@ -333,12 +333,14 @@ function Workspace({ status }: { status: Status }) {
   }, [tab, selectPane, openPanel]);
 
   // An unpinned panel is a popover, and popovers get out of the way when you
-  // press anywhere else. Pinned, it is a column and stays put.
+  // press anywhere else. Pinned, it is a column and stays put. The band is NOT
+  // "anywhere else": its own name is the toggle, and dismissing here first
+  // would make the click under it re-open what the pointer just closed.
   useEffect(() => {
     if (!wide || !panelVisible || panelPinned) return;
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Element | null;
-      if (target?.closest(".sidebar, .rail")) return;
+      if (target?.closest(".sidebar, .rail, .band")) return;
       setPanelPeek(false);
     };
     document.addEventListener("pointerdown", onPointerDown);
@@ -421,9 +423,16 @@ function Workspace({ status }: { status: Status }) {
       openSwitcher();
       return;
     }
-    if (tab === "Chat" && !panelPinned && (panelPeek || previewAgent !== null)) {
+    if (tab === "Chat" && (panelPinned || panelPeek || previewAgent !== null)) {
+      // The panel is already here: clicking the name puts it away. A pinned
+      // panel gives up its pin in the same click — asking to hide while pinned
+      // means you mean it, and the pin button still re-pins one click away.
       setPanelPeek(false);
       setPreviewId(null);
+      if (panelPinned) {
+        writePanelPin(false);
+        setPanelPinned(false);
+      }
       return;
     }
     selectPane("Chat");
@@ -633,9 +642,10 @@ function Workspace({ status }: { status: Status }) {
           {respondingElsewhere > 0 ? <span className="activity-dot badge-dot" /> : null}
         </span>
         <h1 className="title">{title}</h1>
-        {/* The button has always opened the switcher; the chevron is what says
-                so now that nothing else in the top bar is a button at all. */}
-        <Icon name="chevron-down" className="where-caret" />
+        {/* No chevron: on desktop the name is the panel toggle (click shows or
+                hides), and on a phone it opens the switcher — in both cases the
+                button says what it does in its accessible name, and the caret
+                only cluttered the corner the eye starts at. */}
       </button>
       <ContextGauge
         usage={conversation.turnUsage}
