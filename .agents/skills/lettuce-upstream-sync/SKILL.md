@@ -71,8 +71,9 @@ Protocol drift shows up two ways:
      event cut with a `[truncated N bytes]` marker). Read the two gates separately: **the readable log
      (`event_seq`) exists only for a caller-notified launch** — `serveTaskEvents` runs under
      `if (publishResult)` in `task.ts`, 32 MiB kept per child — while `progress_texts` is **not**
-     gated (`addProgressText` runs in every task's `onText`), so a snapshot can carry recent progress
-     text whatever the launch mode. Neither command is on the BFF allowlist — see the roadmap.
+     gated (`addProgressText` runs in an **external-worker** task's `onText` — the only caller is
+     `externalWorkerProgressListeners`, wired on the Codex/Claude paths), so a snapshot can carry
+     recent progress text whatever the launch mode. Neither command is on the BFF allowlist yet.
    - `src/websocket/listener/commands/subagent-control.ts` — steering a **local** external worker (a
      `codex_<thread>`/`claude_<session>` id, no `@computer`) was already allowed at 0.34.21; do not
      record it as new. What 0.34.37 added is `ownsNativeSession`, so a worker stays steerable after
@@ -89,11 +90,12 @@ Protocol drift shows up two ways:
      a `LETTA_CONFIG_DIR` would move where the mods the BFF *writes* are discovered (inert while
      nothing sets it). `mod-sources.ts`, `mod-engine.ts`, `types.ts` and `mod-diagnostics-file.ts` are
      byte-identical across this range, so render, reload and diagnostics did not move.
-   - `src/agent/skills.ts` — `GLOBAL_SKILLS_DIR` became `getGlobalSkillsDir()` off
-     `resolveGlobalStateDir`, so the global skill root is now conditional. `bff/src/skills/`
+   - `src/agent/skills.ts` — since 0.34.27 `GLOBAL_SKILLS_DIR` became `getGlobalSkillsDir()` off
+     `resolveGlobalStateDir`, so the global skill root is now conditional, while `bff/src/skills/`
      re-implements discovery against the fixed `/root/.letta/skills`; if the root ever moves, both
-     move. Same release added `runtime_start`'s `bundled_skills`: expose named bundled skills while
-     `skill_sources` omits `"bundled"` — the per-agent granularity we do not have (roadmap).
+     move. Separately, since 0.34.22 `runtime_start` takes `bundled_skills`: expose named bundled
+     skills while `skill_sources` omits `"bundled"` — the per-agent granularity `bff/src/skills/`
+     cannot express today, since its smallest unit is a whole source.
    - `src/types/schedule-protocol.ts` — `CronRunOutcome` gained `delivered` and `CronRunReason` a
      `dequeued`. Nothing renders an outcome exhaustively today, so it is silent until we do.
    - `src/backend/local/*` — since 0.34.32 a local-backend request carries `x-letta-request-kind:

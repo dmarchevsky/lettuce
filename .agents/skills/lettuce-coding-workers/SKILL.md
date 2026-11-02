@@ -63,7 +63,8 @@ Loaded from `AGENTS.md`. letta-code spawns the real CLIs; a shim makes them fit 
     0.34.37 made **resumes** take the same wrapped env as launch. A worker that suddenly cannot find
     `codex` after a bump is a PATH question, not a shim bug.
   - Upstream accepts **four** worker types now (`claude-code | codex | opencode | cursor`,
-    `external-coding-agent.ts`; Cursor landed in 0.34.26 and authenticates with `CURSOR_API_KEY`).    We ship two. There is also a native model catalog per worker (`external-worker-models.ts`,
+    `external-coding-agent.ts`; Cursor landed in 0.34.26 and authenticates with `CURSOR_API_KEY`).
+    We ship two. There is also a native model catalog per worker (`external-worker-models.ts`,
     `--worker …`, since 0.34.27) which our Settings sections do not use yet — it is the difference
     between a model picker and a free-text field.
 - **Claude Code workers: the same arrangement, minus the sandbox rewrite.** Since 0.33 upstream
