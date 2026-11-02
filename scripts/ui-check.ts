@@ -249,20 +249,8 @@ async function openSkillsSection(page: Page): Promise<boolean> {
   return false;
 }
 
-/** Open the agents-and-conversations switcher at either width: the rail's "All
- * agents" cell on desktop, the header's agent face on a phone. */
-async function openSwitcher(page: Page): Promise<void> {
-  const cell = page.locator('.rail button[aria-label="All agents"]');
-  if (await cell.first().isVisible()) {
-    await cell.first().click();
-    return;
-  }
-  await page.locator(".topbar .where-avatar").click();
-  await page.locator(".switcher").waitFor();
-}
-
 async function openSettings(page: Page): Promise<void> {
-  const foot = page.locator('.rail .rail-foot button:text-is("Settings")');
+  const foot = page.locator('.rail .rail-item:text-is("Settings")');
   if ((await foot.count()) > 0 && (await foot.first().isVisible())) {
     await foot.first().click();
     return;
@@ -1186,7 +1174,7 @@ try {
         .count()) === 0,
     );
     check(
-      "the rail is what opens the switcher on desktop",
+      "the rail carries the all-agents cell",
       (await page.locator(".rail .rail-all").count()) === 1,
     );
     check(
@@ -1286,38 +1274,45 @@ try {
       !(await page.locator(".topbar .where-avatar").isVisible()),
     );
     check(
-      "the rail lists every agent as an avatar, plus a cell for the switcher",
+      "the rail lists every agent as an avatar, plus one fixed all cell outside the list",
       (await page.locator(".rail .rail-agent[data-agent-id]").count()) >= 1 &&
-        (await page.locator(".rail .rail-all").count()) === 1,
+        (await page.locator(".rail .rail-all").count()) === 1 &&
+        (await page.locator(".rail .rail-agents .rail-all").count()) === 0 &&
+        (await page.locator(".rail .rail-new").count()) === 0,
     );
     check(
       "the rail has no agent rows of its own any more",
       (await page.locator(".rail .agent-row").count()) === 0,
     );
     check(
-      "the conversation panel is only conversations, apart from the head",
-      (await page.locator(".sidebar .agent-avatar").count()) === 1 &&
-        (await page.locator(".sidebar .conversation-row").count()) >= 1,
+      "the panel carries conversations on top and names-only agents at the bottom",
+      (await page.locator(".sidebar .agent-avatar").count()) === 0 &&
+        (await page.locator(".sidebar .conversation-row").count()) >= 1 &&
+        (await page.locator(".sidebar .panel-agent").count()) >= 1,
     );
-    // An initial is a riddle once two agents share a first letter, so the rail spells
-    // the names out under the faces.
-    const railNames = await page
-      .locator(".rail .rail-agent[data-agent-id] .rail-agent-name")
-      .allInnerTexts();
+    // The rail's face is the agent's one icon — no name under it. The name lives
+    // in the panel's bottom block, the other half of the same selection control.
     check(
-      "every agent in the rail says its name under its face",
-      railNames.length >= 1 && railNames.every((name) => name.trim().length > 0),
-      railNames,
+      "the rail wears faces only: no names under them any more",
+      (await page.locator(".rail .rail-agent-name").count()) === 0 &&
+        (await page.locator('.rail .rail-agent[data-agent-id][title*="conversations"]').count()) >=
+          1,
     );
-    // And the glance that lands on the panel head says which agent a click acts on.
-    const headName = (await page.locator(".sidebar .panel-head .section-label").innerText()).trim();
-    const railActive = (
-      await page.locator(".rail .rail-agent.active .rail-agent-name").first().innerText()
+    // The agent block that draws the seam marks the same agent the face does:
+    // the two halves mark one agent across the seam.
+    const panelActive = (
+      await page.locator(".sidebar .panel-agent.active").first().innerText()
     ).trim();
+    const railActive = (
+      (await page.locator(".rail .rail-agent.active").first().getAttribute("title")) ?? ""
+    )
+      .replace(/\s*\(pinned\)/, "")
+      .split(" —")[0]
+      .trim();
     check(
-      "the panel head names the agent whose list it is",
-      headName.length > 0 && headName === railActive,
-      { headName, railActive },
+      "the panel's active name is the rail's active agent",
+      panelActive.length > 0 && panelActive === railActive,
+      { panelActive, railActive },
     );
     const bars = await page.evaluate(() => {
       const left = (sel: string) =>
@@ -1495,13 +1490,28 @@ try {
       await page.waitForTimeout(400);
       await otherAgent.hover();
       await page.waitForTimeout(700);
-      const borrowed = (
-        await page.locator(".sidebar .panel-head .section-label").innerText()
-      ).trim();
+      const borrowed = (await page.locator(".sidebar .panel-agent.preview").innerText()).trim();
       check(
-        "hovering another agent opens the same panel with their conversations",
+        "hovering another agent marks its row and opens its conversations",
         (await panelOn()) && borrowed === otherName,
         { borrowed, otherName },
+      );
+      // One row, both halves: the rail's hover lights the panel's row too, and
+      // no row anywhere in this pair wears an inset color bar — hover, held and
+      // selected are all one language: the row background.
+      check(
+        "the rail's hover lights the panel's row as one row",
+        (await page.locator(".sidebar .panel-agent.held").count()) === 1,
+      );
+      const rowMarks = await page.evaluate(() =>
+        [...document.querySelectorAll(".sidebar .panel-agent, .rail .rail-agent")].map(
+          (el) => getComputedStyle(el).boxShadow,
+        ),
+      );
+      check(
+        "no agent row wears an inset bar — only row highlighting",
+        rowMarks.length >= 2 && rowMarks.every((s) => s === "none"),
+        rowMarks,
       );
       // Moving from one avatar to the next is one gesture: a panel that blinks back
       // to your own list on the way is a flicker nobody asked for. Sample it — a
@@ -1564,72 +1574,294 @@ try {
         console.log("  SKIP  choosing a borrowed conversation (that agent has none)");
       }
       // Leave the panel as the suite found it: pinned, on Chat, showing the agent
-      // the pick left selected.
+      // the pick left selected — and PIN means aria-pressed, not just a visible
+      // panel (the band-toggle checks below assume a pinned start).
       if (!(await panelOn())) {
         await page.locator(".rail .rail-item:text-is('Chat')").click();
         await page.waitForTimeout(300);
       }
-      await page.locator(".sidebar .panel-pin").click();
-      await page.waitForTimeout(300);
-      check("and the panel is pinned again for what follows", await panelOn());
+      const repin = page.locator(".sidebar .panel-pin");
+      if ((await repin.getAttribute("aria-pressed")) !== "true") {
+        await repin.click();
+        await page.waitForTimeout(300);
+      }
+      check(
+        "and the panel is pinned again for what follows",
+        (await repin.getAttribute("aria-pressed")) === "true" && (await panelOn()),
+      );
     } else {
       console.log("  SKIP  the borrowed panel needs a second agent");
     }
 
-    // The divider between the avatars and the panes is the one place the rail
-    // resizes: how many agents fit is nobody's guess but the person who has them.
-    const split = page.locator(".rail-split");
-    const splitBox = await split.boundingBox();
-    const blockH = () =>
-      page.locator(".rail-agents").evaluate((el) => Math.round(el.getBoundingClientRect().height));
-    const blockBefore = await blockH();
-    const dragSplit = async (dy: number) => {
-      const box = await split.boundingBox();
-      if (!box) return;
-      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + dy, { steps: 8 });
-      await page.mouse.up();
-      await page.waitForTimeout(200);
-    };
-    await dragSplit(90);
-    const blockBigger = await blockH();
-    check("dragging the divider down shows more agent room", blockBigger >= blockBefore + 80, {
-      blockBefore,
-      blockBigger,
-    });
-    await page.reload({ waitUntil: "networkidle" });
-    await page.waitForTimeout(1500);
-    check(
-      "and the rail remembers it across a reload",
-      Math.abs((await blockH()) - blockBigger) <= 2,
-      { blockBigger, blockReloaded: await blockH() },
-    );
-    // And the other way: shrink it below the agents and the block scrolls inside
-    // the rail instead of pushing the panes off the bottom.
-    await dragSplit(-600);
-    const shrunk = await page.evaluate(() => {
-      const el = document.querySelector(".rail-agents");
-      if (!el) return null;
+    // The seam divider is the agent blocks' own border-top: both blocks are
+    // content-height and bottom-docked, so the hairline rides the FIRST agent
+    // and the rail's measured height is the panel's — one row across the seam
+    // at any window size, conversations list reaching it from above.
+    const seam = await page.evaluate(() => {
+      const rect = (sel: string) => {
+        const el = document.querySelector(sel);
+        return el ? el.getBoundingClientRect() : null;
+      };
+      const band = rect(".band");
+      const railBlock = rect(".rail-agents");
+      const panelBlock = rect(".panel-agents");
+      const firstPane = rect(".rail .rail-item");
+      const railAll = rect(".rail .rail-all");
+      const settings = [...document.querySelectorAll(".rail .rail-item")].find(
+        (b) => b.textContent?.trim() === "Settings",
+      );
+      if (!band || !railBlock || !panelBlock || !firstPane || !settings) return null;
       return {
-        height: Math.round(el.getBoundingClientRect().height),
-        scrolls: el.scrollHeight > el.clientHeight + 1,
+        bandBottom: Math.round(band.bottom),
+        bandRight: Math.round(band.right),
+        // The divider is the block's own border-top now — its top row IS the
+        // hairline, in both columns, so the two tops are compared directly.
+        splitTop: Math.round(railBlock.top),
+        panelTop: Math.round(panelBlock.top),
+        railH: Math.round(railBlock.height),
+        panelH: Math.round(panelBlock.height),
+        panelFoot: Math.round(panelBlock.bottom),
+        railAllFoot: railAll ? Math.round(railAll.bottom) : -1,
+        panelNewFoot: (() => {
+          const r = rect(".sidebar .panel-new");
+          return r ? Math.round(r.bottom) : -1;
+        })(),
+        firstPaneTop: Math.round(firstPane.top),
+        window: window.innerWidth,
+        height: window.innerHeight,
       };
     });
     check(
-      "dragging it up shows fewer agents, and the rest scroll inside",
-      shrunk !== null && shrunk.height <= blockBefore - 80 && shrunk.scrolls,
-      shrunk,
+      "rail and panel share one divider row",
+      seam !== null && Math.abs(seam.splitTop - seam.panelTop) <= 1,
+      seam,
     );
-    // Keyboard parity: the same drag is an arrow key away, and Home forgets it.
-    await page.locator(".rail-split").focus();
-    await page.keyboard.press("ArrowDown");
-    await page.keyboard.press("Home");
-    const blockHome = await blockH();
-    check("Home forgets the size", Math.abs(blockHome - blockBefore) <= 2, {
-      blockBefore,
-      blockHome,
+    check(
+      "the two agent blocks carry the same height",
+      seam !== null && seam.railH === seam.panelH,
+      seam,
+    );
+    check(
+      "both columns dock their foot cell on the same line at the foot",
+      seam !== null &&
+        seam.railAllFoot >= seam.height - 12 &&
+        seam.panelNewFoot >= seam.height - 12 &&
+        Math.abs(seam.railAllFoot - seam.panelNewFoot) <= 2,
+      seam,
+    );
+    check(
+      "the band spans the whole window",
+      seam !== null && seam.bandRight >= seam.window - 1,
+      seam,
+    );
+    check(
+      "the rail sits flush under the band",
+      seam !== null && seam.firstPaneTop - seam.bandBottom <= 2,
+      seam,
+    );
+    // A short window is where the bottom-docked blocks actually clamp: both must
+    // shrink, keep scrolling from their top, and the seam must still be ONE row.
+    await page.setViewportSize({ width: DESKTOP.width, height: 560 });
+    await page.waitForTimeout(400);
+    // Hand the baseline height into the measure below without a second layout pass.
+    await page.evaluate((h: number) => {
+      (window as unknown as { __railH: number }).__railH = h;
+    }, seam?.railH ?? 0);
+    const clamped = await page.evaluate(() => {
+      const el = (sel: string) => document.querySelector(sel);
+      const rb = el(".rail-agents");
+      const pb = el(".panel-agents");
+      const all = el(".rail .rail-all");
+      if (!rb || !pb || !all) return null;
+      const r = rb.getBoundingClientRect();
+      const p = pb.getBoundingClientRect();
+      const a = all.getBoundingClientRect();
+      const seamRailH = Number(window.__railH ?? 0);
+      return {
+        splitTop: Math.round(r.top),
+        panelTop: Math.round(p.top),
+        railH: Math.round(r.height),
+        panelH: Math.round(p.height),
+        // The rail block clamps only when the list outgrows the room; either way
+        // it must end no lower than the all cell's top, and shrinking the window
+        // must never make the block taller.
+        fitsAboveAll: r.bottom <= a.top + 1,
+        clampedOrSame: r.height <= seamRailH + 1,
+        height: window.innerHeight,
+      };
     });
+    check(
+      "at 560px height the seam is still one row and both blocks clamp",
+      clamped !== null &&
+        Math.abs(clamped.splitTop - clamped.panelTop) <= 1 &&
+        clamped.railH === clamped.panelH &&
+        clamped.fitsAboveAll &&
+        clamped.clampedOrSame,
+      clamped,
+    );
+    await page.setViewportSize(DESKTOP);
+    await page.waitForTimeout(400);
+    // Faces and names are one list cut in half: same count, and each pair rides
+    // the same line — measured center to center, not trusted from pitch math.
+    const pairs = await page.evaluate(() => {
+      const centers = (sel: string) =>
+        [...document.querySelectorAll(sel)].map((el) => {
+          const r = el.getBoundingClientRect();
+          return Math.round(r.top + r.height / 2);
+        });
+      return {
+        rail: centers(".rail .rail-agents .rail-agent[data-agent-id]"),
+        panel: centers(".sidebar .panel-agents .panel-agent[data-agent-id]"),
+      };
+    });
+    check(
+      "every face rides the same line as its name",
+      pairs.rail.length >= 1 &&
+        pairs.rail.length === pairs.panel.length &&
+        pairs.rail.every((c, i) => Math.abs(c - pairs.panel[i]) <= 1),
+      pairs,
+    );
+    // The lists ride the foot: the last face sits on the all cell and the last
+    // name on New-agent — a short list sinks to them instead of hanging under
+    // the divider (and a long one fills to them, so this holds either way).
+    const footSeat = await page.evaluate(() => {
+      const bot = (sel: string) => {
+        const els = document.querySelectorAll(sel);
+        return els.length ? Math.round(els[els.length - 1].getBoundingClientRect().bottom) : -1;
+      };
+      const top = (sel: string) => {
+        const el = document.querySelector(sel);
+        return el ? Math.round(el.getBoundingClientRect().top) : -1;
+      };
+      return {
+        lastFaceToAll:
+          top(".rail .rail-all") - bot(".rail .rail-agents .rail-agent[data-agent-id]"),
+        lastNameToNew:
+          top(".sidebar .panel-new") - bot(".sidebar .panel-agents .panel-agent[data-agent-id]"),
+      };
+    });
+    check(
+      "the last face and the last name sit on their docked foot cell",
+      footSeat.lastFaceToAll >= 0 &&
+        footSeat.lastFaceToAll <= 10 &&
+        footSeat.lastNameToNew >= 0 &&
+        footSeat.lastNameToNew <= 10,
+      footSeat,
+    );
+    const activeRing = await page.evaluate(() => {
+      const el = document.querySelector(".rail .rail-agent.active .agent-avatar");
+      if (!el) return null;
+      const s = getComputedStyle(el);
+      const row = el.closest(".rail-agent");
+      const bar = row ? getComputedStyle(row, "::before") : null;
+      return {
+        width: s.outlineWidth,
+        color: s.outlineColor,
+        barWidth: bar?.width,
+        barLeft: bar?.left,
+        barColor: bar?.backgroundColor,
+      };
+    });
+    check(
+      "the selected avatar keeps its ring whatever the hover does",
+      activeRing !== null && activeRing.width !== "0px" && activeRing.color !== "none",
+      activeRing,
+    );
+    check(
+      "the selected agent wears the 3px edge bar in its own tint",
+      activeRing !== null && activeRing.barWidth === "3px" && activeRing.barLeft === "0px",
+      activeRing,
+    );
+    check(
+      "New agent docks the panel under its list, outside the scroll",
+      (await page.evaluate(() => {
+        const el = document.querySelector(".sidebar .panel-new");
+        return el ? el.getBoundingClientRect().bottom >= window.innerHeight - 12 : false;
+      })) && (await page.locator(".sidebar .panel-agents .panel-new").count()) === 0,
+    );
+
+    // The band's identity is the panel verb on desktop: it never opens the sheet.
+    // The toggle only exists for an UNPINNED panel (pinned is always-visible), so
+    // unpin explicitly and prove it before testing the toggle.
+    const bandPin = page.locator(".sidebar .panel-pin");
+    if ((await bandPin.getAttribute("aria-pressed")) === "true") {
+      await bandPin.click();
+      await page.waitForTimeout(300);
+    }
+    check(
+      "the panel is unpinned, so the band toggle has something to show",
+      (await bandPin.getAttribute("aria-pressed")) === "false",
+    );
+    await page.locator(".messages").click({ position: { x: 40, y: 40 } });
+    await page.waitForTimeout(300);
+    check("the panel is away before the band opens it", !(await panelOn()));
+    await page.locator(".topbar .where").click();
+    await page.waitForTimeout(400);
+    check(
+      "clicking the identity opens the panel, never the sheet",
+      (await panelOn()) && (await page.locator(".switcher").count()) === 0,
+    );
+    // The accessible name must match the verb: with the panel up, the name reads
+    // "Hide conversations" (this is the state the earlier pinned bug got wrong).
+    check(
+      "the identity's accessible name says Hide while the panel is up",
+      ((await page.locator(".topbar .where").getAttribute("aria-label")) ?? "").includes(
+        "Hide conversations",
+      ),
+      await page.locator(".topbar .where").getAttribute("aria-label"),
+    );
+    await page.locator(".topbar .where").click();
+    await page.waitForTimeout(400);
+    check("and clicking it again puts the peek away", !(await panelOn()));
+    await page.locator(".rail .rail-all").click();
+    await page.waitForTimeout(400);
+    check(
+      "the all cell opens the panel with the full agent list, never the sheet",
+      (await panelOn()) &&
+        (await page.locator(".switcher").count()) === 0 &&
+        (await page.locator(".sidebar .panel-agent[data-agent-id]").count()) >= 1,
+    );
+    // Re-pin for what follows WITHOUT collapsing the peek: the all-cell just
+    // opened it, so clicking Chat would TOGGLE it shut (unpinned + Chat + peek
+    // open → peek false) and hide the sidebar — then clicking the now-hidden
+    // pin button would time out and take the whole suite down with it. Open it
+    // only if it's already away, exactly like the repin block earlier.
+    if (!(await panelOn())) {
+      await page.locator(".rail .rail-item:text-is('Chat')").click();
+      await page.waitForTimeout(300);
+    }
+    const restorePin = page.locator(".sidebar .panel-pin");
+    if ((await restorePin.getAttribute("aria-pressed")) !== "true") {
+      await restorePin.click();
+      await page.waitForTimeout(300);
+    }
+    check(
+      "and the panel is pinned again for what follows",
+      (await restorePin.getAttribute("aria-pressed")) === "true" && (await panelOn()),
+    );
+
+    // One selection control across the seam: resting on an agent's NAME in the
+    // panel marks that agent's FACE in the rail (the borrow marks the other way).
+    const heldRow = page.locator(".sidebar .panel-agent[data-agent-id]:not(.active)").first();
+    if ((await heldRow.count()) > 0) {
+      const heldId = await heldRow.getAttribute("data-agent-id");
+      await heldRow.hover();
+      await page.waitForTimeout(400);
+      check(
+        "resting on a name marks that face and borrows its conversations — even pinned",
+        (await page.locator(`.rail .rail-agent[data-agent-id="${heldId}"].held`).count()) === 1 &&
+          (await page.locator('.sidebar [aria-label^="New conversation with"]').count()) === 1,
+      );
+      await page.mouse.move(600, 400);
+      await page.waitForTimeout(250);
+      check(
+        "and leaving unmarks it and returns the list",
+        (await page.locator(".rail .rail-agent.held").count()) === 0 &&
+          (await page.locator('.sidebar [aria-label^="New conversation with"]').count()) === 0,
+      );
+    } else {
+      console.log("  SKIP  the cross-selection mark needs a second agent");
+    }
 
     // Pinned agents are the first avatars, and say so with a notch — the order is
     // the whole point of pinning, and an unlabeled order is invisible.
@@ -2959,10 +3191,9 @@ try {
       "and the sheet closes on the pick",
       (await page.locator('.sheet-panel[aria-label="Model"]').count()) === 0,
     );
-    // Nested case: the model sheet over the New agent sheet.
-    await openSwitcher(page);
-    // Named by its own label, not an aria-label the switcher never had.
-    await page.getByRole("button", { name: "New agent", exact: true }).click();
+    // Nested case: the model sheet over the New agent sheet. The panel's docked
+    // New-agent row opens the editor directly — on desktop that is the only door.
+    await page.locator('.sidebar .panel-new[aria-label="New agent"]').click();
     await page.locator('.sheet-panel[aria-label="New agent"]').waitFor();
     await page.locator('.sheet-panel[aria-label="New agent"] .field-trigger').click();
     await sheet.waitFor({ timeout: 8_000 });

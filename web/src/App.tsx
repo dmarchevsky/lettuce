@@ -217,8 +217,15 @@ function Workspace({ status }: { status: Status }) {
   const panelHeld = useRef(false);
   const previewList = useAgentConversations(session.request);
   const loadPreview = previewList.load;
+  // A name resting in the panel's bottom block borrows even while pinned (see
+  // `hoverPanelAgent`): the pointer is already inside the column you are reading,
+  // which is an ask a sweep past the rail is not.
+  const panelRest = useRef(false);
   const previewAgent =
-    tab === "Chat" && !panelPinned && previewId && previewId !== agents.agentId
+    tab === "Chat" &&
+    previewId &&
+    previewId !== agents.agentId &&
+    (!panelPinned || panelRest.current)
       ? (agents.agents.find((agent) => agent.id === previewId) ?? null)
       : null;
   const panelVisible = tab === "Chat" && (panelPinned || panelPeek || previewAgent !== null);
@@ -244,7 +251,24 @@ function Workspace({ status }: { status: Status }) {
   }, []);
   const holdPanel = useCallback((held: boolean) => {
     panelHeld.current = held;
-    if (!held) setPreviewId(null);
+    if (!held) {
+      panelRest.current = false;
+      setPreviewId(null);
+      // The hover mark belongs to the held list; a pointer that left the panel
+      // must not leave a face lit in the rail with no list beside it.
+      setHeldAgent(null);
+    }
+  }, []);
+  /**
+   * The seam is bidirectional: a face in the rail borrows the panel (above), and a
+   * NAME in the panel's bottom block borrows its conversations into the list and
+   * marks the rail's face. Unlike the rail's sweep, this one is honored while
+   * pinned — resting on a name inside the panel is deliberate.
+   */
+  const hoverPanelAgent = useCallback((agentId: string | null) => {
+    setHeldAgent(agentId);
+    panelRest.current = agentId !== null;
+    setPreviewId(agentId);
   }, []);
   /** Choosing from a borrowed list is a switch: that agent, that conversation. */
   const previewPick = useCallback(
@@ -276,6 +300,11 @@ function Workspace({ status }: { status: Status }) {
     // Pinning a borrowed panel would keep another agent's list as the column you decided
     // to keep — the borrow is a hover, and a hover is not a decision.
     setPreviewId(null);
+    // A borrow ended here, so its permission ends with it: `panelRest` is what lets a
+    // borrow show while pinned, and leaving it set would let the next rail sweep borrow
+    // this now-pinned column. (holdPanel would clear it on pointer-out anyway; this just
+    // closes the gap where a pin click lands before that leave fires.)
+    panelRest.current = false;
     setPanelPinned((current) => {
       writePanelPin(!current);
       if (current) setPanelPeek(true);
@@ -293,6 +322,7 @@ function Workspace({ status }: { status: Status }) {
     (next: Tab) => {
       // A borrow belongs to the rail and to Chat; changing pane ends it.
       setPreviewId(null);
+      setHeldAgent(null);
       if (next === "Chat") {
         // Pinned, Chat has nothing to do (the panel is already there). Unpinned,
         // Chat is a toggle: pressing it while the peek is open puts it back.
@@ -305,13 +335,23 @@ function Workspace({ status }: { status: Status }) {
     [panelPinned, panelPeek, tab],
   );
 
+  /** The rail's all cell: Chat's panel, on screen, its full agent list at the foot. */
+  const showAllAgents = useCallback(() => {
+    if (tab !== "Chat") selectPane("Chat");
+    openPanel();
+  }, [tab, selectPane, openPanel]);
+
   // An unpinned panel is a popover, and popovers get out of the way when you
-  // press anywhere else. Pinned, it is a column and stays put.
+  // press anywhere else. Pinned, it is a column and stays put. The identity
+  // button is the one spot on the band that is NOT "anywhere else": it is the
+  // toggle itself, and dismissing here first would make its click re-open what
+  // the pointer just closed. The rest of the band (empty space, the gauge) is
+  // ordinary elsewhere and dismisses normally.
   useEffect(() => {
     if (!wide || !panelVisible || panelPinned) return;
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Element | null;
-      if (target?.closest(".sidebar, .rail")) return;
+      if (target?.closest(".sidebar, .rail, .topbar .where")) return;
       setPanelPeek(false);
     };
     document.addEventListener("pointerdown", onPointerDown);
@@ -332,6 +372,120 @@ function Workspace({ status }: { status: Status }) {
   /** The agents-and-conversations menu (phone); see `Switcher`. */
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const openSwitcher = useCallback(() => setSwitcherOpen(true), []);
+
+  /**
+   * The bottom agent blocks — the rail's and the panel's — are one row across
+   * the column seam. The rail's block is content-height and bottom-docked
+   * (`flex: 0 1 auto; margin-top: auto`): it rides the foot, shrinking back to
+   * the room under Settings only when the list overflows — and its own
+   * `border-top` IS the seam divider, so the divider rides the first agent
+   * instead of sitting on a fixed line under Settings. App only measures the
+   * rail and hands the number across the seam, so the two hairlines land on
+   * one pixel row whatever the window is.
+   */
+  const [agentBlock, setAgentBlock] = useState(168);
+  /**
+   * The pointer resting on an agent's name in the panel's bottom block: the
+   * rail marks that avatar. The pair answers “which agent” as one control —
+   * the borrow marks the other way, a row highlight for a rail hover.
+   */
+  const [heldAgent, setHeldAgent] = useState<string | null>(null);
+  // The two blocks mirror each other's scroll when the window clamps them. The
+  // guard keeps the mirror from echoing: setting the other's scrollTop fires its
+  // scroll event, which would otherwise fire a copy straight back.
+  const railBlockRef = useRef<HTMLDivElement | null>(null);
+  const panelBlockRef = useRef<HTMLDivElement | null>(null);
+  const scrollMirror = useRef<"rail" | "panel" | null>(null);
+  const syncAgentScroll = (source: "rail" | "panel") => {
+    if (scrollMirror.current) return;
+    const from = source === "rail" ? railBlockRef.current : panelBlockRef.current;
+    const to = source === "rail" ? panelBlockRef.current : railBlockRef.current;
+    if (!from || !to || to.scrollTop === from.scrollTop) return;
+    scrollMirror.current = source;
+    to.scrollTop = from.scrollTop;
+    requestAnimationFrame(() => {
+      scrollMirror.current = null;
+    });
+  };
+  // The rail's block is the source of truth for the shared height; the panel's
+  // mirrors it. (Below the desktop breakpoint the rail is display:none and
+  // measures 0 — the panel is hidden there too.)
+  useEffect(() => {
+    const el = railBlockRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      const h = Math.round(el.getBoundingClientRect().height);
+      setAgentBlock((prev) => (Math.abs(prev - h) < 1 ? prev : h));
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  // A height change can leave a stale scrollTop misaligning the pair: both start over.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: agentBlock is the trigger, not a read — the effect resets the scroll boxes themselves.
+  useEffect(() => {
+    if (railBlockRef.current) railBlockRef.current.scrollTop = 0;
+    if (panelBlockRef.current) panelBlockRef.current.scrollTop = 0;
+  }, [agentBlock]);
+  /**
+   * The band's identity is the panel verb on desktop — never the phone sheet:
+   * ensure the Chat pane and bring the panel (a pinned one simply stays), and
+   * clicking again closes a peek or borrow that is currently open.
+   */
+  const identityClick = useCallback(() => {
+    if (!wide) {
+      openSwitcher();
+      return;
+    }
+    if (tab === "Chat" && (panelPinned || panelPeek || previewAgent !== null)) {
+      // The panel is already here: clicking the name puts it away. A pinned
+      // panel gives up its pin in the same click — asking to hide while pinned
+      // means you mean it, and the pin button still re-pins one click away.
+      setPanelPeek(false);
+      setPreviewId(null);
+      // The name is putting the panel away; the hover mark across the seam retires
+      // with it, so no face stays lit over a column that just left.
+      setHeldAgent(null);
+      if (panelPinned) {
+        writePanelPin(false);
+        setPanelPinned(false);
+      }
+      return;
+    }
+    selectPane("Chat");
+  }, [wide, openSwitcher, tab, panelPinned, panelPeek, previewAgent, selectPane]);
+  /** New conversation for the agent a list is showing — the switcher's "with X". */
+  const newConversationWith = useCallback(
+    async (agentId: string) => {
+      if (!agentId) return;
+      setPreviewId(null);
+      if (agentId === agents.agentId) {
+        await agents.createConversation();
+        return;
+      }
+      agents.selectAgent(agentId);
+      const response = await session.request<{ conversation?: { id?: string } }>(
+        "conversation_create",
+        { body: { agent_id: agentId } },
+      );
+      await agents.refreshConversations(agentId);
+      const id = response?.conversation?.id;
+      if (typeof id === "string") agents.selectConversation(id);
+    },
+    [agents, session],
+  );
+  // A bottom-block row is the same "who" the rail's avatar is: the borrow ends,
+  // the agent switches if it must, and its list — with verbs — becomes the panel's own.
+  const pickPanelAgent = useCallback(
+    (agentId: string) => {
+      setPreviewId(null);
+      // The borrow became a decision, so the borrowed agent's mark and the pin-borrow
+      // permission both retire — the switch below makes this agent's own list the panel's.
+      panelRest.current = false;
+      setHeldAgent(null);
+      if (agentId !== agents.agentId) agents.selectAgent(agentId);
+    },
+    [agents],
+  );
   const closeGlobalSettings = useCallback(() => setGlobalSettings(null), []);
   const [showModels, setShowModels] = useState(false);
   /** The New agent sheet. Editing an agent is the Agent tab's General section. */
@@ -450,8 +604,88 @@ function Workspace({ status }: { status: Status }) {
     applyDocumentTitle(agentName);
   }, [agentName]);
 
+  /** The top bar, hoisted so one component serves both widths: a band across
+   * the whole desktop window, the old in-column topbar on a phone. */
+  const topbar = (
+    <header className={wide ? "topbar band" : "topbar"}>
+      {/* The agent's face, in the corner the eye starts at — phone only: on
+              desktop the rail is a column of these, and one more in the header
+              would be a duplicate. On a phone it opens the same switcher its own
+              name beside it does. It left the bottom bar because an agent you
+              cannot see is an agent you lose track of — the bar's letter-sized
+              glyph never said which agent. */}
+      <button
+        type="button"
+        className="where-avatar"
+        onClick={openSwitcher}
+        aria-label={
+          agentResponding
+            ? `${agentName ?? "Agent"}: switch agent or conversation, responding`
+            : `${agentName ?? "Agent"}: switch agent or conversation`
+        }
+        title="Agents and conversations"
+      >
+        <AgentAvatar
+          agentId={agents.agentId ?? ""}
+          name={agentName ?? ""}
+          pref={agents.agentId ? agents.avatars[agents.agentId] : undefined}
+          className="where-avatar-face"
+          ariaHidden
+        >
+          {agentResponding ? <span className="activity-dot" /> : null}
+        </AgentAvatar>
+      </button>
+      {/* Where you are: the agent over the conversation. On a phone it is
+              also a way into the switcher from every tab, not just Chat. */}
+      <button
+        type="button"
+        className="where"
+        onClick={identityClick}
+        aria-label={
+          wide
+            ? `${agentName ?? "Agent"}: ${title}. ${panelVisible ? "Hide" : "Show"} conversations`
+            : respondingElsewhere > 0
+              ? `${agentName ?? "Agent"}: ${title}. Switch — ${respondingElsewhere} responding elsewhere`
+              : `${agentName ?? "Agent"}: ${title}. Switch agent or conversation`
+        }
+        title={wide ? (panelVisible ? "Hide conversations" : "Show conversations") : undefined}
+      >
+        <span className="where-agent">
+          {agentName ?? "No agent"}
+          {respondingElsewhere > 0 ? <span className="activity-dot badge-dot" /> : null}
+        </span>
+        <h1 className="title">{title}</h1>
+        {/* No chevron: on desktop the name is the panel toggle (click shows or
+                hides), and on a phone it opens the switcher — in both cases the
+                button says what it does in its accessible name, and the caret
+                only cluttered the corner the eye starts at. */}
+      </button>
+      <ContextGauge
+        usage={conversation.turnUsage}
+        limit={contextLimit.limit}
+        accounting={contextSize.accounting}
+        onOpen={() => {
+          setContextOpen(true);
+          void contextLimit.refresh();
+          void contextSize.refresh();
+        }}
+      />
+      {unauthenticated ? <AuthPill email={status.user?.email} /> : null}
+      <LinkPill
+        link={session.link}
+        busy={respondingCount > 0}
+        count={respondingCount}
+        onOpen={() => setActivityOpen(true)}
+      />
+      {featureEnabled(status.features, "pi") ? (
+        <PiRunsChip active={piActive} onOpen={() => selectPane("Runs")} />
+      ) : null}
+    </header>
+  );
+
   return (
     <div className="app">
+      {wide ? topbar : null}
       <NavRail
         agents={agents}
         activeAgentIds={session.activeAgentIds}
@@ -462,8 +696,12 @@ function Workspace({ status }: { status: Status }) {
         onPreviewAgent={previewFromRail}
         onOwnAvatar={ownAvatar}
         onOpenSettings={() => setGlobalSettings({})}
-        onOpenSwitcher={openSwitcher}
+        onShowAll={showAllAgents}
         onEditAgent={editAgent}
+        heldAgentId={heldAgent}
+        onHoverAgent={(agentId) => setHeldAgent(agentId)}
+        blockRef={railBlockRef}
+        onBlockScroll={() => syncAgentScroll("rail")}
       />
       <Sidebar
         agents={agents}
@@ -484,78 +722,20 @@ function Workspace({ status }: { status: Status }) {
         }
         onPreviewPick={previewPick}
         onHold={holdPanel}
+        blockHeight={agentBlock}
+        blockRef={panelBlockRef}
+        onBlockScroll={() => syncAgentScroll("panel")}
+        onHoverAgent={hoverPanelAgent}
+        heldAgentId={heldAgent}
+        onNewAgent={() => setCreatingAgent(true)}
+        onNewConversation={newConversationWith}
+        onPickAgent={pickPanelAgent}
       />
 
       <div className="main">
-        <header className="topbar">
-          {/* The agent's face, in the corner the eye starts at, opening the same
-              switcher its own name beside it does. Phone only: on desktop the rail
-              is a column of these, and one more in the header would be a duplicate.
-              It left the bottom bar because an agent you cannot see is an agent you
-              lose track of — the bar's letter-sized glyph never said which agent. */}
-          <button
-            type="button"
-            className="where-avatar"
-            onClick={openSwitcher}
-            aria-label={
-              agentResponding
-                ? `${agentName ?? "Agent"}: switch agent or conversation, responding`
-                : `${agentName ?? "Agent"}: switch agent or conversation`
-            }
-            title="Agents and conversations"
-          >
-            <AgentAvatar
-              agentId={agents.agentId ?? ""}
-              name={agentName ?? ""}
-              pref={agents.agentId ? agents.avatars[agents.agentId] : undefined}
-              className="where-avatar-face"
-              ariaHidden
-            >
-              {agentResponding ? <span className="activity-dot" /> : null}
-            </AgentAvatar>
-          </button>
-          {/* Where you are: the agent over the conversation. On a phone it is
-              also a way into the switcher from every tab, not just Chat. */}
-          <button
-            type="button"
-            className="where"
-            onClick={openSwitcher}
-            aria-label={
-              respondingElsewhere > 0
-                ? `${agentName ?? "Agent"}: ${title}. Switch — ${respondingElsewhere} responding elsewhere`
-                : `${agentName ?? "Agent"}: ${title}. Switch agent or conversation`
-            }
-          >
-            <span className="where-agent">
-              {agentName ?? "No agent"}
-              {respondingElsewhere > 0 ? <span className="activity-dot badge-dot" /> : null}
-            </span>
-            <h1 className="title">{title}</h1>
-            {/* The button has always opened the switcher; the chevron is what says
-                so now that nothing else in the top bar is a button at all. */}
-            <Icon name="chevron-down" className="where-caret" />
-          </button>
-          <ContextGauge
-            usage={conversation.turnUsage}
-            limit={contextLimit.limit}
-            accounting={contextSize.accounting}
-            onOpen={() => {
-              setContextOpen(true);
-              void contextLimit.refresh();
-              void contextSize.refresh();
-            }}
-          />
-          {unauthenticated ? <AuthPill email={status.user?.email} /> : null}
-          <LinkPill
-            link={session.link}
-            busy={respondingCount > 0}
-            count={respondingCount}
-            onOpen={() => setActivityOpen(true)}
-          />
-          {featureEnabled(status.features, "pi") ? (
-            <PiRunsChip active={piActive} onOpen={() => selectPane("Runs")} />
-          ) : null}
-        </header>
+        {/* On desktop the top bar is hoisted into the grid's band above every
+            column; the phone keeps it inside .main, exactly where it was. */}
+        {wide ? null : topbar}
 
         {/* A BFF error no request claimed (a rate limit, a command the browser
             allowlist refused) is an event, not a state: it is a toast now, so it

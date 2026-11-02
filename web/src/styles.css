@@ -30,6 +30,12 @@
   --control-h: 34px;
   /* A menu row's floor (it was a literal 44px on .menu-row). */
   --menu-row-h: 36px;
+  /* The desktop header band (grid row 1) and one agent row in the two bottom
+     blocks that meet at the seam row — the rail measures itself and the
+     panel beside it wears the same height. One row height for the avatar and
+     the name keeps their centers on one line; the pitch is this + the 4px gap. */
+  --topbar-h: 52px;
+  --rail-cell: 44px;
   /* The one padding every list row, task row and .pad shares. */
   --pad-row-y: 6px;
   --pad-row-x: 10px;
@@ -152,7 +158,10 @@ pre {
   width: 74px;
   flex-shrink: 0;
   background: var(--surface);
-  border-right: 1px solid var(--border);
+  /* No vertical hairline beside the panel: an agent row is one row across the
+   seam, and any border here draws a crack through every lit row. The seam
+   divider is horizontal (the blocks' own border-top) and the sidebar's own
+   border-right still separates the list from the transcript. */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -162,17 +171,43 @@ pre {
      the pane items and the footer sit in the same place with 3 agents or 30. */
   overflow: hidden;
 }
-/* The agent block is bounded and scrolls on its own, scrollbar hidden: past the
-   cap the answer is the switcher (search, archived, new agent), not a long rail. */
+/* The agent block rides the foot: content-height and bottom-docked (see the
+   margin/flex notes below), with the seam divider as its own top border — so
+   the divider sits above the FIRST AGENT and the conversations list beside
+   the seam reaches down to it. The panel mirrors this block's measured height,
+   so the two hairlines are one row across the seam. It scrolls on its own;
+   the scrollbar is hidden: the column is 74px wide, the thumb would be the
+   whole of it. */
 .rail-agents {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  max-height: 52vh;
+  /* The rail is a centered flex column, which would shrink this block to its
+     content (~46px) — and then every lit row is a floating pill, not a row.
+     Full column width is what makes the rail half meet the panel half. */
+  width: 100%;
+  /* Content-height and bottom-docked, not a filled region: `margin-top: auto`
+   sinks the whole block onto the all cell, and `flex-shrink` pulls it back
+   down to the room below Settings when the list outgrows it (auto margins
+   collapse to 0 under overflow, so a long list still scrolls from its top).
+   The conversations list beside the seam therefore takes everything above the
+   FIRST AGENT, not everything above a fixed line under Settings. */
+  flex: 0 1 auto;
+  min-height: 0;
   overflow-y: auto;
   scrollbar-width: none;
-  padding: 1px;
+  /* The seam divider is the block's own top border — the panel's agent block
+     carries the identical border-top, and the App-mirrored height makes the
+     two boxes congruent: one hairline row, and the first face and the first
+     name start on exactly the same y. */
+  border-top: 1px solid var(--border);
+  margin-top: auto;
+  /* 2px of top air so the first row isn't flush against the seam hairline —
+     the same breathing room the rows have between them, and it keeps the
+     active avatar's ring off the divider. Mirrored on .panel-agents so the
+     two columns' rows stay on one line. */
+  padding: 2px 0 4px;
 }
 .rail-agents::-webkit-scrollbar {
   display: none;
@@ -180,33 +215,21 @@ pre {
 .rail-agent {
   position: relative;
   flex: none;
-  /* 54, not wider: the rail is 74 with a 10px inset on the wide layout, so the
-     avatar block has 58 to live in and a wider cell hangs past the column. */
-  width: 54px;
+  /* Full column width with square ends: the hover/selected background is a ROW
+     segment that meets the panel's name row across the seam — face and name
+     read as one regular list row, whichever half the pointer rests on. */
+  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
+  justify-content: center;
   background: none;
   border: none;
-  padding: 1px 0 2px;
+  /* One shared row height (var above, 44 inside the 48 pitch): the 34px avatar
+     keeps 5px of vertical air — enough for its 3px ring at the block's top
+     edge — and the face center and the name center land on the same line. */
+  height: var(--rail-cell);
   color: var(--muted);
-  border-radius: var(--radius);
-}
-/* The name, not just the initial: the rail is where you ask "which agent", and an
-   initial is a riddle once you have four of the same letter. It is the same 9px
-   label the panes below use, so the column reads as one list of things. */
-.rail-agent-name {
-  max-width: 54px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 9px;
-  line-height: 1.15;
-  letter-spacing: 0.01em;
-}
-.rail-agent.active .rail-agent-name {
-  color: var(--text);
 }
 .rail-agent .agent-avatar {
   /* The responding dot and the pinned notch hang off the avatar, not the taller
@@ -216,13 +239,36 @@ pre {
   height: 34px;
   font-size: 14px;
 }
-.rail-agent:hover .agent-avatar {
-  outline: 2px solid var(--border);
-  outline-offset: 1px;
+/* Hover, held, active — one language across both columns: a row background
+   and, for the selection, the same left bar the selected conversation wears.
+   Hovering either half lights both halves (`.held` is shared state); the
+   SELECTED agent stays lit — its row in both columns, the accent ring on the
+   avatar, and a bar in the agent's own tint (set inline on the cell). */
+.rail-agent:hover {
+  background: var(--surface-2);
+}
+.rail-agent.active {
+  background: var(--surface-2);
+}
+/* The conversation list marks its pick with a 3px border-left in the accent;
+   the rail's pick answers it at the window's edge in the agent's OWN color.
+   A pseudo-element, not a border: a border would shift the centered avatar
+   half its width between unselected and selected. */
+.rail-agent.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--agent, var(--accent));
 }
 .rail-agent.active .agent-avatar {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+.rail-agent.held {
+  background: var(--surface-2);
 }
 /* The agent's own responding marker, on the avatar rather than beside it: the
    rail has no room for a second column, and the dot belongs to the agent. */
@@ -250,8 +296,10 @@ pre {
   border: 2px solid var(--surface);
   border-radius: var(--radius-round);
 }
-/* The last cell is not an agent: it opens the switcher, which is where search,
-   archived agents and "new agent" live. Same square, so it reads as one list. */
+/* The cell that is not an agent: the all cell, docked under the scrolling list
+   as the fixed verb at the foot of the column (New-agent is a docked verb on
+   the panel's side — .panel-new). An icon-only square like the avatars it sits
+   beside, so the column reads as one list. */
 .rail-all .icon {
   width: 17px;
   height: 17px;
@@ -260,39 +308,20 @@ pre {
   color: var(--text);
   background: var(--surface-2);
 }
-/* The one draggable seam in the app: 1px of line inside a 9px grip, because a
-   1px target is not a target. `touch-action: none` so dragging on a touchscreen
-   resizes the block instead of scrolling it. */
-.rail-split {
+/* Fixed at the foot, OUTSIDE the scroll: the agent block above it is
+   content-height and bottom-docked (`margin-top: auto`, not fill), and this cell
+   sits below that block in the column with `flex: none`, so it never scrolls —
+   it is the one rail button that answers "all of them" from any scroll state.
+   Compact, and its box (height + 4px foot) matches `.panel-new` across the
+   seam so both columns' scroll regions end on the same line. */
+.rail .rail-all {
   flex: none;
-  width: 100%;
-  height: 9px;
-  display: grid;
-  place-items: center;
-  cursor: row-resize;
-  touch-action: none;
-  border: none;
-  background: none;
-  padding: 0;
+  margin: 0 0 4px;
 }
-.rail-split::before {
-  content: "";
-  width: 42px;
-  height: 3px;
-  border-radius: 2px;
-  background: var(--border);
-}
-.rail-split:hover::before,
-.rail-split:focus-visible::before,
-.rail-split.dragging::before {
-  background: var(--muted);
-}
-.rail.dragging {
-  user-select: none;
-}
-.rail.dragging * {
-  cursor: row-resize;
-}
+/* The seam divider is drawn by .rail-agents' and .panel-agents' own border-top
+   — one hairline row at the same y in both columns, with congruent boxes, riding
+   the FIRST agent (the blocks are bottom-docked, not filled from a fixed line).
+   Borders on each block, not a UA-margin hr, so the pair cannot drift a pixel. */
 .rail-item {
   width: 100%;
   flex: none;
@@ -320,15 +349,6 @@ pre {
   color: var(--text);
   background: var(--surface-2);
   box-shadow: inset 3px 0 0 var(--accent);
-}
-.rail-foot {
-  margin-top: auto;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  border-top: 1px solid var(--border);
-  padding-top: 6px;
 }
 
 /* The phone's bar, under the composer: five equal slots — the Chat pane, the
@@ -367,45 +387,140 @@ pre {
   height: 20px;
 }
 
-/* The panel's own header: what it is, whether it stays, and the new conversation.
-   The pin lives here and nowhere else on purpose — you can only ask a panel to
+/* The panel's scroll region: tool row, search, the list. It starts at the band's
+   hairline with no gap of its own — the tool row touches the line. */
+.convo {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+/* The panel's two verbs, inline, one at each end. New acts on the agent the
+   list is showing — borrowed included, where it reads after their name; the
+   pin lives here and nowhere else on purpose — you can only ask a panel to
    always be there while you are looking at it. */
-.sidebar .panel-head {
+.panel-tools {
   display: flex;
   align-items: center;
+  gap: 2px;
+  min-height: 34px;
+  padding: 0 2px;
+}
+/* The rail's agent list in names only, docked at the foot: the conversations
+   list above is what fills, reaching down to this block's own border-top (the
+   seam). It wears the rail block's mirrored height; same pitch and padding, so
+   the rows pair-align with the rail's faces and the two hairlines are one row. */
+.panel-agents {
+  flex: none;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
   gap: 4px;
+  /* Mirrors .rail-agents' top air — the rows must stay on one line across the
+   seam, so both blocks pad identically. */
+  padding: 2px 0 4px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
 }
-.sidebar .panel-head .section-label {
-  flex: 1;
+
+/* The rail's foot-docking is done by the block itself (margin-top: auto above),
+   so no first-child rule is needed here or on .rail-agents: a short list is
+   simply a short block, and everything above it belongs to conversations. */
+.panel-agents::-webkit-scrollbar {
+  display: none;
 }
-/* The head says a borrowed agent's name instead of the section's, and the agent tint is
-   the app's one colour for "this is an agent" (the top bar's name, the switcher). */
-.sidebar .panel-head .panel-who {
+.panel-agent {
+  flex: none;
+  height: var(--rail-cell);
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: 1;
-  min-width: 0;
+  /* Optical pairing with the face across the seam: a text line centers its
+     LINE box, but a word's ink sits ~1px above that center (descender space
+     below the baseline), so the name rides 1px low-adjusted here — 2px of top
+     padding with a 1px line box — to sit dead-center on the avatar beside it. */
+  padding: 2px 14px 0;
+  line-height: 1;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
 }
-.sidebar .panel-head .panel-who-face {
-  width: 20px;
-  height: 20px;
-  font-size: 10px;
+.panel-agent .icon {
+  width: 15px;
+  height: 15px;
+  flex: none;
 }
-.sidebar .panel-head .section-label.agent {
-  color: var(--agent);
-  font-weight: 700;
+.panel-agent:hover {
+  background: var(--surface-2);
+}
+/* Same row language as the rail, and no inset color bars: “this one” is the
+   row staying lit, the borrow is the row lit by the pointer in the OTHER
+   column (`.held`) or loading its list (`.preview`) — row highlighting only. */
+.panel-agent.active {
+  background: var(--surface-2);
+}
+.panel-agent.held {
+  background: var(--surface-2);
+}
+.panel-agent.preview {
+  background: var(--surface-2);
+}
+/* Docked under the scrolling names — the panel's counterpart of the rail's
+   fixed all cell: same 2px air above, same height, same 4px foot, so the two
+   columns' scroll boxes come out congruent and the foot cells end on one
+   line. New-agent is a verb, not a row of the list. */
+.panel-new {
+  flex: none;
+  height: var(--rail-cell);
+  margin: 2px 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: left;
+}
+.panel-new .icon {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+.panel-new:hover {
+  background: var(--surface-2);
+  color: var(--text);
 }
 .panel-pin .icon {
   width: 15px;
   height: 15px;
 }
+/* The pin rides the row's right end and stays quiet: it is a setting you set
+   once, not a button you press. Full weight only when it is on, or asked for. */
+.panel-pin {
+  margin-left: auto;
+  opacity: 0.5;
+}
+.panel-pin:hover {
+  opacity: 1;
+}
 .panel-pin.on {
   color: var(--accent);
+  opacity: 0.9;
 }
 
-/* The top bar's "where you are" is the switcher on every width; the caret is
-   what says so once it is the only button up there. */
+/* "Where you are" is two verbs by width: on a phone `.where` opens the
+   switcher; on desktop it shows/hides the conversation panel (`identityClick`).
+   The caret it used to wear is gone — the name itself is the toggle. */
 /* The agent's face, in the header's left corner on a phone (hidden from 900px,
    where the rail is a column of these). It opens the switcher, and it is the only
    thing on a phone that says which agent is open — an identity a letter the size
@@ -439,13 +554,6 @@ pre {
   right: -3px;
   margin: 0;
   border: 2px solid var(--surface);
-}
-
-.where-caret {
-  flex: none;
-  width: 15px;
-  height: 15px;
-  color: var(--muted);
 }
 
 /* The old top tab strip: six labels squeezed to 13px at 390px and stretched into
@@ -487,15 +595,6 @@ pre {
    its polling keeps filling the rail's dots. */
 .sidebar.hidden {
   display: none;
-}
-.sidebar-section {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.sidebar-section.grow {
-  flex: 1;
-  min-height: 0;
 }
 .sidebar label,
 .sidebar .section-label {
@@ -1162,8 +1261,12 @@ pre {
 }
 
 /* IN and OUT sit on one inset rail under the header — a 2px left border and a
-   small indent — so a call and its result read as a single block. */
-.rail {
+   small indent — so a call and its result read as a single block.
+   Scoped `.entry .rail`, never bare `.rail`: the navigation column is
+   `nav.rail`, and an unscoped rule here leaked its 2px border-left,
+   1px margin-left and 4px margin-top onto the nav — stealing width from the
+   agent rows and shifting the whole column under the band. */
+.entry .rail {
   align-self: stretch;
   min-width: 0;
   margin-top: 4px;
@@ -1180,7 +1283,7 @@ pre {
   color: var(--muted);
 }
 /* A second and later rail-label (the OUT after the IN) needs air above it. */
-.rail .rail-label ~ .rail-label {
+.entry .rail .rail-label ~ .rail-label {
   margin-top: 5px;
 }
 .entry.tool.error .rail,
@@ -1189,7 +1292,7 @@ pre {
 }
 
 /* Collapsed, the block still shows one line of output on the same rail. */
-.rail.peek {
+.entry .rail.peek {
   margin-top: 3px;
 }
 .tool-peek {
@@ -2671,6 +2774,47 @@ p.warning code,
 /* ── Desktop ─────────────────────────────────────────────────────────────── */
 
 @media (min-width: 900px) {
+  /* The window is a grid: one full-width band carrying the identity and the
+     status cluster, its hairline the one horizontal line across everything,
+     over a body row of rail, panel and main. */
+  .app {
+    display: grid;
+    grid-template-columns: auto auto 1fr;
+    grid-template-rows: var(--topbar-h) minmax(0, 1fr);
+    height: 100dvh;
+  }
+  .band {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+  /* No gap under the band: the Chat cell and the panel's tool row touch its
+     hairline. Tagged selectors keep these off the tool-call `.rail` an entry
+     draws inside the transcript — the class is taken twice in this app. */
+  nav.rail {
+    grid-row: 2;
+    grid-column: 1;
+    /* No horizontal gutter: the agent rows' highlight runs edge to edge, so a
+       lit row crosses the rail and the panel as one unbroken line. */
+    padding: 0 0 env(safe-area-inset-bottom);
+  }
+  /* The pane buttons carry a 7px top pad of their own; on the first one that
+     reads as a gap under the band's hairline (the operator saw it twice). The
+     Chat cell touches the line: its icon sits at the same height the panel's
+     tool row does. */
+  nav.rail > .rail-item:first-child {
+    padding-top: 2px;
+  }
+  aside.sidebar {
+    grid-row: 2;
+    grid-column: 2;
+    padding: 0;
+    gap: 0;
+    overflow: hidden;
+  }
+  .main {
+    grid-row: 2;
+    grid-column: 3;
+  }
   /* The bar is a phone surface; here the rail owns navigation and there is no
      More. Mounted and hidden, exactly as the phone block above hides the rail. */
   .bottombar {
