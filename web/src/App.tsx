@@ -254,6 +254,9 @@ function Workspace({ status }: { status: Status }) {
     if (!held) {
       panelRest.current = false;
       setPreviewId(null);
+      // The hover mark belongs to the held list; a pointer that left the panel
+      // must not leave a face lit in the rail with no list beside it.
+      setHeldAgent(null);
     }
   }, []);
   /**

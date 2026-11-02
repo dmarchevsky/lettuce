@@ -295,10 +295,10 @@ pre {
   border: 2px solid var(--surface);
   border-radius: var(--radius-round);
 }
-/* The two cells that are not agents: the all cell, docked under the scrolling
-   list as the fixed verb at the foot of the column, and (historically) the new
-   cell — new-agent lives in the panel's list now. Icon-only squares like the
-   avatars they sit beside, so the column reads as one list. */
+/* The cell that is not an agent: the all cell, docked under the scrolling list
+   as the fixed verb at the foot of the column (New-agent is a docked verb on
+   the panel's side — .panel-new). An icon-only square like the avatars it sits
+   beside, so the column reads as one list. */
 .rail-all .icon {
   width: 17px;
   height: 17px;
@@ -594,15 +594,6 @@ pre {
    its polling keeps filling the rail's dots. */
 .sidebar.hidden {
   display: none;
-}
-.sidebar-section {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.sidebar-section.grow {
-  flex: 1;
-  min-height: 0;
 }
 .sidebar label,
 .sidebar .section-label {

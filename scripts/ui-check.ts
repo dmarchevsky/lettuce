@@ -249,13 +249,6 @@ async function openSkillsSection(page: Page): Promise<boolean> {
   return false;
 }
 
-/** Open the agents-and-conversations switcher — phone only: on desktop the
- * rail's all cell opens the conversation panel and the sheet is unreachable. */
-async function openSwitcher(page: Page): Promise<void> {
-  await page.locator(".topbar .where-avatar").click();
-  await page.locator(".switcher").waitFor();
-}
-
 async function openSettings(page: Page): Promise<void> {
   const foot = page.locator('.rail .rail-item:text-is("Settings")');
   if ((await foot.count()) > 0 && (await foot.first().isVisible())) {
@@ -1581,14 +1574,21 @@ try {
         console.log("  SKIP  choosing a borrowed conversation (that agent has none)");
       }
       // Leave the panel as the suite found it: pinned, on Chat, showing the agent
-      // the pick left selected.
+      // the pick left selected — and PIN means aria-pressed, not just a visible
+      // panel (the band-toggle checks below assume a pinned start).
       if (!(await panelOn())) {
         await page.locator(".rail .rail-item:text-is('Chat')").click();
         await page.waitForTimeout(300);
       }
-      await page.locator(".sidebar .panel-pin").click();
-      await page.waitForTimeout(300);
-      check("and the panel is pinned again for what follows", await panelOn());
+      const repin = page.locator(".sidebar .panel-pin");
+      if ((await repin.getAttribute("aria-pressed")) !== "true") {
+        await repin.click();
+        await page.waitForTimeout(300);
+      }
+      check(
+        "and the panel is pinned again for what follows",
+        (await repin.getAttribute("aria-pressed")) === "true" && (await panelOn()),
+      );
     } else {
       console.log("  SKIP  the borrowed panel needs a second agent");
     }
@@ -1739,8 +1739,17 @@ try {
     );
 
     // The band's identity is the panel verb on desktop: it never opens the sheet.
-    await page.locator(".sidebar .panel-pin").click(); // unpin: the toggle has to show
-    await page.waitForTimeout(300);
+    // The toggle only exists for an UNPINNED panel (pinned is always-visible), so
+    // unpin explicitly and prove it before testing the toggle.
+    const bandPin = page.locator(".sidebar .panel-pin");
+    if ((await bandPin.getAttribute("aria-pressed")) === "true") {
+      await bandPin.click();
+      await page.waitForTimeout(300);
+    }
+    check(
+      "the panel is unpinned, so the band toggle has something to show",
+      (await bandPin.getAttribute("aria-pressed")) === "false",
+    );
     await page.locator(".messages").click({ position: { x: 40, y: 40 } });
     await page.waitForTimeout(300);
     check("the panel is away before the band opens it", !(await panelOn()));

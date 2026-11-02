@@ -408,9 +408,10 @@ export function Sidebar({
         ))}
       </div>
 
-      {/* Docked under the scrolling names, the counterpart of the rail's fixed
-          all cell across the seam: New-agent never scrolls out of reach. There
-          is no "all agents" row in the panel — this list IS all of them. */}
+      {/* Docked under the scrolling names — this column's fixed foot verb, the
+          one whose box the rail's all cell matches across the seam: New-agent
+          never scrolls out of reach. There is no "all agents" row in the panel
+          — this list IS all of them. */}
       <button
         type="button"
         className="panel-new"
