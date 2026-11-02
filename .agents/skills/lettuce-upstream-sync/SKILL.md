@@ -66,13 +66,17 @@ Protocol drift shows up two ways:
      `approval: "ask"` tool we render (`gmail_*` writes, `mcp_call_write`) is out of reach from a
      script by design.
    - `src/types/subagent-protocol.ts` + `subagent-events.ts` (typed, so `typecheck` sees the shape
-     but not the semantics) — since 0.34.38 `read_subagent_events` pages a subagent's JSONL log
+     but not the semantics) — since 0.34.38 `read_subagent_events` pages a subagent's event log
      (`tool_call`/`tool_result`/`text`/`reasoning`/`notification`, `next_seq`, `missed`, an oversized
-     event cut with a `[truncated N bytes]` marker). Read the two gates separately: **the readable log
-     (`event_seq`) exists only for a caller-notified launch** — `serveTaskEvents` runs under
-     `if (publishResult)` in `task.ts`, 32 MiB kept per child — while `progress_texts` is **not**
-     gated (`addProgressText` runs in an **external-worker** task's `onText` — the only caller is
-     `externalWorkerProgressListeners`, wired on the Codex/Claude paths), so a snapshot can carry
+     event cut with a `[truncated N bytes]` marker). **It reads the in-process `stores` Map in
+     `subagent-events.ts`, not the task's JSONL file** — so the readable log dies with the app-server
+     process, the 32 MiB cap is a memory cap, and `missed` counts events evicted from RAM. The durable
+     record is separate: `task-transcript.ts` appends every event to `log.eventsFile` under
+     `TASK_EVENTS_MAX_BYTES` (256 MiB), which is what a Tasks transcript should read. Read the two
+     gates separately: **the readable log (`event_seq`) exists only for a caller-notified launch** —
+     `serveTaskEvents` runs under `if (publishResult)` in `task.ts` — while `progress_texts` is
+     **not** gated (`addProgressText` runs in an **external-worker** task's `onText` — the only caller
+     is `externalWorkerProgressListeners`, wired on the Codex/Claude paths), so a snapshot can carry
      recent progress text whatever the launch mode. Neither command is on the BFF allowlist yet.
    - `src/websocket/listener/commands/subagent-control.ts` — steering a **local** external worker (a
      `codex_<thread>`/`claude_<session>` id, no `@computer`) was already allowed at 0.34.21; do not
@@ -151,8 +155,9 @@ case.
 **The reference checkout must not lag the pin.** The script diffs from wherever `letta-code/` currently
 sits, so a clone five releases behind our own pin reports five releases of drift we already adjudicated —
 and every "read out of letta-code at v0.34.x" fact in the skills is that much older. Check `git -C
-../letta-code describe --tags` against `VERSION` before trusting a report, and expect the two to land on
-the same tag after a sync.
+../letta-code describe --tags` before trusting a report. It will **not** match `VERSION` for the whole
+implement stage — the script never rewrites `VERSION`, whose `-letta_<v>` half moves with the bump at
+pre-release — so the two agree only once this release is cut.
 
 **From a worktree, set `LETTA_CODE_DIR`.** The script defaults the clone to `<script dir>/../letta-code`,
 which inside `.dev-flow/<slug>/worktree/` resolves under `.dev-flow/<slug>/` and silently clones a second

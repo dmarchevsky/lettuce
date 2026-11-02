@@ -17,12 +17,14 @@ Loaded from `AGENTS.md`. letta-code spawns the real CLIs; a shim makes them fit 
   `docker/codex/codex-shim.mjs` on PATH as `codex` — with the
   CLI absent the shim's preflight fails with ENOENT and the task reports it. Upstream
   unmodified.
-  - The shim's one rewrite: letta hard-codes `sandboxPolicy: workspaceWrite` on every
-    `turn/start`, Codex builds that with bubblewrap, and Docker's default seccomp/AppArmor
-    refuse it — so the shim rewrites that field to `{type: "externalSandbox"}` and passes
-    every other byte through. A worker therefore has the same reach as an agent shell (the
-    whole container, other agents' memory included) and Codex enforces nothing, network
-    included — the UI offers no network toggle. Spike detail (`use_legacy_landlock`,
+  - The shim's one rewrite: letta sends a `sandboxPolicy` on every `turn/start`, and the shim
+    replaces **whatever value it carries** with `{type: "externalSandbox"}` (`rewriteLine` matches on
+    the field, not its value) and passes every other byte through. The original reason was upstream's
+    `workspaceWrite`, which Codex builds with bubblewrap and Docker's default seccomp/AppArmor refuse;
+    since 0.34.14 upstream asks for `{type: "dangerFullAccess"}` instead, so the bubblewrap refusal is
+    history and the rewrite now *narrows* what upstream requests. A worker therefore has the same reach
+    as an agent shell (the whole container, other agents' memory included) and Codex enforces nothing,
+    network included — the UI offers no network toggle. Spike detail (`use_legacy_landlock`,
     `requirements.toml` `allowed_sandbox_modes`, the placeholder `auth.json`):
     docs/upstream-notes.md#codex-spike-findings-2026-09-27-codex-01571-measured-in-the-container.
   - **The preflight is `codex --version`** (since 0.33.3). With workers disabled the shim fails

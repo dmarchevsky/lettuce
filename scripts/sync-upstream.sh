@@ -85,9 +85,9 @@ BEHAVIOR_FILES=(
   "src/backend/local/local-provider-auth-store.ts"
   "src/backend/dev/pi-provider-mod-validation.ts"
   "src/backend/dev/pi-model-factory.ts"
-  # Every `~/.letta` path we hardcode (global skills, the shared MCP list, GH_CONFIG_DIR)
-  # resolves through this now: HOME, LETTA_HOME and the newer LETTA_CONFIG_DIR decide where
-  # it points, and the last one outranks the second.
+  # Every `~/.letta` path upstream resolves goes through this now (HOME, LETTA_HOME, and the newer
+  # LETTA_CONFIG_DIR, which outranks LETTA_HOME). Our own GH_CONFIG_DIR does NOT follow it — a moved
+  # root would leave /root/.letta/gh behind — so a change here splits our hardcoded paths in two.
   "src/utils/settings-path.ts"
   # Who may steer or stop a child: the ownership rule, and the id shapes it accepts.
   "src/websocket/listener/commands/subagent-control.ts"
@@ -208,7 +208,8 @@ if [[ $BEHAV_CHANGED -eq 1 ]]; then
   warn "   * settings-path.ts — did the product config root move off HOME? bff/src/skills/"
   warn "     discovery.ts hardcodes /root/.letta/skills, the mcp-servers wrapper runs"
   warn "     HOME=/root/.letta/mcp-home, and bff writes mods to /root/.letta/mods, so a moved"
-  warn "     root silently splits all three from what the BFF wrote."
+  warn "     root silently splits all three from what the BFF wrote. GH_CONFIG_DIR is ours and"
+  warn "     does not follow it, so /root/.letta/gh would be left where it was."
   warn "   * mods/paths.ts — same question from the mod side: does the BFF-rendered mod still"
   warn "     land where the listener discovers mods?"
   warn "   * subagent-control.ts — does steering still accept a LOCAL"
