@@ -1772,9 +1772,15 @@ try {
     );
     await page.locator(".rail .rail-item:text-is('Chat')").click();
     await page.waitForTimeout(300);
-    await page.locator(".sidebar .panel-pin").click();
-    await page.waitForTimeout(300);
-    check("and the panel is pinned again for what follows", await panelOn());
+    const restorePin = page.locator(".sidebar .panel-pin");
+    if ((await restorePin.getAttribute("aria-pressed")) !== "true") {
+      await restorePin.click();
+      await page.waitForTimeout(300);
+    }
+    check(
+      "and the panel is pinned again for what follows",
+      (await restorePin.getAttribute("aria-pressed")) === "true" && (await panelOn()),
+    );
 
     // One selection control across the seam: resting on an agent's NAME in the
     // panel marks that agent's FACE in the rail (the borrow marks the other way).
