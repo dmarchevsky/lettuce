@@ -1659,6 +1659,48 @@ try {
       seam !== null && seam.firstPaneTop - seam.bandBottom <= 2,
       seam,
     );
+    // A short window is where the bottom-docked blocks actually clamp: both must
+    // shrink, keep scrolling from their top, and the seam must still be ONE row.
+    await page.setViewportSize({ width: DESKTOP.width, height: 560 });
+    await page.waitForTimeout(400);
+    // Hand the baseline height into the measure below without a second layout pass.
+    await page.evaluate((h: number) => {
+      (window as unknown as { __railH: number }).__railH = h;
+    }, seam?.railH ?? 0);
+    const clamped = await page.evaluate(() => {
+      const el = (sel: string) => document.querySelector(sel);
+      const rb = el(".rail-agents");
+      const pb = el(".panel-agents");
+      const all = el(".rail .rail-all");
+      if (!rb || !pb || !all) return null;
+      const r = rb.getBoundingClientRect();
+      const p = pb.getBoundingClientRect();
+      const a = all.getBoundingClientRect();
+      const seamRailH = Number(window.__railH ?? 0);
+      return {
+        splitTop: Math.round(r.top),
+        panelTop: Math.round(p.top),
+        railH: Math.round(r.height),
+        panelH: Math.round(p.height),
+        // The rail block clamps only when the list outgrows the room; either way
+        // it must end no lower than the all cell's top, and shrinking the window
+        // must never make the block taller.
+        fitsAboveAll: r.bottom <= a.top + 1,
+        clampedOrSame: r.height <= seamRailH + 1,
+        height: window.innerHeight,
+      };
+    });
+    check(
+      "at 560px height the seam is still one row and both blocks clamp",
+      clamped !== null &&
+        Math.abs(clamped.splitTop - clamped.panelTop) <= 1 &&
+        clamped.railH === clamped.panelH &&
+        clamped.fitsAboveAll &&
+        clamped.clampedOrSame,
+      clamped,
+    );
+    await page.setViewportSize(DESKTOP);
+    await page.waitForTimeout(400);
     // Faces and names are one list cut in half: same count, and each pair rides
     // the same line — measured center to center, not trusted from pitch math.
     const pairs = await page.evaluate(() => {

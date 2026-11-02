@@ -300,6 +300,11 @@ function Workspace({ status }: { status: Status }) {
     // Pinning a borrowed panel would keep another agent's list as the column you decided
     // to keep — the borrow is a hover, and a hover is not a decision.
     setPreviewId(null);
+    // A borrow ended here, so its permission ends with it: `panelRest` is what lets a
+    // borrow show while pinned, and leaving it set would let the next rail sweep borrow
+    // this now-pinned column. (holdPanel would clear it on pointer-out anyway; this just
+    // closes the gap where a pin click lands before that leave fires.)
+    panelRest.current = false;
     setPanelPinned((current) => {
       writePanelPin(!current);
       if (current) setPanelPeek(true);
@@ -317,6 +322,7 @@ function Workspace({ status }: { status: Status }) {
     (next: Tab) => {
       // A borrow belongs to the rail and to Chat; changing pane ends it.
       setPreviewId(null);
+      setHeldAgent(null);
       if (next === "Chat") {
         // Pinned, Chat has nothing to do (the panel is already there). Unpinned,
         // Chat is a toggle: pressing it while the peek is open puts it back.
@@ -336,14 +342,16 @@ function Workspace({ status }: { status: Status }) {
   }, [tab, selectPane, openPanel]);
 
   // An unpinned panel is a popover, and popovers get out of the way when you
-  // press anywhere else. Pinned, it is a column and stays put. The band is NOT
-  // "anywhere else": its own name is the toggle, and dismissing here first
-  // would make the click under it re-open what the pointer just closed.
+  // press anywhere else. Pinned, it is a column and stays put. The identity
+  // button is the one spot on the band that is NOT "anywhere else": it is the
+  // toggle itself, and dismissing here first would make its click re-open what
+  // the pointer just closed. The rest of the band (empty space, the gauge) is
+  // ordinary elsewhere and dismisses normally.
   useEffect(() => {
     if (!wide || !panelVisible || panelPinned) return;
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Element | null;
-      if (target?.closest(".sidebar, .rail, .band")) return;
+      if (target?.closest(".sidebar, .rail, .topbar .where")) return;
       setPanelPeek(false);
     };
     document.addEventListener("pointerdown", onPointerDown);
@@ -434,6 +442,9 @@ function Workspace({ status }: { status: Status }) {
       // means you mean it, and the pin button still re-pins one click away.
       setPanelPeek(false);
       setPreviewId(null);
+      // The name is putting the panel away; the hover mark across the seam retires
+      // with it, so no face stays lit over a column that just left.
+      setHeldAgent(null);
       if (panelPinned) {
         writePanelPin(false);
         setPanelPinned(false);
@@ -467,6 +478,10 @@ function Workspace({ status }: { status: Status }) {
   const pickPanelAgent = useCallback(
     (agentId: string) => {
       setPreviewId(null);
+      // The borrow became a decision, so the borrowed agent's mark and the pin-borrow
+      // permission both retire — the switch below makes this agent's own list the panel's.
+      panelRest.current = false;
+      setHeldAgent(null);
       if (agentId !== agents.agentId) agents.selectAgent(agentId);
     },
     [agents],

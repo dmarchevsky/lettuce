@@ -24,7 +24,8 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   its own follow-up flow).
 - **Navigation is two surfaces, one per width, and `web/src/lib/tabs.ts` is the pane list they
   share.** Desktop gets a 74px **rail** (`NavRail`: the named panes (Chat, Files, Tasks, Tools, Agent)
-  with Settings under them, then the seam divider, then a **faces-only** agent column — no labels,
+  with Settings under them, then a **faces-only** agent column riding the foot (its own
+  `border-top` draws the seam across both columns, riding the first agent) — no labels,
   the name lives in the panel row beside each face — and a fixed ☰ all-agents cell docked at the
   foot outside the scroll. The agent block is content-height and rides the foot: a short list sits
   on the ☰, a long one shrinks back to under Settings and scrolls. There is no More, because a
