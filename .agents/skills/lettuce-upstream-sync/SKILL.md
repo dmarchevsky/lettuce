@@ -68,22 +68,34 @@ Protocol drift shows up two ways:
    - `src/types/subagent-protocol.ts` + `subagent-events.ts` (typed, so `typecheck` sees the shape
      but not the semantics) — since 0.34.38 `read_subagent_events` pages a subagent's JSONL log
      (`tool_call`/`tool_result`/`text`/`reasoning`/`notification`, `next_seq`, `missed`, an oversized
-     event cut with a `[truncated N bytes]` marker), and a snapshot carries `event_seq` and
-     `progress_texts` **only for caller-notified launches** (`notify: "caller"`, gated on the
-     `launch_subagent_notify_caller` capability; 32 MiB kept per child). `subagent_message` also
-     stopped requiring an `@computer`-routed child: it now judges ownership against the caller's
-     parent scope and accepts a local `codex_<thread>`/`claude_<session>` id (OpenCode steering is
-     still refused upstream). Neither command is on the BFF allowlist — see the roadmap.
-   - `src/utils/settings-path.ts` — every `~/.letta` path resolves through it now: `HOME`,
-     `LETTA_HOME` and the newer `LETTA_CONFIG_DIR` decide the root, in that order of precedence
-     (`LETTA_CONFIG_DIR` beats `LETTA_HOME`). Same answer for us while we set only `HOME`, but it is
-     the file that would silently move global skills, the shared MCP settings and `GH_CONFIG_DIR` out
-     from under the paths `bff/src/skills/discovery.ts` and `docker/compose.yml` hardcode. Decided
-     at the 0.34.38 sync: **not adopted** — one env var at a time, and the shared MCP list's
-     `HOME=/root/.letta/mcp-home` would have to move with it.
-   - `src/agent/skills.ts` — `GLOBAL_SKILLS_DIR` became `getGlobalSkillsDir()` off that resolver, so
-     the global skill root is now conditional. `bff/src/skills/` re-implements discovery against the
-     fixed path; if the root ever moves, both move.
+     event cut with a `[truncated N bytes]` marker). Read the two gates separately: **the readable log
+     (`event_seq`) exists only for a caller-notified launch** — `serveTaskEvents` runs under
+     `if (publishResult)` in `task.ts`, 32 MiB kept per child — while `progress_texts` is **not**
+     gated (`addProgressText` runs in every task's `onText`), so a snapshot can carry recent progress
+     text whatever the launch mode. Neither command is on the BFF allowlist — see the roadmap.
+   - `src/websocket/listener/commands/subagent-control.ts` — steering a **local** external worker (a
+     `codex_<thread>`/`claude_<session>` id, no `@computer`) was already allowed at 0.34.21; do not
+     record it as new. What 0.34.37 added is `ownsNativeSession`, so a worker stays steerable after
+     its background-task row is evicted, plus resumes getting the launch environment. The guard that
+     rejects a `@computer`-routed id is unchanged and is the boundary for what a browser may send.
+   - `src/utils/settings-path.ts` — every `~/.letta` path resolves through it now, and its two
+     resolvers are **not** interchangeable: `resolveGlobalConfigDir` is `LETTA_CONFIG_DIR` (absolute
+     or it throws) else `$HOME/.letta`, and `resolveGlobalStateDir` additionally honours `LETTA_HOME`
+     (only when `LETTA_CONFIG_DIR` is unset). So settings.json and the mods dir ignore `LETTA_HOME`
+     entirely; global skills do not. Decided at the 0.34.38 sync: **`LETTA_CONFIG_DIR` not adopted**
+     — one env var at a time, and the shared MCP list's `HOME=/root/.letta/mcp-home` moves with it.
+   - `src/mods/paths.ts` — the same move on the other side of the mod contract:
+     `getGlobalModsDirectory` and the extensions dir now resolve through `resolveGlobalConfigDir`, so
+     a `LETTA_CONFIG_DIR` would move where the mods the BFF *writes* are discovered (inert while
+     nothing sets it). `mod-sources.ts`, `mod-engine.ts`, `types.ts` and `mod-diagnostics-file.ts` are
+     byte-identical across this range, so render, reload and diagnostics did not move.
+   - `src/agent/skills.ts` — `GLOBAL_SKILLS_DIR` became `getGlobalSkillsDir()` off
+     `resolveGlobalStateDir`, so the global skill root is now conditional. `bff/src/skills/`
+     re-implements discovery against the fixed `/root/.letta/skills`; if the root ever moves, both
+     move. Same release added `runtime_start`'s `bundled_skills`: expose named bundled skills while
+     `skill_sources` omits `"bundled"` — the per-agent granularity we do not have (roadmap).
+   - `src/types/schedule-protocol.ts` — `CronRunOutcome` gained `delivered` and `CronRunReason` a
+     `dequeued`. Nothing renders an outcome exhaustively today, so it is silent until we do.
    - `src/backend/local/*` — since 0.34.32 a local-backend request carries `x-letta-request-kind:
      turn|compaction`, and `model_settings.temperature` plus verbosity actually reach the endpoint.
      That is a behaviour change on our primary provider: a compaction is now distinguishable at the
