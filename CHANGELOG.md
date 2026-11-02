@@ -5,6 +5,12 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.27.0-letta_0.34.21] - 2026-11-02
+
+### Changed
+- **The desktop rail and the conversation panel are one grid now.** The rail is faces-only: the named panes and Settings up top, and below them a compact column of agent faces riding the foot, beside the conversation panel's new foot block of agent names — resting on or selecting an agent lights its face and its name as one row across the seam between the two columns. The panel grew that names-only agent list with a fixed **＋ New agent**, and the rail grew a fixed ☰ cell that opens the panel with the full agent list.
+- **The header's agent name is the panel's show/hide verb.** The dropdown caret is gone — the name itself hides the conversation panel (giving up its pin in the same click if it was pinned) and shows it again.
+
 ## [v0.26.0-letta_0.34.21] - 2026-10-30
 
 ### Added
