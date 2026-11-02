@@ -186,7 +186,13 @@ pre {
      content (~46px) — and then every lit row is a floating pill, not a row.
      Full column width is what makes the rail half meet the panel half. */
   width: 100%;
-  flex: 1;
+  /* Content-height and bottom-docked, not a filled region: `margin-top: auto`
+   sinks the whole block onto the all cell, and `flex-shrink` pulls it back
+   down to the room below Settings when the list outgrows it (auto margins
+   collapse to 0 under overflow, so a long list still scrolls from its top).
+   The conversations list beside the seam therefore takes everything above the
+   FIRST AGENT, not everything above a fixed line under Settings. */
+  flex: 0 1 auto;
   min-height: 0;
   overflow-y: auto;
   scrollbar-width: none;
@@ -195,18 +201,8 @@ pre {
      two boxes congruent: one hairline row, and the first face and the first
      name start on exactly the same y. */
   border-top: 1px solid var(--border);
-  margin-top: 2px;
-  padding: 0 0 4px;
-}
-
-/* The list rides the FOOT, not the divider: a short agent list sinks until its
-   last row sits on the docked all cell, instead of floating under the
-   seam with dead air below. First-child auto margin, not justify-content:
-   flex-end in a scroll container strands the first rows above the scroll
-   origin — auto margins collapse to 0 once the list overflows, so a long one
-   still scrolls from the top. The panel's block pairs to the same rule. */
-.rail-agents > :first-child {
   margin-top: auto;
+  padding: 0 0 4px;
 }
 .rail-agents::-webkit-scrollbar {
   display: none;
@@ -425,11 +421,9 @@ pre {
   scrollbar-width: none;
 }
 
-/* Same foot-riding list as the rail's — see .rail-agents: short lists sit on
-   New-agent, long ones still scroll from the top. */
-.panel-agents > :first-child {
-  margin-top: auto;
-}
+/* The rail's foot-docking is done by the block itself (margin-top: auto above),
+   so no first-child rule is needed here or on .rail-agents: a short list is
+   simply a short block, and everything above it belongs to conversations. */
 .panel-agents::-webkit-scrollbar {
   display: none;
 }

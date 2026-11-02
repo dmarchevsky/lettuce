@@ -1617,7 +1617,6 @@ try {
         // The divider is the block's own border-top now — its top row IS the
         // hairline, in both columns, so the two tops are compared directly.
         splitTop: Math.round(railBlock.top),
-        settingsBottom: Math.round(settings.getBoundingClientRect().bottom),
         panelTop: Math.round(panelBlock.top),
         railH: Math.round(railBlock.height),
         panelH: Math.round(panelBlock.height),
@@ -1640,11 +1639,6 @@ try {
     check(
       "the two agent blocks carry the same height",
       seam !== null && seam.railH === seam.panelH,
-      seam,
-    );
-    check(
-      "the divider sits directly under the Settings button",
-      seam !== null && seam.splitTop - seam.settingsBottom <= 10,
       seam,
     );
     check(
