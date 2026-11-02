@@ -31,7 +31,7 @@
   /* A menu row's floor (it was a literal 44px on .menu-row). */
   --menu-row-h: 36px;
   /* The desktop header band (grid row 1) and one agent row in the two bottom
-     blocks that share the fixed divider row — the rail measures itself and the
+     blocks that meet at the seam row — the rail measures itself and the
      panel beside it wears the same height. One row height for the avatar and
      the name keeps their centers on one line; the pitch is this + the 4px gap. */
   --topbar-h: 52px;

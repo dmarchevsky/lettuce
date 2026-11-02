@@ -34,10 +34,10 @@ interface Props {
   /** The pointer is inside the panel, which is what keeps a borrowed list open. */
   onHold: (held: boolean) => void;
   /**
-   * The height of the bottom agent block, shared with the rail's: the rail
-   * fills whatever the panes leave under the fixed divider, App measures it,
-   * and this block wears the same height so the divider is one row across both
-   * columns.
+   * The height of the bottom agent block, shared with the rail's: the rail's
+   * block is content-height and bottom-docked, App measures it, and this block
+   * wears the same height so the seam — each block's own border-top — is one
+   * row across both columns.
    */
   blockHeight: number;
   /**
@@ -65,7 +65,8 @@ interface Props {
  *
  * The top is a tool row (New, pin), search, and the list; the bottom block
  * mirrors the rail's own agent list in names only — the rail avatar is the
- * agent's one icon — and shares its fixed divider row across the column seam.
+ * agent's one icon — and its seam divider, the block's own border-top, rides the
+ * first agent across the column seam.
  * Whether the panel is on screen at all is not its call: `pinned` and visibility
  * live in `App`, because the rail's hover and the pane switch both have a say.
  * What the list shows can be a borrowed agent's (`preview`), which is how the

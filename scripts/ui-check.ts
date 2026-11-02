@@ -1593,10 +1593,10 @@ try {
       console.log("  SKIP  the borrowed panel needs a second agent");
     }
 
-    // The divider is fixed and flush: it sits directly under the Settings button,
-    // the two agent blocks take everything below it to the foot of the window,
-    // and the rail's measured height is the panel's — one hairline row across
-    // the seam at any window size.
+    // The seam divider is the agent blocks' own border-top: both blocks are
+    // content-height and bottom-docked, so the hairline rides the FIRST agent
+    // and the rail's measured height is the panel's — one row across the seam
+    // at any window size, conversations list reaching it from above.
     const seam = await page.evaluate(() => {
       const rect = (sel: string) => {
         const el = document.querySelector(sel);
