@@ -518,8 +518,9 @@ pre {
   opacity: 0.9;
 }
 
-/* The top bar's "where you are" is the switcher on every width; the caret is
-   what says so once it is the only button up there. */
+/* "Where you are" is two verbs by width: on a phone `.where` opens the
+   switcher; on desktop it shows/hides the conversation panel (`identityClick`).
+   The caret it used to wear is gone — the name itself is the toggle. */
 /* The agent's face, in the header's left corner on a phone (hidden from 900px,
    where the rail is a column of these). It opens the switcher, and it is the only
    thing on a phone that says which agent is open — an identity a letter the size

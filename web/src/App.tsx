@@ -593,11 +593,12 @@ function Workspace({ status }: { status: Status }) {
    * the whole desktop window, the old in-column topbar on a phone. */
   const topbar = (
     <header className={wide ? "topbar band" : "topbar"}>
-      {/* The agent's face, in the corner the eye starts at, opening the same
-              switcher its own name beside it does. Phone only: on desktop the rail
-              is a column of these, and one more in the header would be a duplicate.
-              It left the bottom bar because an agent you cannot see is an agent you
-              lose track of — the bar's letter-sized glyph never said which agent. */}
+      {/* The agent's face, in the corner the eye starts at — phone only: on
+              desktop the rail is a column of these, and one more in the header
+              would be a duplicate. On a phone it opens the same switcher its own
+              name beside it does. It left the bottom bar because an agent you
+              cannot see is an agent you lose track of — the bar's letter-sized
+              glyph never said which agent. */}
       <button
         type="button"
         className="where-avatar"
