@@ -313,7 +313,7 @@ What that means:
   `openrouter/z-ai/glm-5.3-flash`. An agent set to an `openrouter/…` model before
   keeps its handle.
 - **The models are the catalog bundled with letta-code** (pi-ai's), with the
-  capabilities and context windows it records. For OpenRouter at 0.34.21 that is
+  capabilities and context windows it records. For OpenRouter at 0.34.38 that is
   398 chat models; the catalog's 57 image-generation and 9 `typesafe-system-one`
   entries are not served by a chat connection. A model the host added after that
   letta-code release appears with the next upgrade.
