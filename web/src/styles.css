@@ -202,7 +202,11 @@ pre {
      name start on exactly the same y. */
   border-top: 1px solid var(--border);
   margin-top: auto;
-  padding: 0 0 4px;
+  /* 2px of top air so the first row isn't flush against the seam hairline —
+     the same breathing room the rows have between them, and it keeps the
+     active avatar's ring off the divider. Mirrored on .panel-agents so the
+     two columns' rows stay on one line. */
+  padding: 2px 0 4px;
 }
 .rail-agents::-webkit-scrollbar {
   display: none;
@@ -415,7 +419,9 @@ pre {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 0 0 4px;
+  /* Mirrors .rail-agents' top air — the rows must stay on one line across the
+   seam, so both blocks pad identically. */
+  padding: 2px 0 4px;
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-width: none;
@@ -433,7 +439,12 @@ pre {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 14px;
+  /* Optical pairing with the face across the seam: a text line centers its
+     LINE box, but a word's ink sits ~1px above that center (descender space
+     below the baseline), so the name rides 1px low-adjusted here — 2px of top
+     padding with a 1px line box — to sit dead-center on the avatar beside it. */
+  padding: 2px 14px 0;
+  line-height: 1;
   border: none;
   background: none;
   color: var(--text);
