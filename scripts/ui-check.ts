@@ -1770,8 +1770,15 @@ try {
         (await page.locator(".switcher").count()) === 0 &&
         (await page.locator(".sidebar .panel-agent[data-agent-id]").count()) >= 1,
     );
-    await page.locator(".rail .rail-item:text-is('Chat')").click();
-    await page.waitForTimeout(300);
+    // Re-pin for what follows WITHOUT collapsing the peek: the all-cell just
+    // opened it, so clicking Chat would TOGGLE it shut (unpinned + Chat + peek
+    // open → peek false) and hide the sidebar — then clicking the now-hidden
+    // pin button would time out and take the whole suite down with it. Open it
+    // only if it's already away, exactly like the repin block earlier.
+    if (!(await panelOn())) {
+      await page.locator(".rail .rail-item:text-is('Chat')").click();
+      await page.waitForTimeout(300);
+    }
     const restorePin = page.locator(".sidebar .panel-pin");
     if ((await restorePin.getAttribute("aria-pressed")) !== "true") {
       await restorePin.click();

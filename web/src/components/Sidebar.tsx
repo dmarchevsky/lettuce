@@ -373,9 +373,10 @@ export function Sidebar({
         ) : null}
       </div>
 
-      {/* The rail's list in names, anchored at the bottom under the same fixed
-          divider row: the active agent wears the accent bar, a borrowed one the
-          amber one — the borrow is a hold, not a choice. */}
+      {/* The rail's list in names, riding the foot under the seam divider: the
+          active agent's row stays lit in both columns and a held/borrowed one
+          lights the same way — one row-background language, no color bars
+          (R26). The borrow is a hold, not a choice. */}
       <div
         ref={blockRef}
         className="panel-agents"

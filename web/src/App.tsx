@@ -625,20 +625,12 @@ function Workspace({ status }: { status: Status }) {
         onClick={identityClick}
         aria-label={
           wide
-            ? `${agentName ?? "Agent"}: ${title}. ${
-                panelVisible && !panelPinned ? "Hide" : "Show"
-              } conversations`
+            ? `${agentName ?? "Agent"}: ${title}. ${panelVisible ? "Hide" : "Show"} conversations`
             : respondingElsewhere > 0
               ? `${agentName ?? "Agent"}: ${title}. Switch — ${respondingElsewhere} responding elsewhere`
               : `${agentName ?? "Agent"}: ${title}. Switch agent or conversation`
         }
-        title={
-          wide
-            ? panelVisible && !panelPinned
-              ? "Hide conversations"
-              : "Show conversations"
-            : undefined
-        }
+        title={wide ? (panelVisible ? "Hide conversations" : "Show conversations") : undefined}
       >
         <span className="where-agent">
           {agentName ?? "No agent"}
