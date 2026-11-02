@@ -76,8 +76,9 @@ Protocol drift shows up two ways:
      gates separately: **the readable log (`event_seq`) exists only for a caller-notified launch** —
      `serveTaskEvents` runs under `if (publishResult)` in `task.ts` — while `progress_texts` is
      **not** gated (`addProgressText` runs in an **external-worker** task's `onText` — the only caller
-     is `externalWorkerProgressListeners`, wired on the Codex/Claude paths), so a snapshot can carry
-     recent progress text whatever the launch mode. Neither command is on the BFF allowlist yet.
+     is `externalWorkerProgressListeners`, wired on the generic external-worker branch, so any worker
+     type gets it), so a snapshot can carry recent progress text whatever the launch mode. Neither
+     command is on the BFF allowlist yet.
    - `src/websocket/listener/commands/subagent-control.ts` — steering a **local** external worker (a
      `codex_<thread>`/`claude_<session>` id, no `@computer`) was already allowed at 0.34.21; do not
      record it as new. What 0.34.37 added is `ownsNativeSession`, so a worker stays steerable after
@@ -91,9 +92,10 @@ Protocol drift shows up two ways:
      — one env var at a time, and the shared MCP list's `HOME=/root/.letta/mcp-home` moves with it.
    - `src/mods/paths.ts` — the same move on the other side of the mod contract:
      `getGlobalModsDirectory` and the extensions dir now resolve through `resolveGlobalConfigDir`, so
-     a `LETTA_CONFIG_DIR` would move where the mods the BFF *writes* are discovered (inert while
-     nothing sets it). `mod-sources.ts`, `mod-engine.ts`, `types.ts` and `mod-diagnostics-file.ts` are
-     byte-identical across this range, so render, reload and diagnostics did not move.
+     a `LETTA_CONFIG_DIR` would move where the mods the BFF *writes* are discovered — and they also
+     honour `LETTA_MODS_DIR` / `LETTA_EXTENSIONS_DIR` first, so nothing sets it today either way.
+     `mod-sources.ts`, `mod-engine.ts`, `types.ts` and `mod-diagnostics-file.ts` are byte-identical
+     across this range, so render, reload and diagnostics did not move.
    - `src/agent/skills.ts` — since 0.34.27 `GLOBAL_SKILLS_DIR` became `getGlobalSkillsDir()` off
      `resolveGlobalStateDir`, so the global skill root is now conditional, while `bff/src/skills/`
      re-implements discovery against the fixed `/root/.letta/skills`; if the root ever moves, both
@@ -102,10 +104,12 @@ Protocol drift shows up two ways:
      cannot express today, since its smallest unit is a whole source.
    - `src/types/schedule-protocol.ts` — `CronRunOutcome` gained `delivered` and `CronRunReason` a
      `dequeued`. Nothing renders an outcome exhaustively today, so it is silent until we do.
-   - `src/backend/local/*` — since 0.34.32 a local-backend request carries `x-letta-request-kind:
-     turn|compaction`, and `model_settings.temperature` plus verbosity actually reach the endpoint.
-     That is a behaviour change on our primary provider: a compaction is now distinguishable at the
-     llama.cpp end, and a temperature that was silently dropped is not.
+   - the local backend's request kind — since 0.34.32 a local-backend request carries
+     `x-letta-request-kind: turn|compaction` (emitted in `src/backend/dev/pi-request-headers.ts`, used
+     by `pi-stream-adapter.ts` for turns and `local/compaction.ts` for compactions), and
+     `model_settings.temperature` plus verbosity actually reach the endpoint. That is a behaviour
+     change on our primary provider: a compaction is now distinguishable at the llama.cpp end, and a
+     temperature that was silently dropped is not.
 
 ### Version pinning
 

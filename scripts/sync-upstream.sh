@@ -91,6 +91,13 @@ BEHAVIOR_FILES=(
   "src/utils/settings-path.ts"
   # Who may steer or stop a child: the ownership rule, and the id shapes it accepts.
   "src/websocket/listener/commands/subagent-control.ts"
+  # The event log read_subagent_events pages, and the two gating sites the skill describes.
+  "src/agent/subagent-events.ts"
+  "src/tools/impl/task.ts"
+  "src/tools/impl/task-transcript.ts"
+  # The request-kind header the local backend sends to llama.cpp, and its two call sites.
+  "src/backend/dev/pi-request-headers.ts"
+  "src/backend/dev/pi-stream-adapter.ts"
 )
 
 # The connections serve the catalog bundled in this package: which hosts name
