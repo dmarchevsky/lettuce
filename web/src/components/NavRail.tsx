@@ -62,9 +62,10 @@ function paneItems(runsEnabled: boolean): { tab: Tab; label: string; icon: IconN
  * The desktop rail: the panes on top, the agents anchored at the bottom.
  *
  * One column answers "which pane" and "which agent", and it shares its bottom
- * row with the conversation panel beside it: the fixed divider above the agents
- * is one hairline across both columns, sitting flush under the pane buttons —
- * the agent block takes everything below it, and the panel mirrors its height.
+ * row with the conversation panel beside it: the agent block is content-height
+ * and rides the foot above the all-cell, and the seam divider above it — one
+ * hairline across both columns — is the block's own top border, so it rides
+ * the first agent and the panel mirrors the block's measured height.
  * Chat is primary in the literal sense: it is the default pane, the only one with
  * a composer, and the only one with a panel.
  */

@@ -171,12 +171,13 @@ pre {
      the pane items and the footer sit in the same place with 3 agents or 30. */
   overflow: hidden;
 }
-/* The agent block fills everything the panes leave: it starts directly under
-   the fixed divider (which sits under the Settings button) and reaches the
-   foot of the column — the panel beside it mirrors this block's measured
-   height, so the two hairlines are one row across the seam. It scrolls on its
-   own; the scrollbar is hidden: the column is 74px wide, the thumb would be
-   the whole of it. */
+/* The agent block rides the foot: content-height and bottom-docked (see the
+   margin/flex notes below), with the seam divider as its own top border — so
+   the divider sits above the FIRST AGENT and the conversations list beside
+   the seam reaches down to it. The panel mirrors this block's measured height,
+   so the two hairlines are one row across the seam. It scrolls on its own;
+   the scrollbar is hidden: the column is 74px wide, the thumb would be the
+   whole of it. */
 .rail-agents {
   display: flex;
   flex-direction: column;

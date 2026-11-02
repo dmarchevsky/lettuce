@@ -367,11 +367,13 @@ function Workspace({ status }: { status: Status }) {
 
   /**
    * The bottom agent blocks — the rail's and the panel's — are one row across
-   * the column seam. The rail's takes every pixel between the fixed divider
-   * (which sits directly under the Settings button) and the foot of the column
-   * — CSS `flex: 1`, not a row-count formula: what fits is the layout's
-   * business. App only measures the rail and hands the number across the seam,
-   * so the two hairlines land on one pixel row whatever the window is.
+   * the column seam. The rail's block is content-height and bottom-docked
+   * (`flex: 0 1 auto; margin-top: auto`): it rides the foot, shrinking back to
+   * the room under Settings only when the list overflows — and its own
+   * `border-top` IS the seam divider, so the divider rides the first agent
+   * instead of sitting on a fixed line under Settings. App only measures the
+   * rail and hands the number across the seam, so the two hairlines land on
+   * one pixel row whatever the window is.
    */
   const [agentBlock, setAgentBlock] = useState(168);
   /**
