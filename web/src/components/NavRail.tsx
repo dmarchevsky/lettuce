@@ -31,7 +31,7 @@ interface Props {
    * The agent whose *name* in the conversation panel's bottom block the pointer
    * rests on: the rail marks that avatar, so the pair reads as one selection
    * control (the reverse direction — a rail hover marking the panel row — is
-   * the borrow's amber mark). App owns the state; the rail only shows it.
+   * the borrow's row highlight). App owns the state; the rail only shows it.
    */
   heldAgentId: string | null;
   /** The pointer entered/left one of this rail's faces: App marks the matching

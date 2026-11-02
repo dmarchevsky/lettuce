@@ -377,7 +377,7 @@ function Workspace({ status }: { status: Status }) {
   /**
    * The pointer resting on an agent's name in the panel's bottom block: the
    * rail marks that avatar. The pair answers “which agent” as one control —
-   * the borrow marks the other way, an amber row for a rail hover.
+   * the borrow marks the other way, a row highlight for a rail hover.
    */
   const [heldAgent, setHeldAgent] = useState<string | null>(null);
   // The two blocks mirror each other's scroll when the window clamps them. The

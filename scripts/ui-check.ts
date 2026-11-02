@@ -1759,6 +1759,15 @@ try {
       "clicking the identity opens the panel, never the sheet",
       (await panelOn()) && (await page.locator(".switcher").count()) === 0,
     );
+    // The accessible name must match the verb: with the panel up, the name reads
+    // "Hide conversations" (this is the state the earlier pinned bug got wrong).
+    check(
+      "the identity's accessible name says Hide while the panel is up",
+      ((await page.locator(".topbar .where").getAttribute("aria-label")) ?? "").includes(
+        "Hide conversations",
+      ),
+      await page.locator(".topbar .where").getAttribute("aria-label"),
+    );
     await page.locator(".topbar .where").click();
     await page.waitForTimeout(400);
     check("and clicking it again puts the peek away", !(await panelOn()));
