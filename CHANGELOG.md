@@ -5,6 +5,13 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.27.1-letta_0.34.38] - 2026-11-02
+
+### Fixed
+- **The app-server is letta-code 0.34.38, from 0.34.21.** What that buys you: a resumed Codex or Claude run starts with the same environment it launched with instead of a different one, a Claude session stays killable while its background tasks are still running, and a subagent that stopped being steerable the moment its task row aged out can be steered again.
+- **Local models now get the settings you set.** Temperature and verbosity were dropped on the way to an OpenAI-family endpoint, so a tuned model was not actually tuned; a request to compact history is also now labelled as one, which lets an endpoint treat it differently.
+- **A folder whose name merely starts like your workspace is no longer inside it.** `…/project2` used to pass the allowed-directory check for a workspace at `…/project`; the comparison now walks whole path segments. Setting an environment variable in front of a command needs approval like the command does.
+
 ## [v0.27.0-letta_0.34.21] - 2026-11-02
 
 ### Changed

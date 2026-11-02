@@ -53,10 +53,10 @@ export const EXTERNAL_SANDBOX_POLICY = Object.freeze({
 /**
  * Rewrite one JSON-RPC line from letta-code to Codex's app-server.
  *
- * letta-code sends `sandboxPolicy: {type: "workspaceWrite", …}` on every
- * `turn/start` (`tools/impl/codex-app-server.ts`, hard-coded). Only that field
- * changes; anything that is not JSON, or carries no `sandboxPolicy`, passes
- * through byte for byte.
+ * letta-code sends a `sandboxPolicy` on every `turn/start`
+ * (`tools/impl/codex-app-server.ts`, hard-coded — `workspaceWrite` until 0.34.14, which asked Codex
+ * to build its own bubblewrap sandbox here, and `dangerFullAccess` since). Only that field changes;
+ * anything that is not JSON, or carries no `sandboxPolicy`, passes through byte for byte.
  */
 export function rewriteLine(line) {
   let message;

@@ -17,12 +17,15 @@ Loaded from `AGENTS.md`. letta-code spawns the real CLIs; a shim makes them fit 
   `docker/codex/codex-shim.mjs` on PATH as `codex` — with the
   CLI absent the shim's preflight fails with ENOENT and the task reports it. Upstream
   unmodified.
-  - The shim's one rewrite: letta hard-codes `sandboxPolicy: workspaceWrite` on every
-    `turn/start`, Codex builds that with bubblewrap, and Docker's default seccomp/AppArmor
-    refuse it — so the shim rewrites that field to `{type: "externalSandbox"}` and passes
-    every other byte through. A worker therefore has the same reach as an agent shell (the
-    whole container, other agents' memory included) and Codex enforces nothing, network
-    included — the UI offers no network toggle. Spike detail (`use_legacy_landlock`,
+  - The shim's one rewrite: letta sends a `sandboxPolicy` on every `turn/start`, and the shim
+    replaces **whatever value it carries** with `{type: "externalSandbox", networkAccess:
+    "enabled"}` (`rewriteLine` matches on the field, not its value) and passes every other byte
+    through. The original reason was upstream's `workspaceWrite`, which Codex builds with bubblewrap
+    and Docker's default seccomp/AppArmor refuse; since 0.34.14 upstream asks for
+    `{type: "dangerFullAccess"}` instead, so the bubblewrap refusal is history and the rewrite now
+    just keeps the policy ours whatever upstream asks for. Either way a worker has the same reach as
+    an agent shell (the whole container, other agents' memory included) and Codex enforces nothing,
+    network included — the UI offers no network toggle. Spike detail (`use_legacy_landlock`,
     `requirements.toml` `allowed_sandbox_modes`, the placeholder `auth.json`):
     docs/upstream-notes.md#codex-spike-findings-2026-09-27-codex-01571-measured-in-the-container.
   - **The preflight is `codex --version`** (since 0.33.3). With workers disabled the shim fails
@@ -56,6 +59,17 @@ Loaded from `AGENTS.md`. letta-code spawns the real CLIs; a shim makes them fit 
   - Upstream drift to watch: the shim depends on letta's `turn/start` shape and the preflight
     command; re-verify both on every letta-code or Codex bump (`CODEX_VERSION` is pinned in
     compose, never floated).
+  - **The worker's PATH is no longer just the image's.** Since 0.34.26 upstream wraps the spawn env
+    in `withNativeCliPath` (`utils/native-cli-env.ts`), which *appends* `$HOME/.local/bin` to PATH
+    and copies the env rather than rebuilding it — so the `docker/codex/Dockerfile` ENV that keeps
+    agent-installed CLIs in `/opt/agent-tools` still wins, and nothing is sourced from a login shell.
+    0.34.37 made **resumes** take the same wrapped env as launch. A worker that suddenly cannot find
+    `codex` after a bump is a PATH question, not a shim bug.
+  - Upstream accepts **four** worker types now (`claude-code | codex | opencode | cursor`,
+    `external-coding-agent.ts`; Cursor landed in 0.34.26 and authenticates with `CURSOR_API_KEY`).
+    We ship two. There is also a native model catalog per worker (`external-worker-models.ts`,
+    `--worker …`, since 0.34.27) which our Settings sections do not use yet — it is the difference
+    between a model picker and a free-text field.
 - **Claude Code workers: the same arrangement, minus the sandbox rewrite.** Since 0.33 upstream
   also accepts `subagent_type: "claude-code"` and spawns `claude --print --input-format
   stream-json --output-format stream-json …` with the prompt on stdin

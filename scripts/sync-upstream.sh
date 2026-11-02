@@ -18,6 +18,9 @@ PROTOCOL_FILES=(
   "src/types/cwd-protocol.ts"
   "src/types/queue-update-protocol.ts"
   "src/types/conversation-fork-protocol.ts"
+  "src/types/subagent-protocol.ts"
+  "src/types/runtime-start-protocol.ts"
+  "src/types/schedule-protocol.ts"
   "src/websocket/listener/listener-constants.ts"
 )
 
@@ -62,6 +65,9 @@ BEHAVIOR_FILES=(
   "src/mods/mod-engine.ts"
   "src/mods/types.ts"
   "src/mods/mod-diagnostics-file.ts"
+  # Where the mods the BFF writes are *discovered*: it resolves through settings-path now, so a
+  # LETTA_CONFIG_DIR moves it out from under the fixed /root/.letta/mods the BFF writes into.
+  "src/mods/paths.ts"
   "src/websocket/listener/mod-adapter.ts"
   "src/websocket/listener/commands.ts"
   "src/tools/manager.ts"
@@ -79,6 +85,19 @@ BEHAVIOR_FILES=(
   "src/backend/local/local-provider-auth-store.ts"
   "src/backend/dev/pi-provider-mod-validation.ts"
   "src/backend/dev/pi-model-factory.ts"
+  # Every `~/.letta` path upstream resolves goes through this now (HOME, LETTA_HOME, and the newer
+  # LETTA_CONFIG_DIR, which outranks LETTA_HOME). Our own GH_CONFIG_DIR does NOT follow it — a moved
+  # root would leave /root/.letta/gh behind — so a change here splits our hardcoded paths in two.
+  "src/utils/settings-path.ts"
+  # Who may steer or stop a child: the ownership rule, and the id shapes it accepts.
+  "src/websocket/listener/commands/subagent-control.ts"
+  # The event log read_subagent_events pages, and the two gating sites the skill describes.
+  "src/agent/subagent-events.ts"
+  "src/tools/impl/task.ts"
+  "src/tools/impl/task-transcript.ts"
+  # The request-kind header the local backend sends to llama.cpp, and its two call sites.
+  "src/backend/dev/pi-request-headers.ts"
+  "src/backend/dev/pi-stream-adapter.ts"
 )
 
 # The connections serve the catalog bundled in this package: which hosts name
@@ -193,6 +212,17 @@ if [[ $BEHAV_CHANGED -eq 1 ]]; then
   warn "     — does connect_provider still take baseUrl for any provider, keep a stored one"
   warn "     on an update that sends none (routes.ts disconnects first for that), and does a"
   warn "     stored one still replace every catalog model's base?"
+  warn "   * settings-path.ts — did the product config root move off HOME? bff/src/skills/"
+  warn "     discovery.ts hardcodes /root/.letta/skills, the mcp-servers wrapper runs"
+  warn "     HOME=/root/.letta/mcp-home, and bff writes mods to /root/.letta/mods, so a moved"
+  warn "     root silently splits all three from what the BFF wrote. GH_CONFIG_DIR is ours and"
+  warn "     does not follow it, so /root/.letta/gh would be left where it was."
+  warn "   * mods/paths.ts — same question from the mod side: does the BFF-rendered mod still"
+  warn "     land where the listener discovers mods?"
+  warn "   * subagent-control.ts — does steering still accept a LOCAL"
+  warn "     codex_<thread>/claude_<session> id, and is ownership still judged against the"
+  warn "     caller's parent scope? That rule is the whole boundary for what a browser may"
+  warn "     send about a child."
 else
   echo "  none"
 fi

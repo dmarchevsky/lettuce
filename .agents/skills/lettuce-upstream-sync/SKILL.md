@@ -1,6 +1,6 @@
 ---
 name: lettuce-upstream-sync
-description: 'Run `bun run sync-upstream v<x.y.z>` to move lettuce to a new letta-code release: what the script does, why only published release tags are acceptable, typed vs behavioural drift and the five upstream files whose changes typecheck cannot catch (connection-lifecycle, gateway supervisor/local, background-process-protocol, toolset-catalog, AskUserQuestion), the seven version literal sites and the stale-pin precedence trap, and why a version bump is a full redeploy. Read when bumping LETTA_CODE_VERSION or running sync-upstream.'
+description: 'Run `bun run sync-upstream v<x.y.z>` to move lettuce to a new letta-code release: what the script does, why only published release tags are acceptable, typed vs behavioural drift and the upstream files whose changes typecheck cannot catch (connection-lifecycle, gateway supervisor, background-process-protocol, toolset-catalog, settings-path, subagent-control), the six version literal sites and the stale-pin precedence trap, why the reference checkout must not lag the pin, and why a version bump is a full redeploy. Read when bumping LETTA_CODE_VERSION or running sync-upstream.'
 ---
 
 # Upstream sync and version pinning
@@ -65,6 +65,51 @@ Protocol drift shows up two ways:
      nested calls that would need an approval card **fail** rather than prompt — so every
      `approval: "ask"` tool we render (`gmail_*` writes, `mcp_call_write`) is out of reach from a
      script by design.
+   - `src/types/subagent-protocol.ts` + `subagent-events.ts` (typed, so `typecheck` sees the shape
+     but not the semantics) — since 0.34.38 `read_subagent_events` pages a subagent's event log
+     (`tool_call`/`tool_result`/`text`/`reasoning`/`notification`, `next_seq`, `missed`, an oversized
+     event cut with a `[truncated N bytes]` marker). **It reads the in-process `stores` Map in
+     `subagent-events.ts`, not the task's JSONL file** — so the readable log dies with the app-server
+     process, the 32 MiB cap is a memory cap, and `missed` counts events evicted from RAM. The durable
+     record is separate: `task-transcript.ts` appends every event to `log.eventsFile` under
+     `TASK_EVENTS_MAX_BYTES` (256 MiB), which is what a Tasks transcript should read. Read the two
+     gates separately: **the readable log (`event_seq`) exists only for a caller-notified launch** —
+     `serveTaskEvents` runs under `if (publishResult)` in `task.ts` — while `progress_texts` is
+     **not** gated (`addProgressText` runs in an **external-worker** task's `onText` — the only caller
+     is `externalWorkerProgressListeners`, wired on the generic external-worker branch, so any worker
+     type gets it), so a snapshot can carry recent progress text whatever the launch mode. Neither
+     command is on the BFF allowlist yet.
+   - `src/websocket/listener/commands/subagent-control.ts` — steering a **local** external worker (a
+     `codex_<thread>`/`claude_<session>` id, no `@computer`) was already allowed at 0.34.21; do not
+     record it as new. What 0.34.37 added is `ownsNativeSession`, so a worker stays steerable after
+     its background-task row is evicted, plus resumes getting the launch environment. The guard that
+     rejects a `@computer`-routed id is unchanged and is the boundary for what a browser may send.
+   - `src/utils/settings-path.ts` — every `~/.letta` path resolves through it now, and its two
+     resolvers are **not** interchangeable: `resolveGlobalConfigDir` is `LETTA_CONFIG_DIR` (absolute
+     or it throws) else `$HOME/.letta`, and `resolveGlobalStateDir` additionally honours `LETTA_HOME`
+     (only when `LETTA_CONFIG_DIR` is unset). So settings.json and the mods dir ignore `LETTA_HOME`
+     entirely; global skills do not. Decided at the 0.34.38 sync: **`LETTA_CONFIG_DIR` not adopted**
+     — one env var at a time, and the shared MCP list's `HOME=/root/.letta/mcp-home` moves with it.
+   - `src/mods/paths.ts` — the same move on the other side of the mod contract:
+     `getGlobalModsDirectory` and the extensions dir now resolve through `resolveGlobalConfigDir`, so
+     a `LETTA_CONFIG_DIR` would move where the mods the BFF *writes* are discovered — and they also
+     honour `LETTA_MODS_DIR` / `LETTA_EXTENSIONS_DIR` first, so nothing sets it today either way.
+     `mod-sources.ts`, `mod-engine.ts`, `types.ts` and `mod-diagnostics-file.ts` are byte-identical
+     across this range, so render, reload and diagnostics did not move.
+   - `src/agent/skills.ts` — since 0.34.27 `GLOBAL_SKILLS_DIR` became `getGlobalSkillsDir()` off
+     `resolveGlobalStateDir`, so the global skill root is now conditional, while `bff/src/skills/`
+     re-implements discovery against the fixed `/root/.letta/skills`; if the root ever moves, both
+     move. Separately, since 0.34.22 `runtime_start` takes `bundled_skills`: expose named bundled
+     skills while `skill_sources` omits `"bundled"` — the per-agent granularity `bff/src/skills/`
+     cannot express today, since its smallest unit is a whole source.
+   - `src/types/schedule-protocol.ts` — `CronRunOutcome` gained `delivered` and `CronRunReason` a
+     `dequeued`. Nothing renders an outcome exhaustively today, so it is silent until we do.
+   - the local backend's request kind — since 0.34.32 a local-backend request carries
+     `x-letta-request-kind: turn|compaction` (emitted in `src/backend/dev/pi-request-headers.ts`, used
+     by `pi-stream-adapter.ts` for turns and `local/compaction.ts` for compactions), and
+     `model_settings.temperature` plus verbosity actually reach the endpoint. That is a behaviour
+     change on our primary provider: a compaction is now distinguishable at the llama.cpp end, and a
+     temperature that was silently dropped is not.
 
 ### Version pinning
 
@@ -110,6 +155,17 @@ the shell environment, where the command that set it is visible.
 Compose's precedence order — that is how `.env` once sat a whole cycle behind unseen; story:
 docs/upstream-notes.md#stale-pin-story. The pin check now prints a warning for exactly this
 case.
+
+**The reference checkout must not lag the pin.** The script diffs from wherever `letta-code/` currently
+sits, so a clone five releases behind our own pin reports five releases of drift we already adjudicated —
+and every "read out of letta-code at v0.34.x" fact in the skills is that much older. Check `git -C
+../letta-code describe --tags` before trusting a report. It will **not** match `VERSION` for the whole
+implement stage — the script never rewrites `VERSION`, whose `-letta_<v>` half moves with the bump at
+pre-release — so the two agree only once this release is cut.
+
+**From a worktree, set `LETTA_CODE_DIR`.** The script defaults the clone to `<script dir>/../letta-code`,
+which inside `.dev-flow/<slug>/worktree/` resolves under `.dev-flow/<slug>/` and silently clones a second
+copy: `LETTA_CODE_DIR=<main checkout's parent>/letta-code bun run sync-upstream v<x.y.z>`.
 
 **A version bump is a full redeploy.** `docker compose -f docker/compose.yml up -d --build` —
 rebuilds the app-server image on the new base, pulls the new channel-gateway image and
