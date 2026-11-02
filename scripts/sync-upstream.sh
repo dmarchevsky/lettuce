@@ -18,6 +18,9 @@ PROTOCOL_FILES=(
   "src/types/cwd-protocol.ts"
   "src/types/queue-update-protocol.ts"
   "src/types/conversation-fork-protocol.ts"
+  "src/types/subagent-protocol.ts"
+  "src/types/runtime-start-protocol.ts"
+  "src/types/schedule-protocol.ts"
   "src/websocket/listener/listener-constants.ts"
 )
 
@@ -79,6 +82,12 @@ BEHAVIOR_FILES=(
   "src/backend/local/local-provider-auth-store.ts"
   "src/backend/dev/pi-provider-mod-validation.ts"
   "src/backend/dev/pi-model-factory.ts"
+  # Every `~/.letta` path we hardcode (global skills, the shared MCP list, GH_CONFIG_DIR)
+  # resolves through this now: HOME, LETTA_HOME and the newer LETTA_CONFIG_DIR decide where
+  # it points, and the last one outranks the second.
+  "src/utils/settings-path.ts"
+  # Who may steer or stop a child: the ownership rule, and the id shapes it accepts.
+  "src/websocket/listener/commands/subagent-control.ts"
 )
 
 # The connections serve the catalog bundled in this package: which hosts name
@@ -193,6 +202,14 @@ if [[ $BEHAV_CHANGED -eq 1 ]]; then
   warn "     — does connect_provider still take baseUrl for any provider, keep a stored one"
   warn "     on an update that sends none (routes.ts disconnects first for that), and does a"
   warn "     stored one still replace every catalog model's base?"
+  warn "   * settings-path.ts — did the product config root move off HOME? bff/src/skills/"
+  warn "     discovery.ts hardcodes /root/.letta/skills and compose points HOME at"
+  warn "     /root/.letta for the shared MCP list, so a moved root silently splits those"
+  warn "     files from what the BFF writes."
+  warn "   * subagent-control.ts — does steering still accept a LOCAL"
+  warn "     codex_<thread>/claude_<session> id, and is ownership still judged against the"
+  warn "     caller's parent scope? That rule is the whole boundary for what a browser may"
+  warn "     send about a child."
 else
   echo "  none"
 fi

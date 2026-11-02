@@ -1,6 +1,6 @@
 ---
 name: lettuce-upstream-sync
-description: 'Run `bun run sync-upstream v<x.y.z>` to move lettuce to a new letta-code release: what the script does, why only published release tags are acceptable, typed vs behavioural drift and the five upstream files whose changes typecheck cannot catch (connection-lifecycle, gateway supervisor/local, background-process-protocol, toolset-catalog, AskUserQuestion), the seven version literal sites and the stale-pin precedence trap, and why a version bump is a full redeploy. Read when bumping LETTA_CODE_VERSION or running sync-upstream.'
+description: 'Run `bun run sync-upstream v<x.y.z>` to move lettuce to a new letta-code release: what the script does, why only published release tags are acceptable, typed vs behavioural drift and the upstream files whose changes typecheck cannot catch (connection-lifecycle, gateway supervisor, background-process-protocol, toolset-catalog, settings-path, subagent-control), the six version literal sites and the stale-pin precedence trap, why the reference checkout must not lag the pin, and why a version bump is a full redeploy. Read when bumping LETTA_CODE_VERSION or running sync-upstream.'
 ---
 
 # Upstream sync and version pinning
@@ -65,6 +65,29 @@ Protocol drift shows up two ways:
      nested calls that would need an approval card **fail** rather than prompt — so every
      `approval: "ask"` tool we render (`gmail_*` writes, `mcp_call_write`) is out of reach from a
      script by design.
+   - `src/types/subagent-protocol.ts` + `subagent-events.ts` (typed, so `typecheck` sees the shape
+     but not the semantics) — since 0.34.38 `read_subagent_events` pages a subagent's JSONL log
+     (`tool_call`/`tool_result`/`text`/`reasoning`/`notification`, `next_seq`, `missed`, an oversized
+     event cut with a `[truncated N bytes]` marker), and a snapshot carries `event_seq` and
+     `progress_texts` **only for caller-notified launches** (`notify: "caller"`, gated on the
+     `launch_subagent_notify_caller` capability; 32 MiB kept per child). `subagent_message` also
+     stopped requiring an `@computer`-routed child: it now judges ownership against the caller's
+     parent scope and accepts a local `codex_<thread>`/`claude_<session>` id (OpenCode steering is
+     still refused upstream). Neither command is on the BFF allowlist — see the roadmap.
+   - `src/utils/settings-path.ts` — every `~/.letta` path resolves through it now: `HOME`,
+     `LETTA_HOME` and the newer `LETTA_CONFIG_DIR` decide the root, in that order of precedence
+     (`LETTA_CONFIG_DIR` beats `LETTA_HOME`). Same answer for us while we set only `HOME`, but it is
+     the file that would silently move global skills, the shared MCP settings and `GH_CONFIG_DIR` out
+     from under the paths `bff/src/skills/discovery.ts` and `docker/compose.yml` hardcode. Decided
+     at the 0.34.38 sync: **not adopted** — one env var at a time, and the shared MCP list's
+     `HOME=/root/.letta/mcp-home` would have to move with it.
+   - `src/agent/skills.ts` — `GLOBAL_SKILLS_DIR` became `getGlobalSkillsDir()` off that resolver, so
+     the global skill root is now conditional. `bff/src/skills/` re-implements discovery against the
+     fixed path; if the root ever moves, both move.
+   - `src/backend/local/*` — since 0.34.32 a local-backend request carries `x-letta-request-kind:
+     turn|compaction`, and `model_settings.temperature` plus verbosity actually reach the endpoint.
+     That is a behaviour change on our primary provider: a compaction is now distinguishable at the
+     llama.cpp end, and a temperature that was silently dropped is not.
 
 ### Version pinning
 
@@ -110,6 +133,16 @@ the shell environment, where the command that set it is visible.
 Compose's precedence order — that is how `.env` once sat a whole cycle behind unseen; story:
 docs/upstream-notes.md#stale-pin-story. The pin check now prints a warning for exactly this
 case.
+
+**The reference checkout must not lag the pin.** The script diffs from wherever `letta-code/` currently
+sits, so a clone five releases behind our own pin reports five releases of drift we already adjudicated —
+and every "read out of letta-code at v0.34.x" fact in the skills is that much older. Check `git -C
+../letta-code describe --tags` against `VERSION` before trusting a report, and expect the two to land on
+the same tag after a sync.
+
+**From a worktree, set `LETTA_CODE_DIR`.** The script defaults the clone to `<script dir>/../letta-code`,
+which inside `.dev-flow/<slug>/worktree/` resolves under `.dev-flow/<slug>/` and silently clones a second
+copy: `LETTA_CODE_DIR=<main checkout's parent>/letta-code bun run sync-upstream v<x.y.z>`.
 
 **A version bump is a full redeploy.** `docker compose -f docker/compose.yml up -d --build` —
 rebuilds the app-server image on the new base, pulls the new channel-gateway image and
