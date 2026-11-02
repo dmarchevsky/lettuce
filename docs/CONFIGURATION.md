@@ -223,7 +223,7 @@ the app-server's own handshake, the sidecars from the tag compose pulled.
 
 | Variable | Default | Pins |
 |---|---|---|
-| `LETTA_CODE_VERSION` | `0.34.21` | the letta-code release — app-server image, channel gateway image, and the `@letta-ai/letta-code` the UI was built against. Set it in the environment if you must, never in `docker/.env`: Compose reads that file ahead of these defaults, so a leftover there wins quietly and survives every later sync |
+| `LETTA_CODE_VERSION` | `0.34.38` | the letta-code release — app-server image, channel gateway image, and the `@letta-ai/letta-code` the UI was built against. Set it in the environment if you must, never in `docker/.env`: Compose reads that file ahead of these defaults, so a leftover there wins quietly and survives every later sync |
 | `CODEX_VERSION` | `0.164.0` | the Codex CLI worker |
 | `CLAUDE_CODE_VERSION` | `2.1.310` | the Claude Code CLI worker |
 | `GH_VERSION` | `2.102.0` | GitHub CLI, used by the `WatchPR` tool |
