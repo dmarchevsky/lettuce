@@ -6,6 +6,8 @@
  * from each other.
  */
 
+import type { RunsPage } from "./runs-scope.ts";
+
 /** `subscription`: a Claude subscription via `claude setup-token`; `endpoint`: an Anthropic-compatible URL. */
 export type ClaudeAuthMode = "endpoint" | "subscription";
 
@@ -48,6 +50,8 @@ export type ClaudeRunStep =
 export interface ClaudeRunSummary {
   sessionId: string;
   cwd: string | null;
+  /** The agent whose workspace the run happened in; null when it names none. */
+  agentId: string | null;
   model: string | null;
   status: ClaudeRunStatus;
   startedAt: string | null;
@@ -55,7 +59,8 @@ export interface ClaudeRunSummary {
   prompt: string | null;
 }
 
-export interface ClaudeRun extends ClaudeRunSummary {
+/** A transcript's payload: a summary less the owner, which only the listing computes. */
+export interface ClaudeRun extends Omit<ClaudeRunSummary, "agentId"> {
   durationMs: number | null;
   steps: ClaudeRunStep[];
   usage: { inputTokens: number; cachedInputTokens: number; outputTokens: number } | null;
@@ -87,9 +92,14 @@ export async function saveClaudeSettings(update: ClaudeSettingsUpdate): Promise<
   return ((await response.json()) as { settings: ClaudeSettings }).settings;
 }
 
-export async function fetchClaudeRuns(limit = 10): Promise<ClaudeRunSummary[]> {
-  const response = await ok(await fetch(`/api/claude/runs?limit=${limit}`));
-  return ((await response.json()) as { runs: ClaudeRunSummary[] }).runs;
+export async function fetchClaudeRuns(
+  limit = 10,
+  agentId: string | null = null,
+): Promise<RunsPage<ClaudeRunSummary>> {
+  const scope = agentId ? `&agent=${encodeURIComponent(agentId)}` : "";
+  const response = await ok(await fetch(`/api/claude/runs?limit=${limit}${scope}`));
+  const body = (await response.json()) as { runs: ClaudeRunSummary[]; other?: number };
+  return { runs: body.runs, other: body.other ?? 0 };
 }
 
 export async function fetchClaudeRun(sessionId: string): Promise<ClaudeRun> {

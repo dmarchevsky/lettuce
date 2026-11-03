@@ -5,6 +5,8 @@
  * mirror `bff/src/codex/`; the two packages cannot import from each other.
  */
 
+import type { RunsPage } from "./runs-scope.ts";
+
 export const REASONING_EFFORTS = ["minimal", "low", "medium", "high"] as const;
 export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
 
@@ -41,13 +43,21 @@ export type CodexRunStep =
 export interface CodexRunSummary {
   threadId: string;
   cwd: string | null;
+  /**
+   * The agent whose workspace the run happened in, or null for a run with no
+   * workspace owner (cron and channel workers run in `/work` itself). What the
+   * Runs pane filters on; `bff/src/runs/attribution.ts` derives it.
+   */
+  agentId: string | null;
   status: CodexRunStatus;
   startedAt: string | null;
   lastActivityAt: string | null;
   prompt: string | null;
 }
 
-export interface CodexRun extends CodexRunSummary {
+/** One run's full viewer payload: a summary less the owner, which only the
+ * listing computes (the single-run endpoint parses the file, not the workspace). */
+export interface CodexRun extends Omit<CodexRunSummary, "agentId"> {
   durationMs: number | null;
   steps: CodexRunStep[];
   usage: { inputTokens: number; cachedInputTokens: number; outputTokens: number } | null;
@@ -82,9 +92,14 @@ export async function saveCodexSettings(update: CodexSettingsUpdate): Promise<Co
   return ((await response.json()) as { settings: CodexSettings }).settings;
 }
 
-export async function fetchCodexRuns(limit = 10): Promise<CodexRunSummary[]> {
-  const response = await ok(await fetch(`/api/codex/runs?limit=${limit}`));
-  return ((await response.json()) as { runs: CodexRunSummary[] }).runs;
+export async function fetchCodexRuns(
+  limit = 10,
+  agentId: string | null = null,
+): Promise<RunsPage<CodexRunSummary>> {
+  const scope = agentId ? `&agent=${encodeURIComponent(agentId)}` : "";
+  const response = await ok(await fetch(`/api/codex/runs?limit=${limit}${scope}`));
+  const body = (await response.json()) as { runs: CodexRunSummary[]; other?: number };
+  return { runs: body.runs, other: body.other ?? 0 };
 }
 
 export async function fetchCodexRun(threadId: string): Promise<CodexRun> {

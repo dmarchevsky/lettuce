@@ -9,8 +9,8 @@
 
 import type { Hono } from "hono";
 import { errorMessage } from "../errors.ts";
-import { parseAgentScope } from "../runs/attribution.ts";
 import type { RouteEnv } from "../route-env.ts";
+import { parseAgentScope } from "../runs/attribution.ts";
 import {
   type ClaudeFileIo,
   getClaudeRun,

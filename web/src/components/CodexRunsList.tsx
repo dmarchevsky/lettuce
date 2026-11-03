@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { type CodexRunSummary, fetchCodexRuns, LIVE_POLL_MS, STATUS_LABELS } from "../lib/codex.ts";
 import { listDate } from "../lib/conversation-groups.ts";
+import { type RunsListProps, scopedEmptyLabel } from "../lib/runs-scope.ts";
 import { formatEntryTimeFull } from "../lib/timestamps.ts";
 import { CodexRunSheet } from "./CodexRunSheet.tsx";
 
@@ -22,20 +23,29 @@ const STATUS_TONES: Record<CodexRunSummary["status"], string> = {
  *
  * `refreshKey` changes when the set of running background tasks does, so a
  * worker that just started or finished shows up without waiting for a poll.
+ *
+ * `agentId` is the Runs pane's scope: this agent's runs only, or null for every
+ * agent's. `onOther` reports what the filter dropped so the pane can say out
+ * loud how much it is hiding.
  */
-export function CodexRunsList({ refreshKey }: { refreshKey: string }) {
+export function CodexRunsList({ refreshKey, agentId, agentName, onOther }: RunsListProps) {
   const [runs, setRuns] = useState<CodexRunSummary[]>([]);
+  const [other, setOther] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [openThread, setOpenThread] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      setRuns(await fetchCodexRuns(8));
+      const page = await fetchCodexRuns(8, agentId);
+      setRuns(page.runs);
+      setOther(page.other);
+      onOther(page.other);
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+      onOther(0);
     }
-  }, []);
+  }, [agentId, onOther]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: refreshKey is the trigger itself.
   useEffect(() => {
@@ -49,7 +59,10 @@ export function CodexRunsList({ refreshKey }: { refreshKey: string }) {
     return () => clearInterval(timer);
   }, [anyRunning, load]);
 
-  if (runs.length === 0 && !error) return null;
+  // Nothing anywhere, and no filter hiding it: the section is not this install's
+  // business. With a filter on, a section that has none of ours says so instead
+  // of vanishing — an empty pane must never be mistaken for a disabled feature.
+  if (!error && runs.length === 0 && other === 0) return null;
 
   return (
     <>
@@ -62,29 +75,33 @@ export function CodexRunsList({ refreshKey }: { refreshKey: string }) {
           </button>
         </p>
       ) : null}
-      <ul className="list">
-        {runs.map((run) => (
-          <li key={run.threadId} className="task">
-            <button type="button" className="row" onClick={() => setOpenThread(run.threadId)}>
-              <span className="grow-text">
-                <span className="task-head stacked">
-                  <span className={`tag${STATUS_TONES[run.status]}`}>
-                    {STATUS_LABELS[run.status]}
+      {runs.length === 0 && !error ? (
+        <p className="muted small">{scopedEmptyLabel("Codex runs", agentName, other)}</p>
+      ) : (
+        <ul className="list">
+          {runs.map((run) => (
+            <li key={run.threadId} className="task">
+              <button type="button" className="row" onClick={() => setOpenThread(run.threadId)}>
+                <span className="grow-text">
+                  <span className="task-head stacked">
+                    <span className={`tag${STATUS_TONES[run.status]}`}>
+                      {STATUS_LABELS[run.status]}
+                    </span>
+                    <span className="small">{run.prompt ?? "(no prompt recorded)"}</span>
                   </span>
-                  <span className="small">{run.prompt ?? "(no prompt recorded)"}</span>
+                  <span
+                    className="muted small one-line"
+                    title={run.startedAt ? formatEntryTimeFull(run.startedAt) : undefined}
+                  >
+                    {run.startedAt ? listDate(run.startedAt) : ""}
+                    {run.cwd ? ` · ${run.cwd}` : ""}
+                  </span>
                 </span>
-                <span
-                  className="muted small one-line"
-                  title={run.startedAt ? formatEntryTimeFull(run.startedAt) : undefined}
-                >
-                  {run.startedAt ? listDate(run.startedAt) : ""}
-                  {run.cwd ? ` · ${run.cwd}` : ""}
-                </span>
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       {openThread ? (
         <CodexRunSheet threadId={openThread} onClose={() => setOpenThread(null)} />
       ) : null}

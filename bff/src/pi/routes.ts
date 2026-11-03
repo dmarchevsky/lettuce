@@ -11,9 +11,9 @@
 
 import type { Hono } from "hono";
 import { isAgentId } from "../agents/id-list.ts";
-import { parseAgentScope } from "../runs/attribution.ts";
 import { errorMessage } from "../errors.ts";
 import type { RouteEnv } from "../route-env.ts";
+import { parseAgentScope } from "../runs/attribution.ts";
 import { hardenedResponse } from "../security-headers.ts";
 import {
   assertEffectiveUsable,

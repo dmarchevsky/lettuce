@@ -8,6 +8,8 @@
  * other.
  */
 
+import type { RunsPage } from "./runs-scope.ts";
+
 export interface PiSettings {
   enabled: boolean;
   host: string;
@@ -236,9 +238,14 @@ export async function generatePiKey(): Promise<PiSettings> {
   return ((await response.json()) as { settings: PiSettings }).settings;
 }
 
-export async function fetchPiRuns(limit = 10): Promise<PiRunSummary[]> {
-  const response = await ok(await fetch(`/api/pi/runs?limit=${limit}`));
-  return ((await response.json()) as { runs: PiRunSummary[] }).runs;
+export async function fetchPiRuns(
+  limit = 10,
+  agentId: string | null = null,
+): Promise<RunsPage<PiRunSummary>> {
+  const scope = agentId ? `&agent=${encodeURIComponent(agentId)}` : "";
+  const response = await ok(await fetch(`/api/pi/runs?limit=${limit}${scope}`));
+  const body = (await response.json()) as { runs: PiRunSummary[]; other?: number };
+  return { runs: body.runs, other: body.other ?? 0 };
 }
 
 /**

@@ -153,5 +153,7 @@ export async function listCodexRuns(
     const text = await io.read(path);
     if (text !== null) runs.push(summarizeRun(parseRollout(threadId, text)));
   }
-  return agentId ? splitRunsByAgent(runs, agentId, limit) : { runs: runs.slice(0, limit), other: 0 };
+  return agentId
+    ? splitRunsByAgent(runs, agentId, limit)
+    : { runs: runs.slice(0, limit), other: 0 };
 }

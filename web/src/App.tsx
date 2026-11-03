@@ -914,6 +914,9 @@ function Workspace({ status }: { status: Status }) {
             backgroundProcesses={conversation.backgroundProcesses}
             features={status.features}
             initialRunId={runsLink.run}
+            agentId={agents.agentId}
+            agentName={agentName}
+            agents={agents.agents}
           />
         ) : tab === "Tools" ? (
           <ToolsTab
