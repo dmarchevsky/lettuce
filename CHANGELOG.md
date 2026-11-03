@@ -5,6 +5,13 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.30.0-letta_0.34.38] - 2026-11-03
+
+### Changed
+- **The status dot and favicon now watch the app-server.** It read "Live" with a green dot even while the app-server itself was down, because it only ever watched the browser's own connection. It now says **App-server offline**, then **Connecting to app-server…**, and finds its way back to Live by itself when the server returns — no reload, no stale green dot.
+- **"App-server is offline — retrying automatically."** The row that sat there reading "App-server is not connected" after an outage, until a manual reload, now really does recover: the sidebar, the switcher's conversation list, and a conversation whose load failed all retry themselves when the app-server returns.
+- **A slow load no longer looks like an empty one.** A conversation list still arriving said "No conversations" and a transcript being fetched said "No messages yet"; they now say **Loading conversations…** and **Loading conversation…** while they wait. A just-created conversation, which is empty by definition, still opens straight to "No messages yet".
+
 ## [v0.29.0-letta_0.34.38] - 2026-11-03
 
 ### Added
