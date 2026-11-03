@@ -349,7 +349,13 @@ export function Sidebar({
           ])}
           {groups.length === 0 ? (
             <li className="muted pad">
-              {query.trim() ? "No conversation matches." : "No conversations"}
+              {/* A list that is still loading is not an empty one — a slow
+                  app-server used to read as "no conversations". */}
+              {query.trim()
+                ? "No conversation matches."
+                : !preview && agents.loading
+                  ? "Loading conversations…"
+                  : "No conversations"}
             </li>
           ) : null}
         </ul>

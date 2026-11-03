@@ -29,6 +29,8 @@ import { toast } from "./Toast.tsx";
 interface Props {
   entries: TranscriptEntry[];
   processing: boolean;
+  /** History for this conversation is in flight: say so instead of "no messages". */
+  historyLoading?: boolean;
   session: SessionApi;
   /** The runtime's working directory, used to shorten paths in tool summaries. */
   cwd: string | null;
@@ -102,6 +104,7 @@ function clip(text: string, n: number): string {
 export function MessageList({
   entries,
   processing,
+  historyLoading,
   session,
   cwd,
   onOpenFile,
@@ -264,7 +267,12 @@ export function MessageList({
     <div className="messages-wrap">
       <div className="messages" ref={containerRef}>
         {entries.length === 0 && !processing ? (
-          <p className="muted empty">No messages yet. Say something below.</p>
+          <p className="muted empty">
+            {/* A conversation that is still fetching its history is not an empty
+                one; the old wording told the user to type into a transcript
+                that was about to fill. */}
+            {historyLoading ? "Loading conversation…" : "No messages yet. Say something below."}
+          </p>
         ) : null}
 
         {items.map((item) => {

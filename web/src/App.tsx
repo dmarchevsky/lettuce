@@ -25,12 +25,20 @@ import { ToastLayer, toast } from "./components/Toast.tsx";
 import type { PreparedImage } from "./lib/attachments.ts";
 import { applyDocumentTitle } from "./lib/document-title.ts";
 import { appendToDraft, draftKey, readDraft } from "./lib/draft.ts";
+import { friendlyServerError } from "./lib/errors.ts";
 import { applyFavicon } from "./lib/favicon.ts";
 import { type FeatureFlags, featureEnabled } from "./lib/features.ts";
+import { markFreshConversation } from "./lib/fresh-conversations.ts";
 import { userHistory } from "./lib/input-history.ts";
+import { deriveLinkStatus } from "./lib/link-status.ts";
 import { type FilterGroup, filterEntries, toggleShown } from "./lib/messages.ts";
 import { readRunsDeepLink } from "./lib/pi.ts";
-import { type Component, type RuntimeScope, scopeKey } from "./lib/protocol.ts";
+import {
+  type Component,
+  type ConnectionState,
+  type RuntimeScope,
+  scopeKey,
+} from "./lib/protocol.ts";
 import type { LinkState } from "./lib/session-client.ts";
 import { readSettingsDeepLink } from "./lib/settings-link.ts";
 import type { Access, Signin } from "./lib/signin.ts";
@@ -177,7 +185,7 @@ function Workspace({ status }: { status: Status }) {
   // dismiss button. The ring buffer and the transcript still hold the facts.
   useEffect(() => {
     if (!session.lastError) return;
-    toast(session.lastError, "bad");
+    toast(friendlyServerError(session.lastError), "bad");
     session.clearError();
   }, [session]);
 
@@ -467,8 +475,10 @@ function Workspace({ status }: { status: Status }) {
         "conversation_create",
         { body: { agent_id: agentId } },
       );
-      await agents.refreshConversations(agentId);
       const id = response?.conversation?.id;
+      // Mark before the refresh — it can select this conversation itself.
+      if (typeof id === "string") markFreshConversation(id);
+      await agents.refreshConversations(agentId);
       if (typeof id === "string") agents.selectConversation(id);
     },
     [agents, session],
@@ -593,11 +603,12 @@ function Workspace({ status }: { status: Status }) {
   // screen, since nothing else on the page distinguishes it from a real login.
   const unauthenticated = status.signin === "none";
 
-  // The tab icon reports the link state, which matters most when this tab is
-  // backgrounded on a phone — precisely when the socket tends to drop.
+  // The tab icon reports the same derived status as the dot: on a phone this
+  // tab spends most of its life backgrounded, and "the app-server is gone"
+  // must not read as "your wifi is down" in the tab strip.
   useEffect(() => {
-    applyFavicon(session.link);
-  }, [session.link]);
+    applyFavicon(deriveLinkStatus(session.link, session.upstream).favicon);
+  }, [session.link, session.upstream]);
 
   // The tab title names the open agent, so a strip of tabs says which is which.
   useEffect(() => {
@@ -673,6 +684,7 @@ function Workspace({ status }: { status: Status }) {
       {unauthenticated ? <AuthPill email={status.user?.email} /> : null}
       <LinkPill
         link={session.link}
+        upstream={session.upstream}
         busy={respondingCount > 0}
         count={respondingCount}
         onOpen={() => setActivityOpen(true)}
@@ -762,6 +774,7 @@ function Workspace({ status }: { status: Status }) {
             <MessageList
               entries={visibleEntries}
               processing={conversation.processing}
+              historyLoading={conversation.historyLoading}
               session={session}
               cwd={conversation.cwd}
               onOpenFile={setOpenFile}
@@ -1048,7 +1061,7 @@ function Workspace({ status }: { status: Status }) {
 }
 
 /**
- * The link state as a dot: green live, amber spinner while connecting or
+ * The connection state as a dot: green live, amber spinner while connecting or
  * reconnecting, red offline — the label is the tooltip and the accessible
  * name. It used to be a text pill, which cost the top bar the room it now
  * uses to say which agent and conversation you are in. Signed out stays
@@ -1056,27 +1069,24 @@ function Workspace({ status }: { status: Status }) {
  * conversation is responding the whole slot pulses and becomes one button into
  * the list of what is running; with nothing running it is the same passive dot as
  * ever.
+ *
+ * Both axes go into the label (`lib/link-status.ts`): a live browser socket
+ * over a dead app-server says "App-server offline", not "Live".
  */
 function LinkPill({
   link,
+  upstream,
   busy,
   count,
   onOpen,
 }: {
   link: LinkState;
+  upstream: ConnectionState;
   busy: boolean;
   count: number;
   onOpen: () => void;
 }) {
-  const map: Record<LinkState, { label: string; tone: string }> = {
-    live: { label: "Live", tone: "ok" },
-    connecting: { label: "Connecting…", tone: "warn" },
-    reconnecting: { label: "Reconnecting…", tone: "warn" },
-    resyncing: { label: "Resyncing…", tone: "warn" },
-    offline: { label: "Offline", tone: "bad" },
-    "signed-out": { label: "Sign in again", tone: "bad" },
-  };
-  const { label, tone } = map[link];
+  const { label, tone } = deriveLinkStatus(link, upstream);
   // Signed out is the one state a tap can fix: a reload goes through the
   // login. Reached when the automatic reload already ran recently, or the
   // page was hidden when the login expired. It outranks busy: a dead session

@@ -211,7 +211,11 @@ export function Switcher({ agents, session, onClose, onNewAgent, onEditAgent }: 
 
           {groups.length === 0 ? (
             <p className="muted small switcher-empty">
-              {query.trim() ? "No conversation matches." : "No conversations yet."}
+              {query.trim()
+                ? "No conversation matches."
+                : agents.loading
+                  ? "Loading conversations…"
+                  : "No conversations yet."}
             </p>
           ) : null}
 

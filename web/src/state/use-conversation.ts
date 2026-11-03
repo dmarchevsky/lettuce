@@ -4,7 +4,9 @@ import {
 } from "@letta-ai/letta-code/ask-user-question";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildMessageContent, type PreparedImage } from "../lib/attachments.ts";
-import { errorMessage } from "../lib/errors.ts";
+import { errorMessage, friendlyServerError } from "../lib/errors.ts";
+import { consumeFreshConversation } from "../lib/fresh-conversations.ts";
+import { upstreamReturned } from "../lib/link-status.ts";
 import { indicatorStaysOn, seamAllowsFlip, stallProbeDue } from "../lib/live-state.ts";
 import {
   addLocalUserMessage,
@@ -97,6 +99,9 @@ export interface ConversationApi {
   queue: QueuedItem[];
   approvals: PendingApproval[];
   error: string | null;
+  /** History for the open conversation is in flight: the empty transcript must
+   * say "Loading conversation…", not "No messages yet" (`MessageList`). */
+  historyLoading: boolean;
   /** Dismiss `error` — it is shown in a box the operator closes once read. */
   clearError: () => void;
   /**
@@ -345,6 +350,7 @@ export function useConversation(
   const expectResentTurnRef = useRef(false);
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [cwd, setCwd] = useState<string | null>(null);
   const [skillsVersion, setSkillsVersion] = useState(0);
   const [permissionMode, setPermissionModeFromStatus] = useState<PermissionMode | null>(null);
@@ -377,6 +383,12 @@ export function useConversation(
   const streamIndexRef = useRef<StreamIndex>(createStreamIndex());
   const seqRef = useRef(0);
   const startedRef = useRef<string | null>(null);
+  /** The open conversation's last history load failed — see the recovery effect. */
+  const lastLoadFailedRef = useRef(false);
+  /** Bumped per start; a superseded async load checks it before writing (see `loadHistory`). */
+  const loadGenRef = useRef(0);
+  /** Bumped to re-run the start effect on app-server recovery (`startedRef` reset). */
+  const [startNonce, setStartNonce] = useState(0);
 
   // Memoized so its identity changes only with the conversation: effects and
   // callbacks depend on this object, and a fresh literal every render made them
@@ -548,8 +560,15 @@ export function useConversation(
   }, [processing, stopping, reprimeLiveState]);
 
   const loadHistory = useCallback(
-    async (afterResync = false) => {
+    async (afterResync = false, gen?: number) => {
       if (!conversationId) return;
+      // A superseded load (the user switched conversations mid-flight) must
+      // not land its result on the new conversation's transcript, error,
+      // loading flag, or failure record — the flag in particular would read
+      // "No messages yet" over a conversation still actually loading. `gen`
+      // comes from the start effect; resync reloads pass none (their own
+      // closure is already current).
+      const current = () => gen === undefined || gen === loadGenRef.current;
       setError(null);
       // In parallel with the history request; see `mergeTurnErrors`.
       const turnErrors = agentId ? fetchTurnErrors(agentId, conversationId) : Promise.resolve([]);
@@ -559,6 +578,7 @@ export function useConversation(
           conversation_id: conversationId,
           query: { limit: 200 },
         });
+        if (!current()) return;
         const messages = Array.isArray(response?.messages) ? response.messages : [];
         transcriptRef.current = transcriptFromHistory(messages);
         mergeTurnErrors(transcriptRef.current, await turnErrors);
@@ -580,19 +600,30 @@ export function useConversation(
           setStopping(false);
           reprimeLiveState();
         }
+        lastLoadFailedRef.current = false;
       } catch (cause) {
-        setError(errorMessage(cause));
+        if (!current()) return;
+        lastLoadFailedRef.current = true;
+        setError(friendlyServerError(errorMessage(cause)));
       }
     },
     [agentId, conversationId, request, flushSync, markResynced, refreshUsage, reprimeLiveState],
   );
 
   // Start (or resume) the runtime for this conversation, then load its history.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: startNonce is the trigger itself — the recovery effect below bumps it to re-run this effect after resetting `startedRef`.
   useEffect(() => {
     if (!ready || !scope) return;
     const key = scopeKey(scope);
     if (startedRef.current === key) return;
     startedRef.current = key;
+    const gen = ++loadGenRef.current;
+    // From here to `loadHistory` settling the transcript on screen is
+    // in-flight: an empty transcript during it must read as loading, not
+    // empty — unless this conversation was just created here, in which case
+    // empty is exactly what it is (and `runtime_start` below outlasts the
+    // load, so the loading row would only be a blink over the truth).
+    setHistoryLoading(!consumeFreshConversation(scope.conversation_id));
 
     transcriptRef.current = new Map();
     streamIndexRef.current = createStreamIndex();
@@ -642,18 +673,37 @@ export function useConversation(
         });
 
         // `success: false` does not throw, so it is checked here.
-        if (started?.success === false) {
+        if (started?.success === false && gen === loadGenRef.current) {
           setError(started.error ?? "Failed to start the runtime");
         }
       } catch (cause) {
-        setError(errorMessage(cause));
+        if (gen === loadGenRef.current) setError(friendlyServerError(errorMessage(cause)));
       }
-      await loadHistory();
+      try {
+        await loadHistory(false, gen);
+      } finally {
+        if (gen === loadGenRef.current) setHistoryLoading(false);
+      }
     })();
-  }, [ready, scope, request, setScopes, loadHistory]);
+  }, [ready, scope, startNonce, request, setScopes, loadHistory]);
 
   // A resync means the BFF buffer could not cover the gap while we were away.
   useEffect(() => onResync(() => void loadHistory(true)), [onResync, loadHistory]);
+
+  // The app-server came back while this conversation sat on a failed load
+  // ("App-server is not connected" with nothing retrying it — the BFF socket
+  // never dropped). Restart the runtime the restart killed and reload, which
+  // clears the error by succeeding. Only a conversation that actually failed
+  // heals, so a healthy boot with both axes flipping is untouched.
+  const upstreamRef = useRef(session.upstream);
+  useEffect(() => {
+    const previous = upstreamRef.current;
+    upstreamRef.current = session.upstream;
+    if (!upstreamReturned(previous, session.upstream)) return;
+    if (!startedRef.current || !lastLoadFailedRef.current) return;
+    startedRef.current = null;
+    setStartNonce((n) => n + 1);
+  }, [session.upstream]);
 
   useEffect(() => {
     return onFrame((frame: SequencedFrame) => {
@@ -1181,6 +1231,7 @@ export function useConversation(
     queue,
     approvals,
     error,
+    historyLoading,
     /** The box shows an action that failed; the operator closes it once read. */
     clearError: () => setError(null),
     sendMessage,
