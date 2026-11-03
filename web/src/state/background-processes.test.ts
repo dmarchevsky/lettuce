@@ -168,6 +168,7 @@ describe("background process parsing", () => {
         { name: "Bash", args: '{"command":"bun test"}' },
         { name: "Edit", args: '{"file_path":"web/src/app.tsx"}' },
       ],
+      progress: [],
       totalTokens: 4800,
       durationMs: 60_400,
     });

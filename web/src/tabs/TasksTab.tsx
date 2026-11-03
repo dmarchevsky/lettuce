@@ -10,12 +10,8 @@ import { ToggleRow } from "../components/MenuRow.tsx";
 import { Sheet } from "../components/Sheet.tsx";
 import { SubagentTranscriptSheet } from "../components/SubagentTranscriptSheet.tsx";
 import { toast } from "../components/Toast.tsx";
-import { CLAUDE_SUBAGENT_TYPE, fetchClaudeRuns, type ClaudeRunSummary } from "../lib/claude.ts";
-import {
-  CODEX_SUBAGENT_TYPE,
-  fetchCodexRuns,
-  type CodexRunSummary,
-} from "../lib/codex.ts";
+import { CLAUDE_SUBAGENT_TYPE, type ClaudeRunSummary, fetchClaudeRuns } from "../lib/claude.ts";
+import { CODEX_SUBAGENT_TYPE, type CodexRunSummary, fetchCodexRuns } from "../lib/codex.ts";
 import { shortDate } from "../lib/conversation-groups.ts";
 import { describeCron } from "../lib/cron-describe.ts";
 import { errorMessage } from "../lib/errors.ts";
@@ -154,6 +150,9 @@ export function TasksTab({
   const [claudeRuns, setClaudeRuns] = useState<ClaudeRunSummary[]>([]);
   const hasLiveWorker = Object.values(liveSubagents).some((s) => workerKindOf(s.subagentType));
   const liveChildren = useMemo(() => Object.values(liveSubagents), [liveSubagents]);
+  /** The plain sheet's snapshot while it is still live; its absence auto-closes the sheet. */
+  const openSheetChild =
+    openSheet?.kind === "subagent" ? (liveSubagents[openSheet.subagentId] ?? null) : null;
   useEffect(() => {
     if (!hasLiveWorker) return;
     let stop = false;
@@ -429,11 +428,25 @@ export function TasksTab({
                   const subagentId = process.subagentId;
                   transcript = () => setOpenSheet({ kind: "subagent", subagentId });
                 } else if (kind === "codex") {
-                  const run = resolveLiveWorkerRun(child, liveChildren, codexRuns, Date.now(), "codex");
-                  if (run) transcript = () => setOpenSheet({ kind: "codex", threadId: run.threadId });
+                  const run = resolveLiveWorkerRun(
+                    child,
+                    liveChildren,
+                    codexRuns,
+                    Date.now(),
+                    "codex",
+                  );
+                  if (run)
+                    transcript = () => setOpenSheet({ kind: "codex", threadId: run.threadId });
                 } else {
-                  const run = resolveLiveWorkerRun(child, liveChildren, claudeRuns, Date.now(), "claude");
-                  if (run) transcript = () => setOpenSheet({ kind: "claude", sessionId: run.sessionId });
+                  const run = resolveLiveWorkerRun(
+                    child,
+                    liveChildren,
+                    claudeRuns,
+                    Date.now(),
+                    "claude",
+                  );
+                  if (run)
+                    transcript = () => setOpenSheet({ kind: "claude", sessionId: run.sessionId });
                 }
               }
               return (
@@ -457,11 +470,7 @@ export function TasksTab({
                         </button>
                       ) : null}
                       {stop ? (
-                        <button
-                          type="button"
-                          className="link danger"
-                          onClick={() => void stop()}
-                        >
+                        <button type="button" className="link danger" onClick={() => void stop()}>
                           Stop
                         </button>
                       ) : null}
@@ -613,26 +622,22 @@ export function TasksTab({
       {/* The live event logs. The plain sheet lives and dies with its snapshot:
           when the child completes its snapshot leaves the live list, the sheet
           closes, and the report lands in the conversation as it always has. */}
-      {openSheet?.kind === "subagent"
-        ? liveSubagents[openSheet.subagentId]
-          ? (
-            <SubagentTranscriptSheet
-              subagent={liveSubagents[openSheet.subagentId]!}
-              cwd={null}
-              onClose={() => setOpenSheet(null)}
-              onStop={() =>
-                void onStopSubagent(openSheet.subagentId).then((error) => {
-                  if (error) setStatus(error);
-                })
-              }
-            />
-          )
-          : null
-        : openSheet?.kind === "codex" ? (
-          <CodexRunSheet threadId={openSheet.threadId} onClose={() => setOpenSheet(null)} />
-        ) : openSheet?.kind === "claude" ? (
-          <ClaudeRunSheet sessionId={openSheet.sessionId} onClose={() => setOpenSheet(null)} />
-        ) : null}
+      {openSheet?.kind === "subagent" && openSheetChild ? (
+        <SubagentTranscriptSheet
+          subagent={openSheetChild}
+          cwd={null}
+          onClose={() => setOpenSheet(null)}
+          onStop={() =>
+            void onStopSubagent(openSheet.subagentId).then((error) => {
+              if (error) setStatus(error);
+            })
+          }
+        />
+      ) : openSheet?.kind === "codex" ? (
+        <CodexRunSheet threadId={openSheet.threadId} onClose={() => setOpenSheet(null)} />
+      ) : openSheet?.kind === "claude" ? (
+        <ClaudeRunSheet sessionId={openSheet.sessionId} onClose={() => setOpenSheet(null)} />
+      ) : null}
 
       {launching ? (
         <Sheet

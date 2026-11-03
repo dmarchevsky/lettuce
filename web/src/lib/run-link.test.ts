@@ -1,11 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { LINK_FRESH_MS, type LinkableRun, resolveLiveWorkerRun, workerKindOf } from "./run-link.ts";
 import type { LiveSubagent } from "./subagents.ts";
-import {
-  type LinkableRun,
-  resolveLiveWorkerRun,
-  workerKindOf,
-  LINK_FRESH_MS,
-} from "./run-link.ts";
 
 const NOW = Date.parse("2026-11-03T12:00:00Z");
 
@@ -66,7 +61,9 @@ describe("resolveLiveWorkerRun", () => {
 
   test("two running runs → no link (fan-out stays with the Runs tab)", () => {
     const w = worker();
-    expect(resolveLiveWorkerRun(w, [w], [run(), run({ startedAt: iso(-58_000) })], NOW, "codex")).toBeNull();
+    expect(
+      resolveLiveWorkerRun(w, [w], [run(), run({ startedAt: iso(-58_000) })], NOW, "codex"),
+    ).toBeNull();
   });
 
   test("completed runs are not candidates", () => {

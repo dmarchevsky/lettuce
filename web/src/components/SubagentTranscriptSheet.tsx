@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { formatElapsed } from "../lib/working.ts";
-import { formatTokens } from "../lib/usage.ts";
-import { parseToolArgs, summarizeToolCall } from "../lib/tool-summary.ts";
 import type { LiveSubagent } from "../lib/subagents.ts";
+import { parseToolArgs, summarizeToolCall } from "../lib/tool-summary.ts";
+import { formatTokens } from "../lib/usage.ts";
+import { formatElapsed } from "../lib/working.ts";
 import { Icon } from "./Icon.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { Sheet } from "./Sheet.tsx";
@@ -34,7 +34,12 @@ function useElapsed(subagent: LiveSubagent): number {
 }
 
 /** One line of the child's tool-call log — the transcript's tool grammar, header only. */
-function ToolLine({ name, args, cwd, working }: {
+function ToolLine({
+  name,
+  args,
+  cwd,
+  working,
+}: {
   name: string;
   args: string;
   cwd: string | null;
@@ -70,6 +75,7 @@ export function SubagentTranscriptSheet({ subagent, cwd, onClose, onStop }: Prop
   const endRef = useRef<HTMLDivElement | null>(null);
   const progress = subagent.progress ?? [];
   const stepCount = subagent.toolCalls.length + progress.length;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the dep says when new work arrived — what to scroll to is read from the DOM
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
   }, [stepCount]);
