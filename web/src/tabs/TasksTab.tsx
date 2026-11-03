@@ -2,17 +2,25 @@ import type {
   LaunchSubagentCommand,
   LaunchSubagentResponse,
 } from "@letta-ai/letta-code/app-server-protocol";
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { ClaudeRunSheet } from "../components/ClaudeRunSheet.tsx";
+import { CodexRunSheet } from "../components/CodexRunSheet.tsx";
 import { Icon } from "../components/Icon.tsx";
 import { ToggleRow } from "../components/MenuRow.tsx";
 import { Sheet } from "../components/Sheet.tsx";
+import { SubagentTranscriptSheet } from "../components/SubagentTranscriptSheet.tsx";
 import { toast } from "../components/Toast.tsx";
-import { CLAUDE_SUBAGENT_TYPE } from "../lib/claude.ts";
-import { CODEX_SUBAGENT_TYPE } from "../lib/codex.ts";
+import { CLAUDE_SUBAGENT_TYPE, fetchClaudeRuns, type ClaudeRunSummary } from "../lib/claude.ts";
+import {
+  CODEX_SUBAGENT_TYPE,
+  fetchCodexRuns,
+  type CodexRunSummary,
+} from "../lib/codex.ts";
 import { shortDate } from "../lib/conversation-groups.ts";
 import { describeCron } from "../lib/cron-describe.ts";
 import { errorMessage } from "../lib/errors.ts";
 import { findMonitorBackupWake } from "../lib/monitor-backup.ts";
+import { resolveLiveWorkerRun, workerKindOf } from "../lib/run-link.ts";
 import type { LiveSubagent } from "../lib/subagents.ts";
 import { subagentStatusLine, workflowPhasesLine, workflowStatusLine } from "../lib/subagents.ts";
 import {
@@ -132,6 +140,41 @@ export function TasksTab({
   const [launching, setLaunching] = useState(false);
   const [subagent, setSubagent] = useState({ ...BLANK_SUBAGENT });
   const [launchBusy, setLaunchBusy] = useState(false);
+
+  /** Which live child's event log is open, and through which viewer. */
+  type OpenTranscript =
+    | { kind: "subagent"; subagentId: string }
+    | { kind: "codex"; threadId: string }
+    | { kind: "claude"; sessionId: string }
+    | null;
+  const [openSheet, setOpenSheet] = useState<OpenTranscript>(null);
+  // The listings a worker row's Transcript link resolves against — only fetched
+  // while some live child is an external worker, since nothing else reads them.
+  const [codexRuns, setCodexRuns] = useState<CodexRunSummary[]>([]);
+  const [claudeRuns, setClaudeRuns] = useState<ClaudeRunSummary[]>([]);
+  const hasLiveWorker = Object.values(liveSubagents).some((s) => workerKindOf(s.subagentType));
+  const liveChildren = useMemo(() => Object.values(liveSubagents), [liveSubagents]);
+  useEffect(() => {
+    if (!hasLiveWorker) return;
+    let stop = false;
+    const load = () => {
+      // Scoped to this agent: a link must never resolve onto another agent's run.
+      void fetchCodexRuns(10, agentId).then(
+        (page) => !stop && setCodexRuns(page.runs),
+        () => {},
+      );
+      void fetchClaudeRuns(10, agentId).then(
+        (page) => !stop && setClaudeRuns(page.runs),
+        () => {},
+      );
+    };
+    load();
+    const timer = setInterval(load, 5000);
+    return () => {
+      stop = true;
+      clearInterval(timer);
+    };
+  }, [hasLiveWorker, agentId]);
 
   /**
    * Which stop a running row answers to, if any. A monitor stops by process id and a subagent by
@@ -376,6 +419,23 @@ export function TasksTab({
                   ? workflowStatusLine(process.status, process.workflow)
                   : process.status;
               const phasesLine = process.workflow ? workflowPhasesLine(process.workflow) : "";
+              // The event log a row can open: plain subagents always (the snapshot
+              // is their log); workers only when the live run resolves unambiguously
+              // — no link beats a link onto another child's run.
+              let transcript: (() => void) | null = null;
+              if (child && process.subagentId) {
+                const kind = workerKindOf(child.subagentType);
+                if (!kind) {
+                  const subagentId = process.subagentId;
+                  transcript = () => setOpenSheet({ kind: "subagent", subagentId });
+                } else if (kind === "codex") {
+                  const run = resolveLiveWorkerRun(child, liveChildren, codexRuns, Date.now(), "codex");
+                  if (run) transcript = () => setOpenSheet({ kind: "codex", threadId: run.threadId });
+                } else {
+                  const run = resolveLiveWorkerRun(child, liveChildren, claudeRuns, Date.now(), "claude");
+                  if (run) transcript = () => setOpenSheet({ kind: "claude", sessionId: run.sessionId });
+                }
+              }
               return (
                 <li key={process.processId} className="task">
                   <div className="task-head">
@@ -389,11 +449,22 @@ export function TasksTab({
                   ) : null}
                   <div className="muted small">{statusLine}</div>
                   {phasesLine ? <div className="muted small">{phasesLine}</div> : null}
-                  {stop ? (
+                  {transcript || stop ? (
                     <div className="task-actions">
-                      <button type="button" className="link danger" onClick={() => void stop()}>
-                        Stop
-                      </button>
+                      {transcript ? (
+                        <button type="button" className="link" onClick={transcript}>
+                          Transcript
+                        </button>
+                      ) : null}
+                      {stop ? (
+                        <button
+                          type="button"
+                          className="link danger"
+                          onClick={() => void stop()}
+                        >
+                          Stop
+                        </button>
+                      ) : null}
                     </div>
                   ) : null}
                 </li>
@@ -538,6 +609,30 @@ export function TasksTab({
         ) : null}
       </ul>
       {cronError ? <p className="warning small">{cronError}</p> : null}
+
+      {/* The live event logs. The plain sheet lives and dies with its snapshot:
+          when the child completes its snapshot leaves the live list, the sheet
+          closes, and the report lands in the conversation as it always has. */}
+      {openSheet?.kind === "subagent"
+        ? liveSubagents[openSheet.subagentId]
+          ? (
+            <SubagentTranscriptSheet
+              subagent={liveSubagents[openSheet.subagentId]!}
+              cwd={null}
+              onClose={() => setOpenSheet(null)}
+              onStop={() =>
+                void onStopSubagent(openSheet.subagentId).then((error) => {
+                  if (error) setStatus(error);
+                })
+              }
+            />
+          )
+          : null
+        : openSheet?.kind === "codex" ? (
+          <CodexRunSheet threadId={openSheet.threadId} onClose={() => setOpenSheet(null)} />
+        ) : openSheet?.kind === "claude" ? (
+          <ClaudeRunSheet sessionId={openSheet.sessionId} onClose={() => setOpenSheet(null)} />
+        ) : null}
 
       {launching ? (
         <Sheet
