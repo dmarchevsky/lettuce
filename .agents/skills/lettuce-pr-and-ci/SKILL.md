@@ -18,7 +18,7 @@ flow approve (plan) → the worktree and branch
 flow check green
 build + run locally
 user tests it in the browser  ←── the gate, and it happens here, before any push
-  │  pre-release: ponytail-review, then VERSION bump + changelog rename in one commit
+  │  pre-release: /flow-review, then VERSION bump + changelog rename in one commit
   └──push──▶  PR opens (template filled, test already recorded)
               ├─ CI Tier A (`.github/workflows/ci.yml`)
               ├─ ci green → the agent merges it (--merge) ──▶ main
@@ -133,6 +133,11 @@ the first real run passed 40-some layout assertions and then timed out waiting f
 has no create-agent route; creation is `create_agent` over the WebSocket CI does not speak) or a
 ui-check that asserts on the empty state. Until one exists, Tier B verifies **compose boot and the
 upstream connection**, nothing more, and says so in the run.
+
+Take the job name with that: **`compose up + ui-check` goes green having run no layout assertion at
+all** (the step hides behind `if: env.UI_CHECK == 'on'`). A green `live` check therefore never
+settles a `bun run ui-check` container-test item — the human pass is still owed, and a PR body that
+counts `live` as that tick is claiming a check that never ran.
 
 Three CI-env facts that cost a run each, learned the hard way: `SESSION_SECRET` must be ≥32
 characters or the BFF refuses to start; **there are two binds** — `BFF_BIND` is the host side of the

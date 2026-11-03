@@ -53,6 +53,22 @@ own test — and repeat on the merged artifact if the bundle changed:
 
 Fix what the pass finds before the PR; a visual-pass finding that changes scope goes back to gate 1.
 
+## Every operator round re-proves, and re-sweeps
+
+A redesign-style flow earns one of these per round the operator answers, not one per feature:
+
+- **Keep the proof-shim where the flow can see it.** The static layout replica and its probe scripts
+  live under `plan/` (e.g. `plan/proof/`), never `/tmp` — a replica that proved three real defects
+  was gone by the next day and cost a turn each time it had to be rebuilt. **Re-run it every round**:
+  geometry that passed at R7 is not proven at R11, and "nothing UI changed this round" is exactly
+  what the stale comment will contradict.
+- **Do a claim-level sweep of everything that describes the surface you just changed** — code
+  comments, the `description:` frontmatter, and the skill docs (`lettuce-ui-conventions` et al).
+  Grep the *claims* ("docked at the foot", "names-only", "five equal slots"), not the phrase: the
+  same-class cousin that rewords the same geometry is missed by a phrase grep and read as truth by
+  the next flow. In one redesign flow 6 of 8 verify passes failed on stale-geometry comments that
+  survived a phrase grep this way.
+
 ## Why this lives outside CI
 
 Tier A has no stack and no data; Tier B cannot yet seed an agent, so it proves boot, not screens.
