@@ -114,8 +114,10 @@ before exposing anything.
   me every morning at 7" — whether or not anything is open.
 - **Cron jobs, in view.** Plain commands an agent scheduled with cron show in Tasks
   under that agent, read-only; ask the agent in chat to change or remove one.
-- **Subagents.** Fan work out to a parallel agent, watch what it is doing live — in
-  the working line and in Tasks — and stop one from Tasks if it goes the wrong way.
+- **Subagents.** Fan work out to a parallel agent and open its live event log —
+  from the Tasks row or the **live transcript** link on the Task line in chat —
+  reading its tool calls as they happen, and stop one from there if it goes the
+  wrong way.
 - **Monitors.** A watch wakes the agent as events arrive; when it arms a backup wake,
   Tasks shows when a silent watch brings the agent back to check the real state.
 - **Codex workers.** Hand a coding job to a Codex CLI worker and follow its

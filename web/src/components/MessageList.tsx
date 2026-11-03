@@ -1,8 +1,8 @@
 import type { AskUserQuestionResponse } from "@letta-ai/letta-code/ask-user-question";
 import { memo, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { claudeSessionInTaskText } from "../lib/claude.ts";
+import { claudeSessionInTaskText, fetchClaudeRuns } from "../lib/claude.ts";
 import { copyText } from "../lib/clipboard.ts";
-import { codexThreadInTaskText } from "../lib/codex.ts";
+import { codexThreadInTaskText, fetchCodexRuns } from "../lib/codex.ts";
 import { collectFileTokens } from "../lib/file-links.ts";
 import {
   groupTranscript,
@@ -10,6 +10,8 @@ import {
   type TranscriptEntry,
   type TranscriptItem,
 } from "../lib/messages.ts";
+import { resolveLiveWorkerRun, workerKindOf } from "../lib/run-link.ts";
+import type { LiveSubagent } from "../lib/subagents.ts";
 import { formatEntryTime, formatEntryTimeFull } from "../lib/timestamps.ts";
 import { parseToolArgs, summarizeToolCall } from "../lib/tool-summary.ts";
 import { type FileLinks, useFileLinks } from "../state/use-file-links.ts";
@@ -21,6 +23,8 @@ import { ImageLightbox } from "./ImageLightbox.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { PiRunCard } from "./PiRunCard.tsx";
 import { QuestionCard } from "./QuestionCard.tsx";
+import { SubagentTranscriptSheet } from "./SubagentTranscriptSheet.tsx";
+import { toast } from "./Toast.tsx";
 
 interface Props {
   entries: TranscriptEntry[];
@@ -36,6 +40,12 @@ interface Props {
   onEditMessage: (text: string) => void;
   /** Send an AskUserQuestion answer (or dismissal) as an ordinary user message. */
   onAnswerQuestion: (response: AskUserQuestionResponse) => void;
+  /** This scope's live subagent snapshots; what makes a running Task row openable. */
+  liveSubagents?: Record<string, LiveSubagent>;
+  /** Scopes the runs listings that worker links resolve against. */
+  agentId?: string | null;
+  /** Stop a running child (`subagent_stop`); resolves to an error string or null. */
+  onStopSubagent?: (agentId: string) => Promise<string | null>;
 }
 
 const KIND_LABEL: Record<string, string> = {
@@ -98,6 +108,9 @@ export function MessageList({
   showTimestamps,
   onEditMessage,
   onAnswerQuestion,
+  liveSubagents,
+  agentId,
+  onStopSubagent,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const fileLinks = useFileLinks(session, cwd);
@@ -198,29 +211,54 @@ export function MessageList({
     return null;
   }, [entries]);
 
-  const renderEntry = (entry: TranscriptEntry, inRun = false) => (
-    <MessageItem
-      key={entry.id}
-      entry={entry}
-      narration={inRun && isNarration(entry)}
-      retn={
-        (entry.kind === "tool_call" || entry.kind === "approval_request") && entry.toolCallId
-          ? (returnByCall.get(entry.toolCallId) ?? null)
-          : null
-      }
-      answer={
-        entry.kind === "question" && entry.toolCallId
-          ? (answersByCall.answers.get(entry.toolCallId) ?? null)
-          : null
-      }
-      onAnswerQuestion={onAnswerQuestion}
-      cwd={cwd}
-      fileLinks={fileLinks}
-      onOpenFile={onOpenFile}
-      showTimestamps={showTimestamps}
-      onEdit={entry.id === lastUserId ? onEditMessage : undefined}
-    />
-  );
+  // The scope's live snapshots, and the running ones indexed by the call that
+  // spawned them — resolved per row in `renderEntry` so non-live rows stay memoised.
+  const liveWorkers = liveSubagents ? Object.values(liveSubagents) : [];
+  const liveByCall = new Map<string, { id: string; child: LiveSubagent }>();
+  for (const [id, s] of Object.entries(liveSubagents ?? {})) {
+    if (s.status === "running" && s.toolCallId) liveByCall.set(s.toolCallId, { id, child: s });
+  }
+
+  const renderEntry = (entry: TranscriptEntry, inRun = false) => {
+    // Resolve each row's own live child HERE, once per frame: a row without a
+    // live child must receive a stable null, or every snapshot frame would
+    // re-render — and re-parse the markdown of — the whole transcript.
+    const liveEntry =
+      entry.kind === "tool_call" &&
+      entry.toolCallId &&
+      (entry.toolName === "Task" || entry.toolName === "Agent")
+        ? liveByCall.get(entry.toolCallId)
+        : undefined;
+    const liveChild = liveEntry?.child ?? null;
+    return (
+      <MessageItem
+        key={entry.id}
+        entry={entry}
+        narration={inRun && isNarration(entry)}
+        retn={
+          (entry.kind === "tool_call" || entry.kind === "approval_request") && entry.toolCallId
+            ? (returnByCall.get(entry.toolCallId) ?? null)
+            : null
+        }
+        answer={
+          entry.kind === "question" && entry.toolCallId
+            ? (answersByCall.answers.get(entry.toolCallId) ?? null)
+            : null
+        }
+        onAnswerQuestion={onAnswerQuestion}
+        cwd={cwd}
+        fileLinks={fileLinks}
+        onOpenFile={onOpenFile}
+        showTimestamps={showTimestamps}
+        onEdit={entry.id === lastUserId ? onEditMessage : undefined}
+        liveChild={liveChild}
+        liveSubagentId={liveEntry?.id}
+        liveWorkers={liveChild ? liveWorkers : undefined}
+        agentId={agentId}
+        onStopSubagent={onStopSubagent}
+      />
+    );
+  };
 
   return (
     <div className="messages-wrap">
@@ -283,6 +321,11 @@ const MessageItem = memo(function MessageItem({
   showTimestamps,
   onEdit,
   narration = false,
+  liveChild: liveChildProp,
+  liveSubagentId,
+  liveWorkers,
+  agentId,
+  onStopSubagent,
 }: {
   entry: TranscriptEntry;
   /** For a tool call: its matching return, folded into the same block. */
@@ -298,10 +341,26 @@ const MessageItem = memo(function MessageItem({
   onEdit?: (text: string) => void;
   /** The agent's text between steps: a caption inside the run, not a bubble. */
   narration?: boolean;
+  /** The running child this very call delegated to, resolved by the parent — null for every
+   * row without one, so an unrelated row never re-renders on a snapshot frame. */
+  liveChild?: LiveSubagent | null;
+  /** The snapshot's own id in the scope's live list — what `subagent_stop` addresses. */
+  liveSubagentId?: string;
+  /** The scope's live snapshots — only passed alongside a live child, for the link rules. */
+  liveWorkers?: readonly LiveSubagent[];
+  agentId?: string | null;
+  onStopSubagent?: (agentId: string) => Promise<string | null>;
 }) {
   const [open, setOpen] = useState(false);
   const [codexOpen, setCodexOpen] = useState(false);
   const [claudeOpen, setClaudeOpen] = useState(false);
+  // Which viewer this row's `live transcript` opened, if any.
+  const [liveSheet, setLiveSheet] = useState<
+    | { kind: "subagent" }
+    | { kind: "codex"; threadId: string }
+    | { kind: "claude"; sessionId: string }
+    | null
+  >(null);
   // Index into `entry.images` of the image shown full-size, if any.
   const [zoom, setZoom] = useState<number | null>(null);
   const label = KIND_LABEL[entry.kind] ?? entry.kind;
@@ -377,6 +436,61 @@ const MessageItem = memo(function MessageItem({
       ? ""
       : firstLine(outText) || (showStderr ? firstLine(stderr) : "");
     const hasBody = Boolean(args) || Boolean(outText) || showStderr;
+    // The running child this very call delegated to — exact `tool_call_id` match
+    // only, so a row never borrows another child's log. While it runs, the row
+    // gains the same event log the Tasks row opens.
+    const liveChild = liveChildProp;
+    const openLiveChild = async () => {
+      if (!liveChild) return;
+      const kind = workerKindOf(liveChild.subagentType);
+      if (!kind) {
+        setLiveSheet({ kind: "subagent" });
+        return;
+      }
+      // Workers link to their run file, which carries no id until completion —
+      // resolve it now, and honestly: ambiguous or missing means say so, never guess.
+      if (!agentId) {
+        toast("Open a conversation first — runs are listed per agent.", "warn");
+        return;
+      }
+      // The fetch is click-time, so the listing cannot predate this worker.
+      try {
+        if (kind === "codex") {
+          const page = await fetchCodexRuns(10, agentId);
+          const run = resolveLiveWorkerRun(
+            liveChild,
+            liveWorkers ?? [liveChild],
+            page.runs,
+            Date.now(),
+            "codex",
+          );
+          if (!run) {
+            toast("No running Codex run matches this worker — the Runs tab has them all.", "warn");
+            return;
+          }
+          setLiveSheet({ kind: "codex", threadId: run.threadId });
+        } else {
+          const page = await fetchClaudeRuns(10, agentId);
+          const run = resolveLiveWorkerRun(
+            liveChild,
+            liveWorkers ?? [liveChild],
+            page.runs,
+            Date.now(),
+            "claude",
+          );
+          if (!run) {
+            toast(
+              "No running Claude session matches this worker — the Runs tab has them all.",
+              "warn",
+            );
+            return;
+          }
+          setLiveSheet({ kind: "claude", sessionId: run.sessionId });
+        }
+      } catch {
+        toast("Could not look up the running run.", "bad");
+      }
+    };
     return (
       <div className={`entry tool${status === "error" ? " error" : ""}`}>
         <button
@@ -415,6 +529,32 @@ const MessageItem = memo(function MessageItem({
           <div className="rail peek">
             <span className="tool-peek">Running…</span>
           </div>
+        ) : null}
+        {liveChild ? (
+          <button type="button" className="link small pad-x" onClick={() => void openLiveChild()}>
+            live transcript
+          </button>
+        ) : null}
+        {liveSheet?.kind === "subagent" && liveChild ? (
+          <SubagentTranscriptSheet
+            subagent={liveChild}
+            cwd={cwd}
+            onClose={() => setLiveSheet(null)}
+            // Same rule as the Tasks sheet: no stamped agent id, nothing to stop.
+            onStop={
+              liveChild.agentId && onStopSubagent && liveSubagentId
+                ? () => {
+                    void onStopSubagent(liveSubagentId).then(
+                      (error) => error && toast(error, "warn"),
+                    );
+                  }
+                : undefined
+            }
+          />
+        ) : liveSheet?.kind === "codex" ? (
+          <CodexRunSheet threadId={liveSheet.threadId} onClose={() => setLiveSheet(null)} />
+        ) : liveSheet?.kind === "claude" ? (
+          <ClaudeRunSheet sessionId={liveSheet.sessionId} onClose={() => setLiveSheet(null)} />
         ) : null}
       </div>
     );

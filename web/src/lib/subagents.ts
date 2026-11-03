@@ -20,6 +20,14 @@ export interface LiveSubagentToolCall {
   args: string;
 }
 
+/** One `progress_texts` line: the child's own narration, newest last. */
+export interface LiveSubagentProgress {
+  id: string;
+  /** ISO timestamp as the wire sent it. */
+  at: string;
+  text: string;
+}
+
 /** One live (`pending`/`running`) subagent snapshot, parsed off `update_subagent_state`. */
 export interface LiveSubagent {
   status: string;
@@ -29,8 +37,18 @@ export interface LiveSubagent {
   toolCallId?: string;
   /** The child's own agent id — what `subagent_stop` takes; absent = no Stop. */
   agentId?: string;
+  /** The child's own model id, when the wire carries one. */
+  model?: string;
+  /** The launch prompt, when the wire carries one. */
+  prompt?: string;
   /** In order; the last one is what the child is doing right now. */
   toolCalls: LiveSubagentToolCall[];
+  /** In order; absent on the wire until the child narrates. The parser always
+   * fills it (`[]` when the frame carried none); hand-built snapshots may omit. */
+  /** The child's own narration lines, newest last. */
+  progress: LiveSubagentProgress[];
+  /** The child's launch instant (epoch ms), when the wire carries it. */
+  startTime?: number;
   totalTokens: number;
   durationMs: number;
 }
@@ -47,8 +65,12 @@ export function readLiveSubagents(raw: unknown): Record<string, LiveSubagent> {
       status?: unknown;
       subagent_type?: unknown;
       description?: unknown;
+      prompt?: unknown;
+      model?: unknown;
       tool_call_id?: unknown;
       tool_calls?: unknown;
+      progress_texts?: unknown;
+      start_time?: unknown;
       total_tokens?: unknown;
       duration_ms?: unknown;
     };
@@ -63,13 +85,26 @@ export function readLiveSubagents(raw: unknown): Record<string, LiveSubagent> {
             : [];
         })
       : [];
+    const progress = Array.isArray(s.progress_texts)
+      ? s.progress_texts.flatMap((pt) => {
+          if (!pt || typeof pt !== "object") return [];
+          const p = pt as { id?: unknown; at?: unknown; text?: unknown };
+          return typeof p.text === "string" && typeof p.id === "string"
+            ? [{ id: p.id, at: typeof p.at === "string" ? p.at : "", text: p.text }]
+            : [];
+        })
+      : [];
     live[s.subagent_id] = {
       status: String(s.status),
       subagentType: typeof s.subagent_type === "string" ? s.subagent_type : "",
       description: typeof s.description === "string" ? s.description : "",
       ...(typeof s.tool_call_id === "string" ? { toolCallId: s.tool_call_id } : {}),
       ...(typeof s.agent_id === "string" ? { agentId: s.agent_id } : {}),
+      ...(typeof s.model === "string" && s.model ? { model: s.model } : {}),
+      ...(typeof s.prompt === "string" && s.prompt ? { prompt: s.prompt } : {}),
       toolCalls,
+      progress,
+      ...(typeof s.start_time === "number" ? { startTime: s.start_time } : {}),
       totalTokens: typeof s.total_tokens === "number" ? s.total_tokens : 0,
       durationMs: typeof s.duration_ms === "number" ? s.duration_ms : 0,
     };

@@ -768,6 +768,9 @@ function Workspace({ status }: { status: Status }) {
               showTimestamps={showTimestamps}
               onEditMessage={setPrefill}
               onAnswerQuestion={conversation.answerQuestions}
+              liveSubagents={conversation.liveSubagents}
+              agentId={agents.agentId}
+              onStopSubagent={conversation.stopSubagent}
             />
 
             {conversation.queue.length > 0 ? (

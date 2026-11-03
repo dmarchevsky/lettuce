@@ -9,6 +9,7 @@ function live(over: Partial<LiveSubagent> = {}): LiveSubagent {
     subagentType: "general-purpose",
     description: "summarise the repo",
     toolCalls: [],
+    progress: [],
     totalTokens: 0,
     durationMs: 0,
     ...over,
@@ -168,6 +169,7 @@ describe("background process parsing", () => {
         { name: "Bash", args: '{"command":"bun test"}' },
         { name: "Edit", args: '{"file_path":"web/src/app.tsx"}' },
       ],
+      progress: [],
       totalTokens: 4800,
       durationMs: 60_400,
     });

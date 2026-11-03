@@ -3,6 +3,7 @@ import type { LiveSubagent, WorkflowCounts } from "./subagents.ts";
 import {
   childActivityLabel,
   pickRunningChild,
+  readLiveSubagents,
   subagentStatusLine,
   workflowPhasesLine,
   workflowStatusLine,
@@ -14,6 +15,7 @@ function sub(over: Partial<LiveSubagent> = {}): LiveSubagent {
     subagentType: "general-purpose",
     description: "research flights",
     toolCalls: [],
+    progress: [],
     totalTokens: 0,
     durationMs: 0,
     ...over,
@@ -94,5 +96,45 @@ describe("row lines", () => {
     );
     expect(workflowPhasesLine(workflow)).toBe("plan 4/4 · build 1/4");
     expect(workflowPhasesLine({ ...workflow, phases: [] })).toBe("");
+  });
+});
+
+describe("readLiveSubagents", () => {
+  test("parses the fields the live transcript sheet renders", () => {
+    const live = readLiveSubagents([
+      {
+        subagent_id: "s1",
+        subagent_type: "general-purpose",
+        description: "triage the inbox",
+        prompt: "Read every message since Monday.",
+        model: "llama-3.1",
+        status: "running",
+        start_time: 1_730_000_000_000,
+        tool_calls: [{ id: "t1", name: "read", args: '{"path":"/work/inbox/tue.md"}' }],
+        progress_texts: [
+          { id: "p1", at: "2026-11-03T10:00:00Z", text: "two senders have deadlines" },
+          { id: "p2", at: "2026-11-03T10:00:05Z", text: 42 },
+        ],
+        total_tokens: 12_000,
+        duration_ms: 82_000,
+      },
+    ]);
+    expect(live.s1).toBeDefined();
+    expect(live.s1?.prompt).toBe("Read every message since Monday.");
+    expect(live.s1?.model).toBe("llama-3.1");
+    expect(live.s1?.startTime).toBe(1_730_000_000_000);
+    // The non-string progress line is dropped; the string one keeps its shape.
+    expect(live.s1?.progress).toEqual([
+      { id: "p1", at: "2026-11-03T10:00:00Z", text: "two senders have deadlines" },
+    ]);
+  });
+
+  test("a frame without progress_texts or prompt parses to empty/absent, never missing", () => {
+    const live = readLiveSubagents([
+      { subagent_id: "s1", subagent_type: "codex", status: "running", start_time: 5 },
+    ]);
+    expect(live.s1?.progress).toEqual([]);
+    expect(live.s1?.prompt).toBeUndefined();
+    expect(live.s1?.startTime).toBe(5);
   });
 });

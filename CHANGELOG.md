@@ -5,6 +5,14 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.29.0-letta_0.34.38] - 2026-11-03
+
+### Added
+- **Open a running subagent's event log.** A Running now row in Tasks, and the **live transcript** link on a Task line in chat, open live: a plain subagent shows its task, its own tool calls and outputs, and its narration with clocks; a Codex or Claude worker opens its run page, which follows along while it runs. The link only appears when the worker's run is unambiguous — when several workers of a kind run at once the row shows no link rather than a guessed one, and the Runs tab lists them all.
+
+### Fixed
+- **Expanded tool output is full width again.** Since the navigation-rail restyle every expanded tool call in a transcript rendered as a 74-pixel column — one word per line.
+
 ## [v0.28.0-letta_0.34.38] - 2026-11-03
 
 ### Added

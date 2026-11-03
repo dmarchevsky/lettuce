@@ -1268,10 +1268,19 @@ pre {
    agent rows and shifting the whole column under the band. */
 .entry .rail {
   align-self: stretch;
+  /* ...but the reverse leak runs the other way: bare `.rail` is the nav, and
+     its `width: 74px`, centered column, surface background and compact padding
+     applied here too — every expanded tool-output rail rendered as a 74px
+     one-character-per-line strip. Reset each leaked property; `overflow:
+     hidden` is the one worth keeping (long output wraps inside the real width
+     instead of escaping the entry). */
+  width: auto;
+  align-items: flex-start;
+  background: none;
+  padding: 0 0 0 10px;
   min-width: 0;
   margin-top: 4px;
   margin-left: 1px;
-  padding-left: 10px;
   border-left: 2px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -2936,7 +2945,8 @@ p.warning code,
 .sheet-panel.fill .file-editor,
 .sheet-panel.fill .tool-args,
 .sheet-panel.fill .md-document,
-.sheet-panel.fill .codex-run {
+.sheet-panel.fill .codex-run,
+.sheet-panel.fill .subagent-run {
   flex: 1;
   min-height: 0;
   max-height: none;
@@ -2945,7 +2955,8 @@ p.warning code,
 }
 /* A run transcript is read, not edited: give it a visible thin bar so the
    clipping that replaced scrolling reads as scrollable on desktop. */
-.sheet-panel.fill .codex-run {
+.sheet-panel.fill .codex-run,
+.sheet-panel.fill .subagent-run {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--text) 30%, transparent) transparent;
 }
