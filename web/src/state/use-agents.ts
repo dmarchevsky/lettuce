@@ -2,7 +2,7 @@ import {
   DEFAULT_CREATE_AGENT_PERSONALITIES,
   PERSONALITY_OPTIONS,
 } from "@letta-ai/letta-code/agent-presets";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchAgentFlags,
   orderByPins,
@@ -11,7 +11,9 @@ import {
   savePinnedAgent,
 } from "../lib/agent-flags.ts";
 import type { AvatarPref } from "../lib/agent-tint.ts";
-import { errorMessage } from "../lib/errors.ts";
+import { errorMessage, friendlyServerError } from "../lib/errors.ts";
+import { markFreshConversation } from "../lib/fresh-conversations.ts";
+import { upstreamReturned } from "../lib/link-status.ts";
 import { readDeepLinkSelection, writeSelection } from "../lib/selection.ts";
 import { conversationTitle } from "../lib/title.ts";
 import { readAgentModelHandle } from "./use-models.ts";
@@ -199,7 +201,7 @@ export function useAgents(session: SessionApi): AgentsApi {
         return list[0]?.id ?? null;
       });
     } catch (cause) {
-      setError(errorMessage(cause));
+      setError(friendlyServerError(errorMessage(cause)));
     } finally {
       setLoading(false);
     }
@@ -207,6 +209,7 @@ export function useAgents(session: SessionApi): AgentsApi {
 
   const refreshConversations = useCallback(
     async (targetAgentId: string) => {
+      setLoading(true);
       setError(null);
       try {
         const response = await request("conversation_list", {
@@ -220,7 +223,9 @@ export function useAgents(session: SessionApi): AgentsApi {
           return active?.id ?? list[0]?.id ?? null;
         });
       } catch (cause) {
-        setError(errorMessage(cause));
+        setError(friendlyServerError(errorMessage(cause)));
+      } finally {
+        setLoading(false);
       }
     },
     [request],
@@ -320,6 +325,24 @@ export function useAgents(session: SessionApi): AgentsApi {
     if (ready && agentId) void refreshConversations(agentId);
   }, [ready, agentId, refreshConversations]);
 
+  // A returning app-server must be as loud a signal as a browser reconnect.
+  // While it was gone every list fetch failed with "App-server is not
+  // connected", and the only retry was `ready` toggling — which never happens
+  // when the BFF socket stays up through an outage, so the error row sat there
+  // until a manual reload. The rising edge of the BFF's own upstream state
+  // refetches both lists; success clears the error string by itself.
+  //
+  // `ready` gates it: at boot the hello upstream flip arrives before the link
+  // is live, and the two `ready` effects above already own that first fetch.
+  const upstreamRef = useRef(session.upstream);
+  useEffect(() => {
+    const previous = upstreamRef.current;
+    upstreamRef.current = session.upstream;
+    if (!upstreamReturned(previous, session.upstream) || !ready) return;
+    void refreshAgents();
+    if (agentId) void refreshConversations(agentId);
+  }, [ready, session.upstream, agentId, refreshAgents, refreshConversations]);
+
   // Remember the pair for the next visit. Writing the transient states too —
   // `selectAgent` blanks the conversation until its list arrives — is fine: the
   // very next resolution overwrites it, and a half-written pair still restores
@@ -397,6 +420,7 @@ export function useAgents(session: SessionApi): AgentsApi {
         assertOk(opened, "Agent created, but its first conversation could not be");
         firstConversation =
           typeof opened?.conversation?.id === "string" ? opened.conversation.id : null;
+        if (firstConversation) markFreshConversation(firstConversation);
       } catch (cause) {
         setError(errorMessage(cause));
       }
@@ -448,8 +472,12 @@ export function useAgents(session: SessionApi): AgentsApi {
     const response = await request<{ conversation?: { id?: string } }>("conversation_create", {
       body: { agent_id: agentId },
     });
-    await refreshConversations(agentId);
     const id = response?.conversation?.id;
+    // Mark before the refresh: `refreshConversations` selects the newest
+    // conversation itself, and that selection must already see this id as
+    // the fresh one it is.
+    if (typeof id === "string") markFreshConversation(id);
+    await refreshConversations(agentId);
     if (typeof id === "string") setConversationId(id);
   }, [agentId, request, refreshConversations]);
 

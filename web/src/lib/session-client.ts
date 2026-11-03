@@ -387,11 +387,23 @@ export class SessionClient {
           return;
         }
 
-        case "__bff_upstream_state":
+        case "__bff_upstream_state": {
+          const upstreamChanged = this.upstreamState !== raw.state;
           this.upstreamState = raw.state;
-          this.setLinkState(raw.state === "connected" ? "live" : "offline");
+          const link = raw.state === "connected" ? "live" : "offline";
+          if (this.linkState === link) {
+            // The server moved but the link did not — the middle of the
+            // offline → connecting → connected recovery path when the BFF
+            // socket itself never dropped. `setLinkState` would swallow this,
+            // and the derived status (lib/link-status.ts) would hold the
+            // previous server label through the reconnect.
+            if (upstreamChanged) this.events.onStateChange(this.linkState, this.upstreamState);
+          } else {
+            this.setLinkState(link);
+          }
           this.events.onAppServerInfo(readAppServerInfo(raw.app_server_info));
           return;
+        }
 
         case "__bff_error": {
           const error = raw;

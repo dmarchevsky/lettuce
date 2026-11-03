@@ -115,3 +115,49 @@ describe("SessionClient sign-in expiry", () => {
     client.stop();
   });
 });
+
+describe("SessionClient upstream-state frames", () => {
+  test("an upstream-only transition reaches onStateChange even when the link does not move", async () => {
+    // The recovery path of an outage where the BFF socket never dropped:
+    // offline -> connecting -> connected. The middle frame moves only the
+    // server state; swallowing it left the derived status stuck on the
+    // previous server label through the reconnect.
+    const seen: [LinkState, string][] = [];
+    const events = {
+      onFrame: noop,
+      onStateChange: (link: LinkState, upstream: string) => seen.push([link, upstream]),
+      onResyncRequired: noop,
+      onHello: noop,
+      onAppServerInfo: noop,
+      onError: noop,
+      onActivity: noop,
+      onPiProgress: noop,
+      onAuthExpired: noop,
+    } satisfies SessionClientEvents;
+    const client = new SessionClient("ws://test/ws", events, async () => "ok" as AuthProbe);
+    client.start();
+    const socket = FakeSocket.instances.at(-1)!;
+    socket.onopen?.();
+    socket.onmessage?.({
+      data: JSON.stringify({
+        type: "__bff_resume_result",
+        from_seq: null,
+        latest_seq: 0,
+        replayed: 0,
+        resync_required: false,
+      }),
+    });
+    for (const state of ["disconnected", "connecting", "connected"]) {
+      socket.onmessage?.({ data: JSON.stringify({ type: "__bff_upstream_state", state }) });
+    }
+    expect(seen).toEqual([
+      ["live", "connecting"],
+      ["offline", "disconnected"],
+      // link stays "offline" while the server reconnects — but the server
+      // state moved, and the caller must see it.
+      ["offline", "connecting"],
+      ["live", "connected"],
+    ]);
+    client.stop();
+  });
+});
