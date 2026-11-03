@@ -87,7 +87,13 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   glyph beside the ⋯ on desktop and the ⋯ alone on a phone (there is no hover on a touch device),
   and archived conversations come back through the centred `.sidebar-archived` link. Counts for
   agents other than the open one come from `useAgentStats`, fetched when the switcher opens.
-  ui-check reads the open agent from `.rail-agent.active[data-agent-id]`.
+  ui-check reads the open agent from `.rail-agent.active[data-agent-id]`. **`.rail` is two
+  components wearing one class name:** the nav column is `nav.rail`, while the transcript's
+  tool-rail (`MessageList`, `PiRunSheet`) is a different component that shares the bare `.rail` —
+  a CSS edit naming `.rail` unscoped leaks across, in both directions (a tool-rail rule gave the
+  nav a 2px border-left once; a nav rule reaches the entries the other way). So the entry rail is
+  scoped `.entry .rail` and the nav's responsive rules are tagged `nav.rail`; `styles.css`
+  comments both leaks at their rules.
 - **Settings are split by scope, and the split is the UI's only statement of it.** The **Agent** tab
   (`web/src/tabs/AgentTab.tsx`) holds what belongs to the selected agent: General (name, model, base
   system prompt, delete), Secrets, Reflection, and the Skills it sees. The **Tools** tab

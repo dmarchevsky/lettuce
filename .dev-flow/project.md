@@ -94,7 +94,13 @@ and runs again on the next one; a `--docs` flow skips it.
 
 `flow verify` runs `dev` itself — `build:bff`, then `up -d` — and its `dev ran (…)` line is the record of
 that deploy; do not run the step by hand first, and do not write "no container was rebuilt" into a PR
-whose verify printed it. The local stack is one per machine and shared, so that `up -d` replaced
+whose verify printed it. **That deploy is the one the operator clicks.** The gate deploys before it
+reports, so "keep the app running when you ask Verified?" means leave *this* deploy up while the
+operator reviews — it is not an instruction to hand-run `build:bff` + `up -d` earlier in implement. The
+`flow verify --confirmed` that records the answer runs `dev` again: that re-run is a **re-check** of the
+same stack (the image build is cached and compose converges where nothing changed; `health` proves it
+still serves this build), not a
+second deploy to narrate. The local stack is one per machine and shared, so that `up -d` replaced
 whatever another session was testing — say so out loud. `health` is a single `/readyz` probe; dev-flow
 retries it within `healthWait`.
 
@@ -113,8 +119,9 @@ counts as one. When the branch edits `scripts/ui-check.ts` itself, the owed item
 operator runs `bun run ui-check` once** during the container test — a click-through does not execute
 the suite and CI's `live.yml` runs with `UI_CHECK=off`, so a new assertion would otherwise ship never-run.
 
-- [ ] built and running in the local container stack (unscoped `up -d`, `build:bff` first for any web/
-      change) and the operator clicked through the change and said it works
+- [ ] built and running in the local container stack by `flow verify`'s own `dev` run (`build:bff`
+      first for any web/ change, then unscoped `up -d`), left up while Verified? is asked, and the
+      operator clicked through the change and said it works
 - [ ] (ui) `bun run ui-check` screenshots plus a live look at 390 and 1280, reviewed as a whole screen
       — or `LETTUCE_TEST_PASSWORD` is not held: record the container probes and the owed human pass above
 
@@ -151,7 +158,9 @@ say plainly to expect the full build.
 release-literal site too and moves in the same commit — it is the tag a host without `LETTA_IMAGE_NS`
 builds, and what CI compares against `VERSION` after the merge. `sync-upstream` leaves it alone on purpose.
 
-- [ ] `ponytail-review` run on the change and every must-have and should-have finding fixed — on a
+- [ ] `/flow-review` run on the change (a fresh-session read-only review of the branch diff — the
+      `flow-review` skill, or `flow_stage` op `review`) and every must-have and should-have finding
+      fixed — on a
       code-free release branch, `check-release-hygiene --pr` over the branch stands in, named as such
 - [ ] the CHANGELOG entry, the VERSION bump and any README / docs/CONFIGURATION.md sync in that one
       release-prep commit, and the `bump:minor` / `bump:patch` / `bump:none` label agrees with it

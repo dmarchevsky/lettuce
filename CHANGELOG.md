@@ -5,6 +5,11 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Changed
+- Sharpened the flow rules an agent follows: a green live-CI run no longer counts as a `ui-check`
+  pass, redesign rounds re-prove layout and re-sweep stale claims about what they changed, and the
+  pre-release review step names the verb that exists.
+
 ## [v0.30.0-letta_0.34.38] - 2026-11-03
 
 ### Changed
