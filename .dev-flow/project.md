@@ -98,7 +98,8 @@ whose verify printed it. **That deploy is the one the operator clicks.** The gat
 reports, so "keep the app running when you ask Verified?" means leave *this* deploy up while the
 operator reviews — it is not an instruction to hand-run `build:bff` + `up -d` earlier in implement. The
 `flow verify --confirmed` that records the answer runs `dev` again: that re-run is a **re-check** of the
-same stack (compose converges where nothing changed; `health` proves it still serves this build), not a
+same stack (the image build is cached and compose converges where nothing changed; `health` proves it
+still serves this build), not a
 second deploy to narrate. The local stack is one per machine and shared, so that `up -d` replaced
 whatever another session was testing — say so out loud. `health` is a single `/readyz` probe; dev-flow
 retries it within `healthWait`.

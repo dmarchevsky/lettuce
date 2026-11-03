@@ -81,7 +81,7 @@ console.log(`
 
     implement     build, deploy and run it locally from the worktree (setup copies docker/.env in),
                   then STOP: the operator tests it in the container and says it works
-    pre-release   ponytail-review, the CHANGELOG entry + VERSION bump in one commit, then Release?
+    pre-release   /flow-review, the CHANGELOG entry + VERSION bump in one commit, then Release?
     release       push the branch, open the PR, merge it (--merge) on the operator's Release?, tag
                   main's tip and only then bun run deploy-check, ui-check / smoke where they apply
 
