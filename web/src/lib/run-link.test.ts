@@ -14,6 +14,7 @@ function worker(over: Partial<LiveSubagent> = {}): LiveSubagent {
     subagentType: "codex",
     description: "refactor the parser",
     toolCalls: [],
+    progress: [],
     startTime: NOW - 60_000,
     durationMs: 60_000,
     totalTokens: 0,
@@ -101,5 +102,15 @@ describe("resolveLiveWorkerRun", () => {
     const r = run();
     expect(resolveLiveWorkerRun(w, [w], [r], NOW, "claude")).toBe(r);
     expect(resolveLiveWorkerRun(w, [w], [r], NOW, "codex")).toBeNull();
+  });
+
+  test("a listing fetched before the worker started cannot name its run", () => {
+    const w = worker();
+    const r = run();
+    // The listing is from before this worker launched — the matching run in it
+    // belongs to the PREVIOUS worker, which is exactly the mislink forbidden.
+    expect(resolveLiveWorkerRun(w, [w], [r], NOW, "codex", NOW - 90_000)).toBeNull();
+    // Fetched after the launch, the same listing resolves.
+    expect(resolveLiveWorkerRun(w, [w], [r], NOW, "codex", NOW)).toBe(r);
   });
 });

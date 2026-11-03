@@ -71,7 +71,10 @@ function lastBeat(run: LinkableRun): number | null {
  *
  * `worker.startTime` is the snapshot's epoch-ms start; a snapshot predating the
  * field falls back to `now - durationMs`, which is the same clock minus one
- * rounding.
+ * rounding. `fetchedAt` is when `runs` was listed: a listing older than the
+ * worker's own start cannot contain the run it launched, so resolving against
+ * one could only ever name the PREVIOUS worker's run — the one outcome a link
+ * must never produce.
  */
 export function resolveLiveWorkerRun<T extends LinkableRun>(
   worker: LiveSubagent,
@@ -79,12 +82,14 @@ export function resolveLiveWorkerRun<T extends LinkableRun>(
   runs: readonly T[],
   now: number,
   kind: WorkerKind,
+  fetchedAt?: number,
 ): T | null {
   if (workerKindOf(worker.subagentType) !== kind) return null;
   const sameKind = workers.filter((w) => workerKindOf(w.subagentType) === kind);
   if (sameKind.length !== 1 || sameKind[0] !== worker) return null;
 
   const workerStart = worker.startTime ?? now - worker.durationMs;
+  if (fetchedAt !== undefined && fetchedAt < workerStart) return null;
   const candidates = runs.filter((run) => {
     if (run.status !== "running") return false;
     const beat = lastBeat(run);

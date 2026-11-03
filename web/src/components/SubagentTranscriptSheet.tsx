@@ -49,13 +49,13 @@ function ToolLine({
   const headline = (summary?.headline ?? name).replace(/^\$ /, "");
   return (
     <div className="entry tool">
-      <button type="button" className="tool-head" disabled>
+      <div className="tool-head">
         <code>{name}</code>
         <span className={`grow-text summary${(summary?.mono ?? true) ? " mono" : ""}`}>
           {headline}
         </span>
         {working ? <span className="tool-peek">Working…</span> : null}
-      </button>
+      </div>
       {summary?.subtitle ? <p className="tool-subtitle">{summary.subtitle}</p> : null}
     </div>
   );
@@ -73,7 +73,7 @@ export function SubagentTranscriptSheet({ subagent, cwd, onClose, onStop }: Prop
   const elapsed = useElapsed(subagent);
   const [promptOpen, setPromptOpen] = useState(true);
   const endRef = useRef<HTMLDivElement | null>(null);
-  const progress = subagent.progress ?? [];
+  const progress = subagent.progress;
   const stepCount = subagent.toolCalls.length + progress.length;
   // biome-ignore lint/correctness/useExhaustiveDependencies: the dep says when new work arrived — what to scroll to is read from the DOM
   useEffect(() => {
@@ -101,38 +101,46 @@ export function SubagentTranscriptSheet({ subagent, cwd, onClose, onStop }: Prop
     >
       <p className="muted small">{facts.join(" · ")}</p>
 
-      {subagent.prompt ? (
-        <div className="entry">
-          <button type="button" className="tool-head" onClick={() => setPromptOpen((v) => !v)}>
-            <span className="step-name">Task</span>
-            <Icon name={promptOpen ? "chevron-down" : "chevron-right"} className="chevron" />
-          </button>
-          {promptOpen ? (
-            <div className="bubble thinking">
-              <Markdown text={subagent.prompt} cwd={cwd} />
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      {subagent.toolCalls.map((call, i) => (
-        <ToolLine
-          key={`${call.name}:${i}`}
-          name={call.name}
-          args={call.args}
-          cwd={cwd}
-          working={subagent.status === "running" && i === subagent.toolCalls.length - 1}
-        />
-      ))}
-
-      {progress.map((line) => (
-        <div className="entry narration" key={line.id}>
-          <div className="bubble narration">
-            <Markdown text={line.text} cwd={cwd} />
+      {/* The fill sheet hands its height to exactly one scroll child — without
+          this wrapper the body clips and the log cannot be scrolled back. */}
+      <div className="subagent-run">
+        {subagent.prompt ? (
+          <div className="entry">
+            <button type="button" className="tool-head" onClick={() => setPromptOpen((v) => !v)}>
+              <span className="step-name">Task</span>
+              <Icon name={promptOpen ? "chevron-down" : "chevron-right"} className="chevron" />
+            </button>
+            {promptOpen ? (
+              <div className="bubble thinking">
+                <Markdown text={subagent.prompt} cwd={cwd} />
+              </div>
+            ) : null}
           </div>
-        </div>
-      ))}
-      <div ref={endRef} />
+        ) : null}
+
+        {subagent.toolCalls.map((call, i) => (
+          // The child's log carries no ids; name + position is stable within a
+          // frame. (No `biome-ignore`: the formatter keeps `key` off the
+          // element's own line, and a suppression comment has to sit directly
+          // above what it excuses.)
+          <ToolLine
+            key={`${call.name}:${i}`}
+            name={call.name}
+            args={call.args}
+            cwd={cwd}
+            working={subagent.status === "running" && i === subagent.toolCalls.length - 1}
+          />
+        ))}
+
+        {progress.map((line) => (
+          <div className="entry narration" key={line.id}>
+            <div className="bubble narration">
+              <Markdown text={line.text} cwd={cwd} />
+            </div>
+          </div>
+        ))}
+        <div ref={endRef} />
+      </div>
     </Sheet>
   );
 }

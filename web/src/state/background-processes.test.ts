@@ -9,6 +9,7 @@ function live(over: Partial<LiveSubagent> = {}): LiveSubagent {
     subagentType: "general-purpose",
     description: "summarise the repo",
     toolCalls: [],
+    progress: [],
     totalTokens: 0,
     durationMs: 0,
     ...over,

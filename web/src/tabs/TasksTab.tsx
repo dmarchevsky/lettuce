@@ -2,7 +2,7 @@ import type {
   LaunchSubagentCommand,
   LaunchSubagentResponse,
 } from "@letta-ai/letta-code/app-server-protocol";
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ClaudeRunSheet } from "../components/ClaudeRunSheet.tsx";
 import { CodexRunSheet } from "../components/CodexRunSheet.tsx";
 import { Icon } from "../components/Icon.tsx";
@@ -148,22 +148,41 @@ export function TasksTab({
   // while some live child is an external worker, since nothing else reads them.
   const [codexRuns, setCodexRuns] = useState<CodexRunSummary[]>([]);
   const [claudeRuns, setClaudeRuns] = useState<ClaudeRunSummary[]>([]);
+  // When each listing was fetched, so a link can refuse one that predates the
+  // worker — a dead listing could otherwise name the PREVIOUS worker's run.
+  const runsFetchedAt = useRef<{ codex: number; claude: number }>({ codex: 0, claude: 0 });
   const hasLiveWorker = Object.values(liveSubagents).some((s) => workerKindOf(s.subagentType));
   const liveChildren = useMemo(() => Object.values(liveSubagents), [liveSubagents]);
   /** The plain sheet's snapshot while it is still live; its absence auto-closes the sheet. */
   const openSheetChild =
     openSheet?.kind === "subagent" ? (liveSubagents[openSheet.subagentId] ?? null) : null;
   useEffect(() => {
-    if (!hasLiveWorker) return;
+    if (!hasLiveWorker) {
+      // A finished worker must not leave a stale listing behind for the next
+      // one: its `running` entry can stay fresh-looking long enough to match.
+      setCodexRuns([]);
+      setClaudeRuns([]);
+      return;
+    }
     let stop = false;
     const load = () => {
       // Scoped to this agent: a link must never resolve onto another agent's run.
       void fetchCodexRuns(10, agentId).then(
-        (page) => !stop && setCodexRuns(page.runs),
+        (page) => {
+          if (!stop) {
+            runsFetchedAt.current.codex = Date.now();
+            setCodexRuns(page.runs);
+          }
+        },
         () => {},
       );
       void fetchClaudeRuns(10, agentId).then(
-        (page) => !stop && setClaudeRuns(page.runs),
+        (page) => {
+          if (!stop) {
+            runsFetchedAt.current.claude = Date.now();
+            setClaudeRuns(page.runs);
+          }
+        },
         () => {},
       );
     };
@@ -434,6 +453,7 @@ export function TasksTab({
                     codexRuns,
                     Date.now(),
                     "codex",
+                    runsFetchedAt.current.codex,
                   );
                   if (run)
                     transcript = () => setOpenSheet({ kind: "codex", threadId: run.threadId });
@@ -444,6 +464,7 @@ export function TasksTab({
                     claudeRuns,
                     Date.now(),
                     "claude",
+                    runsFetchedAt.current.claude,
                   );
                   if (run)
                     transcript = () => setOpenSheet({ kind: "claude", sessionId: run.sessionId });
@@ -627,10 +648,15 @@ export function TasksTab({
           subagent={openSheetChild}
           cwd={null}
           onClose={() => setOpenSheet(null)}
-          onStop={() =>
-            void onStopSubagent(openSheet.subagentId).then((error) => {
-              if (error) setStatus(error);
-            })
+          // The snapshot carries no agent id until the app-server stamps one;
+          // without it there is nothing for subagent_stop to address.
+          onStop={
+            openSheetChild.agentId
+              ? () =>
+                  void onStopSubagent(openSheet.subagentId).then((error) => {
+                    if (error) setStatus(error);
+                  })
+              : undefined
           }
         />
       ) : openSheet?.kind === "codex" ? (

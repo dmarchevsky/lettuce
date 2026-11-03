@@ -81,6 +81,7 @@ describe("deriveWorking", () => {
       subagentType: "general-purpose",
       description: "research flights",
       toolCalls: [{ name: "Bash", args: '{"command":"bun test bff"}' }],
+      progress: [],
       totalTokens: 12_000,
       durationMs: 192_000,
       ...over,

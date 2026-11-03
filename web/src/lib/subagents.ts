@@ -45,7 +45,8 @@ export interface LiveSubagent {
   toolCalls: LiveSubagentToolCall[];
   /** In order; absent on the wire until the child narrates. The parser always
    * fills it (`[]` when the frame carried none); hand-built snapshots may omit. */
-  progress?: LiveSubagentProgress[];
+  /** The child's own narration lines, newest last. */
+  progress: LiveSubagentProgress[];
   /** The child's launch instant (epoch ms), when the wire carries it. */
   startTime?: number;
   totalTokens: number;

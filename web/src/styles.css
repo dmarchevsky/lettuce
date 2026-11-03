@@ -2945,7 +2945,8 @@ p.warning code,
 .sheet-panel.fill .file-editor,
 .sheet-panel.fill .tool-args,
 .sheet-panel.fill .md-document,
-.sheet-panel.fill .codex-run {
+.sheet-panel.fill .codex-run,
+.sheet-panel.fill .subagent-run {
   flex: 1;
   min-height: 0;
   max-height: none;
@@ -2954,7 +2955,8 @@ p.warning code,
 }
 /* A run transcript is read, not edited: give it a visible thin bar so the
    clipping that replaced scrolling reads as scrollable on desktop. */
-.sheet-panel.fill .codex-run {
+.sheet-panel.fill .codex-run,
+.sheet-panel.fill .subagent-run {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--text) 30%, transparent) transparent;
 }

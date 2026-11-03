@@ -770,6 +770,7 @@ function Workspace({ status }: { status: Status }) {
               onAnswerQuestion={conversation.answerQuestions}
               liveSubagents={conversation.liveSubagents}
               agentId={agents.agentId}
+              onStopSubagent={conversation.stopSubagent}
             />
 
             {conversation.queue.length > 0 ? (

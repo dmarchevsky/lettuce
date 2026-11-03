@@ -15,6 +15,7 @@ function sub(over: Partial<LiveSubagent> = {}): LiveSubagent {
     subagentType: "general-purpose",
     description: "research flights",
     toolCalls: [],
+    progress: [],
     totalTokens: 0,
     durationMs: 0,
     ...over,
