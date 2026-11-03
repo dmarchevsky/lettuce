@@ -140,7 +140,25 @@ describe("runs", () => {
       [`${CLAUDE_PROJECTS_DIR}/-work/notes.txt`]: "ignored",
     });
     const now = Date.parse("2026-09-30T13:00:00Z");
-    expect((await listClaudeRuns(io, 10, now)).map((r) => r.prompt)).toEqual(["newer", "older"]);
-    expect(await listClaudeRuns(io, 1, now)).toHaveLength(1);
+    expect((await listClaudeRuns(io, 10, now)).runs.map((r) => r.prompt)).toEqual([
+      "newer",
+      "older",
+    ]);
+    expect((await listClaudeRuns(io, 1, now)).runs).toHaveLength(1);
+  });
+
+  test("a run is placed by its cwd, or by the project dir when the transcript never said", async () => {
+    // The fixture's own cwd is /tmp/work (no agent); the directory it sits in is
+    // the slug of one, and that is what places it.
+    const { io } = memoryIo({
+      [`${CLAUDE_PROJECTS_DIR}/-work-agent-7/${S1}.jsonl`]: transcript("mine", "2026-09-30T12:00:0"),
+      [`${CLAUDE_PROJECTS_DIR}/-work/${S2}.jsonl`]: transcript("nightly", "2026-09-30T11:00:0"),
+    });
+    const now = Date.parse("2026-09-30T13:00:00Z");
+    const scoped = await listClaudeRuns(io, 10, now, "agent-7");
+    expect(scoped.runs.map((r) => r.prompt)).toEqual(["mine"]);
+    expect(scoped.runs[0]?.agentId).toBe("agent-7");
+    // The run under `/work` itself names no agent, so it is the one counted away.
+    expect(scoped.other).toBe(1);
   });
 });

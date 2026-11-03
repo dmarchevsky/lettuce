@@ -8,6 +8,8 @@
  * appending as it goes — so the file is both the history and the live view.
  */
 
+import { agentIdFromCwd } from "../runs/attribution.ts";
+
 /** Codex thread ids are UUIDv7: the first 48 bits are the creation time in ms. */
 const THREAD_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -74,13 +76,21 @@ export type CodexRunStatus = "running" | "completed" | "aborted" | "unknown";
 export interface CodexRunSummary {
   threadId: string;
   cwd: string | null;
+  /**
+   * The agent whose workspace the run happened in (`bff/src/runs/attribution.ts`),
+   * or null for a run with no workspace owner — cron- and channel-fired workers
+   * run in `/work` itself. This is what the Runs pane filters on.
+   */
+  agentId: string | null;
   status: CodexRunStatus;
   startedAt: string | null;
   lastActivityAt: string | null;
   prompt: string | null;
 }
 
-export interface CodexRun extends CodexRunSummary {
+/** A parsed rollout: everything a summary has, less the owner, which
+ * `summarizeRun` derives from the cwd the file recorded. */
+export interface CodexRun extends Omit<CodexRunSummary, "agentId"> {
   durationMs: number | null;
   steps: CodexRunStep[];
   usage: { inputTokens: number; cachedInputTokens: number; outputTokens: number } | null;
@@ -266,5 +276,5 @@ export function parseRollout(threadId: string, text: string): CodexRun {
 
 export function summarizeRun(run: CodexRun): CodexRunSummary {
   const { threadId, cwd, status, startedAt, lastActivityAt, prompt } = run;
-  return { threadId, cwd, status, startedAt, lastActivityAt, prompt };
+  return { threadId, cwd, agentId: agentIdFromCwd(cwd), status, startedAt, lastActivityAt, prompt };
 }

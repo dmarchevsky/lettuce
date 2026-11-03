@@ -13,6 +13,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { ToolAnswer, ToolHandler, ToolSpec } from "../internal-tools/types.ts";
 import { capText } from "../internal-tools/types.ts";
+import { scanBudget } from "../runs/attribution.ts";
 import { effectivePiSettings, PiAgentSettingsStore } from "./agent-settings.ts";
 import {
   ago,
@@ -525,8 +526,20 @@ export class PiService {
     return orphaned;
   }
 
-  async listRuns(limit: number): Promise<PiRunMeta[]> {
-    return this.store.list(limit);
+  /**
+   * Recent runs, newest first — and when `agentId` is set, only that agent's.
+   * The store already keeps the owning agent on every record (a pi run is the
+   * BFF's own, so it was never a question of guessing), which is why this list
+   * filters exactly and the Codex one can only filter what it scanned.
+   */
+  async listRuns(
+    limit: number,
+    agentId: string | null = null,
+  ): Promise<{ runs: PiRunMeta[]; other: number }> {
+    const metas = await this.store.list(agentId ? scanBudget(limit) : limit);
+    if (!agentId) return { runs: metas, other: 0 };
+    const mine = metas.filter((meta) => (meta.agentId ?? null) === agentId);
+    return { runs: mine.slice(0, limit), other: metas.length - mine.length };
   }
   async getRun(runId: string): Promise<PiRunMeta | null> {
     return this.store.read(runId);

@@ -6,6 +6,7 @@
  */
 
 import { readRenamed, writeRenamed } from "../internal-tools/legacy.ts";
+import { scanBudget, splitRunsByAgent } from "../runs/attribution.ts";
 import {
   type CodexRun,
   type CodexRunSummary,
@@ -119,22 +120,32 @@ export async function getCodexRun(io: CodexFileIo, threadId: string): Promise<Co
   return text === null ? null : parseRollout(threadId, text);
 }
 
-/** The most recent runs, newest first. */
+/**
+ * The most recent runs, newest first.
+ *
+ * With `agentId` set, only that agent's runs come back, and `other` says how
+ * many of what was scanned belonged to someone else — which is what lets the
+ * Runs pane say "3 other runs" instead of looking quietly empty. A filtered
+ * scan runs past the page it shows (up to `scanBudget`) because it has to read
+ * a run to learn whose it is; an unfiltered one stops at `limit` as before.
+ */
 export async function listCodexRuns(
   io: CodexFileIo,
   limit: number,
   nowMs = Date.now(),
-): Promise<CodexRunSummary[]> {
+  agentId: string | null = null,
+): Promise<{ runs: CodexRunSummary[]; other: number }> {
+  const scanned = agentId ? scanBudget(limit) : limit;
   const paths: { path: string; threadId: string }[] = [];
   for (const day of recentDayDirs(nowMs, RECENT_DAYS)) {
-    if (paths.length >= limit) break;
+    if (paths.length >= scanned) break;
     const dir = `${SESSIONS_DIR}/${day}`;
     // Names start with the local start time, so reverse order is newest first.
     const names = ((await io.listFiles(dir)) ?? []).sort().reverse();
     for (const name of names) {
       const threadId = threadIdOfRollout(name);
       if (threadId) paths.push({ path: `${dir}/${name}`, threadId });
-      if (paths.length >= limit) break;
+      if (paths.length >= scanned) break;
     }
   }
   const runs: CodexRunSummary[] = [];
@@ -142,5 +153,5 @@ export async function listCodexRuns(
     const text = await io.read(path);
     if (text !== null) runs.push(summarizeRun(parseRollout(threadId, text)));
   }
-  return runs;
+  return agentId ? splitRunsByAgent(runs, agentId, limit) : { runs: runs.slice(0, limit), other: 0 };
 }

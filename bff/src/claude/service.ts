@@ -6,6 +6,7 @@
  * in-memory filesystem.
  */
 
+import { agentIdFromWorkspaceSlug, splitRunsByAgent } from "../runs/attribution.ts";
 import type { CodexFileIo } from "../codex/service.ts";
 import { readRenamed, writeRenamed } from "../internal-tools/legacy.ts";
 import {
@@ -106,12 +107,21 @@ export async function getClaudeRun(io: ClaudeFileIo, sessionId: string): Promise
   return text === null ? null : parseTranscript(sessionId, text);
 }
 
-/** The most recent runs, newest first. */
+/**
+ * The most recent runs, newest first.
+ *
+ * With `agentId` set, only that agent's runs come back and `other` counts what
+ * the filter dropped. Unlike Codex, every candidate is read here whatever the
+ * caller asked for (recency comes from inside the file), so filtering costs
+ * nothing extra. A transcript that never recorded its cwd is still placed by the
+ * project directory it was found in, which is the cwd slug.
+ */
 export async function listClaudeRuns(
   io: ClaudeFileIo,
   limit: number,
   nowMs = Date.now(),
-): Promise<ClaudeRunSummary[]> {
+  agentId: string | null = null,
+): Promise<{ runs: ClaudeRunSummary[]; other: number }> {
   // The protocol's listings carry no mtimes, so recency comes from the newest
   // entry inside each file: every candidate must be read before they can sort.
   const paths: string[] = [];
@@ -126,12 +136,25 @@ export async function listClaudeRuns(
     }
   }
   const runs: ClaudeRun[] = [];
+  const slugs = new Map<string, string>();
   for (const path of paths) {
     const text = await io.read(path);
     if (text === null) continue;
     const sessionId = path.slice(path.lastIndexOf("/") + 1, -".jsonl".length);
     runs.push(parseTranscript(sessionId, text, nowMs));
+    slugs.set(sessionId, path.slice(0, -`/${sessionId}.jsonl`.length).split("/").pop() ?? "");
   }
   runs.sort((a, b) => (b.lastActivityAt ?? "").localeCompare(a.lastActivityAt ?? ""));
-  return runs.slice(0, limit).map(summarizeRun);
+  const summaries = runs.map((run) => {
+    const summary = summarizeRun(run);
+    return {
+      ...summary,
+      // The transcript's own cwd wins; the directory it lives in is the same fact
+      // from the filesystem, for the runs whose first entry never carried it.
+      agentId: summary.agentId ?? agentIdFromWorkspaceSlug(slugs.get(run.sessionId) ?? null),
+    };
+  });
+  return agentId
+    ? splitRunsByAgent(summaries, agentId, limit)
+    : { runs: summaries.slice(0, limit), other: 0 };
 }
