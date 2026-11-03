@@ -27,6 +27,7 @@ import { applyDocumentTitle } from "./lib/document-title.ts";
 import { appendToDraft, draftKey, readDraft } from "./lib/draft.ts";
 import { applyFavicon } from "./lib/favicon.ts";
 import { type FeatureFlags, featureEnabled } from "./lib/features.ts";
+import { markFreshConversation } from "./lib/fresh-conversations.ts";
 import { userHistory } from "./lib/input-history.ts";
 import { deriveLinkStatus } from "./lib/link-status.ts";
 import { type FilterGroup, filterEntries, toggleShown } from "./lib/messages.ts";
@@ -475,7 +476,10 @@ function Workspace({ status }: { status: Status }) {
       );
       await agents.refreshConversations(agentId);
       const id = response?.conversation?.id;
-      if (typeof id === "string") agents.selectConversation(id);
+      if (typeof id === "string") {
+        markFreshConversation(id);
+        agents.selectConversation(id);
+      }
     },
     [agents, session],
   );

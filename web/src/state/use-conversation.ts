@@ -5,6 +5,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildMessageContent, type PreparedImage } from "../lib/attachments.ts";
 import { errorMessage } from "../lib/errors.ts";
+import { consumeFreshConversation } from "../lib/fresh-conversations.ts";
 import { indicatorStaysOn, seamAllowsFlip, stallProbeDue } from "../lib/live-state.ts";
 import {
   addLocalUserMessage,
@@ -605,8 +606,11 @@ export function useConversation(
     if (startedRef.current === key) return;
     startedRef.current = key;
     // From here to `loadHistory` settling the transcript on screen is
-    // in-flight: an empty transcript during it must read as loading, not empty.
-    setHistoryLoading(true);
+    // in-flight: an empty transcript during it must read as loading, not
+    // empty — unless this conversation was just created here, in which case
+    // empty is exactly what it is (and `runtime_start` below outlasts the
+    // load, so the loading row would only be a blink over the truth).
+    setHistoryLoading(!consumeFreshConversation(scope.conversation_id));
 
     transcriptRef.current = new Map();
     streamIndexRef.current = createStreamIndex();

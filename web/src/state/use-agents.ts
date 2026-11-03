@@ -12,6 +12,7 @@ import {
 } from "../lib/agent-flags.ts";
 import type { AvatarPref } from "../lib/agent-tint.ts";
 import { errorMessage } from "../lib/errors.ts";
+import { markFreshConversation } from "../lib/fresh-conversations.ts";
 import { readDeepLinkSelection, writeSelection } from "../lib/selection.ts";
 import { conversationTitle } from "../lib/title.ts";
 import { readAgentModelHandle } from "./use-models.ts";
@@ -418,6 +419,7 @@ export function useAgents(session: SessionApi): AgentsApi {
         assertOk(opened, "Agent created, but its first conversation could not be");
         firstConversation =
           typeof opened?.conversation?.id === "string" ? opened.conversation.id : null;
+        if (firstConversation) markFreshConversation(firstConversation);
       } catch (cause) {
         setError(errorMessage(cause));
       }
@@ -471,7 +473,10 @@ export function useAgents(session: SessionApi): AgentsApi {
     });
     await refreshConversations(agentId);
     const id = response?.conversation?.id;
-    if (typeof id === "string") setConversationId(id);
+    if (typeof id === "string") {
+      markFreshConversation(id);
+      setConversationId(id);
+    }
   }, [agentId, request, refreshConversations]);
 
   const renameConversation = useCallback(
