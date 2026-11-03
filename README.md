@@ -126,6 +126,9 @@ before exposing anything.
   agent on another host over SSH, iterate on the same session, read the full
   transcript under Tasks — and give each agent its own working folder or host for it
   under Tools.
+- **Worker runs, per agent.** The Runs tab lists the Codex, Claude and remote-pi runs
+  that ran in the open agent's workspace; **show all** widens it to every agent on the
+  machine.
 - **Skills.** Reusable instructions at global, agent and project scope, with
   the ones the stack needs shipped in the image.
 

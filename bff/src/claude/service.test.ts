@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { WORKSPACE_ROOT } from "../runs/attribution.ts";
 import {
   type ClaudeFileIo,
   getClaudeRun,
@@ -140,7 +141,47 @@ describe("runs", () => {
       [`${CLAUDE_PROJECTS_DIR}/-work/notes.txt`]: "ignored",
     });
     const now = Date.parse("2026-09-30T13:00:00Z");
-    expect((await listClaudeRuns(io, 10, now)).map((r) => r.prompt)).toEqual(["newer", "older"]);
-    expect(await listClaudeRuns(io, 1, now)).toHaveLength(1);
+    expect((await listClaudeRuns(io, 10, now)).runs.map((r) => r.prompt)).toEqual([
+      "newer",
+      "older",
+    ]);
+    expect((await listClaudeRuns(io, 1, now)).runs).toHaveLength(1);
+  });
+
+  test("a run is placed by its cwd, or by the project dir when the transcript never said", async () => {
+    // The fixture's own cwd is /tmp/work (no agent); the directory it sits in is
+    // the slug of one, and that is what places it — because that workspace exists.
+    const { io } = memoryIo({
+      [`${WORKSPACE_ROOT}/agent-7/notes.txt`]: "exists",
+      [`${CLAUDE_PROJECTS_DIR}/-work-agent-7/${S1}.jsonl`]: transcript(
+        "mine",
+        "2026-09-30T12:00:0",
+      ),
+      [`${CLAUDE_PROJECTS_DIR}/-work/${S2}.jsonl`]: transcript("nightly", "2026-09-30T11:00:0"),
+    });
+    const now = Date.parse("2026-09-30T13:00:00Z");
+    const scoped = await listClaudeRuns(io, 10, now, "agent-7");
+    expect(scoped.runs.map((r) => r.prompt)).toEqual(["mine"]);
+    expect(scoped.runs[0]?.agentId).toBe("agent-7");
+    // The run under `/work` itself names no agent, so it is the one counted away.
+    expect(scoped.other).toBe(1);
+  });
+
+  test("a project dir that is a deeper workspace claims no agent", async () => {
+    // A slug keeps no separators, so `-work-agent-7-apps-api` reads as an id.
+    // It is a workspace 3 levels down and no agent of that name exists, so
+    // nothing may be attributed to `agent-7-apps-api` — and a run nobody owns
+    // must stay visible under the unfiltered view rather than vanish.
+    const { io } = memoryIo({
+      [`${WORKSPACE_ROOT}/agent-7/notes.txt`]: "exists",
+      [`${CLAUDE_PROJECTS_DIR}/-work-agent-7-apps-api/${S1}.jsonl`]: transcript(
+        "nested",
+        "2026-09-30T12:00:0",
+      ),
+    });
+    const now = Date.parse("2026-09-30T13:00:00Z");
+    expect((await listClaudeRuns(io, 10, now)).runs[0]?.agentId).toBeNull();
+    expect((await listClaudeRuns(io, 10, now, "agent-7")).runs).toHaveLength(0);
+    expect((await listClaudeRuns(io, 10, now, "agent-7-apps-api")).runs).toHaveLength(0);
   });
 });

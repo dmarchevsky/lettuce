@@ -5,6 +5,11 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.28.0-letta_0.34.38] - 2026-11-03
+
+### Added
+- **Runs per agent.** The Runs tab shows the open agent's Codex, Claude and remote-pi runs — a run belongs to whoever's workspace it ran in — and **show all** at its top right widens it to every agent on the machine, counting what it hides.
+
 ## [v0.27.1-letta_0.34.38] - 2026-11-02
 
 ### Fixed

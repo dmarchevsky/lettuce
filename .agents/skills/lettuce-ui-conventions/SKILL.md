@@ -40,8 +40,14 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   hidden there), and Files' own reset (`agentId` changes → the root and its tree clear **to the
   agent's workspace, not to null**: a child's effects run before its parent's, so clearing let
   the init effect recapture the previous agent's `cwd`). `use-conversation` clears `cwd` with
-  no scope for the same reason. **Runs is not per-agent** — its lists are the BFF's Codex,
-  Claude and remote-pi runs across every agent. One `--rail-cell` (44px) is the shared row
+  no scope for the same reason. **Runs is per-agent too**: a run's owner is derived from the
+  workspace it ran in (`bff/src/runs/attribution.ts` — a coding worker inherits its launching
+  runtime's cwd, and a UI runtime's cwd is `/work/<agent-id>`), so the pane shows the open agent's
+  Codex, Claude and remote-pi runs and nothing else. Its **one** control is a small link at the
+  pane's top right — `show all`, which reads `<agent> only` while everything is showing; the scope is
+  a look, never stored, and it resets when you switch agents. A run with no workspace owner (cron- and
+  channel-fired workers run in `/work` itself) surfaces only under `show all`, reading `no agent`.
+  One `--rail-cell` (44px) is the shared row
   height of a rail cell and the panel's name row, and the two agent blocks are congruent boxes —
   the seam is each block's own `border-top`, and `App` mirrors the rail block's measured height
   onto the panel — so a face's and a name's centers land on one line, and one hover lights both

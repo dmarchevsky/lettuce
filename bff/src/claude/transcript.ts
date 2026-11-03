@@ -12,6 +12,8 @@
  * skipped, never fatal. Verified against 2.1.285 and 2.1.289.
  */
 
+import { agentIdFromCwd } from "../runs/attribution.ts";
+
 /** Claude session ids are plain UUIDv4 — unlike Codex's UUIDv7, no time bits. */
 const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -45,6 +47,11 @@ export type ClaudeRunStatus = "running" | "completed" | "unknown";
 export interface ClaudeRunSummary {
   sessionId: string;
   cwd: string | null;
+  /**
+   * The agent whose workspace the run happened in (`bff/src/runs/attribution.ts`);
+   * null when the transcript recorded no cwd or it sits outside `/work`.
+   */
+  agentId: string | null;
   model: string | null;
   status: ClaudeRunStatus;
   startedAt: string | null;
@@ -52,7 +59,9 @@ export interface ClaudeRunSummary {
   prompt: string | null;
 }
 
-export interface ClaudeRun extends ClaudeRunSummary {
+/** A parsed transcript: everything a summary has, less the owner — that is what
+ * `summarizeRun` derives, and the file itself never records it until it is read. */
+export interface ClaudeRun extends Omit<ClaudeRunSummary, "agentId"> {
   durationMs: number | null;
   steps: ClaudeRunStep[];
   usage: { inputTokens: number; cachedInputTokens: number; outputTokens: number } | null;
@@ -206,5 +215,14 @@ export function parseTranscript(sessionId: string, text: string, nowMs = Date.no
 
 export function summarizeRun(run: ClaudeRun): ClaudeRunSummary {
   const { sessionId, cwd, model, status, startedAt, lastActivityAt, prompt } = run;
-  return { sessionId, cwd, model, status, startedAt, lastActivityAt, prompt };
+  return {
+    sessionId,
+    cwd,
+    agentId: agentIdFromCwd(cwd),
+    model,
+    status,
+    startedAt,
+    lastActivityAt,
+    prompt,
+  };
 }

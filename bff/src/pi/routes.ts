@@ -13,6 +13,7 @@ import type { Hono } from "hono";
 import { isAgentId } from "../agents/id-list.ts";
 import { errorMessage } from "../errors.ts";
 import type { RouteEnv } from "../route-env.ts";
+import { parseAgentScope } from "../runs/attribution.ts";
 import { hardenedResponse } from "../security-headers.ts";
 import {
   assertEffectiveUsable,
@@ -223,8 +224,10 @@ export function registerPiRoutes<Env extends RouteEnv>(app: Hono<Env>, deps: PiR
 
   app.get("/api/pi/runs", async (c) => {
     const limit = Math.min(Math.max(Number(c.req.query("limit")) || 10, 1), 30);
-    const runs = (await piService.listRuns(limit)).map(summarizePiRun);
-    return c.json({ runs });
+    const agent = parseAgentScope(c.req.query("agent"));
+    if (agent === null) return c.text("Not an agent id", 400);
+    const { runs, other } = await piService.listRuns(limit, agent.agentId);
+    return c.json({ runs: runs.map(summarizePiRun), other });
   });
 
   app.get("/api/pi/runs/:runId", async (c) => {

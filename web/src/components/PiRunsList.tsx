@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listDate } from "../lib/conversation-groups.ts";
 import { ago, fetchPiRuns, type PiRunSummary, STATUS_LABELS } from "../lib/pi.ts";
 import { msSinceLastPiFrame, stalenessWatchdogMs, usePiLiveRuns } from "../lib/pi-live.ts";
+import { type AgentNames, type RunsListProps, scopedEmptyLabel } from "../lib/runs-scope.ts";
 import { formatEntryTimeFull } from "../lib/timestamps.ts";
 import { PiRunSheet } from "./PiRunSheet.tsx";
 
@@ -24,27 +25,39 @@ const STATUS_TONES: Record<PiRunSummary["status"], string> = {
 export function PiRunsList({
   refreshKey,
   initialRunId,
-}: {
-  refreshKey: string;
+  agentId,
+  agentName,
+  agentNames,
+  onOther,
+}: RunsListProps & {
   /** Open this run's viewer on mount (the `?run=` deep link). */
   initialRunId?: string | null;
+  /** Names for the owner line a run shows only when every agent is listed. */
+  agentNames: AgentNames;
 }) {
   const [runs, setRuns] = useState<PiRunSummary[]>([]);
+  const [other, setOther] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [openRun, setOpenRun] = useState<string | null>(initialRunId ?? null);
   const liveFrames = usePiLiveRuns();
 
   const load = useCallback(async () => {
     try {
-      setRuns(await fetchPiRuns(8));
+      const page = await fetchPiRuns(8, agentId);
+      for (const run of page.runs) seenRuns.current.add(run.runId);
+      setRuns(page.runs);
+      setOther(page.other);
+      onOther(page.other);
       setError(null);
     } catch (cause) {
       // The section 404s when the `pi` token is off — render nothing then.
       setRuns([]);
+      setOther(0);
+      onOther(0);
       setError(null);
       void cause;
     }
-  }, []);
+  }, [agentId, onOther]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: refreshKey is the trigger itself.
   useEffect(() => {
@@ -70,13 +83,22 @@ export function PiRunsList({
     [runs, liveFrames],
   );
 
-  // A frame naming a run this list never fetched started after the mount, so
-  // that one reloads the list. `fetchedIds` keeps the dep a primitive.
-  const fetchedIds = runs.map((run) => run.runId).join(",");
+  // A frame naming a run this list has never seen is a run that started after the
+  // mount, so it reloads the list — **once per run id**. The frame stream is
+  // machine-wide and a frame carries no owner, so under a scope a run belonging to
+  // another agent can never become known to this list: reloading on every frame
+  // about it (the BFF flushes about one per 2 s per running run) would poll the
+  // BFF for as long as that run streams.
+  const seenRuns = useRef(new Set<string>());
   useEffect(() => {
-    const frames = Object.values(liveFrames);
-    if (frames.length > 0 && frames.some((f) => !fetchedIds.includes(f.runId))) void load();
-  }, [liveFrames, fetchedIds, load]);
+    let fresh = false;
+    for (const runId of Object.keys(liveFrames)) {
+      if (seenRuns.current.has(runId)) continue;
+      seenRuns.current.add(runId);
+      fresh = true;
+    }
+    if (fresh) void load();
+  }, [liveFrames, load]);
 
   // Watchdog: frames stalled (reconnect gap, BFF restart mid-run) while a row
   // still reads running — re-read the truth once per window.
@@ -89,7 +111,8 @@ export function PiRunsList({
     return () => clearInterval(timer);
   }, [anyRunning, load]);
 
-  if (runs.length === 0 && !error) return null;
+  // See CodexRunsList: silence means nothing-to-show, never hidden-by-the-scope.
+  if (!error && runs.length === 0 && other === 0) return null;
 
   return (
     <>
@@ -102,37 +125,46 @@ export function PiRunsList({
           </button>
         </p>
       ) : null}
-      <ul className="list">
-        {rows.map((run) => (
-          <li key={run.runId} className="task">
-            <button
-              type="button"
-              className="row"
-              onClick={() => setOpenRun(run.runId)}
-              title={run.prompt}
-            >
-              <span className="grow-text">
-                <span className="task-head stacked">
-                  <span className={`tag${STATUS_TONES[run.status]}`}>
-                    {STATUS_LABELS[run.status]}
+      {runs.length === 0 && !error ? (
+        <p className="muted small">{scopedEmptyLabel("Remote Pi runs", agentName, other)}</p>
+      ) : (
+        <ul className="list">
+          {rows.map((run) => (
+            <li key={run.runId} className="task">
+              <button
+                type="button"
+                className="row"
+                onClick={() => setOpenRun(run.runId)}
+                title={run.prompt}
+              >
+                <span className="grow-text">
+                  <span className="task-head stacked">
+                    <span className={`tag${STATUS_TONES[run.status]}`}>
+                      {STATUS_LABELS[run.status]}
+                    </span>
+                    <span className="small one-line">{run.prompt || "(no prompt recorded)"}</span>
                   </span>
-                  <span className="small one-line">{run.prompt || "(no prompt recorded)"}</span>
+                  <span
+                    className="muted small one-line"
+                    title={run.startedAt ? formatEntryTimeFull(run.startedAt) : undefined}
+                  >
+                    {run.startedAt ? listDate(run.startedAt) : ""}
+                    {` · ${run.target}`}
+                    {/* A pi run carries no cwd, so when every agent is listed it is
+                      the only kind whose owner would otherwise go unsaid. */}
+                    {agentId === null
+                      ? ` · ${run.agentId ? (agentNames[run.agentId] ?? "no agent") : "no agent"}`
+                      : ""}
+                    {run.status === "running" && run.eventCount > 0
+                      ? ` · ${run.eventCount.toLocaleString()} events${run.lastEventAt ? ` · ${ago(run.lastEventAt)}` : ""}`
+                      : ""}
+                  </span>
                 </span>
-                <span
-                  className="muted small one-line"
-                  title={run.startedAt ? formatEntryTimeFull(run.startedAt) : undefined}
-                >
-                  {run.startedAt ? listDate(run.startedAt) : ""}
-                  {` · ${run.target}`}
-                  {run.status === "running" && run.eventCount > 0
-                    ? ` · ${run.eventCount.toLocaleString()} events${run.lastEventAt ? ` · ${ago(run.lastEventAt)}` : ""}`
-                    : ""}
-                </span>
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       {openRun ? <PiRunSheet runId={openRun} onClose={() => setOpenRun(null)} /> : null}
     </>
   );

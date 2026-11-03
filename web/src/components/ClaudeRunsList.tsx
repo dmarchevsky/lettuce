@@ -6,6 +6,7 @@ import {
   STATUS_LABELS,
 } from "../lib/claude.ts";
 import { listDate } from "../lib/conversation-groups.ts";
+import { type RunsListProps, scopedEmptyLabel } from "../lib/runs-scope.ts";
 import { formatEntryTimeFull } from "../lib/timestamps.ts";
 import { ClaudeRunSheet } from "./ClaudeRunSheet.tsx";
 
@@ -26,20 +27,28 @@ const STATUS_TONES: Record<ClaudeRunSummary["status"], string> = {
  *
  * `refreshKey` changes when the set of running background tasks does, so a
  * worker that just started or finished shows up without waiting for a poll.
+ *
+ * `agentId` is the Runs pane's scope, and `onOther` reports what filtering to it
+ * dropped — see `lib/runs-scope.ts`.
  */
-export function ClaudeRunsList({ refreshKey }: { refreshKey: string }) {
+export function ClaudeRunsList({ refreshKey, agentId, agentName, onOther }: RunsListProps) {
   const [runs, setRuns] = useState<ClaudeRunSummary[]>([]);
+  const [other, setOther] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [openSession, setOpenSession] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      setRuns(await fetchClaudeRuns(8));
+      const page = await fetchClaudeRuns(8, agentId);
+      setRuns(page.runs);
+      setOther(page.other);
+      onOther(page.other);
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+      onOther(0);
     }
-  }, []);
+  }, [agentId, onOther]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: refreshKey is the trigger itself.
   useEffect(() => {
@@ -53,7 +62,9 @@ export function ClaudeRunsList({ refreshKey }: { refreshKey: string }) {
     return () => clearInterval(timer);
   }, [anyRunning, load]);
 
-  if (runs.length === 0 && !error) return null;
+  // See CodexRunsList: a section is only silent when there is nothing to show
+  // whatever the scope — not when a scope is hiding it.
+  if (!error && runs.length === 0 && other === 0) return null;
 
   return (
     <>
@@ -66,29 +77,34 @@ export function ClaudeRunsList({ refreshKey }: { refreshKey: string }) {
           </button>
         </p>
       ) : null}
-      <ul className="list">
-        {runs.map((run) => (
-          <li key={run.sessionId} className="task">
-            <button type="button" className="row" onClick={() => setOpenSession(run.sessionId)}>
-              <span className="grow-text">
-                <span className="task-head stacked">
-                  <span className={`tag${STATUS_TONES[run.status]}`}>
-                    {STATUS_LABELS[run.status]}
+      {runs.length === 0 && !error ? (
+        <p className="muted small">{scopedEmptyLabel("Claude runs", agentName, other)}</p>
+      ) : (
+        <ul className="list">
+          {runs.map((run) => (
+            <li key={run.sessionId} className="task">
+              <button type="button" className="row" onClick={() => setOpenSession(run.sessionId)}>
+                <span className="grow-text">
+                  <span className="task-head stacked">
+                    <span className={`tag${STATUS_TONES[run.status]}`}>
+                      {STATUS_LABELS[run.status]}
+                    </span>
+                    <span className="small">{run.prompt ?? "(no prompt recorded)"}</span>
                   </span>
-                  <span className="small">{run.prompt ?? "(no prompt recorded)"}</span>
+                  <span
+                    className="muted small one-line"
+                    title={run.startedAt ? formatEntryTimeFull(run.startedAt) : undefined}
+                  >
+                    {run.startedAt ? listDate(run.startedAt) : ""}
+                    {run.cwd ? ` · ${run.cwd}` : ""}
+                    {run.agentId === null ? " · no agent" : ""}
+                  </span>
                 </span>
-                <span
-                  className="muted small one-line"
-                  title={run.startedAt ? formatEntryTimeFull(run.startedAt) : undefined}
-                >
-                  {run.startedAt ? listDate(run.startedAt) : ""}
-                  {run.cwd ? ` · ${run.cwd}` : ""}
-                </span>
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       {openSession ? (
         <ClaudeRunSheet sessionId={openSession} onClose={() => setOpenSession(null)} />
       ) : null}

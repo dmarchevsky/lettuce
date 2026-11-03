@@ -20,7 +20,7 @@ export function usePiActiveRuns(enabled: boolean): number {
       return;
     }
     void fetchPiRuns(10)
-      .then(setFetched)
+      .then((page) => setFetched(page.runs))
       .catch(() => {
         /* the section 404s when the `pi` token is off; zero is the answer */
       });
@@ -43,7 +43,7 @@ export function usePiActiveRuns(enabled: boolean): number {
     const timer = setInterval(() => {
       if (msSinceLastPiFrame() > stalenessWatchdogMs) {
         void fetchPiRuns(10)
-          .then(setFetched)
+          .then((page) => setFetched(page.runs))
           .catch(() => {
             /* the next tick tries again */
           });

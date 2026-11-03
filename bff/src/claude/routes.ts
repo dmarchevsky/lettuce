@@ -10,6 +10,7 @@
 import type { Hono } from "hono";
 import { errorMessage } from "../errors.ts";
 import type { RouteEnv } from "../route-env.ts";
+import { parseAgentScope } from "../runs/attribution.ts";
 import {
   type ClaudeFileIo,
   getClaudeRun,
@@ -58,8 +59,10 @@ export function registerClaudeRoutes<Env extends RouteEnv>(
   app.get("/api/claude/runs", async (c) => {
     if (!isReady()) return c.text("App-server is not connected", 503);
     const limit = Math.min(Math.max(Number(c.req.query("limit")) || 10, 1), 30);
+    const agent = parseAgentScope(c.req.query("agent"));
+    if (agent === null) return c.text("Not an agent id", 400);
     try {
-      return c.json({ runs: await listClaudeRuns(io, limit) });
+      return c.json(await listClaudeRuns(io, limit, Date.now(), agent.agentId));
     } catch (error) {
       return c.text(errorMessage(error), 502);
     }
