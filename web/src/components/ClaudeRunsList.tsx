@@ -97,6 +97,7 @@ export function ClaudeRunsList({ refreshKey, agentId, agentName, onOther }: Runs
                   >
                     {run.startedAt ? listDate(run.startedAt) : ""}
                     {run.cwd ? ` · ${run.cwd}` : ""}
+                    {run.agentId === null ? " · no agent" : ""}
                   </span>
                 </span>
               </button>

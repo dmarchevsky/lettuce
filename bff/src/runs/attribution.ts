@@ -63,15 +63,28 @@ export function splitRunsByAgent<T extends { agentId: string | null }>(
  * — and since agent ids are themselves alphanumeric-with-dashes, the remainder
  * after the prefix is the id unchanged. Anything else (a nested path, a slug for
  * `/work` itself) names no agent.
+ *
+ * A slug has no separators left to cut on, so a deeper workspace cannot be told
+ * from an id: `/work/agent-1/apps/api` slugs to `-work-agent-1-apps-api`, whose
+ * remainder is a well-formed id belonging to nothing. So a claim needs a second
+ * opinion — `workspaces` is the directory names actually under the workspace root
+ * (the BFF mounts it read-only), and an id absent from it names no agent. Pass an
+ * empty set when the root could not be read: no evidence, no claim.
  */
-export function agentIdFromWorkspaceSlug(slug: string | null | undefined): string | null {
+export function agentIdFromWorkspaceSlug(
+  slug: string | null | undefined,
+  workspaces: ReadonlySet<string> = new Set(),
+): string | null {
   if (typeof slug !== "string" || !slug.startsWith(`${WORKSPACE_ROOT.replace(/\//g, "-")}-`)) {
     return null;
   }
   const first = slug.slice(WORKSPACE_ROOT.length + 1);
-  // A slug has no separators left to cut on, so a deeper path cannot be told from
-  // an id — and an id that does not validate is no id.
-  return first && isAgentId(first) ? first : null;
+  return first && isAgentId(first) && workspaces.has(first) ? first : null;
+}
+
+/** The workspace directory names to match a slug against: the agent-owned ones. */
+export function workspaceAgentIds(names: readonly string[] | null): Set<string> {
+  return new Set((names ?? []).filter(isAgentId));
 }
 
 /**

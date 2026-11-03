@@ -95,6 +95,7 @@ export function CodexRunsList({ refreshKey, agentId, agentName, onOther }: RunsL
                   >
                     {run.startedAt ? listDate(run.startedAt) : ""}
                     {run.cwd ? ` · ${run.cwd}` : ""}
+                    {run.agentId === null ? " · no agent" : ""}
                   </span>
                 </span>
               </button>

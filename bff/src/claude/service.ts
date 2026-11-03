@@ -8,7 +8,12 @@
 
 import type { CodexFileIo } from "../codex/service.ts";
 import { readRenamed, writeRenamed } from "../internal-tools/legacy.ts";
-import { agentIdFromWorkspaceSlug, splitRunsByAgent } from "../runs/attribution.ts";
+import {
+  agentIdFromWorkspaceSlug,
+  splitRunsByAgent,
+  WORKSPACE_ROOT,
+  workspaceAgentIds,
+} from "../runs/attribution.ts";
 import {
   applyClaudeSettingsUpdate,
   CLAUDE_PROJECTS_DIR,
@@ -145,15 +150,24 @@ export async function listClaudeRuns(
     slugs.set(sessionId, path.slice(0, -`/${sessionId}.jsonl`.length).split("/").pop() ?? "");
   }
   runs.sort((a, b) => (b.lastActivityAt ?? "").localeCompare(a.lastActivityAt ?? ""));
-  const summaries = runs.map((run) => {
+  // Read only if some transcript needs it: a slug is a name without separators,
+  // so telling `/work/<id>` from `/work/<id>/deeper` takes the real listing.
+  let workspaces: Set<string> | null = null;
+  const summaries: ClaudeRunSummary[] = [];
+  for (const run of runs) {
     const summary = summarizeRun(run);
-    return {
+    let agentId = summary.agentId;
+    if (!agentId) {
+      workspaces ??= workspaceAgentIds(await io.listDirs(WORKSPACE_ROOT));
+      agentId = agentIdFromWorkspaceSlug(slugs.get(run.sessionId) ?? null, workspaces);
+    }
+    summaries.push({
       ...summary,
       // The transcript's own cwd wins; the directory it lives in is the same fact
       // from the filesystem, for the runs whose first entry never carried it.
-      agentId: summary.agentId ?? agentIdFromWorkspaceSlug(slugs.get(run.sessionId) ?? null),
-    };
-  });
+      agentId,
+    });
+  }
   return agentId
     ? splitRunsByAgent(summaries, agentId, limit)
     : { runs: summaries.slice(0, limit), other: 0 };

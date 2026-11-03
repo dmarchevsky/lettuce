@@ -5,6 +5,7 @@ import {
   parseAgentScope,
   scanBudget,
   splitRunsByAgent,
+  workspaceAgentIds,
 } from "./attribution.ts";
 
 describe("the workspace is the attribution", () => {
@@ -35,18 +36,31 @@ describe("the workspace is the attribution", () => {
 });
 
 describe("Claude's directory slug", () => {
+  const workspaces = workspaceAgentIds(["agent-7", "a-b", "smoke-probe.md", "notes.txt"]);
+
   test("the slug of a workspace names the same agent", () => {
-    expect(agentIdFromWorkspaceSlug("-work-agent-7")).toBe("agent-7");
+    expect(agentIdFromWorkspaceSlug("-work-agent-7", workspaces)).toBe("agent-7");
     // Agent ids are dashes-and-words, so a slug still round-trips: the slug has
     // no separators left to cut on, which is the whole trick and its whole limit.
-    expect(agentIdFromWorkspaceSlug("-work-a-b")).toBe("a-b");
+    expect(agentIdFromWorkspaceSlug("-work-a-b", workspaces)).toBe("a-b");
+  });
+
+  test("a slug that reads as an id but is a deeper path names nobody", () => {
+    // `/work/agent-7/apps/api` and an agent called `agent-7-apps-api` slug to the
+    // same string, and the shape cannot tell them apart — so the claim needs the
+    // workspace listing to stand behind it. Without it: no owner, no phantom.
+    expect(agentIdFromWorkspaceSlug("-work-agent-7-apps-api", workspaces)).toBeNull();
+    expect(agentIdFromWorkspaceSlug("-work-agent-7", new Set())).toBeNull();
   });
 
   test("anything else names nobody", () => {
-    expect(agentIdFromWorkspaceSlug("-work")).toBeNull();
-    expect(agentIdFromWorkspaceSlug("-tmp-work")).toBeNull();
-    expect(agentIdFromWorkspaceSlug("")).toBeNull();
-    expect(agentIdFromWorkspaceSlug(null)).toBeNull();
+    expect(agentIdFromWorkspaceSlug("-work", workspaces)).toBeNull();
+    expect(agentIdFromWorkspaceSlug("-tmp-work", workspaces)).toBeNull();
+    expect(agentIdFromWorkspaceSlug("", workspaces)).toBeNull();
+    expect(agentIdFromWorkspaceSlug(null, workspaces)).toBeNull();
+    // Only agent-shaped directory names count as workspaces.
+    expect(workspaceAgentIds(null)).toEqual(new Set());
+    expect([...workspaceAgentIds(["agent-7", "not an id"])]).toEqual(["agent-7"]);
   });
 });
 

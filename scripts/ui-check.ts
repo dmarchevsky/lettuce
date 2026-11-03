@@ -353,25 +353,23 @@ try {
       // shows. Asserted by its label because that IS the state — there is no
       // pressed style to read and nothing should be.
       const scopeLink = page.locator(".pane .filters button.link").first();
-      if ((await scopeLink.count()) > 0) {
+      const hasScopeLink = (await scopeLink.count()) > 0;
+      // Not wrapped in the `if` below: a pane that lost its one control must fail
+      // the run, not skip its assertions.
+      check("the Runs pane carries its scope link", hasScopeLink);
+      if (hasScopeLink) {
         const scoped = (await scopeLink.innerText()).trim();
         check("the pane opens scoped to the open agent", scoped === "show all", scoped);
         await scopeLink.click();
         await page.waitForTimeout(400);
-        const everything = (await page.locator(".pane .filters button.link").first()).innerText();
-        check(
-          "`show all` turns into the way back",
-          (await everything).trim().endsWith("only"),
-          everything,
-        );
+        const widened = (
+          await page.locator(".pane .filters button.link").first().innerText()
+        ).trim();
+        check("`show all` turns into the way back", widened.endsWith("only"), widened);
         await page.locator(".pane .filters button.link").first().click();
         await page.waitForTimeout(400);
-        const again = (await page.locator(".pane .filters button.link").first()).innerText();
-        check(
-          "and following that returns to the agent's own",
-          (await again).trim() === "show all",
-          again,
-        );
+        const again = (await page.locator(".pane .filters button.link").first().innerText()).trim();
+        check("and following that returns to the agent's own", again === "show all", again);
       }
       // A run transcript must be scrollable inside the sheet; it used to be
       // clipped by the fill sheet with no scroll region at all.

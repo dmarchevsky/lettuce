@@ -50,10 +50,14 @@ export function RunsTab({
     .map((process) => process.processId)
     .join(",");
 
-  // The agent `show all` was clicked under — not a preference, and not the
-  // current agent's state once they pick someone else.
-  const [allFor, setAllFor] = useState<string | null>(null);
-  const showAll = agentId !== null && allFor === agentId;
+  // `show all` is a look, not a preference: React's adjust-on-change so it cannot
+  // outlive the agent it was chosen under, not even on the way back to them.
+  const [openedFor, setOpenedFor] = useState(agentId);
+  const [showAll, setShowAll] = useState(false);
+  if (agentId !== openedFor) {
+    setOpenedFor(agentId);
+    setShowAll(false);
+  }
   const scope = showAll ? null : agentId;
 
   // What each list's filter dropped, keyed by list, so the count is the sum of
@@ -82,7 +86,7 @@ export function RunsTab({
           <button
             type="button"
             className="link"
-            onClick={() => setAllFor(showAll ? null : agentId)}
+            onClick={() => setShowAll(!showAll)}
             aria-label={
               showAll ? `Show only ${agentName ?? "this agent"}'s runs` : "Show every agent's runs"
             }

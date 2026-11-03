@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listDate } from "../lib/conversation-groups.ts";
 import { ago, fetchPiRuns, type PiRunSummary, STATUS_LABELS } from "../lib/pi.ts";
 import { msSinceLastPiFrame, stalenessWatchdogMs, usePiLiveRuns } from "../lib/pi-live.ts";
@@ -44,6 +44,7 @@ export function PiRunsList({
   const load = useCallback(async () => {
     try {
       const page = await fetchPiRuns(8, agentId);
+      for (const run of page.runs) seenRuns.current.add(run.runId);
       setRuns(page.runs);
       setOther(page.other);
       onOther(page.other);
@@ -82,13 +83,22 @@ export function PiRunsList({
     [runs, liveFrames],
   );
 
-  // A frame naming a run this list never fetched started after the mount, so
-  // that one reloads the list. `fetchedIds` keeps the dep a primitive.
-  const fetchedIds = runs.map((run) => run.runId).join(",");
+  // A frame naming a run this list has never seen is a run that started after the
+  // mount, so it reloads the list — **once per run id**. The frame stream is
+  // machine-wide and a frame carries no owner, so under a scope a run belonging to
+  // another agent can never become known to this list: reloading on every frame
+  // about it (the BFF flushes about one per 2 s per running run) would poll the
+  // BFF for as long as that run streams.
+  const seenRuns = useRef(new Set<string>());
   useEffect(() => {
-    const frames = Object.values(liveFrames);
-    if (frames.length > 0 && frames.some((f) => !fetchedIds.includes(f.runId))) void load();
-  }, [liveFrames, fetchedIds, load]);
+    let fresh = false;
+    for (const runId of Object.keys(liveFrames)) {
+      if (seenRuns.current.has(runId)) continue;
+      seenRuns.current.add(runId);
+      fresh = true;
+    }
+    if (fresh) void load();
+  }, [liveFrames, load]);
 
   // Watchdog: frames stalled (reconnect gap, BFF restart mid-run) while a row
   // still reads running — re-read the truth once per window.
