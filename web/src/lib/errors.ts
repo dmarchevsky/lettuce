@@ -3,5 +3,20 @@
  * the two packages cannot import from each other.
  */
 export function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  const message = error instanceof Error ? error.message : String(error);
+  return APP_SERVER_DOWN[message] ?? message;
 }
+
+/**
+ * The one BFF rejection worth translating, because it appears as a UI label
+ * (the sidebar/transcript error rows) and its raw wording blames the user's
+ * patience. The retry the copy promises is real: `use-agents` refetches when
+ * the upstream returns.
+ *
+ * Keyed by the exact wire string — its source is `bff/src/session/registry.ts`
+ * (and the 503 REST guards). If that wording ever changes, this map misses and
+ * the raw string shows through: harmless, so no test can be betrayed.
+ */
+const APP_SERVER_DOWN: Record<string, string> = {
+  "App-server is not connected": "App-server is offline — retrying automatically.",
+};
