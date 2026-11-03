@@ -9,17 +9,13 @@
 defaultBranch = main
 branchPattern = feat/{slug}
 worktreeDir = .dev-flow/{slug}/worktree
-release.changelog = CHANGELOG.md
-release.releases = true
 ```
 
 ```flow-guard
-deny    \bgit\b[^\n]*--force(?!\w)                        :: a pushed branch is shared with CI and other sessions — update it by merging main into it
-deny    \bgit\b[^\n]*\bpush\b(?!\w)[^\n]*\s-f(?!\w)       :: the short spelling of the force push above
 confirm \bdocker\b[^\n]*\bcompose\b[^\n]*\b(?:rm|down|stop|kill)\b :: stops running containers
 confirm \bdocker\b[^\n]*\bcompose\b[^\n]*\brestart\b      :: drops the permanent upstream connection and any turn in flight
 confirm \bdocker\b[^\n]*\bcompose\b[^\n]*\bup\b[^\n]*(?:^|\s)app-server(?=\s|$) :: that service shares a network namespace with two others
-protect docker/.env                                       :: gitignored live secrets — never echo the values
+protect docker/.env*                                      :: gitignored live secrets and their backups — never echo the values
 forbid  docker/secrets                                    :: gitignored secret storage
 ```
 
@@ -32,19 +28,29 @@ patched. A plan document rides its own feature's branch and PR, never a PR of it
 word for that PR, annotated tag — and stops there. It never deploys prod and never asks whether a deploy
 happened.
 
-A `flow-guard` rule matches shell text, not intent: a `gh pr create --body "…git branch -D…"` trips the
-branch rule, so a body that quotes a command goes in a file and comes in with `--body-file`.
+A `flow-guard` rule matches shell text, not intent: a `gh pr create --body "…docker compose down…"` trips
+the confirm rule, so a body that quotes a command goes in a file and comes in with `--body-file`.
 
-`protect` and `forbid` name a **path and its subtree**, never a glob: `protect docker/.env` covers that
-file and anything under it, so a `docker/.env.bak-20261021` left beside it by a variable flip is outside
-the rule and writes to it ask nothing — and writing `docker/.env*` is worse than nothing, since it names
-one file literally called `.env*`. The tool-level defense for those backups is `.gitignore`'s `.env.*`,
-so flip a variable **in place** instead of copying `.env` aside, and never `-f` add an ignored dotfile —
-`git add -f docker/.env.bak` is a public secret, not a shortcut.
+A force push needs no rule of its own: dev-flow asks the operator before any `git push --force` /
+`--force-with-lease`, and their word is the `DEV_FLOW_ALLOW_REWRITE=1` prefix. A pushed branch is still
+updated by merging `main` into it — that includes a contributor's fork-PR branch, pushed to under
+maintainerCanModify with a PR comment saying so — never by rebasing it.
+
+`protect` and `forbid` name a path and its subtree; a glob works in the **last segment only**, as a
+sibling set: `protect docker/.env*` covers `.env` and every `docker/.env.bak-20261021` a variable flip
+leaves beside it. Flip a variable **in place** anyway instead of copying `.env` aside, and never `-f` add
+an ignored dotfile — `git add -f docker/.env.bak` is a public secret, not a shortcut. Committing the
+playbook itself is the one `-f` add that is right (`.dev-flow/` is ignored, `project.md` is tracked):
+`git add -f .dev-flow/project.md` on its own line — a plain `git add` exits 1 and silently drops the
+`&& git commit` chained after it.
 
 ## plan
 
 - [ ] (ui) mockups of every changed surface, rendered at 390 and 1280 and embedded in plan.md
+
+A mockup links the **worktree's** stylesheet (`../../worktree/web/src/styles.css` from `plan/mockups/`)
+— never the main checkout's, which lacks every class the branch adds until it merges, so a re-render
+silently loses the new styling. Check the link resolved before trusting a shot.
 
 Write the plan to `plan/` **as the discussion goes**, not when it ends: pi has auto-compacted at the
 `release` stage twice now, and a plan that lived only in the transcript was gone with it — the gates read
@@ -53,14 +59,12 @@ before moving on.
 
 Anything user-visible starts with `flow start <slug> --ui`. A docs-only change (nothing under `bff/`,
 `web/` or `docker/`) still needs a flow: `flow start <slug> --patch` — and `--patch` / `--docs` are the
-operator's grant in chat, never self-selected. Before asking for approval check
-`git log origin/main..main --oneline` — local-only commits on `main` fall out of the worktree's base.
-Check the other direction too: `flow approve` cuts the branch from **local** `main`'s tip, so a local
-`main` behind `origin/main` puts the whole feature — its diff and every `flow check` it runs — on a
-stale base, and nothing notices until pre-release pays for it in a merge plus a full CI re-run. So
-`git fetch` and make the two agree (`git rev-parse main origin/main`) before `flow approve`; when a
-parallel flow lands while you work, merge `main` into the branch then rather than leaving it to
-pre-release.
+operator's grant in chat, never self-selected. `flow approve` cuts the branch from
+`origin/main` as this clone last fetched it, so `git fetch` right before approving — an unfetched
+`origin/main` puts the whole feature, its diff and every `flow check`, on a stale base that pre-release
+pays for with a merge and a full CI re-run. Local-only commits on `main`
+(`git log origin/main..main --oneline`) never reach the branch at all. When a parallel flow lands while
+you work, merge `main` into the branch then rather than leaving it to pre-release.
 
 ## implement
 
@@ -69,7 +73,8 @@ setup = cp -n "$(git rev-parse --git-common-dir)/../docker/.env" docker/.env && 
 test = bun run verify
 run = docker compose -f docker/compose.yml up -d
 dev = bun run build:bff && docker compose -f docker/compose.yml up -d
-health = for i in $(seq 1 30); do curl -fsS http://127.0.0.1:${BFF_PORT:-8090}/readyz && exit 0; sleep 2; done; exit 1
+health = curl -fsS http://127.0.0.1:${BFF_PORT:-8090}/readyz
+healthWait = 60
 ```
 
 `bun run verify` is the whole offline half (worktree, version pins, prod-info, release hygiene, docs,
@@ -84,12 +89,14 @@ A fresh worktree has no `docker/.env` (gitignored) — `setup` copies it in when
 the worktree, or the state-dir default lands inside `.dev-flow/<slug>/`. It reads the file from the
 **main** checkout through `git rev-parse --git-common-dir`, because a linked worktree has no
 `docker/.env` of its own and a
-relative `../../` breaks the moment `worktreeDir` changes depth. **A failed `setup` does not re-run on the
-next `approve`** — dev-flow reuses the worktree and prints `plan approved` with no `docker/.env` and no
-`node_modules` (upstream dev-flow#49; it also runs `setup` for a `--docs` feature, which docs mode should
-skip), so after a setup failure check both exist before trusting `flow check`. The local stack is one per machine and shared, so an
-`up -d` replaced whatever another session was testing — say so out loud. A web/ change needs `build:bff`
-first or the container serves the old bundle.
+relative `../../` breaks the moment `worktreeDir` changes depth. A failed `setup` fails `flow approve`
+and runs again on the next one; a `--docs` flow skips it.
+
+`flow verify` runs `dev` itself — `build:bff`, then `up -d` — and its `dev ran (…)` line is the record of
+that deploy; do not run the step by hand first, and do not write "no container was rebuilt" into a PR
+whose verify printed it. The local stack is one per machine and shared, so that `up -d` replaced
+whatever another session was testing — say so out loud. `health` is a single `/readyz` probe; dev-flow
+retries it within `healthWait`.
 
 A look at the running stack never mutates operator state on its own. Move nothing under
 `$LETTA_STATE_DIR` or `/app/auth`, never claim an instance you were not handed, and keep nothing durable in
@@ -102,7 +109,9 @@ rebuilt. Copy state **out** to the host to photograph it, or add data instead of
 into a shell is the operator's per-machine choice. So an agent that cannot run them records **what it
 probed in the container** instead — in the PR's *What was clicked* — and says plainly that a human pass on
 the sign-in path is still owed. `flow verify` deploying and probing `/readyz` is not that pass and never
-counts as one.
+counts as one. When the branch edits `scripts/ui-check.ts` itself, the owed item is narrower: **the
+operator runs `bun run ui-check` once** during the container test — a click-through does not execute
+the suite and CI's `live.yml` runs with `UI_CHECK=off`, so a new assertion would otherwise ship never-run.
 
 - [ ] built and running in the local container stack (unscoped `up -d`, `build:bff` first for any web/
       change) and the operator clicked through the change and said it works
@@ -130,11 +139,20 @@ without a bump is red. The heading an entry lands under is what CI derives the b
 word instead. Parallel branches collide on `VERSION` and `CHANGELOG.md`: merge `main` in and re-derive
 the version before asking Release?, because the gate refuses a tag that already exists.
 
+**A code-free release flow** (its only commit is the bump) inverts the order above: `flow verify` refuses
+a branch with nothing committed, so the release-prep commit is cut at implement, and pre-release only
+validates and tags. The operator's Verified? was then spoken over the base, which covers this branch
+only because the bump ships no runtime code — say so in the PR. The bump renames every image tag, so
+verify's `dev` rebuilds all five images under the new name (app-server from scratch) and recreates every
+container; `docker tag` the old name to the new one first for images whose content did not change, or
+say plainly to expect the full build.
+
 `VERSION` is not the only release literal: the compose image-tag default (`${LETTA_IMAGE_TAG:-v…}`) is a
 release-literal site too and moves in the same commit — it is the tag a host without `LETTA_IMAGE_NS`
 builds, and what CI compares against `VERSION` after the merge. `sync-upstream` leaves it alone on purpose.
 
-- [ ] `ponytail-review` run on the change and every must-have and should-have finding fixed
+- [ ] `ponytail-review` run on the change and every must-have and should-have finding fixed — on a
+      code-free release branch, `check-release-hygiene --pr` over the branch stands in, named as such
 - [ ] the CHANGELOG entry, the VERSION bump and any README / docs/CONFIGURATION.md sync in that one
       release-prep commit, and the `bump:minor` / `bump:patch` / `bump:none` label agrees with it
 - [ ] the compose image-tag default moved with VERSION in that same commit
@@ -153,7 +171,8 @@ Publish only — the preparation happened above. Push the branch, open the PR fr
 **by name** (`git push origin v<x>`, never `--follow-tags`), then `flow release-done`, which creates
 the GitHub Release for that tag (`release.releases = true`) with the changelog section as its notes. Nothing here deploys prod, and nothing is pushed, merged or
 tagged without the operator's **Release?** for that specific change — a standing yes from an earlier
-change is not one. The guard no longer intercepts `gh pr merge`: Release? is the authorization.
+change is not one. dev-flow refuses `gh pr merge` and tag pushes before `flow release`; after it, the
+merge guard wants the style spelled out (`gh pr merge <n> --merge`).
 
 The tag *is* the publish trigger — pushing it runs `.github/workflows/publish.yml`, which pushes all five
 images to GHCR and retags `latest` — so **`release.artifact` is what proves a release shipped**:
