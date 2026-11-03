@@ -1268,10 +1268,19 @@ pre {
    agent rows and shifting the whole column under the band. */
 .entry .rail {
   align-self: stretch;
+  /* ...but the reverse leak runs the other way: bare `.rail` is the nav, and
+     its `width: 74px`, centered column, surface background and compact padding
+     applied here too — every expanded tool-output rail rendered as a 74px
+     one-character-per-line strip. Reset each leaked property; `overflow:
+     hidden` is the one worth keeping (long output wraps inside the real width
+     instead of escaping the entry). */
+  width: auto;
+  align-items: flex-start;
+  background: none;
+  padding: 0 0 0 10px;
   min-width: 0;
   margin-top: 4px;
   margin-left: 1px;
-  padding-left: 10px;
   border-left: 2px solid var(--border);
   display: flex;
   flex-direction: column;
