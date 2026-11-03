@@ -31,7 +31,12 @@ import { userHistory } from "./lib/input-history.ts";
 import { deriveLinkStatus } from "./lib/link-status.ts";
 import { type FilterGroup, filterEntries, toggleShown } from "./lib/messages.ts";
 import { readRunsDeepLink } from "./lib/pi.ts";
-import { type Component, type ConnectionState, type RuntimeScope, scopeKey } from "./lib/protocol.ts";
+import {
+  type Component,
+  type ConnectionState,
+  type RuntimeScope,
+  scopeKey,
+} from "./lib/protocol.ts";
 import type { LinkState } from "./lib/session-client.ts";
 import { readSettingsDeepLink } from "./lib/settings-link.ts";
 import type { Access, Signin } from "./lib/signin.ts";
@@ -765,6 +770,7 @@ function Workspace({ status }: { status: Status }) {
             <MessageList
               entries={visibleEntries}
               processing={conversation.processing}
+              historyLoading={conversation.historyLoading}
               session={session}
               cwd={conversation.cwd}
               onOpenFile={setOpenFile}

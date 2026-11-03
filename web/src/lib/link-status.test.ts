@@ -31,9 +31,7 @@ describe("deriveLinkStatus", () => {
       tone: "warn",
       favicon: "reconnecting",
     });
-    expect(deriveLinkStatus("reconnecting", "connecting").label).toBe(
-      "Connecting to app-server…",
-    );
+    expect(deriveLinkStatus("reconnecting", "connecting").label).toBe("Connecting to app-server…");
   });
 
   test("device-side states keep their labels when the server is connected", () => {
