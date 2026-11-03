@@ -11,8 +11,9 @@ import {
   savePinnedAgent,
 } from "../lib/agent-flags.ts";
 import type { AvatarPref } from "../lib/agent-tint.ts";
-import { errorMessage } from "../lib/errors.ts";
+import { errorMessage, friendlyServerError } from "../lib/errors.ts";
 import { markFreshConversation } from "../lib/fresh-conversations.ts";
+import { upstreamReturned } from "../lib/link-status.ts";
 import { readDeepLinkSelection, writeSelection } from "../lib/selection.ts";
 import { conversationTitle } from "../lib/title.ts";
 import { readAgentModelHandle } from "./use-models.ts";
@@ -200,7 +201,7 @@ export function useAgents(session: SessionApi): AgentsApi {
         return list[0]?.id ?? null;
       });
     } catch (cause) {
-      setError(errorMessage(cause));
+      setError(friendlyServerError(errorMessage(cause)));
     } finally {
       setLoading(false);
     }
@@ -222,7 +223,7 @@ export function useAgents(session: SessionApi): AgentsApi {
           return active?.id ?? list[0]?.id ?? null;
         });
       } catch (cause) {
-        setError(errorMessage(cause));
+        setError(friendlyServerError(errorMessage(cause)));
       } finally {
         setLoading(false);
       }
@@ -337,7 +338,7 @@ export function useAgents(session: SessionApi): AgentsApi {
   useEffect(() => {
     const previous = upstreamRef.current;
     upstreamRef.current = session.upstream;
-    if (previous === "connected" || session.upstream !== "connected" || !ready) return;
+    if (!upstreamReturned(previous, session.upstream) || !ready) return;
     void refreshAgents();
     if (agentId) void refreshConversations(agentId);
   }, [ready, session.upstream, agentId, refreshAgents, refreshConversations]);
@@ -471,12 +472,13 @@ export function useAgents(session: SessionApi): AgentsApi {
     const response = await request<{ conversation?: { id?: string } }>("conversation_create", {
       body: { agent_id: agentId },
     });
-    await refreshConversations(agentId);
     const id = response?.conversation?.id;
-    if (typeof id === "string") {
-      markFreshConversation(id);
-      setConversationId(id);
-    }
+    // Mark before the refresh: `refreshConversations` selects the newest
+    // conversation itself, and that selection must already see this id as
+    // the fresh one it is.
+    if (typeof id === "string") markFreshConversation(id);
+    await refreshConversations(agentId);
+    if (typeof id === "string") setConversationId(id);
   }, [agentId, request, refreshConversations]);
 
   const renameConversation = useCallback(

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { deriveLinkStatus } from "./link-status.ts";
+import { deriveLinkStatus, upstreamReturned } from "./link-status.ts";
 
 describe("deriveLinkStatus", () => {
   test("both axes healthy: today's Live", () => {
@@ -48,5 +48,17 @@ describe("deriveLinkStatus", () => {
       tone: "bad",
       favicon: "signed-out",
     });
+  });
+});
+
+describe("upstreamReturned", () => {
+  test("the rising edge only: gone (or starting) to connected", () => {
+    expect(upstreamReturned("disconnected", "connected")).toBe(true);
+    expect(upstreamReturned("connecting", "connected")).toBe(true);
+  });
+  test("steady states and falls are not a return", () => {
+    expect(upstreamReturned("connected", "connected")).toBe(false);
+    expect(upstreamReturned("connected", "disconnected")).toBe(false);
+    expect(upstreamReturned("disconnected", "connecting")).toBe(false);
   });
 });

@@ -4,8 +4,9 @@ import {
 } from "@letta-ai/letta-code/ask-user-question";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildMessageContent, type PreparedImage } from "../lib/attachments.ts";
-import { errorMessage } from "../lib/errors.ts";
+import { errorMessage, friendlyServerError } from "../lib/errors.ts";
 import { consumeFreshConversation } from "../lib/fresh-conversations.ts";
+import { upstreamReturned } from "../lib/link-status.ts";
 import { indicatorStaysOn, seamAllowsFlip, stallProbeDue } from "../lib/live-state.ts";
 import {
   addLocalUserMessage,
@@ -384,6 +385,8 @@ export function useConversation(
   const startedRef = useRef<string | null>(null);
   /** The open conversation's last history load failed — see the recovery effect. */
   const lastLoadFailedRef = useRef(false);
+  /** Bumped per start; a superseded async load checks it before writing (see `loadHistory`). */
+  const loadGenRef = useRef(0);
   /** Bumped to re-run the start effect on app-server recovery (`startedRef` reset). */
   const [startNonce, setStartNonce] = useState(0);
 
@@ -557,8 +560,15 @@ export function useConversation(
   }, [processing, stopping, reprimeLiveState]);
 
   const loadHistory = useCallback(
-    async (afterResync = false) => {
+    async (afterResync = false, gen?: number) => {
       if (!conversationId) return;
+      // A superseded load (the user switched conversations mid-flight) must
+      // not land its result on the new conversation's transcript, error,
+      // loading flag, or failure record — the flag in particular would read
+      // "No messages yet" over a conversation still actually loading. `gen`
+      // comes from the start effect; resync reloads pass none (their own
+      // closure is already current).
+      const current = () => gen === undefined || gen === loadGenRef.current;
       setError(null);
       // In parallel with the history request; see `mergeTurnErrors`.
       const turnErrors = agentId ? fetchTurnErrors(agentId, conversationId) : Promise.resolve([]);
@@ -568,6 +578,7 @@ export function useConversation(
           conversation_id: conversationId,
           query: { limit: 200 },
         });
+        if (!current()) return;
         const messages = Array.isArray(response?.messages) ? response.messages : [];
         transcriptRef.current = transcriptFromHistory(messages);
         mergeTurnErrors(transcriptRef.current, await turnErrors);
@@ -591,8 +602,9 @@ export function useConversation(
         }
         lastLoadFailedRef.current = false;
       } catch (cause) {
+        if (!current()) return;
         lastLoadFailedRef.current = true;
-        setError(errorMessage(cause));
+        setError(friendlyServerError(errorMessage(cause)));
       }
     },
     [agentId, conversationId, request, flushSync, markResynced, refreshUsage, reprimeLiveState],
@@ -605,6 +617,7 @@ export function useConversation(
     const key = scopeKey(scope);
     if (startedRef.current === key) return;
     startedRef.current = key;
+    const gen = ++loadGenRef.current;
     // From here to `loadHistory` settling the transcript on screen is
     // in-flight: an empty transcript during it must read as loading, not
     // empty — unless this conversation was just created here, in which case
@@ -660,16 +673,16 @@ export function useConversation(
         });
 
         // `success: false` does not throw, so it is checked here.
-        if (started?.success === false) {
+        if (started?.success === false && gen === loadGenRef.current) {
           setError(started.error ?? "Failed to start the runtime");
         }
       } catch (cause) {
-        setError(errorMessage(cause));
+        if (gen === loadGenRef.current) setError(friendlyServerError(errorMessage(cause)));
       }
       try {
-        await loadHistory();
+        await loadHistory(false, gen);
       } finally {
-        setHistoryLoading(false);
+        if (gen === loadGenRef.current) setHistoryLoading(false);
       }
     })();
   }, [ready, scope, startNonce, request, setScopes, loadHistory]);
@@ -686,7 +699,7 @@ export function useConversation(
   useEffect(() => {
     const previous = upstreamRef.current;
     upstreamRef.current = session.upstream;
-    if (previous === "connected" || session.upstream !== "connected") return;
+    if (!upstreamReturned(previous, session.upstream)) return;
     if (!startedRef.current || !lastLoadFailedRef.current) return;
     startedRef.current = null;
     setStartNonce((n) => n + 1);

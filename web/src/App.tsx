@@ -25,6 +25,7 @@ import { ToastLayer, toast } from "./components/Toast.tsx";
 import type { PreparedImage } from "./lib/attachments.ts";
 import { applyDocumentTitle } from "./lib/document-title.ts";
 import { appendToDraft, draftKey, readDraft } from "./lib/draft.ts";
+import { friendlyServerError } from "./lib/errors.ts";
 import { applyFavicon } from "./lib/favicon.ts";
 import { type FeatureFlags, featureEnabled } from "./lib/features.ts";
 import { markFreshConversation } from "./lib/fresh-conversations.ts";
@@ -184,7 +185,7 @@ function Workspace({ status }: { status: Status }) {
   // dismiss button. The ring buffer and the transcript still hold the facts.
   useEffect(() => {
     if (!session.lastError) return;
-    toast(session.lastError, "bad");
+    toast(friendlyServerError(session.lastError), "bad");
     session.clearError();
   }, [session]);
 
@@ -474,12 +475,11 @@ function Workspace({ status }: { status: Status }) {
         "conversation_create",
         { body: { agent_id: agentId } },
       );
-      await agents.refreshConversations(agentId);
       const id = response?.conversation?.id;
-      if (typeof id === "string") {
-        markFreshConversation(id);
-        agents.selectConversation(id);
-      }
+      // Mark before the refresh — it can select this conversation itself.
+      if (typeof id === "string") markFreshConversation(id);
+      await agents.refreshConversations(agentId);
+      if (typeof id === "string") agents.selectConversation(id);
     },
     [agents, session],
   );

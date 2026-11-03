@@ -54,3 +54,13 @@ export function deriveLinkStatus(link: LinkState, upstream: ConnectionState): Li
   const base = LINK_LABELS[link];
   return { label: base.label, tone: base.tone, favicon: link };
 }
+
+/**
+ * The rising edge of the BFF's upstream state — the app-server came back.
+ * One shared rule for the two self-healing refetches (`use-agents` list
+ * refetch, `use-conversation` failed-load restart): a returning server must
+ * be as loud a signal as a browser reconnect.
+ */
+export function upstreamReturned(previous: ConnectionState, next: ConnectionState): boolean {
+  return previous !== "connected" && next === "connected";
+}

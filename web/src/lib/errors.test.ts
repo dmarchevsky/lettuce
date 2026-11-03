@@ -1,17 +1,26 @@
 import { describe, expect, test } from "bun:test";
-import { errorMessage } from "./errors.ts";
+import { errorMessage, friendlyServerError } from "./errors.ts";
 
 describe("errorMessage", () => {
-  test("the app-server-down rejection reads as the app's own state, with the retry it promises", () => {
+  test("passes everything through — the raw wire string, unpolished", () => {
     expect(errorMessage(new Error("App-server is not connected"))).toBe(
+      "App-server is not connected",
+    );
+    expect(errorMessage(new Error("Connection lost"))).toBe("Connection lost");
+    expect(errorMessage("plain string")).toBe("plain string");
+  });
+});
+
+describe("friendlyServerError", () => {
+  test("the one retryable BFF rejection becomes app state, not blame", () => {
+    expect(friendlyServerError("App-server is not connected")).toBe(
       "App-server is offline — retrying automatically.",
     );
   });
 
-  test("every other message passes through untouched", () => {
-    expect(errorMessage(new Error("Connection lost"))).toBe("Connection lost");
-    expect(errorMessage("plain string")).toBe("plain string");
-    // The client's own pre-socket rejection is a different string and stays.
-    expect(errorMessage(new Error("Not connected"))).toBe("Not connected");
+  test("everything else — including its lookalikes — passes through", () => {
+    expect(friendlyServerError("Not connected")).toBe("Not connected");
+    expect(friendlyServerError("Connection lost")).toBe("Connection lost");
+    expect(friendlyServerError("")).toBe("");
   });
 });
