@@ -20,6 +20,7 @@ export type GlobalSection =
   | "codex"
   | "claude"
   | "pi"
+  | "telegram"
   | "skills"
   | "access"
   | "signin"
@@ -60,6 +61,7 @@ export const GLOBAL_SECTION_GROUPS: { label: string; sections: SectionInfo[] }[]
         icon: "terminal",
       },
       { id: "pi", label: "Remote Pi", short: "Remote Pi", icon: "terminal" },
+      { id: "telegram", label: "Telegram", short: "Telegram", icon: "send" },
       { id: "skills", label: "Global skills", short: "Skills", icon: "memory" },
     ],
   },
@@ -98,6 +100,7 @@ const SECTION_FEATURE: Partial<Record<GlobalSection, FeatureName>> = {
   codex: "codex",
   claude: "claude",
   pi: "pi",
+  telegram: "telegram",
 };
 
 /**

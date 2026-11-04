@@ -9,6 +9,7 @@ import { PiSection } from "../components/PiSection.tsx";
 import { ProvidersSection } from "../components/ProvidersSection.tsx";
 import { SignInSection } from "../components/SignInSection.tsx";
 import { GlobalSkills } from "../components/SkillsSections.tsx";
+import { TelegramSection } from "../components/TelegramSection.tsx";
 import { WebToolsSection } from "../components/WebToolsSection.tsx";
 import type { FeatureFlags } from "../lib/features.ts";
 import type { Component } from "../lib/protocol.ts";
@@ -91,6 +92,7 @@ export function SettingsPane({
     codex: () => <CodexSection />,
     claude: () => <ClaudeSection />,
     pi: () => <PiSection />,
+    telegram: () => <TelegramSection session={session} />,
     skills: () => (
       <GlobalSkills session={session} agentId={agentId} cwd={cwd} version={skillsVersion} />
     ),
