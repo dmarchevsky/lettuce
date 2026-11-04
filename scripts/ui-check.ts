@@ -2318,22 +2318,24 @@ try {
         (await page.locator(".topbar-gear").getAttribute("aria-pressed")) === "true",
     );
     const desktopFeatures = await readFeatures(page);
-    // The rail's words, not the pane's full titles: a 64px column fits one word, and
-    // the same token gating that hid a row hides its cell — a section whose compose
-    // token is off appears in neither list.
+    // The rail shows each section's FULL name: the column widens for Settings
+    // precisely so a cell reads the way the pane's own heading reads it, instead of
+    // the abbreviation a square cell forced ("Pi", "Push"). The same token gating
+    // that hid a row hides its cell — a section whose compose token is off appears
+    // in neither list.
     const expectedRail = [
-      "Models",
-      ...(featureOn(desktopFeatures, "web") ? ["Web"] : []),
-      "MCP",
-      ...(featureOn(desktopFeatures, "google") ? ["Google"] : []),
-      ...(featureOn(desktopFeatures, "codex") ? ["Codex"] : []),
-      ...(featureOn(desktopFeatures, "claude") ? ["Claude"] : []),
-      ...(featureOn(desktopFeatures, "pi") ? ["Pi"] : []),
-      "Skills",
+      "Providers & models",
+      ...(featureOn(desktopFeatures, "web") ? ["Web search"] : []),
+      "MCP servers",
+      ...(featureOn(desktopFeatures, "google") ? ["Google Workspace"] : []),
+      ...(featureOn(desktopFeatures, "codex") ? ["Codex workers"] : []),
+      ...(featureOn(desktopFeatures, "claude") ? ["Claude Code workers"] : []),
+      ...(featureOn(desktopFeatures, "pi") ? ["Remote Pi"] : []),
+      "Global skills",
       // Deployment: the two halves of what used to be one mode, reported read-only.
       "Access",
       "Sign-in",
-      "Push",
+      "Notifications",
       "About",
     ];
     const railWords = (
@@ -2355,6 +2357,20 @@ try {
       "the sections are grouped under words the column can fit",
       groupWords.length >= 2 && groupWords.every((word) => word.length <= 6),
       groupWords,
+    );
+    // The wider column exists to keep every row ONE line: a section name that
+    // wrapped, or got cut to an ellipsis, is the old square column coming back by
+    // accident.
+    check(
+      "every section reads on one line with nothing cut off",
+      await page.evaluate(() =>
+        [...document.querySelectorAll(".rail-settings .rail-item")].every((el) => {
+          const r = el.getBoundingClientRect();
+          return (
+            el.scrollWidth <= el.clientWidth + 1 && Math.round(r.height) <= 40 && r.width >= 160
+          );
+        }),
+      ),
     );
     check(
       "no per-agent section among the shared ones",
@@ -2631,7 +2647,7 @@ try {
     // Notifications: headless Chromium supports the Push/Notification APIs,
     // so this renders the real toggle rather than the iOS install notice —
     // just needs to render without clipping, not actually subscribe.
-    await openSection("Push");
+    await openSection("Notifications");
     check(
       "notifications section offers a toggle or an unsupported notice",
       (await page
@@ -3308,7 +3324,7 @@ try {
     check(
       "and the rail marks the section the link named",
       (await page.locator("nav.rail.rail-settings .rail-section.active").innerText()).trim() ===
-        "Google",
+        "Google Workspace",
     );
     check("the param is stripped", !page.url().includes("settings="), page.url());
     await page.close();

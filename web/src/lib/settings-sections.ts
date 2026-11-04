@@ -7,9 +7,10 @@ import { defaultStorage, readStored } from "./storage.ts";
  *
  * Settings is a pane like any other, so its sections are the rail's cells while it
  * is open — which forces two things the old modal never had to care about: every
- * section needs a glyph (a rail cell is a glyph over a word), and a group header
- * has to be a word that fits a 64px column. `label` is the full name the pane's own
- * title uses, `short` is the phone chip, `rail` the rail's word.
+ * section needs a glyph (a rail cell is a glyph beside a word), and a group header
+ * has to be a word the column can fit. `label` is the full name the pane's own title
+ * uses; `short` is the one word both rails show — the phone's chip and the desktop's
+ * section cell are the same list at the same size, so they get the same word.
  */
 export type GlobalSection =
   | "providers"
@@ -30,8 +31,6 @@ export interface SectionInfo {
   label: string;
   /** The phone's chip: twelve full names do not fit two rows at 390px. */
   short: string;
-  /** The rail's word, at 9px inside a 64px column. */
-  rail: string;
   icon: IconName;
 }
 
@@ -43,7 +42,6 @@ export const GLOBAL_SECTION_GROUPS: { label: string; sections: SectionInfo[] }[]
         id: "providers",
         label: "Providers & models",
         short: "Models",
-        rail: "Models",
         icon: "model",
       },
     ],
@@ -51,33 +49,32 @@ export const GLOBAL_SECTION_GROUPS: { label: string; sections: SectionInfo[] }[]
   {
     label: "Tools",
     sections: [
-      { id: "web", label: "Web search", short: "Web", rail: "Web", icon: "globe" },
-      { id: "mcp", label: "MCP servers", short: "MCP", rail: "MCP", icon: "braces" },
-      { id: "google", label: "Google Workspace", short: "Workspace", rail: "Google", icon: "grid" },
-      { id: "codex", label: "Codex workers", short: "Codex", rail: "Codex", icon: "terminal" },
+      { id: "web", label: "Web search", short: "Web", icon: "globe" },
+      { id: "mcp", label: "MCP servers", short: "MCP", icon: "braces" },
+      { id: "google", label: "Google Workspace", short: "Workspace", icon: "grid" },
+      { id: "codex", label: "Codex workers", short: "Codex", icon: "terminal" },
       {
         id: "claude",
         label: "Claude Code workers",
         short: "Claude",
-        rail: "Claude",
         icon: "terminal",
       },
-      { id: "pi", label: "Remote Pi", short: "Remote Pi", rail: "Pi", icon: "terminal" },
-      { id: "skills", label: "Global skills", short: "Skills", rail: "Skills", icon: "memory" },
+      { id: "pi", label: "Remote Pi", short: "Remote Pi", icon: "terminal" },
+      { id: "skills", label: "Global skills", short: "Skills", icon: "memory" },
     ],
   },
   {
     label: "Access",
     sections: [
-      { id: "access", label: "Access", short: "Access", rail: "Access", icon: "shield" },
-      { id: "signin", label: "Sign-in", short: "Sign-in", rail: "Sign-in", icon: "pin" },
+      { id: "access", label: "Access", short: "Access", icon: "shield" },
+      { id: "signin", label: "Sign-in", short: "Sign-in", icon: "pin" },
     ],
   },
   {
     label: "App",
     sections: [
-      { id: "notifications", label: "Notifications", short: "Push", rail: "Push", icon: "bell" },
-      { id: "about", label: "About", short: "About", rail: "About", icon: "info" },
+      { id: "notifications", label: "Notifications", short: "Push", icon: "bell" },
+      { id: "about", label: "About", short: "About", icon: "info" },
     ],
   },
 ];

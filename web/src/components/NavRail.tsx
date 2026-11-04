@@ -222,16 +222,15 @@ export function NavRail({
                   }`}
                   aria-current={settingsSection === section.id ? "page" : undefined}
                   onClick={() => onPickSection(section.id)}
-                  title={section.label}
                 >
                   <Icon name={section.icon} />
-                  {section.rail}
+                  {section.label}
                 </button>
               ))}
             </div>
           ))}
         </div>
-        <AllCell onShowAll={onShowAll} panelVisible={panelVisible} />
+        <AllCell onShowAll={onShowAll} panelVisible={panelVisible} word="All agents" />
       </nav>
     );
   }
@@ -357,7 +356,16 @@ export function NavRail({
  * list, and the same press putting it away. It is the one cell that survives the
  * rail changing subject — it is not a member of the list, it is the column's verb.
  */
-function AllCell({ onShowAll, panelVisible }: { onShowAll: () => void; panelVisible: boolean }) {
+function AllCell({
+  onShowAll,
+  panelVisible,
+  word,
+}: {
+  onShowAll: () => void;
+  panelVisible: boolean;
+  /** The wide Settings column names its verbs; the square rail has no room for one. */
+  word?: string;
+}) {
   return (
     <button
       type="button"
@@ -372,6 +380,7 @@ function AllCell({ onShowAll, panelVisible }: { onShowAll: () => void; panelVisi
       aria-pressed={panelVisible}
     >
       <Icon name="menu" />
+      {word ? <span className="rail-all-word">{word}</span> : null}
     </button>
   );
 }

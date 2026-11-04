@@ -39,8 +39,13 @@
      pane, an agent face, the all cell, a Settings section — is `--rail-cell`
      on a side. A rail whose cells are three different heights reads as three
      unrelated lists; one number makes it one list with three kinds of row. */
-  --rail-w: 64px;
-  --rail-cell: 64px;
+  --rail-w: 56px;
+  --rail-cell: 56px;
+  /* Settings turns the column into a list of WORDS, and a word needs a column that
+     can hold it: the sections rail is wider than the square pitch, so every section
+     reads in one line at a size a person actually reads, instead of the abbreviated
+     9px word a 64px column forced ("Pi" for Remote Pi, "Push" for Notifications). */
+  --rail-w-settings: 184px;
   /* The one padding every list row, task row and .pad shares. */
   --pad-row-y: 6px;
   --pad-row-x: 10px;
@@ -338,34 +343,68 @@ pre {
 .rail-settings .rail-group {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 2px;
+  align-items: stretch;
+  gap: 0;
   width: 100%;
 }
 .rail-group-label {
   width: 100%;
-  padding: 6px 2px 2px;
-  text-align: center;
-  font-size: 8.5px;
+  padding: 9px 12px 3px;
+  text-align: left;
+  font-size: 9.5px;
   line-height: 1.1;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--muted);
   /* A group word wider than the column is a bug in the word, but it must not be
-     the column's bug too: 64px is the budget and nothing gets to hang out of it. */
+     the column's bug too: nothing gets to hang out of it. */
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.rail-settings .rail-section {
-  height: 34px;
+/* In the wide column a section is a row of a list, not a square with a caption:
+   glyph then word, left-aligned, one line, at the size the pane's own rows use.
+   `white-space: nowrap` is the promise the width exists to keep — if a label ever
+   outgrows `--rail-w-settings` it ellipsizes rather than stacking. */
+.rail-settings .rail-item {
   flex-direction: row;
-  gap: 6px;
-  font-size: 9px;
+  justify-content: flex-start;
+  gap: 9px;
+  height: 30px;
+  padding: 0 12px;
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.rail-settings .rail-section .icon {
+.rail-settings .rail-item .icon {
   width: 16px;
   height: 16px;
+  flex: none;
+}
+.rail.rail-settings {
+  width: var(--rail-w-settings);
+  align-items: stretch;
+  gap: 0;
+  padding: 4px 0 calc(4px + env(safe-area-inset-bottom));
+}
+/* The all cell keeps its verb in a column wide enough to say it: ☰ alone under a
+   list of words reads as a stray glyph. */
+.rail-settings .rail-all {
+  height: 38px;
+  border-top: 1px solid var(--border);
+  margin: 4px 0 0;
+  color: var(--muted);
+  /* A row of the same list, not a glyph floating in a wide column: the word the
+     square rail has no room for goes beside the icon, at the same left edge. */
+  flex-direction: row;
+  justify-content: flex-start;
+  gap: 9px;
+  padding: 0 12px;
+  font-size: 12.5px;
+}
+.rail-settings .rail-all:hover {
+  color: var(--text);
 }
 /* The first way out, and the only one that is a word: Back, at the head, where a
    reader starts. It wears the pane-cell look because it is a pane cell's verb, and

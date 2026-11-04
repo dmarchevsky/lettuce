@@ -23,16 +23,18 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   archived agent has no way back yet (that entry retired with the all-in-one panel list; tracked as
   its own follow-up flow).
 - **Navigation is two surfaces, one per width, and `web/src/lib/tabs.ts` is the pane list they
-  share.** Desktop gets a `--rail-w` (64px) **rail** (`NavRail`: the named panes (Chat, Files,
+  share.** Desktop gets a `--rail-w` (56px) **rail** (`NavRail`: the named panes (Chat, Files,
   Tasks, Tools, Agent) up top, then a **faces-only** agent column riding the foot (its own
   `border-top` draws the seam across both columns, riding the first agent) — no labels,
   the name lives in the panel row beside each face — and a fixed ☰ cell docked at the foot outside
-  the scroll. **Every slot is one square** (`--rail-cell`, 64px, and the column carries no side
+  the scroll. **Every slot is one square** (`--rail-cell`, 56px, and the column carries no side
   padding): a ~46px content box beside a 44px face beside a 44px ☰ read as three unrelated lists,
   where one number makes it one list with three kinds of row — and the panel's name rows wear the
   same height so the seam still pairs. There is no Settings cell: the band's gear is the door, and
   **while Settings is the open pane the rail is a different list** — Back at the head, the sections
-  in compact (34px) rows under their group words, the same ☰ at the foot. The agent block is
+  in 30px rows (icon then full name, left-aligned) under their group words, the same ☰ at the foot —
+  and the column widens to `--rail-w-settings` for the job, because a list of words needs a column
+  that can hold one. The square pitch governs the default rail, not this one. The agent block is
   content-height and rides the foot: a short list sits on the ☰, a long one shrinks back and
   scrolls. **The ☰ is a toggle**, not the one-way verb it was: with no panel up it goes to Chat and
   brings the panel; with a panel up it puts it away, and a pinned panel gives up its pin in the same
@@ -60,7 +62,7 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   pane's top right — `show all`, which reads `<agent> only` while everything is showing; the scope is
   a look, never stored, and it resets when you switch agents. A run with no workspace owner (cron- and
   channel-fired workers run in `/work` itself) surfaces only under `show all`, reading `no agent`.
-  One `--rail-cell` (64px) is the shared row
+  One `--rail-cell` (56px) is the shared row
   height of a rail cell and the panel's name row, and the two agent blocks are congruent boxes —
   the seam is each block's own `border-top`, and `App` mirrors the rail block's measured height
   onto the panel — so a face's and a name's centers land on one line, and one hover lights both
@@ -116,8 +118,11 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   on top of the first (the rail kept showing panes you could not reach while Settings carried its own
   list of sections beside them). Now `tab === "Settings"`, the band's `.topbar-gear` is the door and
   the toggle back, the rail holds the sections while it is open, and a phone gets wrapping chips with
-  short names over the section. `web/src/lib/settings-sections.ts` is the one registry — `label` for
-  the pane's title, `short` for the chip, `rail` for the rail's word, the icon, and the compose-token
+  short names over the section. The Settings rail is the one place the column is **wider than the
+  square pitch** (`--rail-w-settings`, 184px): a list of words needs a column that can hold one, so a
+  section cell is a row of icon + full `label` on one line, and the phone's chips and the rail share
+  `short`. `web/src/lib/settings-sections.ts` is the one registry — `label` for the pane's title and
+  the rail's row, `short` for the chip, the icon, and the compose-token
   gate — because rail cell, chip and title are three renderings of one list that cannot be allowed to
   drift. It holds what every agent shares — providers,
   web search, MCP servers, Google, Codex/Claude workers, global skills — plus this device's
