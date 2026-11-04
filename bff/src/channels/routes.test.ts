@@ -273,6 +273,110 @@ describe("POST /api/channels/telegram/pairings/approve", () => {
   const approve = (app: Hono<TestEnv>, body: unknown) =>
     send(app, "POST", "/api/channels/telegram/pairings/approve", body);
 
+  test("a lowercase code approves the pending entry upstream minted uppercase", async () => {
+    const { app, disk } = setup({
+      files: {
+        [TELEGRAM_PAIRING_PATH]: {
+          pending: [
+            { code: "AB12CD", senderId: "9", chatId: "11", expiresAt: "2099-01-01T00:00:00.000Z" },
+          ],
+          approved: [],
+        },
+      },
+    });
+    const response = await send(app, "POST", "/api/channels/telegram/pairings/approve", {
+      code: "ab12cd",
+      agentId: "a1",
+      conversationId: "c1",
+    });
+    expect(response.status).toBe(200);
+    expect(disk(TELEGRAM_PAIRING_PATH)).toEqual({
+      pending: [],
+      approved: [
+        { accountId: "__legacy_migrated__", senderId: "9", approvedAt: expect.any(String) },
+      ],
+    });
+  });
+
+  test("re-approving a sender leaves one approved row — upstream skips the duplicate", async () => {
+    const { app, disk } = setup({
+      files: {
+        [TELEGRAM_PAIRING_PATH]: {
+          pending: [
+            { code: "AB12CD", senderId: "9", chatId: "11", expiresAt: "2099-01-01T00:00:00.000Z" },
+          ],
+          approved: [{ accountId: "__legacy_migrated__", senderId: "9", approvedAt: "earlier" }],
+        },
+        [TELEGRAM_ROUTING_PATH]: { routes: [] },
+      },
+    });
+    const response = await send(app, "POST", "/api/channels/telegram/pairings/approve", {
+      code: "AB12CD",
+      agentId: "a1",
+      conversationId: "c1",
+    });
+    expect(response.status).toBe(200);
+    const approved = disk(TELEGRAM_PAIRING_PATH)!["approved"] as Record<string, unknown>[];
+    expect(approved).toHaveLength(1);
+    expect(approved[0]?.approvedAt).toBe("earlier");
+  });
+
+  test("a stale route from another account keeps standing; approval adds the row THIS account resolves", async () => {
+    const { app, disk } = setup({
+      files: {
+        [TELEGRAM_PAIRING_PATH]: {
+          pending: [
+            {
+              code: "AB12CD",
+              senderId: "9",
+              chatId: "11",
+              accountId: "acct-2",
+              expiresAt: "2099-01-01T00:00:00.000Z",
+            },
+          ],
+          approved: [],
+        },
+        [TELEGRAM_ROUTING_PATH]: {
+          routes: [
+            {
+              accountId: "acct-1",
+              chatId: "11",
+              agentId: "old-agent",
+              conversationId: "old-conv",
+              enabled: true,
+            },
+          ],
+        },
+      },
+    });
+    const response = await send(app, "POST", "/api/channels/telegram/pairings/approve", {
+      code: "AB12CD",
+      agentId: "a1",
+      conversationId: "c1",
+    });
+    expect(response.status).toBe(200);
+    const routes = disk(TELEGRAM_ROUTING_PATH)!.routes as Record<string, unknown>[];
+    expect(routes).toHaveLength(2);
+    expect(routes[0]).toMatchObject({ accountId: "acct-1", agentId: "old-agent" });
+    expect(routes[1]).toMatchObject({
+      accountId: "acct-2",
+      chatId: "11",
+      agentId: "a1",
+      conversationId: "c1",
+    });
+  });
+
+  test("a present-but-corrupt accounts.json is refused, never written over", async () => {
+    const { app, store } = setup();
+    store.set(TELEGRAM_ACCOUNTS_PATH, '{ "accounts": [\n  broken');
+    const response = await send(app, "PUT", "/api/channels/telegram/account", {
+      token: "987654321:AAStoredSecretValue_wxyz0123",
+    });
+    expect(response.status).toBe(502);
+    expect(await response.text()).toMatch(/not valid JSON/);
+    expect(store.get(TELEGRAM_ACCOUNTS_PATH)).toBe('{ "accounts": [\n  broken');
+  });
+
   test("it consumes the pending, appends the approved user, and adds the route", async () => {
     const { app, disk } = setup({
       files: {

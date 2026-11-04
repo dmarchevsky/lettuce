@@ -21,6 +21,7 @@ import {
   LEGACY_MIGRATED_ACCOUNT_ID,
   patchTelegramAccount,
   pendingIsExpired,
+  presentButUnparseable,
   type RawEntry,
   readChannelFiles,
   renderAccounts,
@@ -47,6 +48,12 @@ export interface ChannelsIo {
 export class InvalidTelegramRequestError extends Error {}
 /** A pairing code that is not pending (unknown, already consumed, or expired). */
 export class TelegramPairingNotFoundError extends Error {}
+/**
+ * A state file is present but corrupt. Reading leniently is fine (empty
+ * store); overwriting a torn file with a rebuilt one would destroy a stored
+ * account, so every write path refuses first — the operator repairs by hand.
+ */
+export class TelegramStateCorruptError extends Error {}
 
 /** Telegram bot tokens are `<bot id>:<secret>`; everything else is a paste error. */
 const BOT_TOKEN_PATTERN = /^\d{4,}:[A-Za-z0-9_-]{20,}$/;
@@ -80,6 +87,23 @@ export async function loadTelegramStatus(
 
 function textOrNull(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/** Upstream mints codes uppercase and compares case-sensitively; inputs are uppercased. */
+function upper(text: string | null): string | null {
+  return text ? text.toUpperCase() : null;
+}
+
+function entryAccountId(entry: RawEntry): string {
+  return textOrNull(entry.accountId) ?? LEGACY_MIGRATED_ACCOUNT_ID;
+}
+
+function assertParseable(what: string, text: string | null): void {
+  if (presentButUnparseable(text)) {
+    throw new TelegramStateCorruptError(
+      `${what} exists but is not valid JSON — refusing to overwrite it; repair or remove it by hand (\`letta channels status\` inside the gateway container reads the rest).`,
+    );
+  }
 }
 
 /**
@@ -122,7 +146,8 @@ export async function saveTelegramAccount(
     throw new InvalidTelegramRequestError("displayName must be text");
   }
 
-  const { accounts } = await readChannelFiles(io);
+  const { accounts, raw } = await readChannelFiles(io);
+  assertParseable("accounts.json", raw.accounts);
   const existing = findTelegramAccount(accounts);
   const storedToken = existing ? accountView(existing).token : null;
   // Write-only field: present-and-nonempty replaces, absent or empty keeps
@@ -181,9 +206,14 @@ export async function approvePairing(
     throw new InvalidTelegramRequestError("code, agentId and conversationId are required");
   }
 
-  const { routes, pairing } = await readChannelFiles(io);
+  const { routes, pairing, raw } = await readChannelFiles(io);
+  assertParseable("pairing.yaml", raw.pairing);
+  assertParseable("routing.json", raw.routing);
   const now = new Date(nowMs).toISOString();
-  const pendingIndex = pairing.pending.findIndex((entry) => entry.code === code);
+  const wanted = upper(code);
+  const pendingIndex = pairing.pending.findIndex(
+    (entry) => upper(textOrNull(entry.code)) === wanted,
+  );
   if (pendingIndex < 0) throw new TelegramPairingNotFoundError("No such pending pairing");
   const pending = pairing.pending[pendingIndex] as RawEntry;
   if (pendingIsExpired(pending, nowMs)) {
@@ -197,15 +227,27 @@ export async function approvePairing(
   const accountId = textOrNull(pending.accountId) ?? LEGACY_MIGRATED_ACCOUNT_ID;
 
   pairing.pending.splice(pendingIndex, 1);
-  const approved: RawEntry = {
-    accountId,
-    senderId,
-    ...(typeof pending.senderName === "string" ? { senderName: pending.senderName } : {}),
-    approvedAt: now,
-  };
-  pairing.approved.push(approved);
+  // Upstream's `consumePairingCode` skips a duplicate (accountId, senderId);
+  // a sender re-pairing after a TTL must not leave a second row.
+  if (
+    !pairing.approved.some(
+      (entry) => entryAccountId(entry) === accountId && textOrNull(entry.senderId) === senderId,
+    )
+  ) {
+    pairing.approved.push({
+      accountId,
+      senderId,
+      ...(typeof pending.senderName === "string" ? { senderName: pending.senderName } : {}),
+      approvedAt: now,
+    });
+  }
 
-  let route = routes.find((entry) => entry.chatId === chatId);
+  // Upstream keys routes by (accountId, chatId): a stale row from another
+  // account must keep standing (upstream would have added a second row), and
+  // the row we re-point is the one the gateway resolves for THIS account.
+  let route = routes.find(
+    (entry) => entry.chatId === chatId && entryAccountId(entry) === accountId,
+  );
   if (route) {
     // Re-route: keep whatever else the row carried (its own `enabled`,
     // `createdAt`, …) and move only where messages go.
@@ -241,8 +283,10 @@ export async function approvePairing(
 
 /** Ignore a pending code. False when no pending entry carried it (→ 404). */
 export async function dropPending(io: ChannelsIo, code: string): Promise<boolean> {
-  const { pairing } = await readChannelFiles(io);
-  const kept = pairing.pending.filter((entry) => entry.code !== code);
+  const { pairing, raw } = await readChannelFiles(io);
+  assertParseable("pairing.yaml", raw.pairing);
+  const wanted = upper(code.trim());
+  const kept = pairing.pending.filter((entry) => upper(textOrNull(entry.code)) !== wanted);
   if (kept.length === pairing.pending.length) return false;
   await io.write(
     TELEGRAM_PAIRING_PATH,
@@ -253,7 +297,8 @@ export async function dropPending(io: ChannelsIo, code: string): Promise<boolean
 
 /** Remove every route for a chat — the gateway re-reads routing.json per message. False → 404. */
 export async function dropRoutes(io: ChannelsIo, chatId: string): Promise<boolean> {
-  const { routes } = await readChannelFiles(io);
+  const { routes, raw } = await readChannelFiles(io);
+  assertParseable("routing.json", raw.routing);
   const kept = routes.filter((entry) => entry.chatId !== chatId);
   if (kept.length === routes.length) return false;
   await io.write(TELEGRAM_ROUTING_PATH, renderRoutes(kept));

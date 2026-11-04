@@ -2387,6 +2387,19 @@ try {
       );
     }
 
+    if (featureOn(desktopFeatures, "telegram")) {
+      // Same for Telegram (GET /api/channels/telegram): the form means the route
+      // answered. Which half of the form depends on stored state, so assert
+      // either heading rather than assume an unconfigured container.
+      await openSection("Telegram");
+      const telegramText = await page.locator(".settings-pane").innerText();
+      check(
+        "telegram section loads its state",
+        telegramText.includes("Connect a bot") || telegramText.includes("Bot settings"),
+        telegramText,
+      );
+    }
+
     // Google loads its status from the BFF (GET /api/google). Under dev bypass
     // the form must also say it is locked, not just grey its inputs out.
     await openSection("Google Workspace");

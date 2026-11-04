@@ -18,7 +18,10 @@
 
 set -eu
 
-channels_dir=${LETTA_CHANNELS_DIR:-/root/.letta/channels}
+# The same root bff/src/channels/state.ts writes into — hardcoded on purpose,
+# like that file: upstream resolves it from HOME, and a wrapper watching a
+# directory nothing reads would restart for fiction.
+channels_dir=/root/.letta/channels
 poll_seconds=${CHANNEL_GATEWAY_POLL_SECONDS:-5}
 
 child=""
@@ -41,6 +44,11 @@ fingerprint() {
 }
 
 while :; do
+  # A TERM that landed while we were between children must end the wrapper,
+  # not start a gateway Docker has already decided to kill.
+  if [ "$stopping" -eq 1 ]; then
+    exit 0
+  fi
   before=$(fingerprint)
   started=$(date +%s)
 
@@ -76,8 +84,17 @@ while :; do
   fi
   # A child that dies at once (bad token with the network down) must not spin:
   # a crash under ten seconds buys a five-second pause before the next start,
-  # because `--install-channel-runtimes` makes every start an npm check.
+  # because `--install-channel-runtimes` makes every start an npm check. The
+  # pause is sliced because a `sleep 5` foreground child swallows the TERM
+  # until it finishes — one second is the most a stop may wait.
   if [ $(( $(date +%s) - started )) -lt 10 ]; then
-    sleep 5
+    waited=0
+    while [ "$waited" -lt 5 ] && [ "$stopping" -eq 0 ]; do
+      sleep 1
+      waited=$((waited + 1))
+    done
+  fi
+  if [ "$stopping" -eq 1 ]; then
+    exit 0
   fi
 done

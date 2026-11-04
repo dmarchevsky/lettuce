@@ -3,7 +3,7 @@
  * (bff/src/channels/). What applies when: approvals and route removal are
  * re-read by the gateway per inbound message and apply at once; account saves
  * (token, `enabled`) apply when the supervise wrapper restarts the gateway on
- * the file change (docker/channel-gateway/supervise.sh), within seconds.
+ * the file change (docker/channel-gateway-supervise.sh), within seconds.
  */
 
 export interface TelegramAccount {

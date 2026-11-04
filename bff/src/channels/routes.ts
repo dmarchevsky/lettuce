@@ -9,7 +9,7 @@
  * re-read by the gateway per inbound message, so approve/remove need nothing;
  * account changes (token, `enabled`) are read only at gateway startup, so
  * they apply when the supervise wrapper restarts it on the file change
- * (docker/channel-gateway/supervise.sh).
+ * (docker/channel-gateway-supervise.sh).
  *
  * The session check is not here on purpose: `index.ts` gates every `/api/*`
  * route with `requireSession` before registering these.

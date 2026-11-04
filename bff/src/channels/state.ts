@@ -17,13 +17,13 @@
  * as ours when it is `channel: "telegram"` with a usable `accountId`;
  * everything else survives a rewrite untouched and simply is not read.
  *
- * A telegram account carries camelCase fields *plus* snake_case for the four
- * upstream-mapped ones (`group_mode`, `transcribe_voice`,
- * `rich_private_chat_default`, `inbound_debounce_ms`): upstream canonicalizes
- * snake → camel on load, snake winning. We read the same way and write only
- * upstream's own write shape (snake for those four, camel for the rest), so a
- * stale camel twin left by some other writer can never disagree with what
- * the gateway sees.
+ * The four upstream-mapped fields (`group_mode`, `transcribe_voice`,
+ * `rich_private_chat_default`, `inbound_debounce_ms`) appear on disk in
+ * snake_case and camelCase is deleted by upstream's writer; the loader
+ * canonicalizes snake → camel on read and accepts both, snake winning. We read
+ * the same way and write only upstream's write shape (snake for those four,
+ * camel for the rest), so a stale camel twin left by some other writer can
+ * never disagree with what the gateway sees.
  */
 
 import type { ChannelsIo } from "./service.ts";
@@ -93,6 +93,17 @@ function parseJsonObject(text: string | null): RawEntry | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * A file that is there but is not a JSON object. Reading leniently (empty
+ * store) is right; WRITING over such a file is not — it is most likely a torn
+ * write by upstream's non-atomic `writeFileSync`, and overwriting it would
+ * destroy whatever half-wrote there, account included. Write paths check this
+ * and refuse.
+ */
+export function presentButUnparseable(text: string | null): boolean {
+  return text !== null && parseJsonObject(text) === null;
 }
 
 function entryArray(value: unknown): RawEntry[] {
@@ -336,9 +347,13 @@ export function toPublicPending(entry: RawEntry): TelegramPendingSummary | null 
  * (a missing file is `io.read` → null): a save that patched an empty store
  * after a swallowed error would overwrite real state.
  */
-export async function readChannelFiles(
-  io: ChannelsIo,
-): Promise<{ accounts: RawEntry[]; routes: RawEntry[]; pairing: PairingFile }> {
+export async function readChannelFiles(io: ChannelsIo): Promise<{
+  accounts: RawEntry[];
+  routes: RawEntry[];
+  pairing: PairingFile;
+  /** The texts as read, so a write path can refuse a present-but-corrupt file. */
+  raw: { accounts: string | null; routing: string | null; pairing: string | null };
+}> {
   const [accounts, routing, pairing] = await Promise.all([
     io.read(TELEGRAM_ACCOUNTS_PATH),
     io.read(TELEGRAM_ROUTING_PATH),
@@ -348,5 +363,6 @@ export async function readChannelFiles(
     accounts: parseAccounts(accounts),
     routes: parseRoutes(routing),
     pairing: parsePairing(pairing),
+    raw: { accounts, routing, pairing },
   };
 }

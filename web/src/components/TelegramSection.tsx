@@ -82,6 +82,14 @@ export function TelegramSection({ session }: { session: SessionApi }) {
     [conversations, session],
   );
 
+  // A bound chat reads as "Assistant · Daily log", not a conversation id — so
+  // the agents the routes point at get their lists fetched for display too.
+  useEffect(() => {
+    for (const route of status?.routes ?? []) {
+      if (route.agentId) loadConversations(route.agentId);
+    }
+  }, [status, loadConversations]);
+
   const act = async (action: () => Promise<unknown>, done: string) => {
     setBusy(true);
     try {
@@ -99,6 +107,16 @@ export function TelegramSection({ session }: { session: SessionApi }) {
 
   const account = status?.account ?? null;
 
+  /** A route's conversation by name once its agent's list has arrived; the id until then. */
+  const conversationLabel = (route: {
+    agentId: string | null;
+    conversationId: string | null;
+  }): string => {
+    const list = route.agentId ? conversations[route.agentId] : undefined;
+    const found = list?.find((conversation) => conversation.id === route.conversationId);
+    return found ? found.summary : (route.conversationId ?? "—");
+  };
+
   const save = () => {
     const trimmed = token.trim();
     void act(
@@ -111,7 +129,9 @@ export function TelegramSection({ session }: { session: SessionApi }) {
       },
       account
         ? "Saved — the gateway reloads with it in a few seconds."
-        : "Saved — message the bot to get a pairing code.",
+        : // The token is regex-checked, never asked Telegram: a wrong one saves
+          // and simply leaves the bot silent. Say who can actually tell.
+          "Saved — now message the bot. If it stays silent, the token is wrong; the gateway’s log says so.",
     );
   };
 
@@ -225,7 +245,7 @@ export function TelegramSection({ session }: { session: SessionApi }) {
           >
             <option value="pairing">Pairing — new chats get a code you approve here</option>
             <option value="allowlist">Allowlist — only the users you list</option>
-            <option value="open">Open — anyone who finds the bot</option>
+            <option value="open">Open — anyone who finds the bot talks to the agent</option>
           </select>
         </label>
         <div className="button-row">
@@ -239,6 +259,13 @@ export function TelegramSection({ session }: { session: SessionApi }) {
           </button>
         </div>
       </div>
+
+      {!account ? (
+        <p className="small pad">
+          Message the bot once after saving and the pairing appears below with its code — no
+          container steps: the runtime installs itself when the gateway starts.
+        </p>
+      ) : null}
 
       {status.pending.length > 0 ? (
         <>
@@ -344,8 +371,7 @@ export function TelegramSection({ session }: { session: SessionApi }) {
                         {!route.enabled ? " (disabled)" : ""}
                       </span>
                       <span className="menu-row-desc">
-                        {agentName(agents, route.agentId)} ·{" "}
-                        <span className="mono">{route.conversationId ?? "—"}</span>
+                        {agentName(agents, route.agentId)} · {conversationLabel(route)}
                       </span>
                     </span>
                     <button
