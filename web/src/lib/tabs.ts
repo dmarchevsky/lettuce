@@ -45,9 +45,12 @@ const PANEL_PIN_KEY = "lettuce:panel-pinned";
 
 export function readPanelPin(): boolean {
   try {
-    return globalThis.localStorage?.getItem(PANEL_PIN_KEY) !== "0";
+    // The drawer starts SHUT: the rail carries the agent names now, so the column
+    // of conversations is a thing you reach for rather than one you live beside.
+    // Only an explicit "1" — someone pressed the pin — makes it a standing column.
+    return globalThis.localStorage?.getItem(PANEL_PIN_KEY) === "1";
   } catch {
-    return true;
+    return false;
   }
 }
 

@@ -56,6 +56,26 @@ async function signIn(page: Page): Promise<void> {
     // rather than for the load event, which fires on the sign-in page.
     await page.waitForSelector(".app", { timeout: 20_000 });
   }
+  // The conversation drawer ships SHUT, and most of this suite is geometry written
+  // against the standing column — so every desktop entry point puts it up and pins
+  // it, and the shut state is tested where it is tested on purpose (the peek checks).
+  if (
+    await page
+      .locator("nav.rail")
+      .isVisible()
+      .catch(() => false)
+  ) {
+    await page.waitForSelector(".rail .rail-all", { timeout: 20_000 });
+    if (await page.locator(".sidebar.hidden").count()) {
+      await page.locator(".rail .rail-all").click();
+      await page.waitForTimeout(250);
+    }
+    const pin = page.locator(".sidebar .panel-pin");
+    if ((await pin.getAttribute("aria-pressed").catch(() => null)) !== "true") {
+      await pin.first().click();
+      await page.waitForTimeout(250);
+    }
+  }
 }
 
 /** Load the app authenticated and settled. */
@@ -396,6 +416,9 @@ try {
       // shows. Asserted by its label because that IS the state — there is no
       // pressed style to read and nothing should be.
       const scopeLink = page.locator(".pane .filters button.link").first();
+      // A cold app-server makes the pane's own controls arrive late; give them the
+      // chance before deciding the pane lost its one control.
+      await scopeLink.waitFor({ state: "attached", timeout: 10_000 }).catch(() => {});
       const hasScopeLink = (await scopeLink.count()) > 0;
       // Not wrapped in the `if` below: a pane that lost its one control must fail
       // the run, not skip its assertions.
@@ -799,7 +822,7 @@ try {
       // Agent identity is content too: an avatar preference or a name the operator
       // chose (🐢, 🚀) is not a glyph the UI drew, and failing on it made this check
       // depend on who happens to be installed in the stack you are pointing at.
-      const chromeOnly = ".entry, .agent-avatar, .where-avatar, .panel-agent, .rail-agent";
+      const chromeOnly = ".entry, .agent-avatar, .where-avatar, .rail-agent";
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
         acceptNode: (node) =>
           node.parentElement?.closest(chromeOnly)
@@ -1402,53 +1425,50 @@ try {
       await page.waitForTimeout(400);
     }
 
-    // The agents are the rail's avatar column now — one answer to "which agent",
-    // beside the panes, with nothing about them reading as another conversation.
+    // The agents are the rail's list now — one answer to "which agent", beside the
+    // panes, with nothing about them reading as another conversation.
     check("no agent dropdown on desktop", (await page.locator(".sidebar select").count()) === 0);
     check(
       "and no agent face in the desktop header — the rail already is that",
       !(await page.locator(".topbar .where-avatar").isVisible()),
     );
     check(
-      "the rail lists every agent as an avatar, plus one fixed all cell outside the list",
+      "the rail lists every agent, with the new-agent verb in the list and the drawer verb fixed under it",
       (await page.locator(".rail .rail-agent[data-agent-id]").count()) >= 1 &&
         (await page.locator(".rail .rail-all").count()) === 1 &&
         (await page.locator(".rail .rail-agents .rail-all").count()) === 0 &&
-        (await page.locator(".rail .rail-new").count()) === 0,
+        (await page.locator(".rail .rail-agents .rail-new").count()) === 1,
     );
     check(
       "the rail has no agent rows of its own any more",
       (await page.locator(".rail .agent-row").count()) === 0,
     );
     check(
-      "the panel carries conversations on top and names-only agents at the bottom",
+      "the drawer carries conversations only — the agent list is not copied",
       (await page.locator(".sidebar .agent-avatar").count()) === 0 &&
         (await page.locator(".sidebar .conversation-row").count()) >= 1 &&
-        (await page.locator(".sidebar .panel-agent").count()) >= 1,
+        (await page.locator(".sidebar .panel-agent").count()) === 0,
     );
-    // The rail's face is the agent's one icon — no name under it. The name lives
-    // in the panel's bottom block, the other half of the same selection control.
+    // The rail is the agent list, so it carries the names: a face with no word
+    // beside it in a 184px column is the design that was thrown out.
     check(
-      "the rail wears faces only: no names under them any more",
-      (await page.locator(".rail .rail-agent-name").count()) === 0 &&
-        (await page.locator('.rail .rail-agent[data-agent-id][title*="conversations"]').count()) >=
-          1,
+      "every rail agent row is a face with its name",
+      (await page.locator(".rail .rail-agent-name").count()) ===
+        (await page.locator(".rail .rail-agent[data-agent-id]").count()) &&
+        // the label is uppercased by CSS, so compare what it says, not how it is painted
+        (await page.locator(".rail .rail-group-label").first().innerText()).trim().toLowerCase() ===
+          "agents",
+      await page.locator(".rail .rail-agent-name").allInnerTexts(),
     );
-    // The agent block that draws the seam marks the same agent the face does:
-    // the two halves mark one agent across the seam.
-    const panelActive = (
-      await page.locator(".sidebar .panel-agent.active").first().innerText()
-    ).trim();
+    // The drawer says whose list it is, and it is the agent the rail has lit.
+    const owner = (await page.locator(".sidebar .panel-owner").innerText()).trim();
     const railActive = (
-      (await page.locator(".rail .rail-agent.active").first().getAttribute("title")) ?? ""
-    )
-      .replace(/\s*\(pinned\)/, "")
-      .split(" —")[0]
-      .trim();
+      (await page.locator(".rail .rail-agent.active .rail-agent-name").first().innerText()) ?? ""
+    ).trim();
     check(
-      "the panel's active name is the rail's active agent",
-      panelActive.length > 0 && panelActive === railActive,
-      { panelActive, railActive },
+      "the drawer names the agent whose conversations it lists — the rail's active one",
+      railActive.length > 0 && owner.startsWith(railActive),
+      { owner, railActive },
     );
     const bars = await page.evaluate(() => {
       const left = (sel: string) =>
@@ -1513,11 +1533,11 @@ try {
       JSON.stringify(railPanes) === JSON.stringify(expectedPanes),
       { railPanes, expectedPanes },
     );
-    // One square cell for every slot: the column is `--rail-w` wide and a pane cell,
-    // an agent face and the all cell are all `--rail-cell` tall. They used to be three
-    // different pitches (a ~46px content box beside 44px faces) in a 74px column; the
-    // expected size is read from the token, so re-tuning it fails only a real mismatch.
-    const cells = await page.evaluate(() => {
+    // One row language for the whole column: the rail is `--rail-w` wide and a pane,
+    // an agent row and the foot verb all ride `--rail-row`. There used to be three
+    // pitches here (pane cells, avatar squares, a fixed foot) in a 56px column; the
+    // expected size is read from the tokens, so re-tuning fails only a real mismatch.
+    const rows = await page.evaluate(() => {
       const styles = getComputedStyle(document.documentElement);
       const px = (name: string) => Number.parseFloat(styles.getPropertyValue(name));
       const box = (sel: string) => {
@@ -1527,24 +1547,31 @@ try {
         return { w: Math.round(r.width), h: Math.round(r.height) };
       };
       return {
-        cell: px("--rail-cell"),
+        row: px("--rail-row"),
         railVar: px("--rail-w"),
         rail: box("nav.rail"),
         pane: box(".rail .rail-item"),
         face: box(".rail .rail-agent[data-agent-id]"),
-        all: box(".rail .rail-all"),
+        owner: box(".rail .rail-agent[data-agent-id] .agent-avatar"),
+        foot: box(".rail .rail-all"),
       };
     });
     check(
-      "the rail is --rail-cell wide and every slot is a --rail-cell square",
-      cells.cell > 0 &&
-        cells.railVar === cells.cell &&
-        cells.rail?.w === cells.cell &&
-        cells.pane?.w === cells.cell &&
-        cells.pane?.h === cells.cell &&
-        cells.face?.h === cells.cell &&
-        cells.all?.h === cells.cell,
-      cells,
+      "the rail is --rail-w wide and every row is --rail-row tall (the foot verb aside)",
+      rows.row > 0 &&
+        rows.railVar === rows.row + 154 &&
+        rows.rail?.w === rows.railVar &&
+        rows.pane?.w === rows.railVar &&
+        rows.pane?.h === rows.row &&
+        rows.face?.h === rows.row &&
+        rows.face?.w === rows.railVar &&
+        (rows.foot?.h ?? 0) > rows.row,
+      rows,
+    );
+    check(
+      "the agent face is the small size the row can carry",
+      rows.owner !== null && rows.owner.h <= 24 && rows.owner.h >= 18,
+      rows.owner,
     );
     // The panel belongs to Chat, and a secondary pane is not about conversations.
     const panelOn = () => page.evaluate(() => !document.querySelector(".sidebar.hidden"));
@@ -1596,7 +1623,7 @@ try {
       "unpinned, the panel is still open on Chat",
       (await pin.getAttribute("aria-pressed")) === "false" && (await panelOn()),
     );
-    await page.locator(".messages").click({ position: { x: 40, y: 40 } });
+    await page.locator(".messages").click({ position: { x: 620, y: 300 } });
     await page.waitForTimeout(300);
     check("clicking past it puts the peek away", !(await panelOn()));
     // Hovering the open agent's avatar is the other way back, and it answers with
@@ -1605,7 +1632,7 @@ try {
     await page.waitForTimeout(400);
     check("hovering the open agent's avatar opens its panel", await panelOn());
     check("and nothing else appeared to do it", (await page.locator(".flyout").count()) === 0);
-    await page.locator(".messages").click({ position: { x: 40, y: 40 } });
+    await page.locator(".messages").click({ position: { x: 620, y: 300 } });
     await page.waitForTimeout(300);
     check("and a press past it puts it away again", !(await panelOn()));
     await page.locator(".rail .rail-item:text-is('Chat')").click();
@@ -1648,7 +1675,7 @@ try {
         await pinButton.click();
         await page.waitForTimeout(300);
       }
-      await page.locator(".messages").click({ position: { x: 40, y: 40 } });
+      await page.locator(".messages").click({ position: { x: 620, y: 300 } });
       await page.waitForTimeout(300);
       check("the panel is away before it is borrowed", !(await panelOn()));
 
@@ -1678,34 +1705,38 @@ try {
         );
       }
       if (wasActive >= 0) {
+        // Picking from an unpinned drawer closed it — that is the drawer's job now —
+        // so bring it back before putting the original conversation back on screen.
+        if (await page.locator(".sidebar.hidden").count()) {
+          await page.locator(".rail .rail-all").click();
+          await page.waitForTimeout(300);
+        }
         await ownRows.nth(wasActive).locator(".conversation-name").click();
         await page.waitForTimeout(400);
       }
       // Resting on your own face opened the panel the way pressing Chat does, and it
       // stays until you put it away — put it away, because what follows is a borrow
       // and a borrow needs the panel to be absent first.
-      await page.locator(".messages").click({ position: { x: 40, y: 40 } });
+      await page.locator(".messages").click({ position: { x: 620, y: 300 } });
       await page.waitForTimeout(300);
       check("and pressing elsewhere puts the hovered panel away", !(await panelOn()));
       await page.mouse.move(600, 400);
       await page.waitForTimeout(400);
       await otherAgent.hover();
       await page.waitForTimeout(700);
-      const borrowed = (await page.locator(".sidebar .panel-agent.preview").innerText()).trim();
       check(
-        "hovering another agent marks its row and opens its conversations",
-        (await panelOn()) && borrowed === otherName,
-        { borrowed, otherName },
+        "hovering another agent opens its conversations in the drawer",
+        (await panelOn()) &&
+          (await page.locator(".sidebar .panel-owner").innerText()).startsWith(otherName),
+        {
+          owner: (await page.locator(".sidebar .panel-owner").innerText()).trim(),
+          otherName,
+        },
       );
-      // One row, both halves: the rail's hover lights the panel's row too, and
-      // no row anywhere in this pair wears an inset color bar — hover, held and
-      // selected are all one language: the row background.
-      check(
-        "the rail's hover lights the panel's row as one row",
-        (await page.locator(".sidebar .panel-agent.held").count()) === 1,
-      );
+      // The rail marks the borrow on the row itself, and no row anywhere wears an
+      // inset bar — hover, borrow and selection are all one language: the row background.
       const rowMarks = await page.evaluate(() =>
-        [...document.querySelectorAll(".sidebar .panel-agent, .rail .rail-agent")].map(
+        [...document.querySelectorAll(".rail .rail-agent")].map(
           (el) => getComputedStyle(el).boxShadow,
         ),
       );
@@ -1794,157 +1825,88 @@ try {
       console.log("  SKIP  the borrowed panel needs a second agent");
     }
 
-    // The seam divider is the agent blocks' own border-top: both blocks are
-    // content-height and bottom-docked, so the hairline rides the FIRST agent
-    // and the rail's measured height is the panel's — one row across the seam
-    // at any window size, conversations list reaching it from above.
-    const seam = await page.evaluate(() => {
+    // The rail and the drawer are now two independent things: the rail is a column
+    // of rows that runs the height on its own, and the drawer is either a column of
+    // the grid (pinned) or a sheet floating over the transcript (a peek). Nothing
+    // measures one onto the other any more — that was the seam, and it is gone.
+    const layout = await page.evaluate(() => {
       const rect = (sel: string) => {
         const el = document.querySelector(sel);
         return el ? el.getBoundingClientRect() : null;
-      };
-      const band = rect(".band");
-      const railBlock = rect(".rail-agents");
-      const panelBlock = rect(".panel-agents");
-      const firstPane = rect(".rail .rail-item");
-      const railAll = rect(".rail .rail-all");
-      if (!band || !railBlock || !panelBlock || !firstPane) return null;
-      return {
-        bandBottom: Math.round(band.bottom),
-        bandRight: Math.round(band.right),
-        // The divider is the block's own border-top now — its top row IS the
-        // hairline, in both columns, so the two tops are compared directly.
-        splitTop: Math.round(railBlock.top),
-        panelTop: Math.round(panelBlock.top),
-        railH: Math.round(railBlock.height),
-        panelH: Math.round(panelBlock.height),
-        panelFoot: Math.round(panelBlock.bottom),
-        railAllFoot: railAll ? Math.round(railAll.bottom) : -1,
-        panelNewFoot: (() => {
-          const r = rect(".sidebar .panel-new");
-          return r ? Math.round(r.bottom) : -1;
-        })(),
-        firstPaneTop: Math.round(firstPane.top),
-        window: window.innerWidth,
-        height: window.innerHeight,
-      };
-    });
-    check(
-      "rail and panel share one divider row",
-      seam !== null && Math.abs(seam.splitTop - seam.panelTop) <= 1,
-      seam,
-    );
-    check(
-      "the two agent blocks carry the same height",
-      seam !== null && seam.railH === seam.panelH,
-      seam,
-    );
-    check(
-      "both columns dock their foot cell on the same line at the foot",
-      seam !== null &&
-        seam.railAllFoot >= seam.height - 12 &&
-        seam.panelNewFoot >= seam.height - 12 &&
-        Math.abs(seam.railAllFoot - seam.panelNewFoot) <= 2,
-      seam,
-    );
-    check(
-      "the band spans the whole window",
-      seam !== null && seam.bandRight >= seam.window - 1,
-      seam,
-    );
-    check(
-      "the rail sits flush under the band",
-      seam !== null && seam.firstPaneTop - seam.bandBottom <= 2,
-      seam,
-    );
-    // A short window is where the bottom-docked blocks actually clamp: both must
-    // shrink, keep scrolling from their top, and the seam must still be ONE row.
-    await page.setViewportSize({ width: DESKTOP.width, height: 560 });
-    await page.waitForTimeout(400);
-    // Hand the baseline height into the measure below without a second layout pass.
-    await page.evaluate((h: number) => {
-      (window as unknown as { __railH: number }).__railH = h;
-    }, seam?.railH ?? 0);
-    const clamped = await page.evaluate(() => {
-      const el = (sel: string) => document.querySelector(sel);
-      const rb = el(".rail-agents");
-      const pb = el(".panel-agents");
-      const all = el(".rail .rail-all");
-      if (!rb || !pb || !all) return null;
-      const r = rb.getBoundingClientRect();
-      const p = pb.getBoundingClientRect();
-      const a = all.getBoundingClientRect();
-      const seamRailH = Number(window.__railH ?? 0);
-      return {
-        splitTop: Math.round(r.top),
-        panelTop: Math.round(p.top),
-        railH: Math.round(r.height),
-        panelH: Math.round(p.height),
-        // The rail block clamps only when the list outgrows the room; either way
-        // it must end no lower than the all cell's top, and shrinking the window
-        // must never make the block taller.
-        fitsAboveAll: r.bottom <= a.top + 1,
-        clampedOrSame: r.height <= seamRailH + 1,
-        height: window.innerHeight,
-      };
-    });
-    check(
-      "at 560px height the seam is still one row and both blocks clamp",
-      clamped !== null &&
-        Math.abs(clamped.splitTop - clamped.panelTop) <= 1 &&
-        clamped.railH === clamped.panelH &&
-        clamped.fitsAboveAll &&
-        clamped.clampedOrSame,
-      clamped,
-    );
-    await page.setViewportSize(DESKTOP);
-    await page.waitForTimeout(400);
-    // Faces and names are one list cut in half: same count, and each pair rides
-    // the same line — measured center to center, not trusted from pitch math.
-    const pairs = await page.evaluate(() => {
-      const centers = (sel: string) =>
-        [...document.querySelectorAll(sel)].map((el) => {
-          const r = el.getBoundingClientRect();
-          return Math.round(r.top + r.height / 2);
-        });
-      return {
-        rail: centers(".rail .rail-agents .rail-agent[data-agent-id]"),
-        panel: centers(".sidebar .panel-agents .panel-agent[data-agent-id]"),
-      };
-    });
-    check(
-      "every face rides the same line as its name",
-      pairs.rail.length >= 1 &&
-        pairs.rail.length === pairs.panel.length &&
-        pairs.rail.every((c, i) => Math.abs(c - pairs.panel[i]) <= 1),
-      pairs,
-    );
-    // The lists ride the foot: the last face sits on the all cell and the last
-    // name on New-agent — a short list sinks to them instead of hanging under
-    // the divider (and a long one fills to them, so this holds either way).
-    const footSeat = await page.evaluate(() => {
-      const bot = (sel: string) => {
-        const els = document.querySelectorAll(sel);
-        return els.length ? Math.round(els[els.length - 1].getBoundingClientRect().bottom) : -1;
       };
       const top = (sel: string) => {
         const el = document.querySelector(sel);
         return el ? Math.round(el.getBoundingClientRect().top) : -1;
       };
+      const round = (v: number | null) => (v === null ? -1 : Math.round(v));
+      const band = rect(".band");
+      const rail = rect(".rail");
+      const side = rect(".sidebar");
+      const main = rect(".main");
+      const agents = rect(".rail-agents");
+      const all = rect(".rail .rail-all");
       return {
-        lastFaceToAll:
-          top(".rail .rail-all") - bot(".rail .rail-agents .rail-agent[data-agent-id]"),
-        lastNameToNew:
-          top(".sidebar .panel-new") - bot(".sidebar .panel-agents .panel-agent[data-agent-id]"),
+        bandBottom: round(band?.bottom ?? null),
+        bandRight: round(band?.right ?? null),
+        railRight: round(rail?.right ?? null),
+        firstPaneTop: top(".rail .rail-item"),
+        sideLeft: round(side?.left ?? null),
+        sideRight: round(side?.right ?? null),
+        mainLeft: round(main?.left ?? null),
+        agentsBottom: round(agents?.bottom ?? null),
+        allBottom: round(all?.bottom ?? null),
+        pinned: document.querySelector(".sidebar")?.classList.contains("peek") === false,
+        peekShadow: document.querySelector(".sidebar")
+          ? getComputedStyle(document.querySelector(".sidebar")!).boxShadow
+          : "",
+        height: window.innerHeight,
+        width: window.innerWidth,
+      };
+    });
+    check("the band spans the whole window", layout.bandRight >= layout.width - 1, layout);
+    check(
+      // Flush means no gap worth naming: a couple of px of top air plus the band's
+      // hairline. A drifted column shows up as tens, not fours.
+      "the rail sits flush under the band",
+      layout.firstPaneTop - layout.bandBottom <= 6,
+      layout,
+    );
+    check(
+      "pinned, the drawer is a column: the transcript starts after it",
+      layout.pinned && layout.sideLeft === layout.railRight && layout.mainLeft >= layout.sideRight,
+      layout,
+    );
+    check(
+      "the rail's own foot verb is the last thing in the column",
+      layout.allBottom >= layout.height - 12 && layout.agentsBottom <= layout.allBottom,
+      layout,
+    );
+    // A short window no longer clamps a mirrored pair — the rail block scrolls in
+    // its own column and the transcript keeps its height.
+    await page.setViewportSize({ width: DESKTOP.width, height: 560 });
+    await page.waitForTimeout(400);
+    const short = await page.evaluate(() => {
+      const el = (sel: string) => document.querySelector(sel);
+      const agents = el(".rail-agents");
+      const all = el(".rail .rail-all");
+      if (!agents || !all) return null;
+      return {
+        scrolls: agents.scrollHeight > agents.clientHeight + 1,
+        fitsAboveAll: agents.getBoundingClientRect().bottom <= all.getBoundingClientRect().top + 1,
+        allOnFoot: all.getBoundingClientRect().bottom >= window.innerHeight - 12,
       };
     });
     check(
-      "the last face and the last name sit on their docked foot cell",
-      footSeat.lastFaceToAll >= 0 &&
-        footSeat.lastFaceToAll <= 10 &&
-        footSeat.lastNameToNew >= 0 &&
-        footSeat.lastNameToNew <= 10,
-      footSeat,
+      "at 560px height the agent block scrolls inside the rail and the foot verb stays",
+      short !== null && short.fitsAboveAll && short.allOnFoot,
+      short,
+    );
+    await page.setViewportSize(DESKTOP);
+    await page.waitForTimeout(400);
+    check(
+      "New agent is the last row of the rail's list, not a verb in the drawer",
+      (await page.locator(".sidebar .panel-new").count()) === 0 &&
+        (await page.locator(".rail .rail-agents .rail-new").count()) === 1,
     );
     const activeRing = await page.evaluate(() => {
       const el = document.querySelector(".rail .rail-agent.active .agent-avatar");
@@ -1954,32 +1916,18 @@ try {
       const bar = row ? getComputedStyle(row, "::before") : null;
       return {
         width: s.outlineWidth,
-        color: s.outlineColor,
         barWidth: bar?.width,
         barLeft: bar?.left,
-        barColor: bar?.backgroundColor,
       };
     });
-    check(
-      "the selected avatar keeps its ring whatever the hover does",
-      activeRing !== null && activeRing.width !== "0px" && activeRing.color !== "none",
-      activeRing,
-    );
     check(
       "the selected agent wears the 3px edge bar in its own tint",
       activeRing !== null && activeRing.barWidth === "3px" && activeRing.barLeft === "0px",
       activeRing,
     );
-    check(
-      "New agent docks the panel under its list, outside the scroll",
-      (await page.evaluate(() => {
-        const el = document.querySelector(".sidebar .panel-new");
-        return el ? el.getBoundingClientRect().bottom >= window.innerHeight - 12 : false;
-      })) && (await page.locator(".sidebar .panel-agents .panel-new").count()) === 0,
-    );
 
-    // The band's identity is the panel verb on desktop: it never opens the sheet.
-    // The toggle only exists for an UNPINNED panel (pinned is always-visible), so
+    // The band's identity is the drawer verb on desktop: it never opens the sheet.
+    // The toggle only exists for an UNPINNED drawer (pinned is always visible), so
     // unpin explicitly and prove it before testing the toggle.
     const bandPin = page.locator(".sidebar .panel-pin");
     if ((await bandPin.getAttribute("aria-pressed")) === "true") {
@@ -1987,22 +1935,20 @@ try {
       await page.waitForTimeout(300);
     }
     check(
-      "the panel is unpinned, so the band toggle has something to show",
+      "the drawer is unpinned, so the band toggle has something to show",
       (await bandPin.getAttribute("aria-pressed")) === "false",
     );
-    await page.locator(".messages").click({ position: { x: 40, y: 40 } });
+    await page.locator(".messages").click({ position: { x: 620, y: 300 } });
     await page.waitForTimeout(300);
-    check("the panel is away before the band opens it", !(await panelOn()));
+    check("the drawer is away before the band opens it", !(await panelOn()));
     await page.locator(".topbar .where").click();
     await page.waitForTimeout(400);
     check(
-      "clicking the identity opens the panel, never the sheet",
+      "clicking the identity opens the drawer, never the sheet",
       (await panelOn()) && (await page.locator(".switcher").count()) === 0,
     );
-    // The accessible name must match the verb: with the panel up, the name reads
-    // "Hide conversations" (this is the state the earlier pinned bug got wrong).
     check(
-      "the identity's accessible name says Hide while the panel is up",
+      "the identity's accessible name says Hide while the drawer is up",
       ((await page.locator(".topbar .where").getAttribute("aria-label")) ?? "").includes(
         "Hide conversations",
       ),
@@ -2012,70 +1958,75 @@ try {
     await page.waitForTimeout(400);
     check("and clicking it again puts the peek away", !(await panelOn()));
     check(
-      "the all cell says it will open, while the panel is away",
+      "the rail's foot verb says it will open, while the drawer is away",
+      (await page.locator(".rail .rail-all").getAttribute("aria-pressed")) === "false",
+    );
+    await page.locator(".rail .rail-all").click();
+    // Wait for the list rather than a fixed pause: right after a container restart
+    // the conversations arrive late, and a peek measured before they land reads as
+    // an empty column with no rows to check.
+    await page.waitForSelector(".sidebar .conversation-row", { timeout: 20_000 });
+    await page.waitForTimeout(250);
+    const peek = await page.evaluate(() => {
+      const rect = (sel: string) => {
+        const el = document.querySelector(sel);
+        return el ? el.getBoundingClientRect() : null;
+      };
+      const side = rect(".sidebar");
+      const main = rect(".main");
+      const rail = rect(".rail");
+      const el = document.querySelector(".sidebar");
+      return {
+        floats: el?.classList.contains("peek") === true,
+        sideLeft: side ? Math.round(side.left) : -1,
+        railRight: rail ? Math.round(rail.right) : -1,
+        mainLeft: main ? Math.round(main.left) : -1,
+        width: side ? Math.round(side.width) : -1,
+        shadow: el ? getComputedStyle(el).boxShadow : "",
+        conversations: document.querySelectorAll(".sidebar .conversation-row").length,
+      };
+    });
+    check(
+      "unpinned, the foot verb floats the drawer OVER the transcript",
+      peek.floats &&
+        peek.sideLeft === peek.railRight &&
+        peek.mainLeft <= peek.sideLeft &&
+        peek.conversations >= 1 &&
+        peek.shadow !== "none",
+      peek,
+    );
+    // The peek was opened to answer one question; choosing answers it, so it leaves.
+    await page.locator(".sidebar .conversation-row").first().click();
+    await page.waitForTimeout(500);
+    check("and choosing a conversation puts the peek away", !(await panelOn()));
+    await page.locator(".rail .rail-all").click();
+    await page.waitForTimeout(400);
+    await page.locator(".messages").click({ position: { x: 620, y: 300 } });
+    await page.waitForTimeout(300);
+    check("and pressing outside the peek puts it away too", !(await panelOn()));
+    check(
+      "its aria-pressed follows the drawer",
       (await page.locator(".rail .rail-all").getAttribute("aria-pressed")) === "false",
     );
     await page.locator(".rail .rail-all").click();
     await page.waitForTimeout(400);
-    check(
-      "the all cell opens the panel with the full agent list, never the sheet",
-      (await panelOn()) &&
-        (await page.locator(".switcher").count()) === 0 &&
-        (await page.locator(".sidebar .panel-agent[data-agent-id]").count()) >= 1,
-    );
-    // The all cell is a TOGGLE now — it is the one cell always at the foot of the
-    // column, so pressing it with the panel already up has to be safe.
-    check(
-      "its aria-pressed follows the panel",
-      (await page.locator(".rail .rail-all").getAttribute("aria-pressed")) === "true",
-    );
+    check("the foot verb opens it again", await panelOn());
     await page.locator(".rail .rail-all").click();
     await page.waitForTimeout(400);
-    check(
-      "and pressing it again puts the panel away",
-      !(await panelOn()) &&
-        (await page.locator(".rail .rail-all").getAttribute("aria-pressed")) === "false",
-    );
-    // Re-pin for what follows: the all cell just put the peek away, so ask for the
-    // panel back the way Chat does and then pin it — pinning is what the rest of this
-    // suite assumes, because a pinned column is always on screen and its pin button is
-    // therefore always clickable.
-    if (!(await panelOn())) {
-      await page.locator(".rail .rail-item:text-is('Chat')").click();
-      await page.waitForTimeout(300);
-    }
-    const restorePin = page.locator(".sidebar .panel-pin");
-    if ((await restorePin.getAttribute("aria-pressed")) !== "true") {
-      await restorePin.click();
+    check("and pressing it again puts it away", !(await panelOn()));
+    // Re-pin for what follows: a pinned column is always on screen, so its pin
+    // button and its rows are always clickable for the rest of this suite.
+    await page.locator(".rail .rail-all").click();
+    await page.waitForTimeout(300);
+    if ((await page.locator(".sidebar .panel-pin").getAttribute("aria-pressed")) !== "true") {
+      await page.locator(".sidebar .panel-pin").click();
       await page.waitForTimeout(300);
     }
     check(
-      "and the panel is pinned again for what follows",
-      (await restorePin.getAttribute("aria-pressed")) === "true" && (await panelOn()),
+      "and the drawer is pinned again for what follows",
+      (await page.locator(".sidebar .panel-pin").getAttribute("aria-pressed")) === "true" &&
+        (await panelOn()),
     );
-
-    // One selection control across the seam: resting on an agent's NAME in the
-    // panel marks that agent's FACE in the rail (the borrow marks the other way).
-    const heldRow = page.locator(".sidebar .panel-agent[data-agent-id]:not(.active)").first();
-    if ((await heldRow.count()) > 0) {
-      const heldId = await heldRow.getAttribute("data-agent-id");
-      await heldRow.hover();
-      await page.waitForTimeout(400);
-      check(
-        "resting on a name marks that face and borrows its conversations — even pinned",
-        (await page.locator(`.rail .rail-agent[data-agent-id="${heldId}"].held`).count()) === 1 &&
-          (await page.locator('.sidebar [aria-label^="New conversation with"]').count()) === 1,
-      );
-      await page.mouse.move(600, 400);
-      await page.waitForTimeout(250);
-      check(
-        "and leaving unmarks it and returns the list",
-        (await page.locator(".rail .rail-agent.held").count()) === 0 &&
-          (await page.locator('.sidebar [aria-label^="New conversation with"]').count()) === 0,
-      );
-    } else {
-      console.log("  SKIP  the cross-selection mark needs a second agent");
-    }
 
     // Pinned agents are the first avatars, and say so with a notch — the order is
     // the whole point of pinning, and an unlabeled order is invisible.
@@ -2483,9 +2434,15 @@ try {
     // busy stack, and a fixed 10s peek at the DOM would read a still-loading pane
     // as an empty one.
     const providersDeadline = Date.now() + 30_000;
-    let paneText = await page.locator(".settings-pane").innerText().catch(() => "");
+    let paneText = await page
+      .locator(".settings-pane")
+      .innerText()
+      .catch(() => "");
     for (;;) {
-      paneText = await page.locator(".settings-pane").innerText().catch(() => "");
+      paneText = await page
+        .locator(".settings-pane")
+        .innerText()
+        .catch(() => "");
       if ((await page.locator(".settings-pane .prov-meta").count()) > 0) break;
       if (/No providers yet/.test(paneText)) break;
       if (Date.now() > providersDeadline) break;
@@ -2689,7 +2646,7 @@ try {
       "the all cell is the third way out: back to Chat, with the panel and the faces",
       (await page.locator(".settings-pane").count()) === 0 &&
         (await page.locator(".rail .rail-item.active").innerText()).trim() === "Chat" &&
-        (await page.locator(".sidebar .panel-agent[data-agent-id]").count()) >= 1,
+        (await page.locator(".rail .rail-agent[data-agent-id]").count()) >= 1,
     );
     await openSettings(page);
     await page.locator(".topbar-gear").click();
@@ -3551,7 +3508,7 @@ try {
     // pane puts the panel away; the Agent tab cannot show both at once).
     await openTab(page, "Chat");
     await page.waitForTimeout(400);
-    await page.locator('.sidebar .panel-new[aria-label="New agent"]').click();
+    await page.locator(".rail .rail-new").click();
     await page.locator('.sheet-panel[aria-label="New agent"]').waitFor();
     await page.locator('.sheet-panel[aria-label="New agent"] .field-trigger').click();
     await sheet.waitFor({ timeout: 8_000 });

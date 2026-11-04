@@ -1,6 +1,6 @@
 ---
 name: lettuce-ui-conventions
-description: 'lettuce UI conventions that are ours: pin/archive lists live in the BFF, not the agent; a viewport-fixed AgentMenu; the desktop rail — one 64px square per slot (`--rail-cell`), panes up top, a faces-only agent column docked at the foot by a fixed ☰ cell that TOGGLES the panel, and the column becoming Settings'' sections while that pane is open; a phone bar of five equal slots under a header carrying the open agent''s face (`.where-avatar`); the gear IS the link light and the door to Settings, and a non-Chat pane''s fixed corner `.pane-close` is what its bar keeps clear; both nav surfaces stay mounted and CSS picks one: ui-check reads the open agent from `.rail-agent.active[data-agent-id]`; the settings split (Agent, Tools, the Settings pane); no native checkbox (.menu-row-box / .chip-check). Read before touching web/src/components/AgentMenu, NavRail, BottomBar, Sidebar, tabs/AgentTab.tsx, tabs/ToolsTab.tsx, tabs/SettingsTab.tsx, lib/settings-sections.ts, lib/tabs.ts, use-agents, or bff/src/agents/id-list.ts.
+description: 'lettuce UI conventions that are ours: pin/archive lists live in the BFF, not the agent; a viewport-fixed AgentMenu; the desktop rail — one 184px column of 30px rows (`--rail-row`): named panes, an AGENTS group of face+name rows, and a worded ☰ foot cell that TOGGLES the conversation drawer (a pinned column or an unpinned peek), the column becoming Settings'' sections while that pane is open; a phone bar of five equal slots under a header carrying the open agent''s face (`.where-avatar`); the gear IS the link light and the door to Settings, and a non-Chat pane''s fixed corner `.pane-close` is what its bar keeps clear; both nav surfaces stay mounted and CSS picks one: ui-check reads the open agent from `.rail-agent.active[data-agent-id]`; the settings split (Agent, Tools, the Settings pane); no native checkbox (.menu-row-box / .chip-check). Read before touching NavRail, Sidebar, BottomBar, AgentMenu, the Agent/Tools/Settings tabs, settings-sections.ts or tabs.ts.'
 ---
 
 # Agent list and sidebar UI conventions
@@ -23,23 +23,22 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   archived agent has no way back yet (that entry retired with the all-in-one panel list; tracked as
   its own follow-up flow).
 - **Navigation is two surfaces, one per width, and `web/src/lib/tabs.ts` is the pane list they
-  share.** Desktop gets a `--rail-w` (56px) **rail** (`NavRail`: the named panes (Chat, Files,
-  Tasks, Tools, Agent) up top, then a **faces-only** agent column riding the foot (its own
-  `border-top` draws the seam across both columns, riding the first agent) — no labels,
-  the name lives in the panel row beside each face — and a fixed ☰ cell docked at the foot outside
-  the scroll. **Every slot is one square** (`--rail-cell`, 56px, and the column carries no side
-  padding): a ~46px content box beside a 44px face beside a 44px ☰ read as three unrelated lists,
-  where one number makes it one list with three kinds of row — and the panel's name rows wear the
-  same height so the seam still pairs. There is no Settings cell: the band's gear is the door, and
-  **while Settings is the open pane the rail is a different list** — Back at the head, the sections
-  in 30px rows (icon then full name, left-aligned) under their group words, the same ☰ at the foot —
-  and the column widens to `--rail-w-settings` for the job, because a list of words needs a column
-  that can hold one. The square pitch governs the default rail, not this one. The agent block is
-  content-height and rides the foot: a short list sits on the ☰, a long one shrinks back and
-  scrolls. **The ☰ is a toggle**, not the one-way verb it was: with no panel up it goes to Chat and
-  brings the panel; with a panel up it puts it away, and a pinned panel gives up its pin in the same
-  click (`aria-pressed` is the panel's visibility) — the identity button's precedent, since asking to
-  hide a pinned column means you mean it. There is no More, because a rail has room to name every
+  share.** Desktop gets a `--rail-w` (184px) **rail** (`NavRail`: the named panes (Chat, Files,
+  Tasks, Tools, Agent) up top, then an `AGENTS` group word with one **face+name row per agent**
+  (face at 22px, the name taking the room), then `＋ New agent`, then a fixed ☰ cell docked at the
+  foot outside the scroll). **Every slot is one row** (`--rail-row`, 30px, glyph then word,
+  left-aligned). The rail used to be a 56px strip of icon-only squares whose agent names lived in a
+  *second* copy of the same list inside the panel, and that pair needed a mirrored height, a
+  mirrored scrollTop and a shared hover mark to pass for one control — the machinery is deleted and
+  the row language the Settings column already proved carries the whole rail. There is no Settings
+  cell: the band's gear is the door, and **while Settings is the open pane the rail is a different
+  list** — Back at the head, the sections in the same rows under their group words, the same ☰ at
+  the foot. The agent block is content-height and rides the foot: a short list sits on the ☰, a long
+  one shrinks back and  scrolls. **The ☰ is a toggle and it is worded** (`Conversations`): with no drawer up it goes to Chat
+  and brings the drawer; with one up it puts it away, and a pinned drawer gives up its pin in the
+  same click (`aria-pressed` is the drawer's visibility) — the identity button's precedent, since
+  asking to hide a pinned column means you mean it. The word is the point: a bare ☰ under a column
+  of words reads as a stray glyph, and the cell that said *All agents* now says what it opens. There is no More, because a rail has room to name every
   pane. A secondary pane always carries a fixed **corner close** (`.pane-close`, top-right under the
   band's hairline, the sheet's own glyph) whose verb is back to Chat, and the band's title names that
   pane while it is up; `.main` grows `.closable` so the pane's own `.pane-bar` pads its right end
@@ -62,30 +61,28 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   pane's top right — `show all`, which reads `<agent> only` while everything is showing; the scope is
   a look, never stored, and it resets when you switch agents. A run with no workspace owner (cron- and
   channel-fired workers run in `/work` itself) surfaces only under `show all`, reading `no agent`.
-  One `--rail-cell` (56px) is the shared row
-  height of a rail cell and the panel's name row, and the two agent blocks are congruent boxes —
-  the seam is each block's own `border-top`, and `App` mirrors the rail block's measured height
-  onto the panel — so a face's and a name's centers land on one line, and one hover lights both
-  halves at once with a plain row background (no accent or amber bars). Beside it the **panel** (`Sidebar`) belongs to Chat:
-  conversations on top (a tool row with New and the pin, then search), and the same agents again as
-  a names-only block docked at its foot, `＋ New-agent` under it. A secondary pane puts it away,
-  and the pin (in that tool row; localStorage, pinned by default) decides whether Chat keeps it as
-  a column or treats it as a peek that closes on a press anywhere else — except the top band, whose
-  identity button IS the show/hide verb (clicking it while pinned unpins and hides). It stays **mounted** when hidden — its
+  Beside the rail sits the **drawer** (`Sidebar`), Chat's, holding conversations and nothing else —
+  there is no agent list in it, because the rail is that list. It names whose list it is at its head
+  (`.panel-owner`: the agent, then `N conversations`, the count left out while it is still unknown).
+  A secondary pane puts it away, and the pin (in the tool row under the owner; localStorage,
+  **unpinned by default** — the rail carries the names now, so the drawer is something you reach
+  for, not something you live beside) decides its shape: pinned it is a column of the grid
+  (`--panel-w`), unpinned it is a **peek** floating over the transcript with a shadow
+  (`--drawer-w`), and it puts itself away when you press outside it or choose something in it —
+  choosing is what closes a peek, since it was opened to answer that one question. The exception is
+  the top band, whose  identity button IS the show/hide verb (clicking it while pinned unpins and hides). It stays **mounted** when hidden — its
   polling is what fills `activeScopes`, so an agent that is answering still lights its avatar.
-  **There is one conversation panel, its New button says whose list it shows, and a hover
-  borrows it.** The panel wears no head; the New button reads `New conversation with X` while a
+  **There is one conversation drawer, its New button says whose list it shows, and a hover
+  borrows it.** The drawer's only head line is its owner; the New button reads `New conversation with X` while a
   borrowed list is up — a list silent about whose it is makes the next click a gamble.
   Resting on an avatar (120ms of deliberate rest, mouse only) asks `App` to show that agent's
-  list in the same panel (`previewId` + `onPreviewAgent`, lists from `use-agent-conversations.ts`),
+  list in the same drawer (`previewId` + `onPreviewAgent`, lists from `use-agent-conversations.ts`),
   read-only while borrowed: no archive, no rename — those belong to the agent whose panel this is.
   The **open** agent's own avatar is never borrowed — resting on it is "give me my own list
   back" (`onOwnAvatar`: peek open, full verbs, New button), because borrowing an agent its own
-  panel already showed took the verbs away and sent the row click down the switch path, which
-  emptied the list. A rail-face borrow is honoured only while the panel is **unpinned** (a pinned
-  column is what you are reading, and it does not change agents under you) and only on Chat, while
-  the panel's own name-row hover is honoured even pinned — the pointer is already inside the column
-  you are reading; a pane change or a pin click clears the borrow; the panel holds the borrow
+  drawer already showed took the verbs away and sent the row click down the switch path, which
+  emptied the list. A rail-face borrow is honoured only while the drawer is **unpinned** (a pinned
+  column is what you are reading, and it does not change agents under you) and only on Chat;  you are reading; a pane change or a pin click clears the borrow; the panel holds the borrow
   while the pointer is inside it (`onHold`), and a press or a pointer-out puts it back. Avatar to
   avatar is **one gesture, not a close and an open**: the close armed by leaving the first never
   runs, and once a list is up the next replaces it at once — the 120ms prices an *opening*, not a
@@ -118,10 +115,9 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   on top of the first (the rail kept showing panes you could not reach while Settings carried its own
   list of sections beside them). Now `tab === "Settings"`, the band's `.topbar-gear` is the door and
   the toggle back, the rail holds the sections while it is open, and a phone gets wrapping chips with
-  short names over the section. The Settings rail is the one place the column is **wider than the
-  square pitch** (`--rail-w-settings`, 184px): a list of words needs a column that can hold one, so a
-  section cell is a row of icon + full `label` on one line, and the phone's chips and the rail share
-  `short`. `web/src/lib/settings-sections.ts` is the one registry — `label` for the pane's title and
+  short names over the section. The Settings rail is the same column in the same row language as the
+  pane rail — one row of icon + full `label`, group words flush-left — because a list of words needs
+  a column that can hold one, and the phone's chips and the rail share `short`. `web/src/lib/settings-sections.ts` is the one registry — `label` for the pane's title and
   the rail's row, `short` for the chip, the icon, and the compose-token
   gate — because rail cell, chip and title are three renderings of one list that cannot be allowed to
   drift. It holds what every agent shares — providers,

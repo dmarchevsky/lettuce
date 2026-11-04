@@ -1,4 +1,4 @@
-import { type Ref, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { agentActivity } from "../lib/activity.ts";
 import { groupByDate, listDate, visibleConversations } from "../lib/conversation-groups.ts";
 import type { AgentsApi, ConversationSummary } from "../state/use-agents.ts";
@@ -13,7 +13,9 @@ interface Props {
   visible: boolean;
   /** Scope keys of conversations with a response in progress; see `SessionApi.activeScopes`. */
   activeScopes: ReadonlySet<string>;
-  /** Whether the panel survives a pane change; the rail has no pin, so this owns it. */
+  /** Whether the drawer survives a pane change; the rail has no pin, so this owns it.
+   * Pinned it is a column of the grid; unpinned it is a peek that floats over the
+   * transcript, which is why the pin lives here and nowhere else. */
   pinned: boolean;
   onTogglePin: () => void;
   /**
@@ -31,32 +33,13 @@ interface Props {
     failed: boolean;
   } | null;
   onPreviewPick: (agentId: string, conversationId: string) => void;
-  /** The pointer is inside the panel, which is what keeps a borrowed list open. */
+  /** The pointer is inside the drawer, which is what keeps a borrowed list open. */
   onHold: (held: boolean) => void;
-  /**
-   * The height of the bottom agent block, shared with the rail's: the rail's
-   * block is content-height and bottom-docked, App measures it, and this block
-   * wears the same height so the seam — each block's own border-top — is one
-   * row across both columns.
-   */
-  blockHeight: number;
-  /**
-   * The block's scroll element — App mirrors its scrollTop with the rail's.
-   */
-  blockRef: Ref<HTMLDivElement>;
-  onBlockScroll: () => void;
-  /** The pointer resting on one of this block's agent names: App marks the rail's
-   * matching avatar and borrows that agent's conversations into the list above —
-   * the mirror of a rail hover, and honored even while pinned. */
-  onHoverAgent: (agentId: string | null) => void;
-  /** The agent whose rail FACE (or this row) the pointer rests on: the row is
-   * highlighted in both columns — one row, whichever half is under the cursor. */
-  heldAgentId: string | null;
-  onNewAgent: () => void;
   /** New conversation for the agent the list is showing (switching first if borrowed). */
   onNewConversation: (agentId: string) => Promise<void>;
-  /** A row in the bottom agent block: that agent becomes the panel's own. */
-  onPickAgent: (agentId: string) => void;
+  /** A conversation was chosen: an unpinned drawer has answered its question and
+   * gets out of the way (App). */
+  onPickConversation: () => void;
 }
 
 /**
@@ -82,14 +65,8 @@ export function Sidebar({
   preview,
   onPreviewPick,
   onHold,
-  blockHeight,
-  blockRef,
-  onBlockScroll,
-  onHoverAgent,
-  heldAgentId,
-  onNewAgent,
   onNewConversation,
-  onPickAgent,
+  onPickConversation,
 }: Props) {
   const [showArchived, setShowArchived] = useState(false);
   const [query, setQuery] = useState("");
@@ -176,16 +153,25 @@ export function Sidebar({
 
   const closeMenu = useCallback(() => setMenuFor(null), []);
 
-  // The bottom block mirrors the rail's list, names only, same order.
-  const visibleAgents = agents.agents.filter((agent) => !agents.archivedAgents.has(agent.id));
+  const listAgentName = preview?.name ?? agents.agents.find((a) => a.id === agents.agentId)?.name;
 
   return (
     <aside
-      className={`sidebar${visible ? "" : " hidden"}`}
+      className={`sidebar${visible ? "" : " hidden"}${pinned ? "" : " peek"}`}
       aria-label="Conversations"
       onPointerEnter={() => onHold(true)}
       onPointerLeave={() => onHold(false)}
     >
+      {/* Whose list this is, said out loud: the rail names the agents, the band names
+          the one you are talking to, and this column would otherwise name nothing. */}
+      <div className="panel-owner">
+        {listAgentName ?? "Conversations"}
+        {liveCount > 0 ? (
+          <span className="count">
+            {liveCount} {liveCount === 1 ? "conversation" : "conversations"}
+          </span>
+        ) : null}
+      </div>
       <div className="convo">
         <div className="panel-tools">
           {/* The panel's two verbs, always present — including borrowed, where New
@@ -208,10 +194,10 @@ export function Sidebar({
             aria-pressed={pinned}
             title={
               pinned
-                ? "Keeping the panel open on Chat — click to make it a peek"
-                : "Peek only — click to keep the panel open on Chat"
+                ? "Keeping the drawer open on Chat — click to make it a peek"
+                : "Peek only — click to keep the drawer open on Chat"
             }
-            aria-label={pinned ? "Unpin the conversation panel" : "Pin the conversation panel"}
+            aria-label={pinned ? "Unpin the conversation drawer" : "Pin the conversation drawer"}
           >
             <Icon name="pin" />
           </button>
@@ -273,11 +259,13 @@ export function Sidebar({
                   <button
                     type="button"
                     className="conversation-name"
-                    onClick={() =>
-                      preview
-                        ? onPreviewPick(preview.agentId, conversation.id)
-                        : agents.selectConversation(conversation.id)
-                    }
+                    onClick={() => {
+                      if (preview) onPreviewPick(preview.agentId, conversation.id);
+                      else {
+                        agents.selectConversation(conversation.id);
+                        onPickConversation();
+                      }
+                    }}
                   >
                     {responding ? (
                       <span
@@ -379,56 +367,6 @@ export function Sidebar({
           </p>
         ) : null}
       </div>
-
-      {/* The rail's list in names, riding the foot under the seam divider: the
-          active agent's row stays lit in both columns and a held/borrowed one
-          lights the same way — one row-background language, no color bars
-          (R26). The borrow is a hold, not a choice. */}
-      <div
-        ref={blockRef}
-        className="panel-agents"
-        style={{ height: `${blockHeight}px`, maxHeight: `${blockHeight}px` }}
-        onScroll={onBlockScroll}
-      >
-        {visibleAgents.map((agent) => (
-          <button
-            key={agent.id}
-            type="button"
-            data-agent-id={agent.id}
-            className={[
-              "panel-agent",
-              agent.id === agents.agentId ? "active" : "",
-              agent.id === heldAgentId ? "held" : "",
-              preview?.agentId === agent.id ? "preview" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            title={`${agent.name} — conversations`}
-            onClick={() => onPickAgent(agent.id)}
-            onPointerEnter={(event) => {
-              if (event.pointerType !== "mouse") return;
-              onHoverAgent(agent.id);
-            }}
-            onPointerLeave={() => onHoverAgent(null)}
-          >
-            {agent.name}
-          </button>
-        ))}
-      </div>
-
-      {/* Docked under the scrolling names — this column's fixed foot verb, the
-          one whose box the rail's all cell matches across the seam: New-agent
-          never scrolls out of reach. There is no "all agents" row in the panel
-          — this list IS all of them. */}
-      <button
-        type="button"
-        className="panel-new"
-        onClick={onNewAgent}
-        title="New agent"
-        aria-label="New agent"
-      >
-        <Icon name="plus" /> New agent
-      </button>
     </aside>
   );
 }

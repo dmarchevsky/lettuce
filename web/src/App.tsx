@@ -232,9 +232,11 @@ function Workspace({ status }: { status: Status }) {
    * from instead of always dumping you on Chat. */
   const paneBeforeSettings = useRef<Tab>("Chat");
   /**
-   * The desktop conversation panel: pinned is a column, unpinned is a peek.
-   * Both are Chat-only — a conversation list next to the Files pane answers no
-   * question — so `visible` is derived, not stored separately.
+   * The desktop conversation DRAWER: pinned is a column of the grid, unpinned is a
+   * peek that floats over the transcript, and by default it is neither — it is shut,
+   * because the rail now carries the agent names and the transcript is what wants
+   * the width. Both are Chat-only — a conversation list next to the Files pane
+   * answers no question — so `visible` is derived, not stored separately.
    */
   const wide = useWide();
   const [panelPinned, setPanelPinned] = useState(readPanelPin);
@@ -247,13 +249,12 @@ function Workspace({ status }: { status: Status }) {
    * hover leaves it alone.
    */
   const [previewId, setPreviewId] = useState<string | null>(null);
-  /** The pointer is inside the panel — what keeps a borrowed list on screen. */
+  /** The pointer is inside the drawer — what keeps a borrowed list on screen. */
   const panelHeld = useRef(false);
   const previewList = useAgentConversations(session.request);
   const loadPreview = previewList.load;
-  // A name resting in the panel's bottom block borrows even while pinned (see
-  // `hoverPanelAgent`): the pointer is already inside the column you are reading,
-  // which is an ask a sweep past the rail is not.
+  // A pointer resting inside the drawer borrows even while pinned: it is already
+  // inside the column you are reading, which is an ask a sweep past the rail is not.
   const panelRest = useRef(false);
   const previewAgent =
     tab === "Chat" &&
@@ -288,30 +289,22 @@ function Workspace({ status }: { status: Status }) {
     if (!held) {
       panelRest.current = false;
       setPreviewId(null);
-      // The hover mark belongs to the held list; a pointer that left the panel
-      // must not leave a face lit in the rail with no list beside it.
-      setHeldAgent(null);
     }
   }, []);
-  /**
-   * The seam is bidirectional: a face in the rail borrows the panel (above), and a
-   * NAME in the panel's bottom block borrows its conversations into the list and
-   * marks the rail's face. Unlike the rail's sweep, this one is honored while
-   * pinned — resting on a name inside the panel is deliberate.
-   */
-  const hoverPanelAgent = useCallback((agentId: string | null) => {
-    setHeldAgent(agentId);
-    panelRest.current = agentId !== null;
-    setPreviewId(agentId);
-  }, []);
+  /** An unpinned drawer was opened to answer one question; a pick answers it, so it
+   * gets out of the way — the pinned column stays because you asked for it. */
+  const pickConversationInDrawer = useCallback(() => {
+    if (!panelPinned) setPanelPeek(false);
+  }, [panelPinned]);
   /** Choosing from a borrowed list is a switch: that agent, that conversation. */
   const previewPick = useCallback(
     (agentId: string, conversationId: string) => {
       agents.selectAgent(agentId);
       agents.selectConversation(conversationId);
       setPreviewId(null);
+      pickConversationInDrawer();
     },
-    [agents],
+    [agents, pickConversationInDrawer],
   );
   // A kept-open secondary pane is now about a different agent, and these panes are
   // anchored to a conversation — Files to its directory, Tasks to its runs. With
@@ -356,7 +349,6 @@ function Workspace({ status }: { status: Status }) {
     (next: Tab) => {
       // A borrow belongs to the rail and to Chat; changing pane ends it.
       setPreviewId(null);
-      setHeldAgent(null);
       // Settings borrows the column from whatever pane was up, and gives it back on
       // the way out — so the switcher remembers where it came from.
       if (next === "Settings" && tab !== "Settings") paneBeforeSettings.current = tab;
@@ -448,59 +440,10 @@ function Workspace({ status }: { status: Status }) {
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const openSwitcher = useCallback(() => setSwitcherOpen(true), []);
 
-  /**
-   * The bottom agent blocks — the rail's and the panel's — are one row across
-   * the column seam. The rail's block is content-height and bottom-docked
-   * (`flex: 0 1 auto; margin-top: auto`): it rides the foot, shrinking back to
-   * the room under Settings only when the list overflows — and its own
-   * `border-top` IS the seam divider, so the divider rides the first agent
-   * instead of sitting on a fixed line under Settings. App only measures the
-   * rail and hands the number across the seam, so the two hairlines land on
-   * one pixel row whatever the window is.
-   */
-  const [agentBlock, setAgentBlock] = useState(168);
-  /**
-   * The pointer resting on an agent's name in the panel's bottom block: the
-   * rail marks that avatar. The pair answers “which agent” as one control —
-   * the borrow marks the other way, a row highlight for a rail hover.
-   */
-  const [heldAgent, setHeldAgent] = useState<string | null>(null);
-  // The two blocks mirror each other's scroll when the window clamps them. The
-  // guard keeps the mirror from echoing: setting the other's scrollTop fires its
-  // scroll event, which would otherwise fire a copy straight back.
-  const railBlockRef = useRef<HTMLDivElement | null>(null);
-  const panelBlockRef = useRef<HTMLDivElement | null>(null);
-  const scrollMirror = useRef<"rail" | "panel" | null>(null);
-  const syncAgentScroll = (source: "rail" | "panel") => {
-    if (scrollMirror.current) return;
-    const from = source === "rail" ? railBlockRef.current : panelBlockRef.current;
-    const to = source === "rail" ? panelBlockRef.current : railBlockRef.current;
-    if (!from || !to || to.scrollTop === from.scrollTop) return;
-    scrollMirror.current = source;
-    to.scrollTop = from.scrollTop;
-    requestAnimationFrame(() => {
-      scrollMirror.current = null;
-    });
-  };
-  // The rail's block is the source of truth for the shared height; the panel's
-  // mirrors it. (Below the desktop breakpoint the rail is display:none and
-  // measures 0 — the panel is hidden there too.)
-  useEffect(() => {
-    const el = railBlockRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => {
-      const h = Math.round(el.getBoundingClientRect().height);
-      setAgentBlock((prev) => (Math.abs(prev - h) < 1 ? prev : h));
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-  // A height change can leave a stale scrollTop misaligning the pair: both start over.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: agentBlock is the trigger, not a read — the effect resets the scroll boxes themselves.
-  useEffect(() => {
-    if (railBlockRef.current) railBlockRef.current.scrollTop = 0;
-    if (panelBlockRef.current) panelBlockRef.current.scrollTop = 0;
-  }, [agentBlock]);
+  // There used to be a second copy of the agent list at the foot of the drawer, and
+  // a block of plumbing to keep the two in step: a mirrored height, a mirrored
+  // scrollTop, a "held" mark so one row lit in both columns at once. The rail is
+  // the agent list now, so the plumbing is gone — which is the point of the change.
   /**
    * The band's identity is the panel verb on desktop — never the phone sheet:
    * ensure the Chat pane and bring the panel (a pinned one simply stays), and
@@ -517,9 +460,6 @@ function Workspace({ status }: { status: Status }) {
       // means you mean it, and the pin button still re-pins one click away.
       setPanelPeek(false);
       setPreviewId(null);
-      // The name is putting the panel away; the hover mark across the seam retires
-      // with it, so no face stays lit over a column that just left.
-      setHeldAgent(null);
       if (panelPinned) {
         writePanelPin(false);
         setPanelPinned(false);
@@ -552,17 +492,6 @@ function Workspace({ status }: { status: Status }) {
   );
   // A bottom-block row is the same "who" the rail's avatar is: the borrow ends,
   // the agent switches if it must, and its list — with verbs — becomes the panel's own.
-  const pickPanelAgent = useCallback(
-    (agentId: string) => {
-      setPreviewId(null);
-      // The borrow became a decision, so the borrowed agent's mark and the pin-borrow
-      // permission both retire — the switch below makes this agent's own list the panel's.
-      panelRest.current = false;
-      setHeldAgent(null);
-      if (agentId !== agents.agentId) agents.selectAgent(agentId);
-    },
-    [agents],
-  );
   const [showModels, setShowModels] = useState(false);
   /** The New agent sheet. Editing an agent is the Agent tab's General section. */
   const [creatingAgent, setCreatingAgent] = useState(false);
@@ -793,10 +722,7 @@ function Workspace({ status }: { status: Status }) {
         onShowAll={showAllAgents}
         panelVisible={panelVisible}
         onEditAgent={editAgent}
-        heldAgentId={heldAgent}
-        onHoverAgent={(agentId) => setHeldAgent(agentId)}
-        blockRef={railBlockRef}
-        onBlockScroll={() => syncAgentScroll("rail")}
+        onNewAgent={() => setCreatingAgent(true)}
       />
       <Sidebar
         agents={agents}
@@ -817,14 +743,8 @@ function Workspace({ status }: { status: Status }) {
         }
         onPreviewPick={previewPick}
         onHold={holdPanel}
-        blockHeight={agentBlock}
-        blockRef={panelBlockRef}
-        onBlockScroll={() => syncAgentScroll("panel")}
-        onHoverAgent={hoverPanelAgent}
-        heldAgentId={heldAgent}
-        onNewAgent={() => setCreatingAgent(true)}
         onNewConversation={newConversationWith}
-        onPickAgent={pickPanelAgent}
+        onPickConversation={pickConversationInDrawer}
       />
 
       {/* `.closable` is not decoration: it is how the pane's own bar knows to stand

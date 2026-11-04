@@ -1,4 +1,4 @@
-import { type CSSProperties, type Ref, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { resolveAvatar } from "../lib/agent-tint.ts";
 import type { FeatureFlags } from "../lib/features.ts";
 import { type GlobalSection, visibleGroups } from "../lib/settings-sections.ts";
@@ -42,20 +42,9 @@ interface Props {
   onShowAll: () => void;
   panelVisible: boolean;
   onEditAgent: (agentId: string) => void;
-  /**
-   * The agent whose *name* in the conversation panel's bottom block the pointer
-   * rests on: the rail marks that avatar, so the pair reads as one selection
-   * control (the reverse direction — a rail hover marking the panel row — is
-   * the borrow's row highlight). App owns the state; the rail only shows it.
-   */
-  heldAgentId: string | null;
-  /** The pointer entered/left one of this rail's faces: App marks the matching
-   * NAME in the conversation panel too — hover highlights one row across both
-   * halves, whichever half the pointer is in. */
-  onHoverAgent: (agentId: string | null) => void;
-  /** This block's scroll element — App mirrors its scrollTop with the panel's. */
-  blockRef: Ref<HTMLDivElement>;
-  onBlockScroll: () => void;
+  /** New agent, at the foot of the agent list: the drawer that used to carry this
+   * verb is usually shut, so the rail has to. */
+  onNewAgent: () => void;
 }
 
 /** The panes the rail offers, in order. `Runs` is inserted only when enabled. */
@@ -76,13 +65,11 @@ function paneItems(runsEnabled: boolean): { tab: Tab; label: string; icon: IconN
 /**
  * The desktop rail: the panes on top, the agents anchored at the bottom.
  *
- * One column answers "which pane" and "which agent", and it shares its bottom
- * row with the conversation panel beside it: the agent block is content-height
- * and rides the foot above the all-cell, and the seam divider above it — one
- * hairline across both columns — is the block's own top border, so it rides
- * the first agent and the panel mirrors the block's measured height.
+ * One column answers "which pane" and "which agent", in one row height, and the
+ * agent block rides the foot above the worded foot verb. There is no second copy
+ * of the agent list anywhere: the conversation drawer shows conversations only.
  * Chat is primary in the literal sense: it is the default pane, the only one with
- * a composer, and the only one with a panel.
+ * a composer, and the only one with a drawer.
  */
 export function NavRail({
   agents,
@@ -101,10 +88,7 @@ export function NavRail({
   onShowAll,
   panelVisible,
   onEditAgent,
-  heldAgentId,
-  onHoverAgent,
-  blockRef,
-  onBlockScroll,
+  onNewAgent,
 }: Props) {
   const [menu, setMenu] = useState<{ agent: AgentSummary; anchor: DOMRect } | null>(null);
   const [deleting, setDeleting] = useState<AgentSummary | null>(null);
@@ -230,7 +214,7 @@ export function NavRail({
             </div>
           ))}
         </div>
-        <AllCell onShowAll={onShowAll} panelVisible={panelVisible} word="All agents" />
+        <AllCell onShowAll={onShowAll} panelVisible={panelVisible} word="Conversations" />
       </nav>
     );
   }
@@ -250,17 +234,10 @@ export function NavRail({
         </button>
       ))}
 
-      {/* No divider element here: the seam hairline is .rail-agents' own
-          border-top — the same 1px box edge the panel's agent block carries,
-          so the two blocks are congruent and their rows ride one line. */}
-      <div
-        ref={blockRef}
-        className="rail-agents"
-        onScroll={() => {
-          setMenu(null);
-          onBlockScroll();
-        }}
-      >
+      {/* The block's own border-top is the hairline that ends the panes; the word
+          under it says what the rows below answer. */}
+      <div className="rail-agents" onScroll={() => setMenu(null)}>
+        <span className="rail-group-label">Agents</span>
         {visible.map((agent) => (
           <button
             key={agent.id}
@@ -268,7 +245,6 @@ export function NavRail({
             className={[
               "rail-agent",
               agent.id === agents.agentId ? "active" : "",
-              agent.id === heldAgentId ? "held" : "",
               agents.pinned.has(agent.id) ? "pinned" : "",
               activeAgentIds.has(agent.id) ? "responding" : "",
             ]
@@ -291,30 +267,29 @@ export function NavRail({
             onClick={() => pick(agent)}
             onPointerEnter={(event) => {
               if (event.pointerType !== "mouse") return;
-              onHoverAgent(agent.id);
               if (agent.id === agents.agentId) armOwn();
               else armPreview(agent.id);
             }}
-            onPointerLeave={() => {
-              onHoverAgent(null);
-              leaveAvatar();
-            }}
+            onPointerLeave={leaveAvatar}
             onContextMenu={(event) => {
               event.preventDefault();
               setMenu({ agent, anchor: event.currentTarget.getBoundingClientRect() });
             }}
           >
             <AgentAvatar agentId={agent.id} name={agent.name} pref={agents.avatars[agent.id]} />
+            <span className="rail-agent-name">{agent.name}</span>
           </button>
         ))}
+        <button type="button" className="rail-agent rail-new" onClick={onNewAgent}>
+          <Icon name="plus" />
+          New agent
+        </button>
       </div>
 
-      {/* The all cell is not part of the scrolling list: it is the fixed verb at the
-          foot of the column — pressing it brings the conversation panel with the full
-          agent list and pressing it again puts the panel away (on desktop there is no
-          sheet any more), and it never scrolls out of reach. There is no new-agent cell
-          in the rail: New-agent lives in the panel's list, where the agents are. */}
-      <AllCell onShowAll={onShowAll} panelVisible={panelVisible} />
+      {/* The foot verb, outside the scroll: it brings the conversation drawer and
+          pressing it again puts the drawer away. It is worded because the column is
+          wide enough to say it — ☰ alone under a list of words reads as a stray glyph. */}
+      <AllCell onShowAll={onShowAll} panelVisible={panelVisible} word="Conversations" />
 
       {menu ? (
         <AgentMenu
