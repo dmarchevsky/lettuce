@@ -195,7 +195,6 @@ async function uploadSheetChecks(page: Page, label: string): Promise<void> {
   );
 }
 
-/** Open the shared Settings screen, wherever this width keeps the verb. */
 /**
  * Skills are the one pane whose content arrives late: the BFF walks the agent's
  * memfs and the global list only after the first agent connection, and after a
@@ -204,6 +203,8 @@ async function uploadSheetChecks(page: Page, label: string): Promise<void> {
  * the click is repeated — a click that landed on a pane still mounting is lost.
  */
 async function openSkillsSection(page: Page): Promise<boolean> {
+  // The Agent tab's own chips — the Settings pane uses the same class for its phone
+  // chips, but this runs with the Agent tab open, where it is the only list.
   const tab = page.locator('.section-tabs button:text-is("Skills")');
   const heads = page.locator(".skill-group-head");
   // Three ways this pane has failed a run for reasons that are not the UI: the walk
@@ -249,14 +250,20 @@ async function openSkillsSection(page: Page): Promise<boolean> {
   return false;
 }
 
+/**
+ * Open the Settings **pane** (`tab === "Settings"`), which is not a modal any more.
+ *
+ * The band's gear is the door at every width — the top bar is hoisted into the
+ * desktop band and kept inside `.main` on a phone, so there is exactly one
+ * `.topbar-gear` on screen either way — and it is a toggle: `aria-pressed` says
+ * which way this press will go. The phone's More sheet keeps a second door and the
+ * rail's Back cell a third; the pane's own verb is the corner `.pane-close`, and
+ * Escape no longer belongs to a pane (it belongs to whatever sheet is over it).
+ */
 async function openSettings(page: Page): Promise<void> {
-  const foot = page.locator('.rail .rail-item:text-is("Settings")');
-  if ((await foot.count()) > 0 && (await foot.first().isVisible())) {
-    await foot.first().click();
-    return;
-  }
-  await page.locator('.bottombar > button:text-is("More")').click();
-  await page.locator('.sheet .menu-row-title:text-is("Settings")').click();
+  const gear = page.locator(".topbar-gear");
+  if ((await gear.getAttribute("aria-pressed")) !== "true") await gear.click();
+  await page.locator(".settings-pane").waitFor();
 }
 
 async function shot(page: Page, name: string): Promise<void> {
@@ -265,7 +272,9 @@ async function shot(page: Page, name: string): Promise<void> {
 
 /**
  * Switch panes wherever this width keeps them: the desktop rail names all six, the
- * phone bar shows four and hides the agent's own settings behind `More`.
+ * phone bar shows four and hides the agent's own settings behind `More`. Settings
+ * is not in either list — the band's gear opens it (see `openSettings`), and while
+ * it is open the rail holds its sections instead of these panes.
  *
  * Every check that needed a tab click goes through here, so the two navigation
  * surfaces are exercised by the same assertions rather than by two copies of them.
@@ -1094,13 +1103,31 @@ try {
       await shot(page, "phone-skills");
     }
 
-    // Settings for every agent: the top bar's gear. On a phone, the Agent
-    // tab's wrapping chips with short names over the open section — no list
-    // to back out of. All nine must be on screen with no sideways scroll.
+    // The way out every secondary pane carries, at phone width: the same corner glyph
+    // a sheet uses, in the window's top-right corner under the header's hairline.
+    // (On a phone the rail is not on screen, so before this the bar's first slot was
+    // the only way back to Chat.)
+    const phoneClose = page.locator(".pane-close");
+    check(
+      "a secondary pane carries the corner close on a phone too",
+      (await phoneClose.count()) === 1 &&
+        ((await phoneClose.getAttribute("aria-label")) ?? "").includes("Agent"),
+      await phoneClose.getAttribute("aria-label"),
+    );
+    await phoneClose.click();
+    await page.waitForTimeout(300);
+    check(
+      "and it goes back to Chat",
+      (await phoneClose.count()) === 0 && (await page.locator(".composer textarea").isVisible()),
+    );
+
+    // Settings for every agent: a PANE, opened from the band's gear. A phone has no
+    // rail, so its sections are the wrapping chips, with short names, over the open
+    // section — no list to back out of. All of them must be on screen with no
+    // sideways scroll.
     await openSettings(page);
-    await page.locator(".settings-screen").waitFor();
     const phoneChips = (
-      await page.locator(".settings-screen .section-tabs button").allInnerTexts()
+      await page.locator(".settings-pane .section-tabs button").allInnerTexts()
     ).map((t) => t.trim());
     const features = await readFeatures(page);
     const expectedPhoneChips = [
@@ -1124,12 +1151,18 @@ try {
       phoneChips,
     );
     check(
-      "phone settings show chips, not the desktop list",
-      (await page.locator(".settings-nav").count()) === 0 &&
-        (await page.locator(".settings-content").isVisible()),
+      "phone settings show chips and no rail (the rail is the desktop's section list)",
+      (await page.locator(".settings-pane .section-tabs").count()) === 1 &&
+        (await page.locator("nav.rail").isVisible()) === false &&
+        (await page.locator(".settings-pane").isVisible()) &&
+        (await page.locator(".settings-content-title").count()) === 0,
+    );
+    check(
+      "the gear knows it is the open door",
+      (await page.locator(".topbar-gear").getAttribute("aria-pressed")) === "true",
     );
     const chipsFit = await page.evaluate(() => {
-      const bar = document.querySelector(".settings-screen .section-tabs") as HTMLElement;
+      const bar = document.querySelector(".settings-pane .section-tabs") as HTMLElement;
       const last = bar.lastElementChild?.getBoundingClientRect();
       return { scroll: bar.scrollWidth, client: bar.clientWidth, lastRight: last?.right ?? 0 };
     });
@@ -1139,15 +1172,17 @@ try {
       chipsFit,
     );
     await shot(page, "phone-settings");
-    await page.locator('.settings-screen .section-tabs button:text-is("MCP")').click();
+    await page.locator('.settings-pane .section-tabs button:text-is("MCP")').click();
     await page.waitForTimeout(700);
     check(
       "a chip opens its section",
-      (await page.locator(".settings-screen .section-tabs button.active").innerText()) === "MCP" &&
-        (await page.locator(".settings-content").innerText()).includes("MCP"),
+      (await page.locator(".settings-pane .section-tabs button.active").innerText()) === "MCP" &&
+        // The section's own control, not the chip's word: the pane's text always
+        // contains "MCP" now, because the chip bar lives inside it.
+        (await page.locator('.settings-pane button:has-text("Add server")').count()) === 1,
     );
     const sectionWidth = await page.evaluate(() => {
-      const pane = document.querySelector(".settings-content") as HTMLElement;
+      const pane = document.querySelector(".settings-pane") as HTMLElement;
       return { scroll: pane.scrollWidth, client: pane.clientWidth };
     });
     check(
@@ -1159,10 +1194,10 @@ try {
     if (featureOn(features, "pi")) {
       // The status row used to be a single `nowrap` pill that ran off the right
       // edge on a phone, cutting off the age that says whether the state is fresh.
-      await page.locator('.settings-screen .section-tabs button:text-is("Remote Pi")').click();
+      await page.locator('.settings-pane .section-tabs button:text-is("Remote Pi")').click();
       await page.waitForTimeout(900);
       const statusRow = await page.evaluate(() => {
-        const el = document.querySelector(".settings-content .pi-status");
+        const el = document.querySelector(".settings-pane .pi-status");
         if (!el) return null;
         const r = el.getBoundingClientRect();
         return { left: r.left, right: r.right, text: (el.textContent ?? "").trim().slice(0, 60) };
@@ -1175,8 +1210,42 @@ try {
       );
       await shot(page, "phone-settings-pi");
     }
-    await page.locator('.settings-screen button[aria-label="Close"]').click();
-    check("close leaves settings", (await page.locator(".settings-screen").count()) === 0);
+    // Three ways out of the pane, and none of them is Escape: the corner X, the gear
+    // pressed again, and the More row that opened it.
+    const lastChip = (
+      await page.locator(".settings-pane .section-tabs button.active").innerText()
+    ).trim();
+    await phoneClose.click();
+    await page.waitForTimeout(300);
+    check(
+      "the corner X leaves settings and unpresses the gear",
+      (await page.locator(".settings-pane").count()) === 0 &&
+        (await page.locator(".topbar-gear").getAttribute("aria-pressed")) === "false",
+    );
+    await page.locator('.bottombar > button:text-is("More")').click();
+    await page.locator('.sheet .menu-row-title:text-is("Settings")').click();
+    await page.waitForTimeout(400);
+    check(
+      "More is the second door, and the pane resumes the section it left",
+      (await page.locator(".settings-pane .section-tabs button.active").innerText()).trim() ===
+        lastChip,
+      {
+        lastChip,
+        active: await page
+          .locator(".settings-pane .section-tabs button.active")
+          .innerText()
+          .catch(() => null),
+      },
+    );
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
+    check(
+      "escape does not close a pane (it belongs to sheets)",
+      (await page.locator(".settings-pane").count()) === 1,
+    );
+    await page.locator(".topbar-gear").click();
+    await page.waitForTimeout(300);
+    check("and the gear toggles it away", (await page.locator(".settings-pane").count()) === 0);
 
     await page.close();
   }
@@ -1356,7 +1425,7 @@ try {
       bars,
     );
 
-    // The agent verbs are a right-click on the avatar: a 74px column has no room
+    // The agent verbs are a right-click on the avatar: a 64px column has no room
     // for a ⋯ per agent, and the menu is the phone's own, unchanged.
     await page.locator(".rail .rail-agent.active").click({ button: "right" });
     const deskMenu = page.locator(".agent-menu");
@@ -1380,11 +1449,12 @@ try {
     await page.keyboard.press("Escape");
     check("Escape closes it", (await deskMenu.count()) === 0);
 
-    // The rail is the pane list: six named items, no More, and the settings verb
-    // is a footer rather than a gear competing with the link pill up top.
+    // The rail is the pane list and the pane list only: Settings is not a cell here
+    // any more — the band's gear opens it, and while it is open its own sections
+    // replace these cells — so nothing has to be filtered out to compare the list.
     const railPanes = (await page.locator(".rail .rail-item").allInnerTexts())
       .map((t) => t.trim())
-      .filter((t) => t && t !== "Settings");
+      .filter(Boolean);
     const railFeatures = await readFeatures(page);
     const expectedPanes = [
       "Chat",
@@ -1399,6 +1469,39 @@ try {
       JSON.stringify(railPanes) === JSON.stringify(expectedPanes),
       { railPanes, expectedPanes },
     );
+    // One square cell for every slot: the column is `--rail-w` wide and a pane cell,
+    // an agent face and the all cell are all `--rail-cell` tall. They used to be three
+    // different pitches (a ~46px content box beside 44px faces) in a 74px column; the
+    // expected size is read from the token, so re-tuning it fails only a real mismatch.
+    const cells = await page.evaluate(() => {
+      const styles = getComputedStyle(document.documentElement);
+      const px = (name: string) => Number.parseFloat(styles.getPropertyValue(name));
+      const box = (sel: string) => {
+        const el = document.querySelector(sel);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { w: Math.round(r.width), h: Math.round(r.height) };
+      };
+      return {
+        cell: px("--rail-cell"),
+        railVar: px("--rail-w"),
+        rail: box("nav.rail"),
+        pane: box(".rail .rail-item"),
+        face: box(".rail .rail-agent[data-agent-id]"),
+        all: box(".rail .rail-all"),
+      };
+    });
+    check(
+      "the rail is --rail-cell wide and every slot is a --rail-cell square",
+      cells.cell > 0 &&
+        cells.railVar === cells.cell &&
+        cells.rail?.w === cells.cell &&
+        cells.pane?.w === cells.cell &&
+        cells.pane?.h === cells.cell &&
+        cells.face?.h === cells.cell &&
+        cells.all?.h === cells.cell,
+      cells,
+    );
     // The panel belongs to Chat, and a secondary pane is not about conversations.
     const panelOn = () => page.evaluate(() => !document.querySelector(".sidebar.hidden"));
     check("the panel is on for Chat", await panelOn());
@@ -1408,6 +1511,31 @@ try {
     await openTab(page, "Chat");
     await page.waitForTimeout(300);
     check("and Chat brings it back", await panelOn());
+    // The way out every secondary pane carries: the same corner glyph a sheet uses,
+    // fixed in the window's top-right corner under the band's hairline, and its verb
+    // is back to Chat. Before it, a pane you could only leave by finding the right
+    // word in the rail was a pane you felt stuck in.
+    const paneClose = page.locator(".pane-close");
+    await openTab(page, "Files");
+    await page.waitForTimeout(300);
+    check(
+      "a secondary pane carries the corner close and names its verb",
+      (await paneClose.count()) === 1 &&
+        ((await paneClose.getAttribute("aria-label")) ?? "").includes("Files"),
+      await paneClose.getAttribute("aria-label"),
+    );
+    check(
+      "the band names the pane while a secondary pane is open",
+      (await page.locator(".topbar .title").innerText()).trim() === "Files",
+      await page.locator(".topbar .title").innerText(),
+    );
+    await paneClose.click();
+    await page.waitForTimeout(300);
+    check(
+      "and the corner close leaves the pane for Chat",
+      (await paneClose.count()) === 0 &&
+        (await page.locator(".rail .rail-item.active").innerText()).trim() === "Chat",
+    );
     // Unpinning turns the column into a peek, and a peek gets out of the way when
     // you press anywhere else. Both halves matter: a column that never left would
     // be the old pinned sidebar, a peek you could not dismiss would be a trap.
@@ -1630,10 +1758,7 @@ try {
       const panelBlock = rect(".panel-agents");
       const firstPane = rect(".rail .rail-item");
       const railAll = rect(".rail .rail-all");
-      const settings = [...document.querySelectorAll(".rail .rail-item")].find(
-        (b) => b.textContent?.trim() === "Settings",
-      );
-      if (!band || !railBlock || !panelBlock || !firstPane || !settings) return null;
+      if (!band || !railBlock || !panelBlock || !firstPane) return null;
       return {
         bandBottom: Math.round(band.bottom),
         bandRight: Math.round(band.right),
@@ -1836,6 +1961,10 @@ try {
     await page.locator(".topbar .where").click();
     await page.waitForTimeout(400);
     check("and clicking it again puts the peek away", !(await panelOn()));
+    check(
+      "the all cell says it will open, while the panel is away",
+      (await page.locator(".rail .rail-all").getAttribute("aria-pressed")) === "false",
+    );
     await page.locator(".rail .rail-all").click();
     await page.waitForTimeout(400);
     check(
@@ -1844,11 +1973,23 @@ try {
         (await page.locator(".switcher").count()) === 0 &&
         (await page.locator(".sidebar .panel-agent[data-agent-id]").count()) >= 1,
     );
-    // Re-pin for what follows WITHOUT collapsing the peek: the all-cell just
-    // opened it, so clicking Chat would TOGGLE it shut (unpinned + Chat + peek
-    // open → peek false) and hide the sidebar — then clicking the now-hidden
-    // pin button would time out and take the whole suite down with it. Open it
-    // only if it's already away, exactly like the repin block earlier.
+    // The all cell is a TOGGLE now — it is the one cell always at the foot of the
+    // column, so pressing it with the panel already up has to be safe.
+    check(
+      "its aria-pressed follows the panel",
+      (await page.locator(".rail .rail-all").getAttribute("aria-pressed")) === "true",
+    );
+    await page.locator(".rail .rail-all").click();
+    await page.waitForTimeout(400);
+    check(
+      "and pressing it again puts the panel away",
+      !(await panelOn()) &&
+        (await page.locator(".rail .rail-all").getAttribute("aria-pressed")) === "false",
+    );
+    // Re-pin for what follows: the all cell just put the peek away, so ask for the
+    // panel back the way Chat does and then pin it — pinning is what the rest of this
+    // suite assumes, because a pinned column is always on screen and its pin button is
+    // therefore always clickable.
     if (!(await panelOn())) {
       await page.locator(".rail .rail-item:text-is('Chat')").click();
       await page.waitForTimeout(300);
@@ -1961,9 +2102,7 @@ try {
     const scan = () =>
       page.evaluate(() => ({
         checkboxes: document.querySelectorAll('input[type="checkbox"]').length,
-        uppercase: [
-          ...document.querySelectorAll<HTMLElement>(".pane *, .sidebar *, .settings-screen *"),
-        ]
+        uppercase: [...document.querySelectorAll<HTMLElement>(".pane *, .sidebar *")]
           .filter(
             (el) => getComputedStyle(el).textTransform === "uppercase" && el.textContent?.trim(),
           )
@@ -2080,64 +2219,107 @@ try {
 
     // Its link goes to global Settings, open on Global skills.
     await page.locator('.pane button:text-is("Settings → Global skills")').click();
-    await page.locator(".settings-screen").waitFor();
+    await page.locator(".settings-pane").waitFor();
     check(
       "the skills link opens global skills",
       (await page.locator(".settings-content-title").innerText()) === "Global skills",
     );
+    // A pane is not the dialog it used to be: Escape belongs to whatever sheet is
+    // over it, never to the pane underneath, so its way out is the corner X.
     await page.keyboard.press("Escape");
-    check("Escape closes settings", (await page.locator(".settings-screen").count()) === 0);
-
-    // Settings for every agent, from the gear: list and section side by side.
-    await openSettings(page);
-    await page.locator(".settings-screen").waitFor();
+    await page.waitForTimeout(200);
     check(
-      "desktop settings show the list and a section together",
-      (await page.locator(".settings-nav").isVisible()) &&
-        (await page.locator(".settings-content").isVisible()),
+      "escape leaves the settings pane up",
+      (await page.locator(".settings-pane").count()) === 1,
+    );
+    await page.locator(".pane-close").click();
+    await page.waitForTimeout(300);
+    check(
+      "the corner X closes settings back to Chat",
+      (await page.locator(".settings-pane").count()) === 0 &&
+        (await page.locator(".rail .rail-item.active").innerText()).trim() === "Chat",
+    );
+
+    // Settings for every agent, from the gear: the rail becomes the section list
+    // and the section renders beside it. One navigation column, not two.
+    await openSettings(page);
+    check(
+      "desktop settings put the sections in the rail, with the section beside it",
+      (await page.locator("nav.rail.rail-settings").isVisible()) &&
+        (await page.locator(".settings-pane").isVisible()),
     );
     check(
-      "the selected settings row is marked by its border, not a tick",
-      (await page.locator(".settings-nav .menu-row.selected").count()) === 1 &&
-        (await page.locator(".settings-nav .menu-row-check").count()) === 0,
+      "and the pane carries no second list — the rail is the desktop's list",
+      (await page.locator(".settings-pane .section-tabs").count()) === 0 &&
+        (await page.locator(".settings-content-title").count()) === 1,
+    );
+    check(
+      "the sections-only rail holds Back, the sections and the all cell — no panes, no faces",
+      (await page.locator("nav.rail.rail-settings .rail-back").count()) === 1 &&
+        (await page.locator("nav.rail.rail-settings .rail-all").count()) === 1 &&
+        (await page.locator("nav.rail.rail-settings .rail-agent:not(.rail-all)").count()) === 0 &&
+        (await page
+          .locator("nav.rail.rail-settings .rail-item:not(.rail-section):not(.rail-back)")
+          .count()) === 0,
+    );
+    check(
+      "the band names the pane and the gear says it is the open door",
+      (await page.locator(".topbar .title").innerText()).trim() === "Settings" &&
+        (await page.locator(".topbar-gear").getAttribute("aria-pressed")) === "true",
     );
     const desktopFeatures = await readFeatures(page);
-    const expectedRows = [
-      "Providers & models",
-      ...(featureOn(desktopFeatures, "web") ? ["Web search"] : []),
-      "MCP servers",
-      ...(featureOn(desktopFeatures, "google") ? ["Google Workspace"] : []),
-      ...(featureOn(desktopFeatures, "codex") ? ["Codex workers"] : []),
-      ...(featureOn(desktopFeatures, "claude") ? ["Claude Code workers"] : []),
-      ...(featureOn(desktopFeatures, "pi") ? ["Remote Pi"] : []),
-      "Global skills",
+    // The rail's words, not the pane's full titles: a 64px column fits one word, and
+    // the same token gating that hid a row hides its cell — a section whose compose
+    // token is off appears in neither list.
+    const expectedRail = [
+      "Models",
+      ...(featureOn(desktopFeatures, "web") ? ["Web"] : []),
+      "MCP",
+      ...(featureOn(desktopFeatures, "google") ? ["Google"] : []),
+      ...(featureOn(desktopFeatures, "codex") ? ["Codex"] : []),
+      ...(featureOn(desktopFeatures, "claude") ? ["Claude"] : []),
+      ...(featureOn(desktopFeatures, "pi") ? ["Pi"] : []),
+      "Skills",
+      // Deployment: the two halves of what used to be one mode, reported read-only.
       "Access",
       "Sign-in",
-      "Notifications",
+      "Push",
       "About",
     ];
-    const rowLabels = (await page.locator(".settings-nav .menu-row-title").allInnerTexts()).map(
-      (t) => t.trim(),
+    const railWords = (
+      await page.locator("nav.rail.rail-settings .rail-section").allInnerTexts()
+    ).map((t) => t.trim());
+    check(
+      `settings rail words are ${expectedRail.join(" / ")}`,
+      JSON.stringify(railWords) === JSON.stringify(expectedRail),
+      railWords,
     );
     check(
-      `settings rows are ${expectedRows.join(" / ")}`,
-      JSON.stringify(rowLabels) === JSON.stringify(expectedRows),
-      rowLabels,
+      "the rail marks the open section, and only the open section",
+      (await page.locator("nav.rail.rail-settings .rail-section.active").count()) === 1,
+    );
+    const groupWords = (
+      await page.locator("nav.rail.rail-settings .rail-group-label").allInnerTexts()
+    ).map((t) => t.trim());
+    check(
+      "the sections are grouped under words the column can fit",
+      groupWords.length >= 2 && groupWords.every((word) => word.length <= 6),
+      groupWords,
     );
     check(
       "no per-agent section among the shared ones",
-      !rowLabels.some((label) => ["Secrets", "Reflection"].includes(label)),
-      rowLabels,
+      !railWords.some((word) => ["Secrets", "Reflection"].includes(word)),
+      railWords,
     );
-    const openSection = async (label: string) => {
-      await page.locator(`.settings-nav .menu-row:has-text("${label}")`).click();
+    const openSection = async (word: string) => {
+      await page.locator(`nav.rail.rail-settings .rail-section:text-is("${word}")`).click();
       await page.waitForTimeout(700);
     };
-    for (const label of expectedRows) {
-      await openSection(label);
-      conventions[`Settings/${label}`] = await scan();
+    for (const word of expectedRail) {
+      await openSection(word);
+      conventions[`Settings/${word}`] = await scan();
       const box = await overflow(page);
-      check(`${label} has nothing clipped`, box.clipped.length === 0, box);
+      check(`${word} has nothing clipped`, box.clipped.length === 0, box);
     }
     const offenders = Object.entries(conventions).filter(
       ([, found]) => found.checkboxes > 0 || found.uppercase.length > 0,
@@ -2150,41 +2332,41 @@ try {
 
     // Codex and Claude Code load their settings from the BFF
     // (GET /api/codex/settings, GET /api/claude/settings); a form means the route
-    // answered, not just that the row exists. Each is behind a compose token, so a
-    // stack without one has no row to open — the same guard the Remote Pi block
+    // answered, not just that the rail cell exists. Each is behind a compose token, so
+    // a stack without one has no cell to open — the same guard the Remote Pi block
     // below uses. Without it this hung for 30s on the click instead of skipping.
-    for (const [token, row, switchRow] of [
-      ["codex", "Codex workers", "Allow Codex workers"],
-      ["claude", "Claude Code workers", "Allow Claude Code workers"],
+    for (const [token, word, switchRow] of [
+      ["codex", "Codex", "Allow Codex workers"],
+      ["claude", "Claude", "Allow Claude Code workers"],
     ] as const) {
       if (!featureOn(desktopFeatures, token)) continue;
-      await openSection(row);
+      await openSection(word);
       check(
         `${token} section loads its settings`,
         (await page.locator(`.menu-row:has-text("${switchRow}")`).count()) === 1,
-        await page.locator(".settings-content").innerText(),
+        await page.locator(".settings-pane").innerText(),
       );
     }
 
     if (featureOn(desktopFeatures, "pi")) {
-      // Same for Remote Pi (GET /api/pi/settings).
-      await openSection("Remote Pi");
+      // Same for Remote Pi (GET /api/pi/settings) — the rail's word is just `Pi`.
+      await openSection("Pi");
       check(
         "remote pi section loads its settings",
         (await page.locator('.menu-row:has-text("Allow Remote Pi")').count()) === 1,
-        await page.locator(".settings-content").innerText(),
+        await page.locator(".settings-pane").innerText(),
       );
       check(
         "remote pi status row says one word of state",
-        (await page.locator(".settings-content .pi-status .pi-state").count()) === 1,
-        await page.locator(".settings-content").innerText(),
+        (await page.locator(".settings-pane .pi-status .pi-state").count()) === 1,
+        await page.locator(".settings-pane").innerText(),
       );
     }
 
     // Google loads its status from the BFF (GET /api/google). Under dev bypass
     // the form must also say it is locked, not just grey its inputs out.
     await openSection("Google");
-    const googleText = await page.locator(".settings-content").innerText();
+    const googleText = await page.locator(".settings-pane").innerText();
     check(
       "google section loads its status",
       (await page.locator('.menu-row:has-text("Allow agents to use Google")').count()) === 1,
@@ -2209,7 +2391,7 @@ try {
     // the shape, not a literal: the value is whatever the running image carries,
     // and a stale image is deploy-check's problem, not this one's.
     await openSection("About");
-    const aboutText = await page.locator(".settings-content").innerText();
+    const aboutText = await page.locator(".settings-pane").innerText();
     check(
       "about shows the lettuce release tag",
       /lettuce\s+v\d+\.\d+\.\d+-letta_\d+\.\d+\.\d+/.test(aboutText),
@@ -2226,19 +2408,19 @@ try {
       aboutText,
     );
 
-    await openSection("Providers & models");
+    await openSection("Models");
 
     // Providers: the operator's own named providers, each with a type chip and
     // its base URL, or the empty state. Wait for one to arrive — the registry and
     // the model list both answer after the section opens.
     await page
-      .locator(".settings-content .prov-meta, .settings-content li.muted")
+      .locator(".settings-pane .prov-meta, .settings-pane li.muted")
       .first()
       .waitFor({ timeout: 10_000 })
       .catch(() => {});
-    const providerRows = page.locator(".settings-content .prov-meta");
+    const providerRows = page.locator(".settings-pane .prov-meta");
     const rowCount = await providerRows.count();
-    const paneText = await page.locator(".settings-content").innerText();
+    const paneText = await page.locator(".settings-pane").innerText();
     check(
       "providers are listed by name with a type and a URL, or the empty state says so",
       rowCount > 0
@@ -2250,7 +2432,7 @@ try {
     // A provider's models sit behind a disclosure, and each model's declaration
     // opens the same sheet everywhere else. Nothing to expand on a stack with no
     // providers, which must not fail the run.
-    const disclosure = page.locator(".settings-content .models-head button[aria-expanded]").first();
+    const disclosure = page.locator(".settings-pane .models-head button[aria-expanded]").first();
     if ((await disclosure.count()) > 0) {
       check(
         "a provider's model disclosure counts its models",
@@ -2285,7 +2467,7 @@ try {
     // Add provider: one sheet for every type, and the type list is the whole
     // catalog in both groups — a type may be added again under another name, so
     // nothing in it is disabled.
-    await page.locator('.settings-content button:has-text("Add provider")').click();
+    await page.locator('.settings-pane button:has-text("Add provider")').click();
     const addSheet = page.locator('.sheet-panel[aria-label="Add provider"]');
     await addSheet.waitFor({ timeout: 5_000 });
     const addText = await addSheet.innerText();
@@ -2311,6 +2493,31 @@ try {
       (await toast.innerText()).trim().length > 5 &&
         (await toast.evaluate((n) => n.classList.contains("bad"))),
       await toast.innerText(),
+    );
+    // The toast moved out of the bottom corner: at the bottom it landed on the
+    // composer's send button and on every sheet's action row. It is top-centre now,
+    // just under the band's hairline. (Measured here rather than on Chat because this
+    // is the one toast the suite can raise on command — nothing is sent.)
+    const toastBox = await page.evaluate(() => {
+      const t = document.querySelector(".toast")?.getBoundingClientRect();
+      const band = document.querySelector(".band")?.getBoundingClientRect();
+      return t && band
+        ? {
+            top: Math.round(t.top),
+            bottom: Math.round(t.bottom),
+            bandBottom: Math.round(band.bottom),
+            centred: Math.abs(t.left + t.width / 2 - window.innerWidth / 2),
+            height: window.innerHeight,
+          }
+        : null;
+    });
+    check(
+      "the toast is top-centre under the band, not over the controls at the foot",
+      toastBox !== null &&
+        toastBox.top >= toastBox.bandBottom &&
+        toastBox.bottom < toastBox.height / 3 &&
+        toastBox.centred <= 2,
+      toastBox,
     );
     await toast.click();
     await page.waitForTimeout(300);
@@ -2351,17 +2558,17 @@ try {
     );
 
     // Global skills: only the global scope, plus the enable-by-path form.
-    await openSection("Global skills");
+    await openSection("Skills");
     const enableButton = page.locator('button:text-is("Enable globally")');
     check("global skills offers an enable field", (await enableButton.count()) === 1);
     check("enable is disabled until a path is typed", await enableButton.isDisabled());
     await page
-      .locator('.settings-content input[placeholder^="/work/"]')
+      .locator('.settings-pane input[placeholder^="/work/"]')
       .fill("/work/agent-x/.agents/skills/s");
     check("enable becomes available with a path", await enableButton.isEnabled());
     check(
       "global skills lists no other scope",
-      (await page.locator(".settings-content .skill-group-head").count()) === 0,
+      (await page.locator(".settings-pane .skill-group-head").count()) === 0,
     );
     const squeezed = await page
       .locator(".pane > pre.tool-args")
@@ -2374,7 +2581,7 @@ try {
     // Notifications: headless Chromium supports the Push/Notification APIs,
     // so this renders the real toggle rather than the iOS install notice —
     // just needs to render without clipping, not actually subscribe.
-    await openSection("Notifications");
+    await openSection("Push");
     check(
       "notifications section offers a toggle or an unsupported notice",
       (await page
@@ -2391,7 +2598,35 @@ try {
     await shot(page, "desktop-notifications");
 
     await shot(page, "desktop-settings");
-    await page.locator('.settings-screen button[aria-label="Close"]').click();
+    // Three ways out, and the rail is not a dead end while it is showing sections:
+    // Back at the head, the gear as a toggle, and the all cell still docked at the
+    // foot (its own verb is the conversation panel, exercised above).
+    await page.locator("nav.rail.rail-settings .rail-back").click();
+    await page.waitForTimeout(300);
+    check(
+      "the rail's Back cell leaves Settings and gives the column back to the panes",
+      (await page.locator(".settings-pane").count()) === 0 &&
+        (await page.locator("nav.rail.rail-settings").count()) === 0 &&
+        (await page.locator(".rail .rail-item:text-is('Chat')").count()) === 1 &&
+        (await page.locator(".rail .rail-agent[data-agent-id]").count()) >= 1,
+    );
+    await openSettings(page);
+    await page.locator("nav.rail.rail-settings .rail-all").click();
+    await page.waitForTimeout(400);
+    check(
+      "the all cell is the third way out: back to Chat, with the panel and the faces",
+      (await page.locator(".settings-pane").count()) === 0 &&
+        (await page.locator(".rail .rail-item.active").innerText()).trim() === "Chat" &&
+        (await page.locator(".sidebar .panel-agent[data-agent-id]").count()) >= 1,
+    );
+    await openSettings(page);
+    await page.locator(".topbar-gear").click();
+    await page.waitForTimeout(300);
+    check(
+      "the gear is a toggle, not only a door",
+      (await page.locator(".settings-pane").count()) === 0 &&
+        (await page.locator(".topbar-gear").getAttribute("aria-pressed")) === "false",
+    );
 
     // Sheet geometry. MemoryTab and TasksTab used to hand-roll the markup and
     // omit .sheet-panel, so on desktop the body and the actions became two
@@ -2779,13 +3014,30 @@ try {
       check("phone: the menu badge is painted", badge.found && Boolean(badge.visible), badge);
     }
 
-    // The status dot doubles as the way into the list of responding
-    // conversations: while any scope is active it is a button, and clicking a
-    // row switches to that conversation.
+    // The busy slot is the way into the list of responding conversations: while any
+    // scope is active it is a button, and clicking a row switches to that
+    // conversation. It is its own element now — the idle dot it used to share a
+    // corner with is gone, its colour moved onto the Settings gear.
     const busyDot = page.locator(".topbar button.topbar-status.busy");
     check(
       `${viewport.width}px: the status dot is a button while turns run`,
       (await busyDot.count()) === 1,
+    );
+    const gearTone = await page.evaluate(() => {
+      const el = document.querySelector(".topbar-gear");
+      if (!el) return null;
+      const tone = [...el.classList].find(
+        (name) => name === "ok" || name === "warn" || name === "bad",
+      );
+      return {
+        tone: tone ?? null,
+        idleDots: document.querySelectorAll(".link-dot:not(.busy)").length,
+      };
+    });
+    check(
+      `${viewport.width}px: the gear carries the link colour and no idle dot is left`,
+      (gearTone?.tone ?? null) !== null && gearTone?.idleDots === 0,
+      gearTone,
     );
     // A second conversation to switch to, taken from the sidebar list.
     const otherId = await page.evaluate((open) => {
@@ -2996,10 +3248,17 @@ try {
   {
     const page = await open(browser, DESKTOP);
     await page.goto(`${ORIGIN}/?settings=google`, { waitUntil: "networkidle" });
-    await page.locator(".settings-screen").waitFor({ timeout: 10_000 });
+    await page.locator(".settings-pane").waitFor({ timeout: 10_000 });
     check(
       "?settings=google opens Settings on Google Workspace",
       (await page.locator(".settings-content-title").innerText()) === "Google Workspace",
+    );
+    // The link does not only open the pane, it opens it on that section — which on
+    // desktop means the rail cell carrying it, since the rail is the section list.
+    check(
+      "and the rail marks the section the link named",
+      (await page.locator("nav.rail.rail-settings .rail-section.active").innerText()).trim() ===
+        "Google",
     );
     check("the param is stripped", !page.url().includes("settings="), page.url());
     await page.close();
