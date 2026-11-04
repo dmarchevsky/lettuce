@@ -1,6 +1,6 @@
 ---
 name: lettuce-ui-conventions
-description: 'lettuce UI conventions that are ours: pin/archive lists live in the BFF, not the agent; a viewport-fixed AgentMenu; the desktop rail — one 184px column of 30px rows (`--rail-row`): named panes, an AGENTS group of face+name rows, and a worded ☰ foot cell that TOGGLES the conversation drawer (a pinned column or an unpinned peek), the column becoming Settings'' sections while that pane is open; a phone bar of five equal slots under a header carrying the open agent''s face (`.where-avatar`); the gear IS the link light and the door to Settings, and a non-Chat pane''s fixed corner `.pane-close` is what its bar keeps clear; both nav surfaces stay mounted and CSS picks one: ui-check reads the open agent from `.rail-agent.active[data-agent-id]`; the settings split (Agent, Tools, the Settings pane); no native checkbox (.menu-row-box / .chip-check). Read before touching NavRail, Sidebar, BottomBar, AgentMenu, the Agent/Tools/Settings tabs, settings-sections.ts or tabs.ts.'
+description: 'lettuce UI conventions that are ours: pin/archive lists live in the BFF, not the agent; a viewport-fixed AgentMenu; the desktop rail — one 184px column of 30px rows (`--rail-row`): named panes, an AGENTS group of face+name rows, and a worded ☰ foot cell that TOGGLES the conversation drawer (a pinned column or an unpinned peek), the column becoming Settings'' sections while that pane is open; a phone bar of five equal slots under a header carrying the open agent''s face (`.where-avatar`); the band's clickable status light opens the responding list (the gear is just the door), and a non-Chat pane''s fixed corner `.pane-close` is what its bar keeps clear; both nav surfaces stay mounted and CSS picks one: ui-check reads the open agent from `.rail-agent.active[data-agent-id]`; the settings split (Agent, Tools, the Settings pane); no native checkbox (.menu-row-box / .chip-check). Read before touching NavRail, Sidebar, BottomBar, AgentMenu, the Agent/Tools/Settings tabs, settings-sections.ts or tabs.ts.'
 ---
 
 # Agent list and sidebar UI conventions
@@ -128,12 +128,15 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   coding workers) render from `features` in `/api/status`, so a compose token that is off hides the
   whole section from **both** the rail and the chips (`visibleGroups`, called by each). The open
   section is App's, remembered per device — the pane has no default.
-- **The band's right cluster is one control, not two.** The gear wears the derived link status
-  (`deriveLinkStatus`): its colour is the connection, the glyph turns while the connection is working
-  on, and its title carries the words — so there is no separate status dot to hunt for when the app
-  says something is wrong. The states a button must never swallow keep elements of their own: the busy
-  `N responding` slot (`.topbar-status.busy`, left of the gear) and the signed-out pill. A passive
-  light that names nothing and answers no click is decoration; the idle dot was retired.
+- **The band's right cluster is a light, then a door.** The link status (
+  `deriveLinkStatus`) is a **clickable light**: `.topbar-status.light` wears the dot at every width,
+  the words where there is room for them, and the whole slot opens the `Responding now` sheet — a
+  passive dot that names nothing gets read as decoration, so the state got a click and the sheet got
+  a second way in. While turns run the `N responding` slot (`.topbar-status.busy`) **takes the
+  light's place rather than joining it**: one corner, one status, the busier of the two shown. The
+  signed-out pill outranks both (a dead session has nothing to list). The Settings gear carries no
+  status colour — it is the door, and a status you must press a button, and navigate somewhere, to
+  read is not a status you can watch.
 - **The Tools tab is chips-with-a-box, not a form.** Each family (Google, Codex, Claude, Remote Pi)
   is a `.chip-pair`: a small box button that allows or blocks the family, then a chip that opens its
   pane. The box writes the access record immediately — a toggle has no other fields to wait for —

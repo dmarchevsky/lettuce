@@ -2993,6 +2993,41 @@ try {
       continue;
     }
     const send = inject as (frame: string) => void;
+    // Before anything is responding: the link light is back in the corner, and it is
+    // a control — it opens the same list the busy slot opens. The gear carries no
+    // status colour any more, so the light is the only place the link is shown.
+    const idleLight = await page.evaluate(() => {
+      const btn = document.querySelector(".topbar button.topbar-status.light");
+      const dot = btn?.querySelector(".link-dot");
+      const gear = document.querySelector(".topbar-gear");
+      return {
+        light: !!btn && !!dot,
+        dotColour: dot ? getComputedStyle(dot).backgroundColor : null,
+        word: btn?.querySelector(".topbar-word")?.textContent?.trim() ?? null,
+        gearTone: gear
+          ? ([...gear.classList].find(
+              (name) => name === "ok" || name === "warn" || name === "bad",
+            ) ?? null)
+          : "no-gear",
+      };
+    });
+    check(
+      `${viewport.width}px: the idle light is there, coloured, and the gear carries no status colour`,
+      idleLight.light &&
+        Boolean(idleLight.dotColour && idleLight.dotColour !== "rgba(0, 0, 0, 0)") &&
+        idleLight.gearTone === null &&
+        (viewport.width < 640 || Boolean(idleLight.word)),
+      idleLight,
+    );
+    await page.locator(".topbar button.topbar-status.light").click();
+    await page.waitForTimeout(300);
+    check(
+      `${viewport.width}px: clicking the light opens the responding list (empty is still a list)`,
+      (await page.locator('.sheet-panel[aria-label="Responding now"]').count()) === 1,
+    );
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
+
     // Mark a conversation other than the open one, so the phone badge shows too.
     const selection = await page.evaluate(() => localStorage.getItem("lettuce:selection"));
     const openId = selection ? (JSON.parse(selection).conversationId as string | null) : null;
@@ -3043,30 +3078,23 @@ try {
       check("phone: the menu badge is painted", badge.found && Boolean(badge.visible), badge);
     }
 
-    // The busy slot is the way into the list of responding conversations: while any
-    // scope is active it is a button, and clicking a row switches to that
-    // conversation. It is its own element now — the idle dot it used to share a
-    // corner with is gone, its colour moved onto the Settings gear.
+    // The busy slot is the way into the same list: while any scope is active it is
+    // a button, and clicking a row switches to that conversation.
     const busyDot = page.locator(".topbar button.topbar-status.busy");
     check(
       `${viewport.width}px: the status dot is a button while turns run`,
       (await busyDot.count()) === 1,
     );
-    const gearTone = await page.evaluate(() => {
-      const el = document.querySelector(".topbar-gear");
-      if (!el) return null;
-      const tone = [...el.classList].find(
-        (name) => name === "ok" || name === "warn" || name === "bad",
-      );
-      return {
-        tone: tone ?? null,
-        idleDots: document.querySelectorAll(".link-dot:not(.busy)").length,
-      };
-    });
+    // While turns run, the busy slot replaces the idle light rather than sitting
+    // beside it: one corner, one status, and the busier of the two is the one shown.
+    const busyReplacesLight = await page.evaluate(() => ({
+      busy: document.querySelectorAll(".topbar button.topbar-status.busy").length,
+      light: document.querySelectorAll(".topbar button.topbar-status.light").length,
+    }));
     check(
-      `${viewport.width}px: the gear carries the link colour and no idle dot is left`,
-      (gearTone?.tone ?? null) !== null && gearTone?.idleDots === 0,
-      gearTone,
+      `${viewport.width}px: the busy slot takes the light's place, it does not join it`,
+      busyReplacesLight.busy === 1 && busyReplacesLight.light === 0,
+      busyReplacesLight,
     );
     // A second conversation to switch to, taken from the sidebar list.
     const otherId = await page.evaluate((open) => {

@@ -3731,18 +3731,24 @@ textarea.mono {
   border: 2px solid var(--warn);
   border-right-color: transparent;
 }
-/* No `.spinning` rule here any more: the idle ring is gone and the gear turns
-   instead (`.topbar-gear.warn`). The keyframes stay — the Remote Pi dot uses them. */
+/* Working on it: the idle light is the ring, so the ring turns while the link is
+   reconnecting rather than sitting there amber. */
+.link-dot.warn.spinning {
+  animation: link-spin 1.1s linear infinite;
+}
 @keyframes link-spin {
   to {
     transform: rotate(360deg);
   }
 }
-/* Busy: a turn is running somewhere, so the whole slot — dot and word together —
+/* Idle and busy are both buttons into the same list, so they share the reset: the
+   whole slot — dot and word together — is the target.
+   Busy: a turn is running somewhere, so the whole slot — dot and word together —
    is the button into the list. Only the dot used to be one, which left a word
    that reads like a label and answers nothing when clicked.
    The pulse is the one every activity dot already uses. */
-.topbar-status.busy {
+.topbar-status.busy,
+.topbar-status.light {
   appearance: none;
   background: none;
   border: none;
@@ -3751,10 +3757,12 @@ textarea.mono {
   color: inherit;
   cursor: pointer;
 }
-.topbar-status.busy:hover {
+.topbar-status.busy:hover,
+.topbar-status.light:hover {
   background: var(--surface-2);
 }
-.topbar-status.busy:hover .topbar-word {
+.topbar-status.busy:hover .topbar-word,
+.topbar-status.light:hover .topbar-word {
   color: var(--text);
 }
 .link-dot.busy {
@@ -3768,17 +3776,14 @@ textarea.mono {
 }
 @media (prefers-reduced-motion: reduce) {
   .link-dot.busy,
-  .topbar-gear.warn .icon {
+  .link-dot.warn.spinning {
     animation: none;
   }
 }
 
-/* The Settings gear, which is also the link light. It used to be a colourless glyph
-   beside a coloured dot that was not a control: two things in the corner to explain
-   one situation, and Settings still had no icon anyone recognised. Now the gear IS
-   the state — it wears the derived colour, and when the connection is working on it
-   the glyph turns, the way the ring used to. A status a button can hide is not a
-   status, so the busy count and the signed-out pill stay elements of their own. */
+/* The Settings gear: the door, and only the door. It wears no status colour — the
+   light to its left reports the link, because a status you have to press a button
+   (and navigate somewhere) to read is not a status you can watch. */
 .topbar-gear {
   flex: none;
   width: 44px;
@@ -3795,27 +3800,11 @@ textarea.mono {
   width: 20px;
   height: 20px;
 }
-.topbar-gear.ok {
-  color: var(--ok);
-}
-.topbar-gear.bad {
-  color: var(--bad);
-}
-.topbar-gear.warn {
-  color: var(--warn);
-}
-.topbar-gear.warn .icon {
-  /* The spinner's job, inherited: working on it, rather than a ring beside it. */
-  animation: link-spin 3.2s linear infinite;
-  transform-origin: center;
-}
 .topbar-gear:hover {
   background: var(--surface-2);
 }
 /* Open, not merely hoverable: the gear is Settings' only door, so it has to look
-   like the tab it is when the pane is up — the rail's own active treatment, in the
-   accent colour rather than the status colour, because "open" is a fact about the
-   app and the colour is a fact about the link. */
+   like the tab it is when the pane is up — the rail's own active treatment. */
 .topbar-gear.open {
   background: var(--surface-2);
   color: var(--accent);

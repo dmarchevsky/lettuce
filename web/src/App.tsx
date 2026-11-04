@@ -25,7 +25,7 @@ import { applyFavicon } from "./lib/favicon.ts";
 import { type FeatureFlags, featureEnabled } from "./lib/features.ts";
 import { markFreshConversation } from "./lib/fresh-conversations.ts";
 import { userHistory } from "./lib/input-history.ts";
-import { deriveLinkStatus, type LinkStatus } from "./lib/link-status.ts";
+import { deriveLinkStatus } from "./lib/link-status.ts";
 import { type FilterGroup, filterEntries, toggleShown } from "./lib/messages.ts";
 import { readRunsDeepLink } from "./lib/pi.ts";
 import {
@@ -686,16 +686,9 @@ function Workspace({ status }: { status: Status }) {
         count={respondingCount}
         onOpen={() => setActivityOpen(true)}
       />
-      {/* The gear is the link light now: it wears the link's colour, so one control
-          says "how is the connection" and "where are Settings" at once — the dot that
-          used to do the first half was not a control, which is why opening Settings
-          meant hunting for a second glyph beside it. The busy and signed-out states
-          keep their own element above it; a status a button can hide is not a status. */}
-      <SettingsGear
-        status={deriveLinkStatus(session.link, session.upstream)}
-        open={tab === "Settings"}
-        onToggle={toggleSettings}
-      />
+      {/* Settings' door, and nothing else: the connection's colour lives on the
+          light to its left, where it can be read without pressing anything. */}
+      <SettingsGear open={tab === "Settings"} onToggle={toggleSettings} />
       {featureEnabled(status.features, "pi") ? (
         <PiRunsChip active={piActive} onOpen={() => selectPane("Runs")} />
       ) : null}
@@ -1131,39 +1124,43 @@ function LinkPill({
       </button>
     );
   }
-  // Idle says nothing. The dot and its word used to sit in this slot reporting
-  // "Live" at a colour nobody could name, beside a gear that did not say what it
-  // was — two elements of furniture where one control would do. The gear below
-  // wears this status now; a passive light that names nothing and answers no click
-  // is decoration, and it has been retired from the only corner of the app where
-  // every pixel is claimed.
-  return null;
-}
-
-/**
- * The band's Settings gear — which is also the link light.
- *
- * It wears the derived status colour, so one control answers "how is the
- * connection" and "where do I configure the app" at once, and the status keeps a
- * word in its title and accessible name (colour is never the whole message). When
- * Settings is the open pane the gear is the close button too, and says so — but the
- * colour stays the connection's, because the gear being pressed is not a fact about
- * the link.
- */
-function SettingsGear({
-  status,
-  open,
-  onToggle,
-}: {
-  status: LinkStatus;
-  open: boolean;
-  onToggle: () => void;
-}) {
-  const label = open ? `Close Settings — ${status.label}` : `Settings — ${status.label}`;
+  // Idle: the light, and it is a control. It used to be a passive dot beside a
+  // word, which is why it got read as decoration; clicking it now opens the same
+  // list the busy slot does, so the corner answers "is it working" and "what is
+  // answering" with one target, and says the state in a word wherever there is
+  // room for one (colour is never the whole message).
+  const idleLabel = `${label} — responding conversations`;
   return (
     <button
       type="button"
-      className={`topbar-gear ${status.tone}${open ? " open" : ""}`}
+      className="topbar-status light"
+      onClick={onOpen}
+      aria-label={idleLabel}
+      title={idleLabel}
+    >
+      <span
+        className={`link-dot ${tone}${tone === "warn" ? " spinning" : ""}`}
+        aria-hidden="true"
+      />
+      <span className="topbar-word">{label}</span>
+    </button>
+  );
+}
+
+/**
+ * The band's Settings gear: the door, and only the door.
+ *
+ * It used to wear the link's colour as well, which made one glyph answer two
+ * questions and left the connection with no light to read — a status you have to
+ * press a button to see is a status you check by navigating somewhere. When
+ * Settings is the open pane the gear is the close button too, and says so.
+ */
+function SettingsGear({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  const label = open ? "Close Settings" : "Settings";
+  return (
+    <button
+      type="button"
+      className={`topbar-gear${open ? " open" : ""}`}
       onClick={onToggle}
       aria-pressed={open}
       aria-label={label}
