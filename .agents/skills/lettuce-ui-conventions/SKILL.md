@@ -23,24 +23,26 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   archived agent has no way back yet (that entry retired with the all-in-one panel list; tracked as
   its own follow-up flow).
 - **Navigation is two surfaces, one per width, and `web/src/lib/tabs.ts` is the pane list they
-  share.** Desktop gets a `--rail-w` (184px) **rail** (`NavRail`: the named panes (Chat, Files,
+  share.** Desktop gets a `--rail-w` (184px) **rail** (`NavRail`): the named panes (Chat, Files,
   Tasks, Tools, Agent) up top, then an `AGENTS` group word with one **face+name row per agent**
-  (face at 22px, the name taking the room), then `＋ New agent`, then a fixed ☰ cell docked at the
-  foot outside the scroll). **Every slot is one row** (`--rail-row`, 30px, glyph then word,
-  left-aligned). The rail used to be a 56px strip of icon-only squares whose agent names lived in a
-  *second* copy of the same list inside the panel, and that pair needed a mirrored height, a
-  mirrored scrollTop and a shared hover mark to pass for one control — the machinery is deleted and
-  the row language the Settings column already proved carries the whole rail. There is no Settings
-  cell — **⚙ Settings in the main column, ☰ Conversations in the Settings one** (the drawer's own
-  verb lives in the band's agent name now, not in the rail). **While Settings is the open pane the
-  rail is a different list** — Back at the head, the sections in the same rows under their group words, the same ☰ at
-  the foot. The agent block is content-height and rides the foot: a short list sits on the ☰, a long
-  one shrinks back and  scrolls. **The ☰ is a toggle and it is worded** (`Conversations`): with no drawer up it goes to Chat
-  and brings the drawer; with one up it puts it away, and a pinned drawer gives up its pin in the
-  same click (`aria-pressed` is the drawer's visibility) — the identity button's precedent, since
-  asking to hide a pinned column means you mean it. The word is the point: a bare ☰ under a column
-  of words reads as a stray glyph, and the cell that said *All agents* now says what it opens. There is no More, because a rail has room to name every
-  pane. A secondary pane always carries a fixed **corner close** (`.pane-close`, top-right under the
+  (face at 22px, the name taking the room), then `＋ New agent`. **Every slot is one row**
+  (`--rail-row`, 30px, glyph then word, left-aligned). The rail used to be a 56px strip of icon-only
+  squares whose agent names lived in a *second* copy of the same list inside the panel, and that pair
+  needed a mirrored height, a mirrored scrollTop and a shared hover mark to pass for one control —
+  the machinery is deleted and the row language the Settings column already proved carries the whole
+  rail. One **foot cell** sits outside the scroll and is worded: **⚙ Settings** (`.rail-door`) in the
+  main column. It is a door and not a toggle — the cell is gone the moment Settings is the pane, so
+  pressing it twice is not a thing — and it lives in the rail rather than as a glyph in the band
+  because the column that names the panes should name its own exit too. **While Settings is the open
+  pane the rail is a different list**: Back at the head, the sections in the same rows under their
+  group words, and **☰ Conversations** (`.rail-all`) at the foot — leave the pane and bring the
+  drawer with you. The agent block is content-height and rides the foot: a short list sits on it, a
+  long one shrinks back and scrolls. **The drawer's toggle is the band's agent name** (`.where`): it
+  opens the drawer, hides it, and gives up a pin in the same click (`aria-pressed` on that button is
+  the drawer's visibility) — asking to hide a pinned column means you mean it, and the pin is one
+  click away to re-pin. The word on each foot cell is the point: a bare glyph under a column of words
+  reads as a stray mark, and the cell that said *All agents* now says what it opens. There is no
+  More, because a rail has room to name every pane. A secondary pane always carries a fixed **corner close** (`.pane-close`, top-right under the
   band's hairline, the sheet's own glyph) whose verb is back to Chat, and the band's title names that
   pane while it is up; `.main` grows `.closable` so the pane's own `.pane-bar` pads its right end
   clear of it — an X over a chip is a control nobody can press, and `ui-check` proves the corner is

@@ -2,20 +2,16 @@ import type { FeatureFlags } from "./features.ts";
 import { featureEnabled } from "./features.ts";
 
 /**
- * The app's panes. Chat is the primary one — the default, the only one with a
- * composer, and the one the conversation panel belongs to — and the rest are
- * secondary, reached from the desktop rail or the phone's bottom bar.
- */
-/**
- * The panes, in rail order.
+ * The panes, in rail order. Chat is the primary one — the default, the only one
+ * with a composer, and the one the conversation drawer belongs to — and the rest
+ * are secondary, reached from the desktop rail or the phone's bottom bar.
  *
  * `Settings` is a pane like any other — it used to be a modal over the pane you
- * were reading, which meant the app had two navigation systems and one of them
- * hid the other. It is in this list so the deep link (`?tab=settings`) and the
- * phone's More row land in the same place the rail's foot cell does, but the rail
- * does NOT show it among the pane cells: when Settings is open its sections
- * does not show it among the pane cells: when Settings is open its sections
- * replace the pane list, and the rail's Back cell is the way out.
+ * were reading, which meant the app had two navigation systems and one of them hid
+ * the other. It is in this list so the phone's More row lands where the desktop
+ * rail's foot cell does, but the rail does not show it among the pane cells: with
+ * Settings open, its sections replace the pane list, and that column's Back cell
+ * (or the corner X) is the way out — to Chat.
  */
 export const TABS = ["Chat", "Files", "Tasks", "Runs", "Tools", "Agent", "Settings"] as const;
 export type Tab = (typeof TABS)[number];

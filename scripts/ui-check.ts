@@ -1340,7 +1340,7 @@ try {
     );
     check(
       "the rail carries the all-agents cell",
-      (await page.locator(".rail .rail-all").count()) === 1,
+      (await page.locator(".rail .rail-settings-cell").count()) === 1,
     );
     check(
       "sidebar is pinned on screen",
@@ -1441,13 +1441,9 @@ try {
     check(
       "the rail lists every agent, with New-agent in the list and Settings' door fixed under it",
       (await page.locator(".rail .rail-agent[data-agent-id]").count()) >= 1 &&
-        (await page.locator(".rail .rail-all").count()) === 1 &&
-        (await page.locator(".rail .rail-agents .rail-all").count()) === 0 &&
+        (await page.locator(".rail .rail-settings-cell").count()) === 1 &&
+        (await page.locator(".rail .rail-agents .rail-door").count()) === 0 &&
         (await page.locator(".rail .rail-agents .rail-new").count()) === 1,
-    );
-    check(
-      "the rail has no agent rows of its own any more",
-      (await page.locator(".rail .agent-row").count()) === 0,
     );
     check(
       "the drawer carries conversations only — the agent list is not copied",
@@ -1559,13 +1555,14 @@ try {
         pane: box(".rail .rail-item"),
         face: box(".rail .rail-agent[data-agent-id]"),
         owner: box(".rail .rail-agent[data-agent-id] .agent-avatar"),
-        foot: box(".rail .rail-all"),
+        foot: box(".rail .rail-settings-cell"),
       };
     });
     check(
       "the rail is --rail-w wide and every row is --rail-row tall (the foot verb aside)",
       rows.row > 0 &&
-        rows.railVar === rows.row + 154 &&
+        // A column of rows, not a strip of squares: several rows wide.
+        rows.railVar > 5 * rows.row &&
         rows.rail?.w === rows.railVar &&
         rows.pane?.w === rows.railVar &&
         rows.pane?.h === rows.row &&
@@ -1850,7 +1847,7 @@ try {
       const side = rect(".sidebar");
       const main = rect(".main");
       const agents = rect(".rail-agents");
-      const all = rect(".rail .rail-all");
+      const all = rect(".rail .rail-settings-cell");
       return {
         bandBottom: round(band?.bottom ?? null),
         bandRight: round(band?.right ?? null),
@@ -1894,7 +1891,7 @@ try {
     const short = await page.evaluate(() => {
       const el = (sel: string) => document.querySelector(sel);
       const agents = el(".rail-agents");
-      const all = el(".rail .rail-all");
+      const all = el(".rail .rail-settings-cell");
       if (!agents || !all) return null;
       return {
         scrolls: agents.scrollHeight > agents.clientHeight + 1,

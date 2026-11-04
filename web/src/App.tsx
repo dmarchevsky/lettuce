@@ -228,9 +228,6 @@ function Workspace({ status }: { status: Status }) {
     if (wanted && isSectionVisible(wanted, status.features)) return wanted;
     return visibleGroups(status.features)[0]?.sections[0]?.id ?? "providers";
   });
-  /** The pane Settings replaced, so leaving it goes back where you came
-   * from instead of always dumping you on Chat. */
-  const paneBeforeSettings = useRef<Tab>("Chat");
   /**
    * The desktop conversation DRAWER: pinned is a column of the grid, unpinned is a
    * peek that floats over the transcript, and by default it is neither — it is shut,
@@ -253,14 +250,12 @@ function Workspace({ status }: { status: Status }) {
   const panelHeld = useRef(false);
   const previewList = useAgentConversations(session.request);
   const loadPreview = previewList.load;
-  // A pointer resting inside the drawer borrows even while pinned: it is already
-  // inside the column you are reading, which is an ask a sweep past the rail is not.
-  const panelRest = useRef(false);
+  // A borrowed list is a hover's answer, so it is honoured only while the drawer is
+  // unpinned: a pinned column is the one you chose to keep, and it does not change
+  // agents under you. (It used to be allowed when the pointer rested inside the
+  // drawer too — that was the panel's agent list talking back, and that list is gone.)
   const previewAgent =
-    tab === "Chat" &&
-    previewId &&
-    previewId !== agents.agentId &&
-    (!panelPinned || panelRest.current)
+    tab === "Chat" && previewId && previewId !== agents.agentId && !panelPinned
       ? (agents.agents.find((agent) => agent.id === previewId) ?? null)
       : null;
   const panelVisible = tab === "Chat" && (panelPinned || panelPeek || previewAgent !== null);
@@ -286,10 +281,7 @@ function Workspace({ status }: { status: Status }) {
   }, []);
   const holdPanel = useCallback((held: boolean) => {
     panelHeld.current = held;
-    if (!held) {
-      panelRest.current = false;
-      setPreviewId(null);
-    }
+    if (!held) setPreviewId(null);
   }, []);
   /** An unpinned drawer was opened to answer one question; a pick answers it, so it
    * gets out of the way — the pinned column stays because you asked for it. */
@@ -327,11 +319,6 @@ function Workspace({ status }: { status: Status }) {
     // Pinning a borrowed panel would keep another agent's list as the column you decided
     // to keep — the borrow is a hover, and a hover is not a decision.
     setPreviewId(null);
-    // A borrow ended here, so its permission ends with it: `panelRest` is what lets a
-    // borrow show while pinned, and leaving it set would let the next rail sweep borrow
-    // this now-pinned column. (holdPanel would clear it on pointer-out anyway; this just
-    // closes the gap where a pin click lands before that leave fires.)
-    panelRest.current = false;
     setPanelPinned((current) => {
       writePanelPin(!current);
       if (current) setPanelPeek(true);
@@ -349,9 +336,6 @@ function Workspace({ status }: { status: Status }) {
     (next: Tab) => {
       // A borrow belongs to the rail and to Chat; changing pane ends it.
       setPreviewId(null);
-      // Settings borrows the column from whatever pane was up, and gives it back on
-      // the way out — so the switcher remembers where it came from.
-      if (next === "Settings" && tab !== "Settings") paneBeforeSettings.current = tab;
       if (next === "Chat") {
         // Pinned, Chat has nothing to do (the panel is already there). Unpinned,
         // Chat is a toggle: pressing it while the peek is open puts it back.
@@ -364,26 +348,15 @@ function Workspace({ status }: { status: Status }) {
     [panelPinned, panelPeek, tab],
   );
 
-  /** The all cell (the ☰ at the foot of the rail): Chat's panel with its full agent
-   * list — and a TOGGLE, which is what makes it safe to be the one cell that is
-   * always there. With no panel up it goes to Chat and brings the panel; with a panel
-   * up it puts it away, and a pinned panel gives up its pin in the same click — the
-   * identity button's precedent: asking to hide a pinned column means you mean it,
-   * and the pin button is one click away to re-pin it. */
+  /** The Settings column's ☰ at the foot: leave the pane and bring the conversation
+   * drawer with you. It is a door, not a toggle — pressing it lands you on Chat with
+   * the drawer up, so there is no second press here to undo the first. On Chat the
+   * undo is the identity button in the band, which hides the drawer and gives up a
+   * pin in the same click. */
   const showAllAgents = useCallback(() => {
-    if (tab === "Chat" && panelVisible) {
-      setPreviewId(null);
-      panelRest.current = false;
-      if (panelPinned) {
-        writePanelPin(false);
-        setPanelPinned(false);
-      }
-      setPanelPeek(false);
-      return;
-    }
     if (tab !== "Chat") selectPane("Chat");
     openPanel();
-  }, [tab, panelVisible, panelPinned, selectPane, openPanel]);
+  }, [tab, selectPane, openPanel]);
 
   /** The rail's section cell: open a section and remember it as the one to resume. */
   const pickSettingsSection = useCallback((section: GlobalSection) => {
@@ -391,12 +364,12 @@ function Workspace({ status }: { status: Status }) {
     writeLastSection(section);
   }, []);
 
-  /** The rail's foot cell is the door into Settings, and Back is the way out:
-   * pressed with the pane up it closes it, back to the pane it opened from. The
-   * corner X next to it is the other verb — close the pane and go to Chat. */
-  const toggleSettings = useCallback(() => {
-    selectPane(tab === "Settings" ? paneBeforeSettings.current : "Settings");
-  }, [selectPane, tab]);
+  /** The rail's foot cell is the door into Settings. It is a door and not a toggle:
+   * the cell is not on screen while Settings is the pane (the rail holds its sections
+   * then), so the way out is the sections rail's Back cell or the corner X, and both
+   * go back to Chat — remembering which pane opened Settings would be a fourth thing
+   * for the rail's foot to remember, for a verb you cannot press twice. */
+  const openSettingsPane = useCallback(() => selectPane("Settings"), [selectPane]);
 
   /** A link from another pane into one Settings section — the door's verb with the
    * section chosen for you, which is how "Google access lost" lands on Google. */
@@ -577,9 +550,6 @@ function Workspace({ status }: { status: Status }) {
   const title =
     agents.conversations.find((c) => c.id === agents.conversationId)?.summary ?? "Lettuce";
   const agentName = agents.agents.find((a) => a.id === agents.agentId)?.name ?? null;
-  /** The band's title: the conversation on Chat, the pane's own name everywhere else.
-   * A secondary pane used to leave the title saying "Lettuce" over a screen of MCP
-   * servers — the band named nothing, which is what the corner X now closes. */
   /** The band's title: the conversation on Chat, the pane's own name everywhere else
    * (which for Settings is simply the pane's name). A secondary pane used to leave
    * the title saying "Lettuce" over a screen of MCP servers — the band named nothing,
@@ -708,10 +678,9 @@ function Workspace({ status }: { status: Status }) {
         settingsSection={settingsSection}
         features={status.features}
         onPickSection={pickSettingsSection}
-        onOpenSettings={toggleSettings}
+        onOpenSettings={openSettingsPane}
         onCloseSettings={() => selectPane("Chat")}
         onShowAll={showAllAgents}
-        panelVisible={panelVisible}
         onEditAgent={editAgent}
         onNewAgent={() => setCreatingAgent(true)}
       />

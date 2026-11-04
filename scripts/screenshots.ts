@@ -565,9 +565,9 @@ try {
     const page = await browser.newPage({ viewport: DESKTOP });
     trackPageErrors(page);
     await page.goto(`${server.url.origin}/?settings=providers`, { waitUntil: "networkidle" });
-    await page.waitForSelector(".settings-screen", { timeout: 15_000 });
+    await page.waitForSelector(".settings-pane", { timeout: 15_000 });
     await page.waitForTimeout(600);
-    await shot(page, "desktop-settings", ".settings-screen");
+    await shot(page, "desktop-settings", ".settings-pane");
     await page.close();
   }
   {

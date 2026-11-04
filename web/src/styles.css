@@ -287,11 +287,14 @@ pre {
   border: 2px solid var(--surface);
   border-radius: var(--radius-round);
 }
-/* The cells that are not agents: New-agent at the end of the list, and the foot
-   cell under it — Settings' door in the main rail, the conversation drawer's verb
-   in the Settings rail. Same box, same hairline over it: the column has one place
-   for the verb that leaves the room, whatever the room is. */
-.rail-all .icon {
+/* The cells that are not agents: New-agent at the end of the list, and the two foot
+   cells under it — `.rail-door` is Settings' door in the main rail, `.rail-all` the
+   conversation drawer's verb in the Settings rail. Same box, same hairline over it:
+   the column has one place for the verb that leaves the room, whatever the room is.
+   Named apart because they are not the same verb: one enters Settings, the other
+   leaves it, and neither is a toggle (the drawer's toggle is the band's identity). */
+.rail-all .icon,
+.rail-door .icon {
   width: 16px;
   height: 16px;
 }
@@ -368,22 +371,19 @@ pre {
 .rail-back + .rail-groups {
   border-top: 1px solid var(--border);
 }
-.rail-all:hover {
+.rail-all:hover,
+.rail-door:hover {
   color: var(--text);
   background: var(--surface-2);
 }
-/* Fixed at the foot, OUTSIDE the scroll, so it answers from any scroll state. */
-.rail .rail-all {
+/* Fixed at the foot, OUTSIDE the scroll, so they answer from any scroll state. */
+.rail .rail-all,
+.rail .rail-door {
   flex: none;
   height: 38px;
   border-top: 1px solid var(--border);
   margin: 4px 0 0;
   color: var(--muted);
-}
-.rail .rail-all:hover,
-.rail .rail-all[aria-pressed="true"] {
-  color: var(--text);
-  background: var(--surface-2);
 }
 .rail-item {
   width: 100%;

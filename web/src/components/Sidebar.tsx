@@ -43,18 +43,16 @@ interface Props {
 }
 
 /**
- * The desktop conversation panel: one agent's conversations on top, the agent
- * list anchored at the bottom.
+ * The desktop conversation drawer: one agent's conversations, and nothing else —
+ * the agents live in the rail now, so this column no longer carries a copy of them.
  *
- * The top is a tool row (New, pin), search, and the list; the bottom block
- * mirrors the rail's own agent list in names only — the rail avatar is the
- * agent's one icon — and its seam divider, the block's own border-top, rides the
- * first agent across the column seam.
- * Whether the panel is on screen at all is not its call: `pinned` and visibility
+ * A tool row (New, pin), search, then the list, under a head line naming whose list
+ * this is. Whether it is on screen at all is not its call: `pinned` and `visible`
  * live in `App`, because the rail's hover and the pane switch both have a say.
- * What the list shows can be a borrowed agent's (`preview`), which is how the
- * rail's hover opens this panel instead of growing a second one beside it; the
- * borrow marks that agent's row in the bottom block.
+ * Unpinned it floats over the transcript as a peek; pinned it is a grid column.
+ * The list can show a borrowed agent's conversations (`preview`), which is how the
+ * rail's hover opens this drawer instead of growing a second one beside it; a
+ * borrowed list says so at its head and cannot be pinned.
  */
 export function Sidebar({
   agents,

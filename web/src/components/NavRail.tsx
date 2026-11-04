@@ -40,10 +40,8 @@ interface Props {
   /** The main rail's foot cell: Settings' door. There is no glyph for it in the
    * band any more — the column that names the panes names this one too. */
   onOpenSettings: () => void;
-  /** The `all` cell: the conversation panel with the full agent list — a toggle, so
-   * it also needs to know whether the panel is up. */
+  /** The Settings column's ☰: leave the pane and bring the conversation drawer. */
   onShowAll: () => void;
-  panelVisible: boolean;
   onEditAgent: (agentId: string) => void;
   /** New agent, at the foot of the agent list: the drawer that used to carry this
    * verb is usually shut, so the rail has to. */
@@ -90,7 +88,6 @@ export function NavRail({
   onCloseSettings,
   onOpenSettings,
   onShowAll,
-  panelVisible,
   onEditAgent,
   onNewAgent,
 }: Props) {
@@ -218,7 +215,7 @@ export function NavRail({
             </div>
           ))}
         </div>
-        <AllCell onShowAll={onShowAll} panelVisible={panelVisible} word="Conversations" />
+        <AllCell onShowAll={onShowAll} word="Conversations" />
       </nav>
     );
   }
@@ -296,13 +293,13 @@ export function NavRail({
           where the column's other leave-the-room verb used to live. */}
       <button
         type="button"
-        className="rail-agent rail-all rail-settings-cell"
+        className="rail-agent rail-door rail-settings-cell"
         onClick={onOpenSettings}
         title="Settings — providers, search, MCP, Google, workers"
         aria-label="Settings"
       >
         <Icon name="settings" />
-        <span className="rail-all-word">Settings</span>
+        <span className="rail-foot-word">Settings</span>
       </button>
 
       {menu ? (
@@ -341,35 +338,23 @@ export function NavRail({
 }
 
 /**
- * The all cell, shared by both rails: the conversation panel with the full agent
- * list, and the same press putting it away. It is the one cell that survives the
- * rail changing subject — it is not a member of the list, it is the column's verb.
+ * The Settings column's foot cell: leave the pane and bring the conversation drawer
+ * with you. A door and not a toggle — pressing it lands you on Chat with the drawer
+ * up, so there is no second press here to undo the first. On Chat the undo is the
+ * band's identity button, which hides the drawer and gives up a pin in one click,
+ * which is why that one is `aria-pressed` and this one is not.
  */
-function AllCell({
-  onShowAll,
-  panelVisible,
-  word,
-}: {
-  onShowAll: () => void;
-  panelVisible: boolean;
-  /** The wide Settings column names its verbs; the square rail has no room for one. */
-  word?: string;
-}) {
+function AllCell({ onShowAll, word }: { onShowAll: () => void; word?: string }) {
   return (
     <button
       type="button"
       className="rail-agent rail-all"
       onClick={onShowAll}
-      title={
-        panelVisible
-          ? "Hide the conversations panel"
-          : "All agents: the full list in the conversation panel"
-      }
-      aria-label="Conversations panel"
-      aria-pressed={panelVisible}
+      title="Back to the conversations, with the list open"
+      aria-label="Conversations"
     >
       <Icon name="menu" />
-      {word ? <span className="rail-all-word">{word}</span> : null}
+      {word ? <span className="rail-foot-word">{word}</span> : null}
     </button>
   );
 }
