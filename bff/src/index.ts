@@ -39,6 +39,7 @@ import {
   type SessionPayload,
 } from "./auth/session-cookie.ts";
 import { GoogleSignIn, registerGoogleSignInRoutes } from "./auth/signin-google.ts";
+import { registerTelegramRoutes } from "./channels/routes.ts";
 import { registerClaudeRoutes } from "./claude/routes.ts";
 import { type ClaudeFileIo, reapplyClaudeSettings } from "./claude/service.ts";
 import { AGENT_POLICY_MOD_PATH, renderAgentPolicyMod } from "./codex/policy-mod.ts";
@@ -412,8 +413,9 @@ async function fileCommand<T extends ReadFileResponseMessage | ListInDirectoryRe
 }
 
 // Codex workers' files, reached through the app-server like every other file
-// the BFF touches — see `codex/settings.ts`. Only these routes use it, never a
-// browser: `/root/.letta` is outside the workspace clamp on purpose.
+// the BFF touches — see `codex/settings.ts`. Only these routes (and the
+// `channels/` module, which shares this io) use it, never a browser:
+// `/root/.letta` is outside the workspace clamp on purpose.
 const codexIo: CodexFileIo = {
   async read(path) {
     return fileCommand<ReadFileResponseMessage, string>(
@@ -1323,6 +1325,15 @@ app.get("/api/skills", async (c) => {
 registerCodexRoutes(app, {
   isReady: () => upstream.isReady(),
   codexEnabled: config.features.codex,
+  io: codexIo,
+});
+
+// Settings → Telegram: the bot account, routes and pairing, edited straight
+// in the gateway's own state files — see `channels/state.ts` for why the BFF,
+// not the protocol, touches them.
+registerTelegramRoutes(app, {
+  isReady: () => upstream.isReady(),
+  telegramEnabled: config.features.telegram,
   io: codexIo,
 });
 
