@@ -2416,7 +2416,7 @@ try {
 
     if (featureOn(desktopFeatures, "pi")) {
       // Same for Remote Pi (GET /api/pi/settings) — the rail's word is just `Pi`.
-      await openSection("Pi");
+      await openSection("Remote Pi");
       check(
         "remote pi section loads its settings",
         (await page.locator('.menu-row:has-text("Allow Remote Pi")').count()) === 1,
@@ -2431,7 +2431,7 @@ try {
 
     // Google loads its status from the BFF (GET /api/google). Under dev bypass
     // the form must also say it is locked, not just grey its inputs out.
-    await openSection("Google");
+    await openSection("Google Workspace");
     const googleText = await page.locator(".settings-pane").innerText();
     check(
       "google section loads its status",
@@ -2474,7 +2474,7 @@ try {
       aboutText,
     );
 
-    await openSection("Models");
+    await openSection("Providers & models");
 
     // Providers: the operator's own named providers, each with a type chip and
     // its base URL, or the empty state. Wait for one to arrive — the registry and
@@ -2624,7 +2624,7 @@ try {
     );
 
     // Global skills: only the global scope, plus the enable-by-path form.
-    await openSection("Skills");
+    await openSection("Global skills");
     const enableButton = page.locator('button:text-is("Enable globally")');
     check("global skills offers an enable field", (await enableButton.count()) === 1);
     check("enable is disabled until a path is typed", await enableButton.isDisabled());
