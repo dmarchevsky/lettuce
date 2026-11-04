@@ -52,7 +52,7 @@ interface Props {
  * navigation system on top of the first: the rail kept showing panes you could not
  * reach, and Settings carried its own list of sections beside them. Now it is a
  * pane (`tab === "Settings"`): while it is open the rail holds its sections and the
- * gear in the band is the door, so there is one navigation column again.
+ * the rail's foot cell is the door, so there is one navigation column again.
  *
  * Which leaves the sections needing a place on a phone too, where the rail is not
  * on screen — the Agent tab's wrapping chips, short names, over the section. A list

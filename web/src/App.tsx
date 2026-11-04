@@ -228,7 +228,7 @@ function Workspace({ status }: { status: Status }) {
     if (wanted && isSectionVisible(wanted, status.features)) return wanted;
     return visibleGroups(status.features)[0]?.sections[0]?.id ?? "providers";
   });
-  /** The pane Settings replaced, so the gear's second press goes back where you came
+  /** The pane Settings replaced, so leaving it goes back where you came
    * from instead of always dumping you on Chat. */
   const paneBeforeSettings = useRef<Tab>("Chat");
   /**
@@ -391,14 +391,14 @@ function Workspace({ status }: { status: Status }) {
     writeLastSection(section);
   }, []);
 
-  /** The band's gear is the only door into Settings, so it is also the way out:
+  /** The rail's foot cell is the door into Settings, and Back is the way out:
    * pressed with the pane up it closes it, back to the pane it opened from. The
    * corner X next to it is the other verb — close the pane and go to Chat. */
   const toggleSettings = useCallback(() => {
     selectPane(tab === "Settings" ? paneBeforeSettings.current : "Settings");
   }, [selectPane, tab]);
 
-  /** A link from another pane into one Settings section — the gear's verb with the
+  /** A link from another pane into one Settings section — the door's verb with the
    * section chosen for you, which is how "Google access lost" lands on Google. */
   const openSettings = useCallback(
     (section?: GlobalSection | string) => {
@@ -686,9 +686,6 @@ function Workspace({ status }: { status: Status }) {
         count={respondingCount}
         onOpen={() => setActivityOpen(true)}
       />
-      {/* Settings' door, and nothing else: the connection's colour lives on the
-          light to its left, where it can be read without pressing anything. */}
-      <SettingsGear open={tab === "Settings"} onToggle={toggleSettings} />
       {featureEnabled(status.features, "pi") ? (
         <PiRunsChip active={piActive} onOpen={() => selectPane("Runs")} />
       ) : null}
@@ -711,6 +708,7 @@ function Workspace({ status }: { status: Status }) {
         settingsSection={settingsSection}
         features={status.features}
         onPickSection={pickSettingsSection}
+        onOpenSettings={toggleSettings}
         onCloseSettings={() => selectPane("Chat")}
         onShowAll={showAllAgents}
         panelVisible={panelVisible}
@@ -1143,30 +1141,6 @@ function LinkPill({
         aria-hidden="true"
       />
       <span className="topbar-word">{label}</span>
-    </button>
-  );
-}
-
-/**
- * The band's Settings gear: the door, and only the door.
- *
- * It used to wear the link's colour as well, which made one glyph answer two
- * questions and left the connection with no light to read — a status you have to
- * press a button to see is a status you check by navigating somewhere. When
- * Settings is the open pane the gear is the close button too, and says so.
- */
-function SettingsGear({ open, onToggle }: { open: boolean; onToggle: () => void }) {
-  const label = open ? "Close Settings" : "Settings";
-  return (
-    <button
-      type="button"
-      className={`topbar-gear${open ? " open" : ""}`}
-      onClick={onToggle}
-      aria-pressed={open}
-      aria-label={label}
-      title={label}
-    >
-      <Icon name="settings" />
     </button>
   );
 }

@@ -27,7 +27,7 @@ interface Props {
   onOwnAvatar: () => void;
   /** Settings is a pane, and while it is the pane the rail holds its sections and
    * nothing else: the app has one navigation column, so the sections cannot be a
-   * second list beside the panes. The door is the band's gear, in App. */
+   * second list beside the panes; the door is this rail's own foot cell. */
   settingsOpen: boolean;
   /** Which section the pane is showing — the rail marks it. */
   settingsSection: GlobalSection;
@@ -37,6 +37,9 @@ interface Props {
   onPickSection: (section: GlobalSection) => void;
   /** The sections rail's Back cell: put Settings away, back to Chat. */
   onCloseSettings: () => void;
+  /** The main rail's foot cell: Settings' door. There is no glyph for it in the
+   * band any more — the column that names the panes names this one too. */
+  onOpenSettings: () => void;
   /** The `all` cell: the conversation panel with the full agent list — a toggle, so
    * it also needs to know whether the panel is up. */
   onShowAll: () => void;
@@ -66,7 +69,7 @@ function paneItems(runsEnabled: boolean): { tab: Tab; label: string; icon: IconN
  * The desktop rail: the panes on top, the agents anchored at the bottom.
  *
  * One column answers "which pane" and "which agent", in one row height, and the
- * agent block rides the foot above the worded foot verb. There is no second copy
+ * agent block rides the foot above the foot cell — Settings' door. There is no second copy
  * of the agent list anywhere: the conversation drawer shows conversations only.
  * Chat is primary in the literal sense: it is the default pane, the only one with
  * a composer, and the only one with a drawer.
@@ -85,6 +88,7 @@ export function NavRail({
   features,
   onPickSection,
   onCloseSettings,
+  onOpenSettings,
   onShowAll,
   panelVisible,
   onEditAgent,
@@ -286,10 +290,20 @@ export function NavRail({
         </button>
       </div>
 
-      {/* The foot verb, outside the scroll: it brings the conversation drawer and
-          pressing it again puts the drawer away. It is worded because the column is
-          wide enough to say it — ☰ alone under a list of words reads as a stray glyph. */}
-      <AllCell onShowAll={onShowAll} panelVisible={panelVisible} word="Conversations" />
+      {/* The foot cell, outside the scroll: Settings' door. It sits at the foot
+          rather than among the panes because it is not a place you are — it is the
+          one row that leaves the app's own rooms for its configuration, and it is
+          where the column's other leave-the-room verb used to live. */}
+      <button
+        type="button"
+        className="rail-agent rail-all rail-settings-cell"
+        onClick={onOpenSettings}
+        title="Settings — providers, search, MCP, Google, workers"
+        aria-label="Settings"
+      >
+        <Icon name="settings" />
+        <span className="rail-all-word">Settings</span>
+      </button>
 
       {menu ? (
         <AgentMenu

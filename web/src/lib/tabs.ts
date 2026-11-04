@@ -12,9 +12,10 @@ import { featureEnabled } from "./features.ts";
  * `Settings` is a pane like any other — it used to be a modal over the pane you
  * were reading, which meant the app had two navigation systems and one of them
  * hid the other. It is in this list so the deep link (`?tab=settings`) and the
- * phone's More row land in the same place the gear does, but the desktop rail
+ * phone's More row land in the same place the rail's foot cell does, but the rail
  * does NOT show it among the pane cells: when Settings is open its sections
- * replace the pane list, and the gear in the band is the toggle.
+ * does not show it among the pane cells: when Settings is open its sections
+ * replace the pane list, and the rail's Back cell is the way out.
  */
 export const TABS = ["Chat", "Files", "Tasks", "Runs", "Tools", "Agent", "Settings"] as const;
 export type Tab = (typeof TABS)[number];

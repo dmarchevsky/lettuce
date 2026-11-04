@@ -16,7 +16,8 @@ interface Props {
   cwd: string | null;
   /** Changes whenever the app-server reports a skill enabled or disabled. */
   skillsVersion: number;
-  /** Settings shared by every agent live behind the top bar's gear. */
+  /** Settings shared by every agent live behind the rail's foot cell (the phone's
+   * More row). */
   onOpenGlobalSettings: (section?: "skills") => void;
 }
 
@@ -76,7 +77,7 @@ export function AgentTab({
         ))}
       </div>
       {/* No scope line here: every section below belongs to this agent alone, and
-          the gear in the top bar is the way to the shared settings. A link that
+          the rail's Settings cell is the way to the shared settings. A link that
           read "Settings for every agent" above a per-agent section was read as a
           heading claiming the opposite. */}
 

@@ -287,8 +287,10 @@ pre {
   border: 2px solid var(--surface);
   border-radius: var(--radius-round);
 }
-/* The two cells that are not agents: New-agent at the end of the list, and the
-   foot verb under it. */
+/* The cells that are not agents: New-agent at the end of the list, and the foot
+   cell under it — Settings' door in the main rail, the conversation drawer's verb
+   in the Settings rail. Same box, same hairline over it: the column has one place
+   for the verb that leaves the room, whatever the room is. */
 .rail-all .icon {
   width: 16px;
   height: 16px;
@@ -3781,35 +3783,6 @@ textarea.mono {
   }
 }
 
-/* The Settings gear: the door, and only the door. It wears no status colour — the
-   light to its left reports the link, because a status you have to press a button
-   (and navigate somewhere) to read is not a status you can watch. */
-.topbar-gear {
-  flex: none;
-  width: 44px;
-  height: 44px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  background: none;
-  border: none;
-  color: var(--muted);
-  cursor: pointer;
-}
-.topbar-gear .icon {
-  width: 20px;
-  height: 20px;
-}
-.topbar-gear:hover {
-  background: var(--surface-2);
-}
-/* Open, not merely hoverable: the gear is Settings' only door, so it has to look
-   like the tab it is when the pane is up — the rail's own active treatment. */
-.topbar-gear.open {
-  background: var(--surface-2);
-  color: var(--accent);
-}
-
 /* A pane's way out, in the corner a close button is always in — the same glyph a
    sheet wears, so the app has one dismissal mark instead of two. Fixed rather than
    in flow: every pane starts with a bar of its own (`.pane-bar`, with its own
@@ -4643,7 +4616,7 @@ textarea.mono {
   overflow-wrap: anywhere;
 }
 
-/* ── Settings: shared by every agent (the top bar's gear) ────────────────── */
+/* ── Settings: shared by every agent (the rail's foot cell) ──────────────── */
 
 /* A link inside running text: no button padding, the sentence's own size. */
 .link.inline {

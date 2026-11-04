@@ -1,6 +1,6 @@
 ---
 name: lettuce-ui-conventions
-description: 'lettuce UI conventions that are ours: pin/archive lists live in the BFF, not the agent; a viewport-fixed AgentMenu; the desktop rail — one 184px column of 30px rows (`--rail-row`): named panes, an AGENTS group of face+name rows, and a worded ☰ foot cell that TOGGLES the conversation drawer (a pinned column or an unpinned peek), the column becoming Settings'' sections while that pane is open; a phone bar of five equal slots under a header carrying the open agent''s face (`.where-avatar`); the band's clickable status light opens the responding list (the gear is just the door), and a non-Chat pane''s fixed corner `.pane-close` is what its bar keeps clear; both nav surfaces stay mounted and CSS picks one: ui-check reads the open agent from `.rail-agent.active[data-agent-id]`; the settings split (Agent, Tools, the Settings pane); no native checkbox (.menu-row-box / .chip-check). Read before touching NavRail, Sidebar, BottomBar, AgentMenu, the Agent/Tools/Settings tabs, settings-sections.ts or tabs.ts.'
+description: 'lettuce UI conventions that are ours: pin/archive lists live in the BFF, not the agent; a viewport-fixed AgentMenu; the desktop rail — one 184px column of 30px rows: named panes, an AGENTS group of face+name rows, and a foot cell (⚙ Settings, or ☰ Conversations in the Settings column); the conversation drawer is a pinned column or an unpinned peek, opened from the agent name in the band; a phone bar of five equal slots under a header carrying the open agent''s face (`.where-avatar`); the band's clickable status light opens the responding list (no Settings glyph is in the band), and a non-Chat pane''s fixed corner `.pane-close` is what its bar keeps clear; both nav surfaces stay mounted and CSS picks one: ui-check reads the open agent from `.rail-agent.active[data-agent-id]`; the settings split (Agent, Tools, the Settings pane); no native checkbox (.menu-row-box / .chip-check). Read before touching NavRail, Sidebar, BottomBar, AgentMenu, the Agent/Tools/Settings tabs, settings-sections.ts or tabs.ts.'
 ---
 
 # Agent list and sidebar UI conventions
@@ -31,8 +31,9 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   *second* copy of the same list inside the panel, and that pair needed a mirrored height, a
   mirrored scrollTop and a shared hover mark to pass for one control — the machinery is deleted and
   the row language the Settings column already proved carries the whole rail. There is no Settings
-  cell: the band's gear is the door, and **while Settings is the open pane the rail is a different
-  list** — Back at the head, the sections in the same rows under their group words, the same ☰ at
+  cell — **⚙ Settings in the main column, ☰ Conversations in the Settings one** (the drawer's own
+  verb lives in the band's agent name now, not in the rail). **While Settings is the open pane the
+  rail is a different list** — Back at the head, the sections in the same rows under their group words, the same ☰ at
   the foot. The agent block is content-height and rides the foot: a short list sits on the ☰, a long
   one shrinks back and  scrolls. **The ☰ is a toggle and it is worded** (`Conversations`): with no drawer up it goes to Chat
   and brings the drawer; with one up it puts it away, and a pinned drawer gives up its pin in the
@@ -113,8 +114,9 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   one points at *for it*. **Settings** (`web/src/tabs/SettingsTab.tsx`) is a **pane**, not a modal: it
   used to be a full-screen dialog over the pane you were reading, which put a second navigation system
   on top of the first (the rail kept showing panes you could not reach while Settings carried its own
-  list of sections beside them). Now `tab === "Settings"`, the band's `.topbar-gear` is the door and
-  the toggle back, the rail holds the sections while it is open, and a phone gets wrapping chips with
+  list of sections beside them). Now `tab === "Settings"`: the rail's foot cell (`.rail-settings-cell`)
+  is the door, its Back cell the way back, the rail holds the sections while it is open, and a phone
+  gets wrapping chips with
   short names over the section. The Settings rail is the same column in the same row language as the
   pane rail — one row of icon + full `label`, group words flush-left — because a list of words needs
   a column that can hold one, and the phone's chips and the rail share `short`. `web/src/lib/settings-sections.ts` is the one registry — `label` for the pane's title and
@@ -134,9 +136,10 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   passive dot that names nothing gets read as decoration, so the state got a click and the sheet got
   a second way in. While turns run the `N responding` slot (`.topbar-status.busy`) **takes the
   light's place rather than joining it**: one corner, one status, the busier of the two shown. The
-  signed-out pill outranks both (a dead session has nothing to list). The Settings gear carries no
-  status colour — it is the door, and a status you must press a button, and navigate somewhere, to
-  read is not a status you can watch.
+  signed-out pill outranks both (a dead session has nothing to list). Nothing in the band carries a
+  Settings glyph: the door is a row of the rail, because a pane belongs in the column that names the
+  panes, and a status you must press a button (and navigate somewhere) to read is not one you can
+  watch.
 - **The Tools tab is chips-with-a-box, not a form.** Each family (Google, Codex, Claude, Remote Pi)
   is a `.chip-pair`: a small box button that allows or blocks the family, then a chip that opens its
   pane. The box writes the access record immediately — a toggle has no other fields to wait for —
