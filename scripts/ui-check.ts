@@ -363,7 +363,12 @@ try {
         const face = document.querySelector(".where-avatar-face");
         if (!btn || !face) return false;
         const r = btn.getBoundingClientRect();
-        return r.width >= 44 && r.height >= 44 && (face.textContent ?? "").trim().length === 1;
+        // Counted in code points, not UTF-16 units: an agent whose avatar preference
+        // is an emoji carries ONE mark that is two code units long, and that is a
+        // perfectly good face — the check is about the tap target and about the corner
+        // never being empty, not about the glyph fitting in a BMP slot.
+        const text = Array.from((face.textContent ?? "").trim());
+        return r.width >= 44 && r.height >= 44 && text.length === 1;
       }),
     );
     check(
@@ -791,9 +796,13 @@ try {
     // made the check fail on whatever conversation happened to be newest.
     const glyphs = await page.evaluate(() => {
       const found = new Set<string>();
+      // Agent identity is content too: an avatar preference or a name the operator
+      // chose (🐢, 🚀) is not a glyph the UI drew, and failing on it made this check
+      // depend on who happens to be installed in the stack you are pointing at.
+      const chromeOnly = ".entry, .agent-avatar, .where-avatar, .panel-agent, .rail-agent";
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
         acceptNode: (node) =>
-          node.parentElement?.closest(".entry")
+          node.parentElement?.closest(chromeOnly)
             ? NodeFilter.FILTER_REJECT
             : NodeFilter.FILTER_ACCEPT,
       });
@@ -3515,7 +3524,11 @@ try {
       (await page.locator('.sheet-panel[aria-label="Model"]').count()) === 0,
     );
     // Nested case: the model sheet over the New agent sheet. The panel's docked
-    // New-agent row opens the editor directly — on desktop that is the only door.
+    // New-agent row opens the editor directly — on desktop that is the only door,
+    // and it is Chat's row, so the pane has to be Chat again to reach it (a secondary
+    // pane puts the panel away; the Agent tab cannot show both at once).
+    await openTab(page, "Chat");
+    await page.waitForTimeout(400);
     await page.locator('.sidebar .panel-new[aria-label="New agent"]').click();
     await page.locator('.sheet-panel[aria-label="New agent"]').waitFor();
     await page.locator('.sheet-panel[aria-label="New agent"] .field-trigger').click();

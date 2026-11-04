@@ -3906,11 +3906,13 @@ textarea.mono {
   z-index: 30;
   background: var(--bg);
 }
-/* …and the pane's own bar stands clear of it. A chip or a search box ending under
-   the X is a control nobody can press, and on the Settings pane the first thing
-   under the X is a row of chips. Only while the X is on screen (`.closable`), so
-   Chat's tool row keeps every pixel it had. */
-.main.closable .pane-bar {
+/* …and the pane's own first row stands clear of it. A chip or a field ending under
+   the X is a control nobody can press — the Runs pane's `show all` link learned this
+   the hard way. Two components open a pane: `.pane-bar` (most of them) and `.filters`
+   (Runs, Tasks' filter strip), so the clearance is a rule for both, not for one. Only
+   while the X is on screen (`.closable`), so Chat's tool row keeps every pixel it had. */
+.main.closable .pane-bar,
+.main.closable .filters {
   padding-right: 52px;
 }
 
