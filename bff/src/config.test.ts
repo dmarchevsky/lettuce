@@ -60,6 +60,7 @@ describe("loadConfig features", () => {
         codex: false,
         claude: false,
         pi: false,
+        telegram: false,
       });
     });
   });
@@ -72,6 +73,7 @@ describe("loadConfig features", () => {
         codex: false,
         claude: false,
         pi: false,
+        telegram: false,
       });
     });
     withEnv({ ...base, LETTA_MODE: "codex,claude,pi" }, () => {
@@ -81,18 +83,23 @@ describe("loadConfig features", () => {
         codex: true,
         claude: true,
         pi: true,
+        telegram: false,
       });
+    });
+    withEnv({ ...base, LETTA_MODE: "telegram" }, () => {
+      expect(loadConfig().features.telegram).toBe(true);
     });
   });
 
   test("lookalikes are not features", () => {
-    withEnv({ ...base, LETTA_MODE: "searchy,googleplex,codex" }, () => {
+    withEnv({ ...base, LETTA_MODE: "searchy,googleplex,codex,telegramm" }, () => {
       expect(loadConfig().features).toEqual({
         web: false,
         google: false,
         codex: true,
         claude: false,
         pi: false,
+        telegram: false,
       });
     });
   });
@@ -446,18 +453,32 @@ describe("loadConfig session secret", () => {
 describe("enabledFeatureNames", () => {
   test("names every feature that is on, `pi` included", () => {
     expect(
-      enabledFeatureNames({ web: true, google: true, codex: false, claude: false, pi: true }),
+      enabledFeatureNames({
+        web: true,
+        google: true,
+        codex: false,
+        claude: false,
+        pi: true,
+        telegram: false,
+      }),
     ).toEqual(["web", "google", "pi"]);
   });
 
   test("no feature token means no names at all", () => {
     expect(
-      enabledFeatureNames({ web: false, google: false, codex: false, claude: false, pi: false }),
+      enabledFeatureNames({
+        web: false,
+        google: false,
+        codex: false,
+        claude: false,
+        pi: false,
+        telegram: false,
+      }),
     ).toEqual([]);
   });
 
   test("every FeatureFlags key is nameable, so the boot log cannot drop one", () => {
-    const all = { web: true, google: true, codex: true, claude: true, pi: true };
+    const all = { web: true, google: true, codex: true, claude: true, pi: true, telegram: true };
     expect(enabledFeatureNames(all).sort()).toEqual(Object.keys(all).sort());
   });
 });
