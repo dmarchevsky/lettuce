@@ -2477,16 +2477,22 @@ try {
     await openSection("Providers & models");
 
     // Providers: the operator's own named providers, each with a type chip and
-    // its base URL, or the empty state. Wait for one to arrive — the registry and
-    // the model list both answer after the section opens.
-    await page
-      .locator(".settings-pane .prov-meta, .settings-pane li.muted")
-      .first()
-      .waitFor({ timeout: 10_000 })
-      .catch(() => {});
+    // its base URL, or the empty state. Wait for the section to SETTLE rather than
+    // for one node: the registry answers fast but the same load awaits an
+    // app-server round trip (`list_connect_providers`), which can take seconds on a
+    // busy stack, and a fixed 10s peek at the DOM would read a still-loading pane
+    // as an empty one.
+    const providersDeadline = Date.now() + 30_000;
+    let paneText = await page.locator(".settings-pane").innerText().catch(() => "");
+    for (;;) {
+      paneText = await page.locator(".settings-pane").innerText().catch(() => "");
+      if ((await page.locator(".settings-pane .prov-meta").count()) > 0) break;
+      if (/No providers yet/.test(paneText)) break;
+      if (Date.now() > providersDeadline) break;
+      await page.waitForTimeout(500);
+    }
     const providerRows = page.locator(".settings-pane .prov-meta");
     const rowCount = await providerRows.count();
-    const paneText = await page.locator(".settings-pane").innerText();
     check(
       "providers are listed by name with a type and a URL, or the empty state says so",
       rowCount > 0
