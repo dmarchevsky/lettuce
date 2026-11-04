@@ -50,6 +50,17 @@ BEHAVIOR_FILES=(
   # sandbox policy it rewrites and the `codex login status` preflight it must pass.
   "src/tools/impl/codex-app-server.ts"
   "src/tools/impl/external-coding-agent.ts"
+  # Settings → Telegram (bff/src/channels/) writes upstream's own channel state:
+  # the accounts.json write shape (camel/snake canonicalization, inline token in
+  # file mode), the routing/pairing JSON, and the live-vs-restart split (routes
+  # re-read per message, accounts only at startup — docker/channel-gateway-supervise.sh).
+  "src/channels/accounts.ts"
+  "src/channels/credential-store.ts"
+  "src/channels/routing.ts"
+  "src/channels/routing-store.ts"
+  "src/channels/pairing.ts"
+  "src/channels/access-control.ts"
+  "src/cli/subcommands/channel-gateway.ts"
   # The shared MCP list (bff/src/mcp) is a settings file `letta mcp` reads with
   # HOME pointed elsewhere: it relies on initialize() not persisting once the
   # rollback flag is set, on getAgentSettings matching agentId + baseUrl, and on
@@ -189,6 +200,12 @@ if [[ $BEHAV_CHANGED -eq 1 ]]; then
   warn "     first client attach?"
   warn "   * gateway-supervisor.ts — did channels move to the spawned gateway? It has no"
   warn "     --ws-auth support and would break Telegram under capability-token auth."
+  warn "   * channels/accounts|routing|pairing|credential-store|access-control +"
+  warn "     subcommands/channel-gateway.ts — a changed on-disk shape, canonicalization,"
+  warn "     credential-store default, or a gateway flag? bff/src/channels/state.test.ts"
+  warn "     pins the current shapes against upstream's own writers; regenerate the"
+  warn "     fixtures there and re-check whether pairing/routing still apply live."
+  warn "     docker/channel-gateway-supervise.sh restarts on accounts.json only."
   warn "   * app-server.ts / app-server-auth.ts — did the Origin / Bearer handling change?"
   warn "   * interrupts.ts — is a live tool_return_message still BOTH the singular fields and"
   warn "     a tool_returns[] array? web/src/lib/messages.ts reads both; protocol_v2.ts types"

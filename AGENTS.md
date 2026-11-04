@@ -168,7 +168,7 @@ Three tokens are **virtual**: none is declared by a service, none starts a conta
 `claude` decide what the app-server *image* contains; `pi` (Remote Pi) is BFF-side only and installs
 nothing in the image. Every token is matched as an exact comma-delimited entry (`bff/src/config.ts`
 `hasProfile`: `searchy` ≠ `search`), and the BFF derives `config.features` = `web`⇐`search`,
-`google`⇐`google`, `codex`⇐`codex`, `claude`⇐`claude`, `pi`⇐`pi`.
+`google`⇐`google`, `codex`⇐`codex`, `claude`⇐`claude`, `pi`⇐`pi`, `telegram`⇐`telegram`.
 
 - **effective-enabled = token AND stored Settings switch**, enforced at each availability decision: web
   tools render disabled (`renderAllMods`), Google reapply/status/sidecar-config run on the gated
