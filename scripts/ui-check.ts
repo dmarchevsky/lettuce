@@ -56,6 +56,27 @@ async function signIn(page: Page): Promise<void> {
     // rather than for the load event, which fires on the sign-in page.
     await page.waitForSelector(".app", { timeout: 20_000 });
   }
+  // The conversation drawer ships SHUT, and most of this suite is geometry written
+  // against the standing column — so every desktop entry point puts it up and pins
+  // it, and the shut state is tested where it is tested on purpose (the peek checks).
+  if (
+    await page
+      .locator("nav.rail")
+      .isVisible()
+      .catch(() => false)
+  ) {
+    if (await page.locator(".sidebar.hidden").count()) {
+      // The band's identity is the drawer's verb on desktop — the rail's foot cell
+      // is Settings' door, not the drawer's.
+      await page.locator(".topbar .where").click();
+      await page.waitForTimeout(250);
+    }
+    const pin = page.locator(".sidebar .panel-pin");
+    if ((await pin.getAttribute("aria-pressed").catch(() => null)) !== "true") {
+      await pin.first().click();
+      await page.waitForTimeout(250);
+    }
+  }
 }
 
 /** Load the app authenticated and settled. */
@@ -195,7 +216,6 @@ async function uploadSheetChecks(page: Page, label: string): Promise<void> {
   );
 }
 
-/** Open the shared Settings screen, wherever this width keeps the verb. */
 /**
  * Skills are the one pane whose content arrives late: the BFF walks the agent's
  * memfs and the global list only after the first agent connection, and after a
@@ -204,6 +224,8 @@ async function uploadSheetChecks(page: Page, label: string): Promise<void> {
  * the click is repeated — a click that landed on a pane still mounting is lost.
  */
 async function openSkillsSection(page: Page): Promise<boolean> {
+  // The Agent tab's own chips — the Settings pane uses the same class for its phone
+  // chips, but this runs with the Agent tab open, where it is the only list.
   const tab = page.locator('.section-tabs button:text-is("Skills")');
   const heads = page.locator(".skill-group-head");
   // Three ways this pane has failed a run for reasons that are not the UI: the walk
@@ -249,14 +271,25 @@ async function openSkillsSection(page: Page): Promise<boolean> {
   return false;
 }
 
+/**
+ * Open the Settings **pane** (`tab === "Settings"`), which is not a modal any more.
+ *
+ * Settings has no glyph in the band: the door is the **rail's foot cell** on
+ * desktop (`.rail-settings-cell`) and the **More sheet's row** on a phone, because the
+ * column that names the panes is the one place a pane belongs. From there the ways
+ * out are the rail's Back cell, the corner `.pane-close`, and the drawer cell;
+ * Escape belongs to sheets, not to panes.
+ */
 async function openSettings(page: Page): Promise<void> {
-  const foot = page.locator('.rail .rail-item:text-is("Settings")');
-  if ((await foot.count()) > 0 && (await foot.first().isVisible())) {
-    await foot.first().click();
-    return;
+  const railDoor = page.locator("nav.rail .rail-settings-cell");
+  if (await railDoor.isVisible().catch(() => false)) {
+    await railDoor.click();
+  } else {
+    await page.locator('.bottombar > button:text-is("More")').click();
+    await page.waitForTimeout(250);
+    await page.locator('.sheet .menu-row-title:text-is("Settings")').click();
   }
-  await page.locator('.bottombar > button:text-is("More")').click();
-  await page.locator('.sheet .menu-row-title:text-is("Settings")').click();
+  await page.locator(".settings-pane").waitFor();
 }
 
 async function shot(page: Page, name: string): Promise<void> {
@@ -265,7 +298,9 @@ async function shot(page: Page, name: string): Promise<void> {
 
 /**
  * Switch panes wherever this width keeps them: the desktop rail names all six, the
- * phone bar shows four and hides the agent's own settings behind `More`.
+ * phone bar shows four and hides the agent's own settings behind `More`. Settings
+ * is not in either list — the rail's foot cell opens it (see `openSettings`), and while
+ * it is open the rail holds its sections instead of these panes.
  *
  * Every check that needed a tab click goes through here, so the two navigation
  * surfaces are exercised by the same assertions rather than by two copies of them.
@@ -285,6 +320,35 @@ async function openTab(page: Page, name: string): Promise<void> {
   }
   await page.locator('.bottombar > button:text-is("More")').click();
   await page.locator(`.sheet .menu-row-title:text-is("${name}")`).click();
+}
+
+/**
+ * Nothing may sit under the corner close. It is fixed over whatever the pane starts
+ * with, and a chip or a field under it is a control nobody can press — the rule
+ * `.main.closable .pane-bar` exists to prevent, asserted here rather than trusted.
+ */
+async function cornerIsClear(page: Page): Promise<Record<string, unknown>> {
+  return page.evaluate(() => {
+    const x = document.querySelector(".pane-close");
+    if (!x) return { error: "no .pane-close on screen" };
+    const r = x.getBoundingClientRect();
+    const clash = [...document.querySelectorAll(".pane-bar > *")]
+      .filter((el) => {
+        const b = el.getBoundingClientRect();
+        return (
+          b.width > 0 &&
+          b.right > r.left &&
+          b.left < r.right &&
+          b.bottom > r.top &&
+          b.top < r.bottom
+        );
+      })
+      .map((el) => (el.textContent ?? el.tagName).trim().slice(0, 24));
+    const hit = document
+      .elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+      ?.closest("button");
+    return { clash, wins: hit?.classList.contains("pane-close") ?? false };
+  });
 }
 
 mkdirSync(OUT_DIR, { recursive: true });
@@ -325,7 +389,12 @@ try {
         const face = document.querySelector(".where-avatar-face");
         if (!btn || !face) return false;
         const r = btn.getBoundingClientRect();
-        return r.width >= 44 && r.height >= 44 && (face.textContent ?? "").trim().length === 1;
+        // Counted in code points, not UTF-16 units: an agent whose avatar preference
+        // is an emoji carries ONE mark that is two code units long, and that is a
+        // perfectly good face — the check is about the tap target and about the corner
+        // never being empty, not about the glyph fitting in a BMP slot.
+        const text = Array.from((face.textContent ?? "").trim());
+        return r.width >= 44 && r.height >= 44 && text.length === 1;
       }),
     );
     check(
@@ -353,6 +422,9 @@ try {
       // shows. Asserted by its label because that IS the state — there is no
       // pressed style to read and nothing should be.
       const scopeLink = page.locator(".pane .filters button.link").first();
+      // A cold app-server makes the pane's own controls arrive late; give them the
+      // chance before deciding the pane lost its one control.
+      await scopeLink.waitFor({ state: "attached", timeout: 10_000 }).catch(() => {});
       const hasScopeLink = (await scopeLink.count()) > 0;
       // Not wrapped in the `if` below: a pane that lost its one control must fail
       // the run, not skip its assertions.
@@ -753,9 +825,13 @@ try {
     // made the check fail on whatever conversation happened to be newest.
     const glyphs = await page.evaluate(() => {
       const found = new Set<string>();
+      // Agent identity is content too: an avatar preference or a name the operator
+      // chose (🐢, 🚀) is not a glyph the UI drew, and failing on it made this check
+      // depend on who happens to be installed in the stack you are pointing at.
+      const chromeOnly = ".entry, .agent-avatar, .where-avatar, .rail-agent";
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
         acceptNode: (node) =>
-          node.parentElement?.closest(".entry")
+          node.parentElement?.closest(chromeOnly)
             ? NodeFilter.FILTER_REJECT
             : NodeFilter.FILTER_ACCEPT,
       });
@@ -1094,13 +1170,37 @@ try {
       await shot(page, "phone-skills");
     }
 
-    // Settings for every agent: the top bar's gear. On a phone, the Agent
-    // tab's wrapping chips with short names over the open section — no list
-    // to back out of. All nine must be on screen with no sideways scroll.
+    // The way out every secondary pane carries, at phone width: the same corner glyph
+    // a sheet uses, in the window's top-right corner under the header's hairline.
+    // (On a phone the rail is not on screen, so before this the bar's first slot was
+    // the only way back to Chat.)
+    const phoneClose = page.locator(".pane-close");
+    check(
+      "a secondary pane carries the corner close on a phone too",
+      (await phoneClose.count()) === 1 &&
+        ((await phoneClose.getAttribute("aria-label")) ?? "").includes("Agent"),
+      await phoneClose.getAttribute("aria-label"),
+    );
+    const phoneCorner = await cornerIsClear(page);
+    check(
+      "nothing sits under the corner close (phone)",
+      phoneCorner.wins === true && (phoneCorner.clash as string[]).length === 0,
+      phoneCorner,
+    );
+    await phoneClose.click();
+    await page.waitForTimeout(300);
+    check(
+      "and it goes back to Chat",
+      (await phoneClose.count()) === 0 && (await page.locator(".composer textarea").isVisible()),
+    );
+
+    // Settings for every agent: a PANE, opened from More. A phone has no
+    // rail, so its sections are the wrapping chips, with short names, over the open
+    // section — no list to back out of. All of them must be on screen with no
+    // sideways scroll.
     await openSettings(page);
-    await page.locator(".settings-screen").waitFor();
     const phoneChips = (
-      await page.locator(".settings-screen .section-tabs button").allInnerTexts()
+      await page.locator(".settings-pane .section-tabs button").allInnerTexts()
     ).map((t) => t.trim());
     const features = await readFeatures(page);
     const expectedPhoneChips = [
@@ -1124,12 +1224,19 @@ try {
       phoneChips,
     );
     check(
-      "phone settings show chips, not the desktop list",
-      (await page.locator(".settings-nav").count()) === 0 &&
-        (await page.locator(".settings-content").isVisible()),
+      "phone settings show chips and no rail (the rail is the desktop's section list)",
+      (await page.locator(".settings-pane .section-tabs").count()) === 1 &&
+        (await page.locator("nav.rail").isVisible()) === false &&
+        (await page.locator(".settings-pane").isVisible()) &&
+        (await page.locator(".settings-content-title").count()) === 0,
+    );
+    check(
+      "the bar knows the open pane is one of More's",
+      (await page.locator('.bottombar > button:text-is("More")').getAttribute("aria-current")) ===
+        "page",
     );
     const chipsFit = await page.evaluate(() => {
-      const bar = document.querySelector(".settings-screen .section-tabs") as HTMLElement;
+      const bar = document.querySelector(".settings-pane .section-tabs") as HTMLElement;
       const last = bar.lastElementChild?.getBoundingClientRect();
       return { scroll: bar.scrollWidth, client: bar.clientWidth, lastRight: last?.right ?? 0 };
     });
@@ -1139,15 +1246,17 @@ try {
       chipsFit,
     );
     await shot(page, "phone-settings");
-    await page.locator('.settings-screen .section-tabs button:text-is("MCP")').click();
+    await page.locator('.settings-pane .section-tabs button:text-is("MCP")').click();
     await page.waitForTimeout(700);
     check(
       "a chip opens its section",
-      (await page.locator(".settings-screen .section-tabs button.active").innerText()) === "MCP" &&
-        (await page.locator(".settings-content").innerText()).includes("MCP"),
+      (await page.locator(".settings-pane .section-tabs button.active").innerText()) === "MCP" &&
+        // The section's own control, not the chip's word: the pane's text always
+        // contains "MCP" now, because the chip bar lives inside it.
+        (await page.locator('.settings-pane button:has-text("Add server")').count()) === 1,
     );
     const sectionWidth = await page.evaluate(() => {
-      const pane = document.querySelector(".settings-content") as HTMLElement;
+      const pane = document.querySelector(".settings-pane") as HTMLElement;
       return { scroll: pane.scrollWidth, client: pane.clientWidth };
     });
     check(
@@ -1159,10 +1268,10 @@ try {
     if (featureOn(features, "pi")) {
       // The status row used to be a single `nowrap` pill that ran off the right
       // edge on a phone, cutting off the age that says whether the state is fresh.
-      await page.locator('.settings-screen .section-tabs button:text-is("Remote Pi")').click();
+      await page.locator('.settings-pane .section-tabs button:text-is("Remote Pi")').click();
       await page.waitForTimeout(900);
       const statusRow = await page.evaluate(() => {
-        const el = document.querySelector(".settings-content .pi-status");
+        const el = document.querySelector(".settings-pane .pi-status");
         if (!el) return null;
         const r = el.getBoundingClientRect();
         return { left: r.left, right: r.right, text: (el.textContent ?? "").trim().slice(0, 60) };
@@ -1175,8 +1284,41 @@ try {
       );
       await shot(page, "phone-settings-pi");
     }
-    await page.locator('.settings-screen button[aria-label="Close"]').click();
-    check("close leaves settings", (await page.locator(".settings-screen").count()) === 0);
+    // The ways out of the pane, and none of them is Escape: the corner X and the
+    // More row that opened it (the rail's Back cell is the desktop's third).
+    const lastChip = (
+      await page.locator(".settings-pane .section-tabs button.active").innerText()
+    ).trim();
+    await phoneClose.click();
+    await page.waitForTimeout(300);
+    check("the corner X leaves settings", (await page.locator(".settings-pane").count()) === 0);
+    await page.locator('.bottombar > button:text-is("More")').click();
+    await page.locator('.sheet .menu-row-title:text-is("Settings")').click();
+    await page.waitForTimeout(400);
+    check(
+      "More is the second door, and the pane resumes the section it left",
+      (await page.locator(".settings-pane .section-tabs button.active").innerText()).trim() ===
+        lastChip,
+      {
+        lastChip,
+        active: await page
+          .locator(".settings-pane .section-tabs button.active")
+          .innerText()
+          .catch(() => null),
+      },
+    );
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
+    check(
+      "escape does not close a pane (it belongs to sheets)",
+      (await page.locator(".settings-pane").count()) === 1,
+    );
+    await phoneClose.click();
+    await page.waitForTimeout(300);
+    check(
+      "and the corner X is the phone's way out again",
+      (await page.locator(".settings-pane").count()) === 0,
+    );
 
     await page.close();
   }
@@ -1198,7 +1340,7 @@ try {
     );
     check(
       "the rail carries the all-agents cell",
-      (await page.locator(".rail .rail-all").count()) === 1,
+      (await page.locator(".rail .rail-settings-cell").count()) === 1,
     );
     check(
       "sidebar is pinned on screen",
@@ -1262,9 +1404,9 @@ try {
           return !!el && el.getAttribute("data-conversation-id") !== before;
         },
         openBefore,
-        // 15s, not 8: "/clear" is a create plus a list refresh against an app-server a
-        // local model can be holding, and the check failed for being fast, not wrong.
-        { timeout: 15_000 },
+        // 30s: "/clear" is a create plus a list refresh against an app-server a local
+        // model can be holding. It failed for being fast, not wrong, at 8s and at 15s.
+        { timeout: 30_000 },
       )
       .catch(() => {});
     const openAfter = await page
@@ -1289,53 +1431,46 @@ try {
       await page.waitForTimeout(400);
     }
 
-    // The agents are the rail's avatar column now — one answer to "which agent",
-    // beside the panes, with nothing about them reading as another conversation.
+    // The agents are the rail's list now — one answer to "which agent", beside the
+    // panes, with nothing about them reading as another conversation.
     check("no agent dropdown on desktop", (await page.locator(".sidebar select").count()) === 0);
     check(
       "and no agent face in the desktop header — the rail already is that",
       !(await page.locator(".topbar .where-avatar").isVisible()),
     );
     check(
-      "the rail lists every agent as an avatar, plus one fixed all cell outside the list",
+      "the rail lists every agent, with New-agent in the list and Settings' door fixed under it",
       (await page.locator(".rail .rail-agent[data-agent-id]").count()) >= 1 &&
-        (await page.locator(".rail .rail-all").count()) === 1 &&
-        (await page.locator(".rail .rail-agents .rail-all").count()) === 0 &&
-        (await page.locator(".rail .rail-new").count()) === 0,
+        (await page.locator(".rail .rail-settings-cell").count()) === 1 &&
+        (await page.locator(".rail .rail-agents .rail-door").count()) === 0 &&
+        (await page.locator(".rail .rail-agents .rail-new").count()) === 1,
     );
     check(
-      "the rail has no agent rows of its own any more",
-      (await page.locator(".rail .agent-row").count()) === 0,
-    );
-    check(
-      "the panel carries conversations on top and names-only agents at the bottom",
+      "the drawer carries conversations only — the agent list is not copied",
       (await page.locator(".sidebar .agent-avatar").count()) === 0 &&
         (await page.locator(".sidebar .conversation-row").count()) >= 1 &&
-        (await page.locator(".sidebar .panel-agent").count()) >= 1,
+        (await page.locator(".sidebar .panel-agent").count()) === 0,
     );
-    // The rail's face is the agent's one icon — no name under it. The name lives
-    // in the panel's bottom block, the other half of the same selection control.
+    // The rail is the agent list, so it carries the names: a face with no word
+    // beside it in a 184px column is the design that was thrown out.
     check(
-      "the rail wears faces only: no names under them any more",
-      (await page.locator(".rail .rail-agent-name").count()) === 0 &&
-        (await page.locator('.rail .rail-agent[data-agent-id][title*="conversations"]').count()) >=
-          1,
+      "every rail agent row is a face with its name",
+      (await page.locator(".rail .rail-agent-name").count()) ===
+        (await page.locator(".rail .rail-agent[data-agent-id]").count()) &&
+        // the label is uppercased by CSS, so compare what it says, not how it is painted
+        (await page.locator(".rail .rail-group-label").first().innerText()).trim().toLowerCase() ===
+          "agents",
+      await page.locator(".rail .rail-agent-name").allInnerTexts(),
     );
-    // The agent block that draws the seam marks the same agent the face does:
-    // the two halves mark one agent across the seam.
-    const panelActive = (
-      await page.locator(".sidebar .panel-agent.active").first().innerText()
-    ).trim();
+    // The drawer says whose list it is, and it is the agent the rail has lit.
+    const owner = (await page.locator(".sidebar .panel-owner").innerText()).trim();
     const railActive = (
-      (await page.locator(".rail .rail-agent.active").first().getAttribute("title")) ?? ""
-    )
-      .replace(/\s*\(pinned\)/, "")
-      .split(" —")[0]
-      .trim();
+      (await page.locator(".rail .rail-agent.active .rail-agent-name").first().innerText()) ?? ""
+    ).trim();
     check(
-      "the panel's active name is the rail's active agent",
-      panelActive.length > 0 && panelActive === railActive,
-      { panelActive, railActive },
+      "the drawer names the agent whose conversations it lists — the rail's active one",
+      railActive.length > 0 && owner.startsWith(railActive),
+      { owner, railActive },
     );
     const bars = await page.evaluate(() => {
       const left = (sel: string) =>
@@ -1356,7 +1491,7 @@ try {
       bars,
     );
 
-    // The agent verbs are a right-click on the avatar: a 74px column has no room
+    // The agent verbs are a right-click on the avatar: a 64px column has no room
     // for a ⋯ per agent, and the menu is the phone's own, unchanged.
     await page.locator(".rail .rail-agent.active").click({ button: "right" });
     const deskMenu = page.locator(".agent-menu");
@@ -1380,11 +1515,12 @@ try {
     await page.keyboard.press("Escape");
     check("Escape closes it", (await deskMenu.count()) === 0);
 
-    // The rail is the pane list: six named items, no More, and the settings verb
-    // is a footer rather than a gear competing with the link pill up top.
+    // The rail is the pane list and the pane list only: Settings is not a cell here
+    // any more — the rail's foot cell opens it, and while it is open its own sections
+    // replace these cells — so nothing has to be filtered out to compare the list.
     const railPanes = (await page.locator(".rail .rail-item").allInnerTexts())
       .map((t) => t.trim())
-      .filter((t) => t && t !== "Settings");
+      .filter(Boolean);
     const railFeatures = await readFeatures(page);
     const expectedPanes = [
       "Chat",
@@ -1399,6 +1535,47 @@ try {
       JSON.stringify(railPanes) === JSON.stringify(expectedPanes),
       { railPanes, expectedPanes },
     );
+    // One row language for the whole column: the rail is `--rail-w` wide and a pane,
+    // an agent row and the foot verb all ride `--rail-row`. There used to be three
+    // pitches here (pane cells, avatar squares, a fixed foot) in a 56px column; the
+    // expected size is read from the tokens, so re-tuning fails only a real mismatch.
+    const rows = await page.evaluate(() => {
+      const styles = getComputedStyle(document.documentElement);
+      const px = (name: string) => Number.parseFloat(styles.getPropertyValue(name));
+      const box = (sel: string) => {
+        const el = document.querySelector(sel);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { w: Math.round(r.width), h: Math.round(r.height) };
+      };
+      return {
+        row: px("--rail-row"),
+        railVar: px("--rail-w"),
+        rail: box("nav.rail"),
+        pane: box(".rail .rail-item"),
+        face: box(".rail .rail-agent[data-agent-id]"),
+        owner: box(".rail .rail-agent[data-agent-id] .agent-avatar"),
+        foot: box(".rail .rail-settings-cell"),
+      };
+    });
+    check(
+      "the rail is --rail-w wide and every row is --rail-row tall (the foot verb aside)",
+      rows.row > 0 &&
+        // A column of rows, not a strip of squares: several rows wide.
+        rows.railVar > 5 * rows.row &&
+        rows.rail?.w === rows.railVar &&
+        rows.pane?.w === rows.railVar &&
+        rows.pane?.h === rows.row &&
+        rows.face?.h === rows.row &&
+        rows.face?.w === rows.railVar &&
+        (rows.foot?.h ?? 0) > rows.row,
+      rows,
+    );
+    check(
+      "the agent face is the small size the row can carry",
+      rows.owner !== null && rows.owner.h <= 24 && rows.owner.h >= 18,
+      rows.owner,
+    );
     // The panel belongs to Chat, and a secondary pane is not about conversations.
     const panelOn = () => page.evaluate(() => !document.querySelector(".sidebar.hidden"));
     check("the panel is on for Chat", await panelOn());
@@ -1408,6 +1585,37 @@ try {
     await openTab(page, "Chat");
     await page.waitForTimeout(300);
     check("and Chat brings it back", await panelOn());
+    // The way out every secondary pane carries: the same corner glyph a sheet uses,
+    // fixed in the window's top-right corner under the band's hairline, and its verb
+    // is back to Chat. Before it, a pane you could only leave by finding the right
+    // word in the rail was a pane you felt stuck in.
+    const paneClose = page.locator(".pane-close");
+    await openTab(page, "Files");
+    await page.waitForTimeout(300);
+    check(
+      "a secondary pane carries the corner close and names its verb",
+      (await paneClose.count()) === 1 &&
+        ((await paneClose.getAttribute("aria-label")) ?? "").includes("Files"),
+      await paneClose.getAttribute("aria-label"),
+    );
+    check(
+      "the band names the pane while a secondary pane is open",
+      (await page.locator(".topbar .title").innerText()).trim() === "Files",
+      await page.locator(".topbar .title").innerText(),
+    );
+    const deskCorner = await cornerIsClear(page);
+    check(
+      "nothing sits under the corner close (desktop)",
+      deskCorner.wins === true && (deskCorner.clash as string[]).length === 0,
+      deskCorner,
+    );
+    await paneClose.click();
+    await page.waitForTimeout(300);
+    check(
+      "and the corner close leaves the pane for Chat",
+      (await paneClose.count()) === 0 &&
+        (await page.locator(".rail .rail-item.active").innerText()).trim() === "Chat",
+    );
     // Unpinning turns the column into a peek, and a peek gets out of the way when
     // you press anywhere else. Both halves matter: a column that never left would
     // be the old pinned sidebar, a peek you could not dismiss would be a trap.
@@ -1418,7 +1626,7 @@ try {
       "unpinned, the panel is still open on Chat",
       (await pin.getAttribute("aria-pressed")) === "false" && (await panelOn()),
     );
-    await page.locator(".messages").click({ position: { x: 40, y: 40 } });
+    await page.locator(".messages").click({ position: { x: 620, y: 300 } });
     await page.waitForTimeout(300);
     check("clicking past it puts the peek away", !(await panelOn()));
     // Hovering the open agent's avatar is the other way back, and it answers with
@@ -1427,7 +1635,7 @@ try {
     await page.waitForTimeout(400);
     check("hovering the open agent's avatar opens its panel", await panelOn());
     check("and nothing else appeared to do it", (await page.locator(".flyout").count()) === 0);
-    await page.locator(".messages").click({ position: { x: 40, y: 40 } });
+    await page.locator(".messages").click({ position: { x: 620, y: 300 } });
     await page.waitForTimeout(300);
     check("and a press past it puts it away again", !(await panelOn()));
     await page.locator(".rail .rail-item:text-is('Chat')").click();
@@ -1470,7 +1678,7 @@ try {
         await pinButton.click();
         await page.waitForTimeout(300);
       }
-      await page.locator(".messages").click({ position: { x: 40, y: 40 } });
+      await page.locator(".messages").click({ position: { x: 620, y: 300 } });
       await page.waitForTimeout(300);
       check("the panel is away before it is borrowed", !(await panelOn()));
 
@@ -1500,34 +1708,38 @@ try {
         );
       }
       if (wasActive >= 0) {
+        // Picking from an unpinned drawer closed it — that is the drawer's job now —
+        // so bring it back before putting the original conversation back on screen.
+        if (await page.locator(".sidebar.hidden").count()) {
+          await page.locator(".topbar .where").click();
+          await page.waitForTimeout(300);
+        }
         await ownRows.nth(wasActive).locator(".conversation-name").click();
         await page.waitForTimeout(400);
       }
       // Resting on your own face opened the panel the way pressing Chat does, and it
       // stays until you put it away — put it away, because what follows is a borrow
       // and a borrow needs the panel to be absent first.
-      await page.locator(".messages").click({ position: { x: 40, y: 40 } });
+      await page.locator(".messages").click({ position: { x: 620, y: 300 } });
       await page.waitForTimeout(300);
       check("and pressing elsewhere puts the hovered panel away", !(await panelOn()));
       await page.mouse.move(600, 400);
       await page.waitForTimeout(400);
       await otherAgent.hover();
       await page.waitForTimeout(700);
-      const borrowed = (await page.locator(".sidebar .panel-agent.preview").innerText()).trim();
       check(
-        "hovering another agent marks its row and opens its conversations",
-        (await panelOn()) && borrowed === otherName,
-        { borrowed, otherName },
+        "hovering another agent opens its conversations in the drawer",
+        (await panelOn()) &&
+          (await page.locator(".sidebar .panel-owner").innerText()).startsWith(otherName),
+        {
+          owner: (await page.locator(".sidebar .panel-owner").innerText()).trim(),
+          otherName,
+        },
       );
-      // One row, both halves: the rail's hover lights the panel's row too, and
-      // no row anywhere in this pair wears an inset color bar — hover, held and
-      // selected are all one language: the row background.
-      check(
-        "the rail's hover lights the panel's row as one row",
-        (await page.locator(".sidebar .panel-agent.held").count()) === 1,
-      );
+      // The rail marks the borrow on the row itself, and no row anywhere wears an
+      // inset bar — hover, borrow and selection are all one language: the row background.
       const rowMarks = await page.evaluate(() =>
-        [...document.querySelectorAll(".sidebar .panel-agent, .rail .rail-agent")].map(
+        [...document.querySelectorAll(".rail .rail-agent")].map(
           (el) => getComputedStyle(el).boxShadow,
         ),
       );
@@ -1616,160 +1828,88 @@ try {
       console.log("  SKIP  the borrowed panel needs a second agent");
     }
 
-    // The seam divider is the agent blocks' own border-top: both blocks are
-    // content-height and bottom-docked, so the hairline rides the FIRST agent
-    // and the rail's measured height is the panel's — one row across the seam
-    // at any window size, conversations list reaching it from above.
-    const seam = await page.evaluate(() => {
+    // The rail and the drawer are now two independent things: the rail is a column
+    // of rows that runs the height on its own, and the drawer is either a column of
+    // the grid (pinned) or a sheet floating over the transcript (a peek). Nothing
+    // measures one onto the other any more — that was the seam, and it is gone.
+    const layout = await page.evaluate(() => {
       const rect = (sel: string) => {
         const el = document.querySelector(sel);
         return el ? el.getBoundingClientRect() : null;
-      };
-      const band = rect(".band");
-      const railBlock = rect(".rail-agents");
-      const panelBlock = rect(".panel-agents");
-      const firstPane = rect(".rail .rail-item");
-      const railAll = rect(".rail .rail-all");
-      const settings = [...document.querySelectorAll(".rail .rail-item")].find(
-        (b) => b.textContent?.trim() === "Settings",
-      );
-      if (!band || !railBlock || !panelBlock || !firstPane || !settings) return null;
-      return {
-        bandBottom: Math.round(band.bottom),
-        bandRight: Math.round(band.right),
-        // The divider is the block's own border-top now — its top row IS the
-        // hairline, in both columns, so the two tops are compared directly.
-        splitTop: Math.round(railBlock.top),
-        panelTop: Math.round(panelBlock.top),
-        railH: Math.round(railBlock.height),
-        panelH: Math.round(panelBlock.height),
-        panelFoot: Math.round(panelBlock.bottom),
-        railAllFoot: railAll ? Math.round(railAll.bottom) : -1,
-        panelNewFoot: (() => {
-          const r = rect(".sidebar .panel-new");
-          return r ? Math.round(r.bottom) : -1;
-        })(),
-        firstPaneTop: Math.round(firstPane.top),
-        window: window.innerWidth,
-        height: window.innerHeight,
-      };
-    });
-    check(
-      "rail and panel share one divider row",
-      seam !== null && Math.abs(seam.splitTop - seam.panelTop) <= 1,
-      seam,
-    );
-    check(
-      "the two agent blocks carry the same height",
-      seam !== null && seam.railH === seam.panelH,
-      seam,
-    );
-    check(
-      "both columns dock their foot cell on the same line at the foot",
-      seam !== null &&
-        seam.railAllFoot >= seam.height - 12 &&
-        seam.panelNewFoot >= seam.height - 12 &&
-        Math.abs(seam.railAllFoot - seam.panelNewFoot) <= 2,
-      seam,
-    );
-    check(
-      "the band spans the whole window",
-      seam !== null && seam.bandRight >= seam.window - 1,
-      seam,
-    );
-    check(
-      "the rail sits flush under the band",
-      seam !== null && seam.firstPaneTop - seam.bandBottom <= 2,
-      seam,
-    );
-    // A short window is where the bottom-docked blocks actually clamp: both must
-    // shrink, keep scrolling from their top, and the seam must still be ONE row.
-    await page.setViewportSize({ width: DESKTOP.width, height: 560 });
-    await page.waitForTimeout(400);
-    // Hand the baseline height into the measure below without a second layout pass.
-    await page.evaluate((h: number) => {
-      (window as unknown as { __railH: number }).__railH = h;
-    }, seam?.railH ?? 0);
-    const clamped = await page.evaluate(() => {
-      const el = (sel: string) => document.querySelector(sel);
-      const rb = el(".rail-agents");
-      const pb = el(".panel-agents");
-      const all = el(".rail .rail-all");
-      if (!rb || !pb || !all) return null;
-      const r = rb.getBoundingClientRect();
-      const p = pb.getBoundingClientRect();
-      const a = all.getBoundingClientRect();
-      const seamRailH = Number(window.__railH ?? 0);
-      return {
-        splitTop: Math.round(r.top),
-        panelTop: Math.round(p.top),
-        railH: Math.round(r.height),
-        panelH: Math.round(p.height),
-        // The rail block clamps only when the list outgrows the room; either way
-        // it must end no lower than the all cell's top, and shrinking the window
-        // must never make the block taller.
-        fitsAboveAll: r.bottom <= a.top + 1,
-        clampedOrSame: r.height <= seamRailH + 1,
-        height: window.innerHeight,
-      };
-    });
-    check(
-      "at 560px height the seam is still one row and both blocks clamp",
-      clamped !== null &&
-        Math.abs(clamped.splitTop - clamped.panelTop) <= 1 &&
-        clamped.railH === clamped.panelH &&
-        clamped.fitsAboveAll &&
-        clamped.clampedOrSame,
-      clamped,
-    );
-    await page.setViewportSize(DESKTOP);
-    await page.waitForTimeout(400);
-    // Faces and names are one list cut in half: same count, and each pair rides
-    // the same line — measured center to center, not trusted from pitch math.
-    const pairs = await page.evaluate(() => {
-      const centers = (sel: string) =>
-        [...document.querySelectorAll(sel)].map((el) => {
-          const r = el.getBoundingClientRect();
-          return Math.round(r.top + r.height / 2);
-        });
-      return {
-        rail: centers(".rail .rail-agents .rail-agent[data-agent-id]"),
-        panel: centers(".sidebar .panel-agents .panel-agent[data-agent-id]"),
-      };
-    });
-    check(
-      "every face rides the same line as its name",
-      pairs.rail.length >= 1 &&
-        pairs.rail.length === pairs.panel.length &&
-        pairs.rail.every((c, i) => Math.abs(c - pairs.panel[i]) <= 1),
-      pairs,
-    );
-    // The lists ride the foot: the last face sits on the all cell and the last
-    // name on New-agent — a short list sinks to them instead of hanging under
-    // the divider (and a long one fills to them, so this holds either way).
-    const footSeat = await page.evaluate(() => {
-      const bot = (sel: string) => {
-        const els = document.querySelectorAll(sel);
-        return els.length ? Math.round(els[els.length - 1].getBoundingClientRect().bottom) : -1;
       };
       const top = (sel: string) => {
         const el = document.querySelector(sel);
         return el ? Math.round(el.getBoundingClientRect().top) : -1;
       };
+      const round = (v: number | null) => (v === null ? -1 : Math.round(v));
+      const band = rect(".band");
+      const rail = rect(".rail");
+      const side = rect(".sidebar");
+      const main = rect(".main");
+      const agents = rect(".rail-agents");
+      const all = rect(".rail .rail-settings-cell");
       return {
-        lastFaceToAll:
-          top(".rail .rail-all") - bot(".rail .rail-agents .rail-agent[data-agent-id]"),
-        lastNameToNew:
-          top(".sidebar .panel-new") - bot(".sidebar .panel-agents .panel-agent[data-agent-id]"),
+        bandBottom: round(band?.bottom ?? null),
+        bandRight: round(band?.right ?? null),
+        railRight: round(rail?.right ?? null),
+        firstPaneTop: top(".rail .rail-item"),
+        sideLeft: round(side?.left ?? null),
+        sideRight: round(side?.right ?? null),
+        mainLeft: round(main?.left ?? null),
+        agentsBottom: round(agents?.bottom ?? null),
+        allBottom: round(all?.bottom ?? null),
+        pinned: document.querySelector(".sidebar")?.classList.contains("peek") === false,
+        peekShadow: document.querySelector(".sidebar")
+          ? getComputedStyle(document.querySelector(".sidebar")!).boxShadow
+          : "",
+        height: window.innerHeight,
+        width: window.innerWidth,
+      };
+    });
+    check("the band spans the whole window", layout.bandRight >= layout.width - 1, layout);
+    check(
+      // Flush means no gap worth naming: a couple of px of top air plus the band's
+      // hairline. A drifted column shows up as tens, not fours.
+      "the rail sits flush under the band",
+      layout.firstPaneTop - layout.bandBottom <= 6,
+      layout,
+    );
+    check(
+      "pinned, the drawer is a column: the transcript starts after it",
+      layout.pinned && layout.sideLeft === layout.railRight && layout.mainLeft >= layout.sideRight,
+      layout,
+    );
+    check(
+      "the rail's own foot verb is the last thing in the column",
+      layout.allBottom >= layout.height - 12 && layout.agentsBottom <= layout.allBottom,
+      layout,
+    );
+    // A short window no longer clamps a mirrored pair — the rail block scrolls in
+    // its own column and the transcript keeps its height.
+    await page.setViewportSize({ width: DESKTOP.width, height: 560 });
+    await page.waitForTimeout(400);
+    const short = await page.evaluate(() => {
+      const el = (sel: string) => document.querySelector(sel);
+      const agents = el(".rail-agents");
+      const all = el(".rail .rail-settings-cell");
+      if (!agents || !all) return null;
+      return {
+        scrolls: agents.scrollHeight > agents.clientHeight + 1,
+        fitsAboveAll: agents.getBoundingClientRect().bottom <= all.getBoundingClientRect().top + 1,
+        allOnFoot: all.getBoundingClientRect().bottom >= window.innerHeight - 12,
       };
     });
     check(
-      "the last face and the last name sit on their docked foot cell",
-      footSeat.lastFaceToAll >= 0 &&
-        footSeat.lastFaceToAll <= 10 &&
-        footSeat.lastNameToNew >= 0 &&
-        footSeat.lastNameToNew <= 10,
-      footSeat,
+      "at 560px height the agent block scrolls inside the rail and the foot verb stays",
+      short !== null && short.fitsAboveAll && short.allOnFoot,
+      short,
+    );
+    await page.setViewportSize(DESKTOP);
+    await page.waitForTimeout(400);
+    check(
+      "New agent is the last row of the rail's list, not a verb in the drawer",
+      (await page.locator(".sidebar .panel-new").count()) === 0 &&
+        (await page.locator(".rail .rail-agents .rail-new").count()) === 1,
     );
     const activeRing = await page.evaluate(() => {
       const el = document.querySelector(".rail .rail-agent.active .agent-avatar");
@@ -1779,32 +1919,18 @@ try {
       const bar = row ? getComputedStyle(row, "::before") : null;
       return {
         width: s.outlineWidth,
-        color: s.outlineColor,
         barWidth: bar?.width,
         barLeft: bar?.left,
-        barColor: bar?.backgroundColor,
       };
     });
-    check(
-      "the selected avatar keeps its ring whatever the hover does",
-      activeRing !== null && activeRing.width !== "0px" && activeRing.color !== "none",
-      activeRing,
-    );
     check(
       "the selected agent wears the 3px edge bar in its own tint",
       activeRing !== null && activeRing.barWidth === "3px" && activeRing.barLeft === "0px",
       activeRing,
     );
-    check(
-      "New agent docks the panel under its list, outside the scroll",
-      (await page.evaluate(() => {
-        const el = document.querySelector(".sidebar .panel-new");
-        return el ? el.getBoundingClientRect().bottom >= window.innerHeight - 12 : false;
-      })) && (await page.locator(".sidebar .panel-agents .panel-new").count()) === 0,
-    );
 
-    // The band's identity is the panel verb on desktop: it never opens the sheet.
-    // The toggle only exists for an UNPINNED panel (pinned is always-visible), so
+    // The band's identity is the drawer verb on desktop: it never opens the sheet.
+    // The toggle only exists for an UNPINNED drawer (pinned is always visible), so
     // unpin explicitly and prove it before testing the toggle.
     const bandPin = page.locator(".sidebar .panel-pin");
     if ((await bandPin.getAttribute("aria-pressed")) === "true") {
@@ -1812,22 +1938,20 @@ try {
       await page.waitForTimeout(300);
     }
     check(
-      "the panel is unpinned, so the band toggle has something to show",
+      "the drawer is unpinned, so the band toggle has something to show",
       (await bandPin.getAttribute("aria-pressed")) === "false",
     );
-    await page.locator(".messages").click({ position: { x: 40, y: 40 } });
+    await page.locator(".messages").click({ position: { x: 620, y: 300 } });
     await page.waitForTimeout(300);
-    check("the panel is away before the band opens it", !(await panelOn()));
+    check("the drawer is away before the band opens it", !(await panelOn()));
     await page.locator(".topbar .where").click();
     await page.waitForTimeout(400);
     check(
-      "clicking the identity opens the panel, never the sheet",
+      "clicking the identity opens the drawer, never the sheet",
       (await panelOn()) && (await page.locator(".switcher").count()) === 0,
     );
-    // The accessible name must match the verb: with the panel up, the name reads
-    // "Hide conversations" (this is the state the earlier pinned bug got wrong).
     check(
-      "the identity's accessible name says Hide while the panel is up",
+      "the identity's accessible name says Hide while the drawer is up",
       ((await page.locator(".topbar .where").getAttribute("aria-label")) ?? "").includes(
         "Hide conversations",
       ),
@@ -1836,55 +1960,68 @@ try {
     await page.locator(".topbar .where").click();
     await page.waitForTimeout(400);
     check("and clicking it again puts the peek away", !(await panelOn()));
-    await page.locator(".rail .rail-all").click();
+    await page.locator(".topbar .where").click();
+    // Wait for the list rather than a fixed pause: right after a container restart
+    // the conversations arrive late, and a peek measured before they land reads as
+    // an empty column with no rows to check.
+    await page.waitForSelector(".sidebar .conversation-row", { timeout: 20_000 });
+    await page.waitForTimeout(250);
+    const peek = await page.evaluate(() => {
+      const rect = (sel: string) => {
+        const el = document.querySelector(sel);
+        return el ? el.getBoundingClientRect() : null;
+      };
+      const side = rect(".sidebar");
+      const main = rect(".main");
+      const rail = rect(".rail");
+      const el = document.querySelector(".sidebar");
+      return {
+        floats: el?.classList.contains("peek") === true,
+        sideLeft: side ? Math.round(side.left) : -1,
+        railRight: rail ? Math.round(rail.right) : -1,
+        mainLeft: main ? Math.round(main.left) : -1,
+        width: side ? Math.round(side.width) : -1,
+        shadow: el ? getComputedStyle(el).boxShadow : "",
+        conversations: document.querySelectorAll(".sidebar .conversation-row").length,
+      };
+    });
+    check(
+      "unpinned, the band's verb floats the drawer OVER the transcript",
+      peek.floats &&
+        peek.sideLeft === peek.railRight &&
+        peek.mainLeft <= peek.sideLeft &&
+        peek.conversations >= 1 &&
+        peek.shadow !== "none",
+      peek,
+    );
+    // The peek was opened to answer one question; choosing answers it, so it leaves.
+    await page.locator(".sidebar .conversation-row").first().click();
+    await page.waitForTimeout(500);
+    check("and choosing a conversation puts the peek away", !(await panelOn()));
+    await page.locator(".topbar .where").click();
     await page.waitForTimeout(400);
-    check(
-      "the all cell opens the panel with the full agent list, never the sheet",
-      (await panelOn()) &&
-        (await page.locator(".switcher").count()) === 0 &&
-        (await page.locator(".sidebar .panel-agent[data-agent-id]").count()) >= 1,
-    );
-    // Re-pin for what follows WITHOUT collapsing the peek: the all-cell just
-    // opened it, so clicking Chat would TOGGLE it shut (unpinned + Chat + peek
-    // open → peek false) and hide the sidebar — then clicking the now-hidden
-    // pin button would time out and take the whole suite down with it. Open it
-    // only if it's already away, exactly like the repin block earlier.
-    if (!(await panelOn())) {
-      await page.locator(".rail .rail-item:text-is('Chat')").click();
-      await page.waitForTimeout(300);
-    }
-    const restorePin = page.locator(".sidebar .panel-pin");
-    if ((await restorePin.getAttribute("aria-pressed")) !== "true") {
-      await restorePin.click();
+    await page.locator(".messages").click({ position: { x: 620, y: 300 } });
+    await page.waitForTimeout(300);
+    check("and pressing outside the peek puts it away too", !(await panelOn()));
+    await page.locator(".topbar .where").click();
+    await page.waitForTimeout(400);
+    check("the identity opens it again", await panelOn());
+    await page.locator(".topbar .where").click();
+    await page.waitForTimeout(400);
+    check("and pressing it again puts it away", !(await panelOn()));
+    // Re-pin for what follows: a pinned column is always on screen, so its pin
+    // button and its rows are always clickable for the rest of this suite.
+    await page.locator(".topbar .where").click();
+    await page.waitForTimeout(300);
+    if ((await page.locator(".sidebar .panel-pin").getAttribute("aria-pressed")) !== "true") {
+      await page.locator(".sidebar .panel-pin").click();
       await page.waitForTimeout(300);
     }
     check(
-      "and the panel is pinned again for what follows",
-      (await restorePin.getAttribute("aria-pressed")) === "true" && (await panelOn()),
+      "and the drawer is pinned again for what follows",
+      (await page.locator(".sidebar .panel-pin").getAttribute("aria-pressed")) === "true" &&
+        (await panelOn()),
     );
-
-    // One selection control across the seam: resting on an agent's NAME in the
-    // panel marks that agent's FACE in the rail (the borrow marks the other way).
-    const heldRow = page.locator(".sidebar .panel-agent[data-agent-id]:not(.active)").first();
-    if ((await heldRow.count()) > 0) {
-      const heldId = await heldRow.getAttribute("data-agent-id");
-      await heldRow.hover();
-      await page.waitForTimeout(400);
-      check(
-        "resting on a name marks that face and borrows its conversations — even pinned",
-        (await page.locator(`.rail .rail-agent[data-agent-id="${heldId}"].held`).count()) === 1 &&
-          (await page.locator('.sidebar [aria-label^="New conversation with"]').count()) === 1,
-      );
-      await page.mouse.move(600, 400);
-      await page.waitForTimeout(250);
-      check(
-        "and leaving unmarks it and returns the list",
-        (await page.locator(".rail .rail-agent.held").count()) === 0 &&
-          (await page.locator('.sidebar [aria-label^="New conversation with"]').count()) === 0,
-      );
-    } else {
-      console.log("  SKIP  the cross-selection mark needs a second agent");
-    }
 
     // Pinned agents are the first avatars, and say so with a notch — the order is
     // the whole point of pinning, and an unlabeled order is invisible.
@@ -1961,9 +2098,7 @@ try {
     const scan = () =>
       page.evaluate(() => ({
         checkboxes: document.querySelectorAll('input[type="checkbox"]').length,
-        uppercase: [
-          ...document.querySelectorAll<HTMLElement>(".pane *, .sidebar *, .settings-screen *"),
-        ]
+        uppercase: [...document.querySelectorAll<HTMLElement>(".pane *, .sidebar *")]
           .filter(
             (el) => getComputedStyle(el).textTransform === "uppercase" && el.textContent?.trim(),
           )
@@ -2080,29 +2215,71 @@ try {
 
     // Its link goes to global Settings, open on Global skills.
     await page.locator('.pane button:text-is("Settings → Global skills")').click();
-    await page.locator(".settings-screen").waitFor();
+    await page.locator(".settings-pane").waitFor();
     check(
       "the skills link opens global skills",
       (await page.locator(".settings-content-title").innerText()) === "Global skills",
     );
+    // A pane is not the dialog it used to be: Escape belongs to whatever sheet is
+    // over it, never to the pane underneath, so its way out is the corner X.
     await page.keyboard.press("Escape");
-    check("Escape closes settings", (await page.locator(".settings-screen").count()) === 0);
-
-    // Settings for every agent, from the gear: list and section side by side.
-    await openSettings(page);
-    await page.locator(".settings-screen").waitFor();
+    await page.waitForTimeout(200);
     check(
-      "desktop settings show the list and a section together",
-      (await page.locator(".settings-nav").isVisible()) &&
-        (await page.locator(".settings-content").isVisible()),
+      "escape leaves the settings pane up",
+      (await page.locator(".settings-pane").count()) === 1,
+    );
+    await page.locator(".pane-close").click();
+    await page.waitForTimeout(300);
+    check(
+      "the corner X closes settings back to Chat",
+      (await page.locator(".settings-pane").count()) === 0 &&
+        (await page.locator(".rail .rail-item.active").innerText()).trim() === "Chat",
+    );
+
+    // Settings for every agent, from the rail's foot cell: the rail becomes the section list
+    // and the section renders beside it. One navigation column, not two.
+    // The door: a row of the main rail, worded like the rest of it, at the foot
+    // because pressing it leaves the panes rather than choosing one. Asserted before
+    // it is pressed — while Settings is open the rail holds the sections instead.
+    check(
+      "the rail carries the Settings door at its foot",
+      (await page.locator(".rail .rail-settings-cell").count()) === 1 &&
+        (await page.locator(".rail .rail-settings-cell").innerText()).trim() === "Settings" &&
+        (await page.locator(".rail .rail-settings-cell").getAttribute("aria-label")) === "Settings",
+    );
+    await openSettings(page);
+    check(
+      "desktop settings put the sections in the rail, with the section beside it",
+      (await page.locator("nav.rail.rail-settings").isVisible()) &&
+        (await page.locator(".settings-pane").isVisible()),
     );
     check(
-      "the selected settings row is marked by its border, not a tick",
-      (await page.locator(".settings-nav .menu-row.selected").count()) === 1 &&
-        (await page.locator(".settings-nav .menu-row-check").count()) === 0,
+      "and the pane carries no second list — the rail is the desktop's list",
+      (await page.locator(".settings-pane .section-tabs").count()) === 0 &&
+        (await page.locator(".settings-content-title").count()) === 1,
+    );
+    check(
+      "the sections-only rail holds Back, the sections and the all cell — no panes, no faces",
+      (await page.locator("nav.rail.rail-settings .rail-back").count()) === 1 &&
+        (await page.locator("nav.rail.rail-settings .rail-all").count()) === 1 &&
+        (await page.locator("nav.rail.rail-settings .rail-agent:not(.rail-all)").count()) === 0 &&
+        (await page
+          .locator("nav.rail.rail-settings .rail-item:not(.rail-section):not(.rail-back)")
+          .count()) === 0,
+    );
+    check(
+      "the band names the pane, and the rail has the Back cell in the door's place",
+      (await page.locator(".topbar .title").innerText()).trim() === "Settings" &&
+        (await page.locator("nav.rail.rail-settings .rail-back").count()) === 1 &&
+        (await page.locator("nav.rail .rail-settings-cell").count()) === 0,
     );
     const desktopFeatures = await readFeatures(page);
-    const expectedRows = [
+    // The rail shows each section's FULL name: the column widens for Settings
+    // precisely so a cell reads the way the pane's own heading reads it, instead of
+    // the abbreviation a square cell forced ("Pi", "Push"). The same token gating
+    // that hid a row hides its cell — a section whose compose token is off appears
+    // in neither list.
+    const expectedRail = [
       "Providers & models",
       ...(featureOn(desktopFeatures, "web") ? ["Web search"] : []),
       "MCP servers",
@@ -2111,33 +2288,60 @@ try {
       ...(featureOn(desktopFeatures, "claude") ? ["Claude Code workers"] : []),
       ...(featureOn(desktopFeatures, "pi") ? ["Remote Pi"] : []),
       "Global skills",
+      // Deployment: the two halves of what used to be one mode, reported read-only.
       "Access",
       "Sign-in",
       "Notifications",
       "About",
     ];
-    const rowLabels = (await page.locator(".settings-nav .menu-row-title").allInnerTexts()).map(
-      (t) => t.trim(),
+    const railWords = (
+      await page.locator("nav.rail.rail-settings .rail-section").allInnerTexts()
+    ).map((t) => t.trim());
+    check(
+      `settings rail words are ${expectedRail.join(" / ")}`,
+      JSON.stringify(railWords) === JSON.stringify(expectedRail),
+      railWords,
     );
     check(
-      `settings rows are ${expectedRows.join(" / ")}`,
-      JSON.stringify(rowLabels) === JSON.stringify(expectedRows),
-      rowLabels,
+      "the rail marks the open section, and only the open section",
+      (await page.locator("nav.rail.rail-settings .rail-section.active").count()) === 1,
+    );
+    const groupWords = (
+      await page.locator("nav.rail.rail-settings .rail-group-label").allInnerTexts()
+    ).map((t) => t.trim());
+    check(
+      "the sections are grouped under words the column can fit",
+      groupWords.length >= 2 && groupWords.every((word) => word.length <= 6),
+      groupWords,
+    );
+    // The wider column exists to keep every row ONE line: a section name that
+    // wrapped, or got cut to an ellipsis, is the old square column coming back by
+    // accident.
+    check(
+      "every section reads on one line with nothing cut off",
+      await page.evaluate(() =>
+        [...document.querySelectorAll(".rail-settings .rail-item")].every((el) => {
+          const r = el.getBoundingClientRect();
+          return (
+            el.scrollWidth <= el.clientWidth + 1 && Math.round(r.height) <= 40 && r.width >= 160
+          );
+        }),
+      ),
     );
     check(
       "no per-agent section among the shared ones",
-      !rowLabels.some((label) => ["Secrets", "Reflection"].includes(label)),
-      rowLabels,
+      !railWords.some((word) => ["Secrets", "Reflection"].includes(word)),
+      railWords,
     );
-    const openSection = async (label: string) => {
-      await page.locator(`.settings-nav .menu-row:has-text("${label}")`).click();
+    const openSection = async (word: string) => {
+      await page.locator(`nav.rail.rail-settings .rail-section:text-is("${word}")`).click();
       await page.waitForTimeout(700);
     };
-    for (const label of expectedRows) {
-      await openSection(label);
-      conventions[`Settings/${label}`] = await scan();
+    for (const word of expectedRail) {
+      await openSection(word);
+      conventions[`Settings/${word}`] = await scan();
       const box = await overflow(page);
-      check(`${label} has nothing clipped`, box.clipped.length === 0, box);
+      check(`${word} has nothing clipped`, box.clipped.length === 0, box);
     }
     const offenders = Object.entries(conventions).filter(
       ([, found]) => found.checkboxes > 0 || found.uppercase.length > 0,
@@ -2150,41 +2354,41 @@ try {
 
     // Codex and Claude Code load their settings from the BFF
     // (GET /api/codex/settings, GET /api/claude/settings); a form means the route
-    // answered, not just that the row exists. Each is behind a compose token, so a
-    // stack without one has no row to open — the same guard the Remote Pi block
+    // answered, not just that the rail cell exists. Each is behind a compose token, so
+    // a stack without one has no cell to open — the same guard the Remote Pi block
     // below uses. Without it this hung for 30s on the click instead of skipping.
-    for (const [token, row, switchRow] of [
-      ["codex", "Codex workers", "Allow Codex workers"],
-      ["claude", "Claude Code workers", "Allow Claude Code workers"],
+    for (const [token, word, switchRow] of [
+      ["codex", "Codex", "Allow Codex workers"],
+      ["claude", "Claude", "Allow Claude Code workers"],
     ] as const) {
       if (!featureOn(desktopFeatures, token)) continue;
-      await openSection(row);
+      await openSection(word);
       check(
         `${token} section loads its settings`,
         (await page.locator(`.menu-row:has-text("${switchRow}")`).count()) === 1,
-        await page.locator(".settings-content").innerText(),
+        await page.locator(".settings-pane").innerText(),
       );
     }
 
     if (featureOn(desktopFeatures, "pi")) {
-      // Same for Remote Pi (GET /api/pi/settings).
+      // Same for Remote Pi (GET /api/pi/settings) — the rail's word is just `Pi`.
       await openSection("Remote Pi");
       check(
         "remote pi section loads its settings",
         (await page.locator('.menu-row:has-text("Allow Remote Pi")').count()) === 1,
-        await page.locator(".settings-content").innerText(),
+        await page.locator(".settings-pane").innerText(),
       );
       check(
         "remote pi status row says one word of state",
-        (await page.locator(".settings-content .pi-status .pi-state").count()) === 1,
-        await page.locator(".settings-content").innerText(),
+        (await page.locator(".settings-pane .pi-status .pi-state").count()) === 1,
+        await page.locator(".settings-pane").innerText(),
       );
     }
 
     // Google loads its status from the BFF (GET /api/google). Under dev bypass
     // the form must also say it is locked, not just grey its inputs out.
-    await openSection("Google");
-    const googleText = await page.locator(".settings-content").innerText();
+    await openSection("Google Workspace");
+    const googleText = await page.locator(".settings-pane").innerText();
     check(
       "google section loads its status",
       (await page.locator('.menu-row:has-text("Allow agents to use Google")').count()) === 1,
@@ -2209,7 +2413,7 @@ try {
     // the shape, not a literal: the value is whatever the running image carries,
     // and a stale image is deploy-check's problem, not this one's.
     await openSection("About");
-    const aboutText = await page.locator(".settings-content").innerText();
+    const aboutText = await page.locator(".settings-pane").innerText();
     check(
       "about shows the lettuce release tag",
       /lettuce\s+v\d+\.\d+\.\d+-letta_\d+\.\d+\.\d+/.test(aboutText),
@@ -2229,16 +2433,28 @@ try {
     await openSection("Providers & models");
 
     // Providers: the operator's own named providers, each with a type chip and
-    // its base URL, or the empty state. Wait for one to arrive — the registry and
-    // the model list both answer after the section opens.
-    await page
-      .locator(".settings-content .prov-meta, .settings-content li.muted")
-      .first()
-      .waitFor({ timeout: 10_000 })
-      .catch(() => {});
-    const providerRows = page.locator(".settings-content .prov-meta");
+    // its base URL, or the empty state. Wait for the section to SETTLE rather than
+    // for one node: the registry answers fast but the same load awaits an
+    // app-server round trip (`list_connect_providers`), which can take seconds on a
+    // busy stack, and a fixed 10s peek at the DOM would read a still-loading pane
+    // as an empty one.
+    const providersDeadline = Date.now() + 30_000;
+    let paneText = await page
+      .locator(".settings-pane")
+      .innerText()
+      .catch(() => "");
+    for (;;) {
+      paneText = await page
+        .locator(".settings-pane")
+        .innerText()
+        .catch(() => "");
+      if ((await page.locator(".settings-pane .prov-meta").count()) > 0) break;
+      if (/No providers yet/.test(paneText)) break;
+      if (Date.now() > providersDeadline) break;
+      await page.waitForTimeout(500);
+    }
+    const providerRows = page.locator(".settings-pane .prov-meta");
     const rowCount = await providerRows.count();
-    const paneText = await page.locator(".settings-content").innerText();
     check(
       "providers are listed by name with a type and a URL, or the empty state says so",
       rowCount > 0
@@ -2250,7 +2466,7 @@ try {
     // A provider's models sit behind a disclosure, and each model's declaration
     // opens the same sheet everywhere else. Nothing to expand on a stack with no
     // providers, which must not fail the run.
-    const disclosure = page.locator(".settings-content .models-head button[aria-expanded]").first();
+    const disclosure = page.locator(".settings-pane .models-head button[aria-expanded]").first();
     if ((await disclosure.count()) > 0) {
       check(
         "a provider's model disclosure counts its models",
@@ -2285,7 +2501,7 @@ try {
     // Add provider: one sheet for every type, and the type list is the whole
     // catalog in both groups — a type may be added again under another name, so
     // nothing in it is disabled.
-    await page.locator('.settings-content button:has-text("Add provider")').click();
+    await page.locator('.settings-pane button:has-text("Add provider")').click();
     const addSheet = page.locator('.sheet-panel[aria-label="Add provider"]');
     await addSheet.waitFor({ timeout: 5_000 });
     const addText = await addSheet.innerText();
@@ -2311,6 +2527,31 @@ try {
       (await toast.innerText()).trim().length > 5 &&
         (await toast.evaluate((n) => n.classList.contains("bad"))),
       await toast.innerText(),
+    );
+    // The toast moved out of the bottom corner: at the bottom it landed on the
+    // composer's send button and on every sheet's action row. It is top-centre now,
+    // just under the band's hairline. (Measured here rather than on Chat because this
+    // is the one toast the suite can raise on command — nothing is sent.)
+    const toastBox = await page.evaluate(() => {
+      const t = document.querySelector(".toast")?.getBoundingClientRect();
+      const band = document.querySelector(".band")?.getBoundingClientRect();
+      return t && band
+        ? {
+            top: Math.round(t.top),
+            bottom: Math.round(t.bottom),
+            bandBottom: Math.round(band.bottom),
+            centred: Math.abs(t.left + t.width / 2 - window.innerWidth / 2),
+            height: window.innerHeight,
+          }
+        : null;
+    });
+    check(
+      "the toast is top-centre under the band, not over the controls at the foot",
+      toastBox !== null &&
+        toastBox.top >= toastBox.bandBottom &&
+        toastBox.bottom < toastBox.height / 3 &&
+        toastBox.centred <= 2,
+      toastBox,
     );
     await toast.click();
     await page.waitForTimeout(300);
@@ -2356,12 +2597,12 @@ try {
     check("global skills offers an enable field", (await enableButton.count()) === 1);
     check("enable is disabled until a path is typed", await enableButton.isDisabled());
     await page
-      .locator('.settings-content input[placeholder^="/work/"]')
+      .locator('.settings-pane input[placeholder^="/work/"]')
       .fill("/work/agent-x/.agents/skills/s");
     check("enable becomes available with a path", await enableButton.isEnabled());
     check(
       "global skills lists no other scope",
-      (await page.locator(".settings-content .skill-group-head").count()) === 0,
+      (await page.locator(".settings-pane .skill-group-head").count()) === 0,
     );
     const squeezed = await page
       .locator(".pane > pre.tool-args")
@@ -2391,7 +2632,35 @@ try {
     await shot(page, "desktop-notifications");
 
     await shot(page, "desktop-settings");
-    await page.locator('.settings-screen button[aria-label="Close"]').click();
+    // Three ways out, and the rail is not a dead end while it is showing sections:
+    // Back at the head, the drawer cell, and the same hairline over it: the column
+    // foot (its own verb is the conversation panel, exercised above).
+    await page.locator("nav.rail.rail-settings .rail-back").click();
+    await page.waitForTimeout(300);
+    check(
+      "the rail's Back cell leaves Settings and gives the column back to the panes",
+      (await page.locator(".settings-pane").count()) === 0 &&
+        (await page.locator("nav.rail.rail-settings").count()) === 0 &&
+        (await page.locator(".rail .rail-item:text-is('Chat')").count()) === 1 &&
+        (await page.locator(".rail .rail-agent[data-agent-id]").count()) >= 1,
+    );
+    await openSettings(page);
+    await page.locator("nav.rail.rail-settings .rail-all").click();
+    await page.waitForTimeout(400);
+    check(
+      "the all cell is the third way out: back to Chat, with the panel and the faces",
+      (await page.locator(".settings-pane").count()) === 0 &&
+        (await page.locator(".rail .rail-item.active").innerText()).trim() === "Chat" &&
+        (await page.locator(".rail .rail-agent[data-agent-id]").count()) >= 1,
+    );
+    await openSettings(page);
+    await page.locator("nav.rail.rail-settings .rail-back").click();
+    await page.waitForTimeout(400);
+    check(
+      "the rail's Back cell leaves the pane and brings the door back",
+      (await page.locator(".settings-pane").count()) === 0 &&
+        (await page.locator(".rail .rail-settings-cell").count()) === 1,
+    );
 
     // Sheet geometry. MemoryTab and TasksTab used to hand-roll the markup and
     // omit .sheet-panel, so on desktop the body and the actions became two
@@ -2729,6 +2998,37 @@ try {
       continue;
     }
     const send = inject as (frame: string) => void;
+    // Before anything is responding: the link light is back in the corner, and it is
+    // a control — it opens the same list the busy slot opens. Nothing else in the
+    // status colour any more, so the light is the only place the link is shown.
+    const idleLight = await page.evaluate(() => {
+      const btn = document.querySelector(".topbar button.topbar-status.light");
+      const dot = btn?.querySelector(".link-dot");
+      const gear = document.querySelector(".topbar-gear"); // must be gone: the light is the status
+      return {
+        light: !!btn && !!dot,
+        dotColour: dot ? getComputedStyle(dot).backgroundColor : null,
+        word: btn?.querySelector(".topbar-word")?.textContent?.trim() ?? null,
+        gear: !!gear,
+      };
+    });
+    check(
+      `${viewport.width}px: the idle light is there and coloured, and the band carries no gear`,
+      idleLight.light &&
+        Boolean(idleLight.dotColour && idleLight.dotColour !== "rgba(0, 0, 0, 0)") &&
+        idleLight.gear === false &&
+        (viewport.width < 640 || Boolean(idleLight.word)),
+      idleLight,
+    );
+    await page.locator(".topbar button.topbar-status.light").click();
+    await page.waitForTimeout(300);
+    check(
+      `${viewport.width}px: clicking the light opens the responding list (empty is still a list)`,
+      (await page.locator('.sheet-panel[aria-label="Responding now"]').count()) === 1,
+    );
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
+
     // Mark a conversation other than the open one, so the phone badge shows too.
     const selection = await page.evaluate(() => localStorage.getItem("lettuce:selection"));
     const openId = selection ? (JSON.parse(selection).conversationId as string | null) : null;
@@ -2779,13 +3079,23 @@ try {
       check("phone: the menu badge is painted", badge.found && Boolean(badge.visible), badge);
     }
 
-    // The status dot doubles as the way into the list of responding
-    // conversations: while any scope is active it is a button, and clicking a
-    // row switches to that conversation.
+    // The busy slot is the way into the same list: while any scope is active it is
+    // a button, and clicking a row switches to that conversation.
     const busyDot = page.locator(".topbar button.topbar-status.busy");
     check(
       `${viewport.width}px: the status dot is a button while turns run`,
       (await busyDot.count()) === 1,
+    );
+    // While turns run, the busy slot replaces the idle light rather than sitting
+    // beside it: one corner, one status, and the busier of the two is the one shown.
+    const busyReplacesLight = await page.evaluate(() => ({
+      busy: document.querySelectorAll(".topbar button.topbar-status.busy").length,
+      light: document.querySelectorAll(".topbar button.topbar-status.light").length,
+    }));
+    check(
+      `${viewport.width}px: the busy slot takes the light's place, it does not join it`,
+      busyReplacesLight.busy === 1 && busyReplacesLight.light === 0,
+      busyReplacesLight,
     );
     // A second conversation to switch to, taken from the sidebar list.
     const otherId = await page.evaluate((open) => {
@@ -2996,10 +3306,17 @@ try {
   {
     const page = await open(browser, DESKTOP);
     await page.goto(`${ORIGIN}/?settings=google`, { waitUntil: "networkidle" });
-    await page.locator(".settings-screen").waitFor({ timeout: 10_000 });
+    await page.locator(".settings-pane").waitFor({ timeout: 10_000 });
     check(
       "?settings=google opens Settings on Google Workspace",
       (await page.locator(".settings-content-title").innerText()) === "Google Workspace",
+    );
+    // The link does not only open the pane, it opens it on that section — which on
+    // desktop means the rail cell carrying it, since the rail is the section list.
+    check(
+      "and the rail marks the section the link named",
+      (await page.locator("nav.rail.rail-settings .rail-section.active").innerText()).trim() ===
+        "Google Workspace",
     );
     check("the param is stripped", !page.url().includes("settings="), page.url());
     await page.close();
@@ -3215,8 +3532,12 @@ try {
       (await page.locator('.sheet-panel[aria-label="Model"]').count()) === 0,
     );
     // Nested case: the model sheet over the New agent sheet. The panel's docked
-    // New-agent row opens the editor directly — on desktop that is the only door.
-    await page.locator('.sidebar .panel-new[aria-label="New agent"]').click();
+    // New-agent row opens the editor directly — on desktop that is the only door,
+    // and it is Chat's row, so the pane has to be Chat again to reach it (a secondary
+    // pane puts the panel away; the Agent tab cannot show both at once).
+    await openTab(page, "Chat");
+    await page.waitForTimeout(400);
+    await page.locator(".rail .rail-new").click();
     await page.locator('.sheet-panel[aria-label="New agent"]').waitFor();
     await page.locator('.sheet-panel[aria-label="New agent"] .field-trigger').click();
     await sheet.waitFor({ timeout: 8_000 });

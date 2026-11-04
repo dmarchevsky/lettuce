@@ -450,7 +450,10 @@ export function ProvidersSection({ session }: { session: SessionApi }) {
         </p>
       ) : null}
 
-      {local.length === 0 && cloud.length === 0 ? (
+      {/* The empty state waits for the load: while the list is still on its way this
+         same frame used to say “Loading providers…” and “No providers yet — an agent
+         has no model to answer with”, and a one-second fetch read as wiped state. */}
+      {local.length === 0 && cloud.length === 0 && !progress ? (
         <ul className="list">
           <li className="muted pad">
             No providers yet — an agent has no model to answer with until you add one.

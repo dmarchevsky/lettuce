@@ -234,8 +234,8 @@ lives in a skill — the table above says which.
   unconfined within the container. Real isolation would mean one app-server container per agent.
 - **Provider connection state is `connected.is_connected`**, not `connected.connected`.
 - **Settings are split by scope, and the split is the UI's only statement of it.** The **Agent** tab
-  (`web/src/tabs/AgentTab.tsx`) holds what belongs to the selected agent; **Settings** (the rail's
-  pane list on desktop, the bottom bar's More row on a phone) holds what every agent shares — providers, web search, MCP servers, Google, coding
+  (`web/src/tabs/AgentTab.tsx`) holds what belongs to the selected agent; **Settings** (a pane behind the
+  rail's foot cell, reached on a phone from the bottom bar's More row) holds what every agent shares — providers, web search, MCP servers, Google, coding
   workers, global skills — plus this device's notifications and an About. A new setting goes where its
   backend key is: keyed by `agent_id` → Agent tab; a BFF file or an app-server-wide command → Settings;
   `runtime` scope → next to the conversation. Layout: `lettuce-ui-conventions`.

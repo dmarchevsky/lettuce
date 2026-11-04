@@ -163,8 +163,9 @@ export function MemoryTab({ session, agentId }: Props) {
               <span className="grow-text memory-row-text">
                 <span className="memory-row-title">
                   <strong>{entry.relative_path}</strong>
-                  {/* What the gear icon meant, said once: system blocks are
-                      composed into the agent's context on every turn. */}
+                  {/* The fact a per-row control used to hint at, said once in
+                      words: system blocks are composed into the agent's context
+                      on every turn. */}
                   {entry.is_system ? <span className="tag">In context</span> : null}
                 </span>
                 {entry.description ? (

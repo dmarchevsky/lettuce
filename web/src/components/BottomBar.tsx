@@ -36,7 +36,9 @@ export function BottomBar({
   runsRunning,
 }: Props) {
   const [moreOpen, setMoreOpen] = useState(false);
-  const inMore = tab === "Agent" || tab === "Runs";
+  // More is active for everything it holds — including Settings, which has no slot
+  // of its own on any width. A pane you are standing in must not light nothing.
+  const inMore = tab === "Agent" || tab === "Runs" || tab === "Settings";
 
   const secondary: { tab: Tab; label: string; icon: IconName }[] = [
     { tab: "Files", label: "Files", icon: "folder" },

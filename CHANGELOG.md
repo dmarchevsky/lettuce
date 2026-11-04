@@ -5,10 +5,20 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.31.0-letta_0.34.38] - 2026-11-04
+
 ### Changed
+- **The rail is the agent list, and the conversation list became a drawer that starts closed.** The rail was a 56-pixel strip of icon-only squares, and because a square cannot hold a word the agents' names lived in a second copy of the same list inside the conversation panel — the same agents twice, in two shapes, with a shared height, a shared scroll and a shared hover to pass for one control. It is a 184-pixel column of 30-pixel rows now: glyph then word for the panes, a face then the name under an `AGENTS` word for each agent, `＋ New agent` at the end of that list, and a foot cell of its own. What is left for the panel to carry is conversations, so it carries those: it says whose list it is at its head, it comes as a **peek** floating over the transcript when you ask for it, and it goes away when you choose a conversation or press anywhere else. **Pin** makes it a standing column again; it used to be pinned by default, and now the transcript gets the width unless you ask. Opening it and pressing the same thing again puts it away, and a pinned drawer gives up its pin in the same click.
+- **Settings is a pane now, not a dialog over everything, and its door is a row of the rail.** Opening Settings replaces the rail's pane list with the sections and a `Back` cell at the head, so the app has one navigation column again; on a phone the sections stay the wrapping chips above the section, and Settings was and is the More sheet's row there. The desktop door is the rail's foot cell — **⚙ Settings** — because the column that names the panes should name this one too, and it is where you would look for it: the top bar keeps no Settings glyph at all, which is also what the connection light is for. A `?settings=google` link still lands on that section, and since it is a pane like the others, a phone's Back leaves it the way it leaves Files — Escape is no longer special. While Settings is the open pane, its own column's foot cell says **Conversations**, which is what it has always opened.
+- **The connection light is back in the top bar, and clicking it shows what is answering.** A passive dot is a status you have to trust: it said "Live" in a colour nobody could name and answered no click. Now the dot is there at every width (with its words where there is room for them) and the whole thing opens the **Responding now** list: every conversation with a turn in progress, across agents, each row jumping straight to that conversation. While turns are running the `N responding` slot takes the light's place rather than sitting beside it, so one corner shows one status, the busier of the two.
+- **Every pane but Chat carries a close ✕ in the window's top-right corner**, and the band names the pane you are looking at. Before, a secondary pane left the title reading "Lettuce" over a screen of MCP servers, and the only way out was finding the right word in the rail.
+- **Toasts arrive at the top**, under the band's line. They used to land bottom-right, which on a phone is the composer's Send button — and they announce exactly the kind of thing (a reply came while you were away) that shows up while a message is being written.
 - Sharpened the flow rules an agent follows: a green live-CI run no longer counts as a `ui-check`
   pass, redesign rounds re-prove layout and re-sweep stale claims about what they changed, and the
   pre-release review step names the verb that exists.
+
+### Fixed
+- **A slow load no longer looks like an empty one in Settings either.** The providers list kept the old habit the conversation list was fixed of: while the registry was still on its way the pane said "Loading providers…" and, in the same frame, **"No providers yet — an agent has no model to answer with until you add one"**, so a fetch that takes a second or two read as lost configuration. The empty state now waits for the load.
 
 ## [v0.30.0-letta_0.34.38] - 2026-11-03
 

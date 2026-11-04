@@ -2,11 +2,18 @@ import type { FeatureFlags } from "./features.ts";
 import { featureEnabled } from "./features.ts";
 
 /**
- * The app's panes. Chat is the primary one — the default, the only one with a
- * composer, and the one the conversation panel belongs to — and the rest are
- * secondary, reached from the desktop rail or the phone's bottom bar.
+ * The panes, in rail order. Chat is the primary one — the default, the only one
+ * with a composer, and the one the conversation drawer belongs to — and the rest
+ * are secondary, reached from the desktop rail or the phone's bottom bar.
+ *
+ * `Settings` is a pane like any other — it used to be a modal over the pane you
+ * were reading, which meant the app had two navigation systems and one of them hid
+ * the other. It is in this list so the phone's More row lands where the desktop
+ * rail's foot cell does, but the rail does not show it among the pane cells: with
+ * Settings open, its sections replace the pane list, and that column's Back cell
+ * (or the corner X) is the way out — to Chat.
  */
-export const TABS = ["Chat", "Files", "Tasks", "Runs", "Tools", "Agent"] as const;
+export const TABS = ["Chat", "Files", "Tasks", "Runs", "Tools", "Agent", "Settings"] as const;
 export type Tab = (typeof TABS)[number];
 
 /** `Runs` is a pane only where a coding worker is deployed; elsewhere it is absent. */
@@ -35,9 +42,12 @@ const PANEL_PIN_KEY = "lettuce:panel-pinned";
 
 export function readPanelPin(): boolean {
   try {
-    return globalThis.localStorage?.getItem(PANEL_PIN_KEY) !== "0";
+    // The drawer starts SHUT: the rail carries the agent names now, so the column
+    // of conversations is a thing you reach for rather than one you live beside.
+    // Only an explicit "1" — someone pressed the pin — makes it a standing column.
+    return globalThis.localStorage?.getItem(PANEL_PIN_KEY) === "1";
   } catch {
-    return true;
+    return false;
   }
 }
 
