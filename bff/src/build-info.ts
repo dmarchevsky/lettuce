@@ -31,7 +31,7 @@
  * The CLI that prints or bakes this lives in `scripts/build-info.ts`.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export interface BuildInfo {
@@ -109,8 +109,19 @@ function packedRef(path: string, ref: string): string | null {
   return null;
 }
 
-/** Resolve from a real checkout with the `git` binary — a dev box or a CI job. */
+/**
+ * Resolve from a real checkout with the `git` binary — a dev box or a CI job.
+ *
+ * `repoRoot` means *the checkout*: a directory with no `.git` of its own is not a
+ * repository no matter what happens to contain it. Asking git anyway lets it walk
+ * **up** out of the directory, so a scratch directory inside a repo — which is what
+ * a temp directory is whenever `TMPDIR` points inside the checkout, as it does in a
+ * dev-flow worktree — answers with the enclosing repository's commit. The version
+ * of a build must be a fact about the tree it was built from, so the walk is
+ * refused here rather than papered over at the call site.
+ */
 export function resolveFromGit(repoRoot: string): { sha: string | null; dirty: boolean } {
+  if (!existsSync(join(repoRoot, ".git"))) return { sha: null, dirty: false };
   const run = (args: string[]) => {
     const result = Bun.spawnSync(["git", ...args], { cwd: repoRoot });
     return result.exitCode === 0 ? result.stdout.toString().trim() : null;
