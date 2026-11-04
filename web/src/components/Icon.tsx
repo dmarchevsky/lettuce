@@ -47,6 +47,9 @@ export type IconName =
   | "search"
   | "terminal"
   | "globe"
+  | "grid"
+  | "bell"
+  | "info"
   | "pin"
   | "trash"
   | "attach";
@@ -114,6 +117,12 @@ const PATHS: Record<IconName, string> = {
   // Meridian globe: fetching a web page, distinct from the magnifier's search.
   globe:
     "M12 3a9 9 0 100 18 9 9 0 000-18M3 12h18M12 3c2.5 2.6 4 5.6 4 9s-1.5 6.4-4 9c-2.5-2.6-4-5.6-4-9s1.5-6.4 4-9z",
+  // Four squares: a workspace, a family of apps under one account.
+  grid: "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z",
+  // The notification bell: this device's pushes, nothing else says it.
+  bell: "M6 9a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6M10 20a2 2 0 004 0",
+  // The information dot: About — a fact sheet, not a log (that is `history`).
+  info: "M12 3a9 9 0 100 18 9 9 0 000-18M12 8h.01M11 12h1v4h1",
   // Paper clip: attach an image to the message. Path from Lucide's
   // "paperclip" icon — ISC License, Copyright (c) Lucide Contributors.
   attach:

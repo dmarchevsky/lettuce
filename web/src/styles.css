@@ -35,7 +35,12 @@
      panel beside it wears the same height. One row height for the avatar and
      the name keeps their centers on one line; the pitch is this + the 4px gap. */
   --topbar-h: 52px;
-  --rail-cell: 44px;
+  /* Every rail slot is ONE square: the column is this wide and every cell — a
+     pane, an agent face, the all cell, a Settings section — is `--rail-cell`
+     on a side. A rail whose cells are three different heights reads as three
+     unrelated lists; one number makes it one list with three kinds of row. */
+  --rail-w: 64px;
+  --rail-cell: 64px;
   /* The one padding every list row, task row and .pad shares. */
   --pad-row-y: 6px;
   --pad-row-x: 10px;
@@ -155,7 +160,7 @@ pre {
    first slot and the others are the way out; on desktop the rail holds all six
    with names, because there is room for names. */
 .rail {
-  width: 74px;
+  width: var(--rail-w);
   flex-shrink: 0;
   background: var(--surface);
   /* No vertical hairline beside the panel: an agent row is one row across the
@@ -166,7 +171,9 @@ pre {
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  padding: 8px 5px calc(8px + env(safe-area-inset-bottom));
+  /* No side padding: with the column at --rail-w a cell is then exactly
+   --rail-cell square, which is the whole point of the token. */
+  padding: 8px 0 calc(8px + env(safe-area-inset-bottom));
   /* The rail never scrolls as a whole: only its agent block does (below), so
      the pane items and the footer sit in the same place with 3 agents or 30. */
   overflow: hidden;
@@ -233,11 +240,13 @@ pre {
 }
 .rail-agent .agent-avatar {
   /* The responding dot and the pinned notch hang off the avatar, not the taller
-     labelled cell, so they stay on the face whatever the name does to its height. */
+     labelled cell, so they stay on the face whatever the name does to its height.
+     Grown with the cell: a 34px face in a 64px square left the slot reading as
+     empty air around a coin. */
   position: relative;
-  width: 34px;
-  height: 34px;
-  font-size: 14px;
+  width: 38px;
+  height: 38px;
+  font-size: 15px;
 }
 /* Hover, held, active — one language across both columns: a row background
    and, for the selection, the same left bar the selected conversation wears.
@@ -301,8 +310,8 @@ pre {
    the panel's side — .panel-new). An icon-only square like the avatars it sits
    beside, so the column reads as one list. */
 .rail-all .icon {
-  width: 17px;
-  height: 17px;
+  width: 18px;
+  height: 18px;
 }
 .rail-all:hover {
   color: var(--text);
@@ -325,20 +334,24 @@ pre {
 .rail-item {
   width: 100%;
   flex: none;
+  /* A square cell, not a content box: the icon and the word are centered in
+   --rail-cell rather than stacked to whatever height they happen to make. */
+  height: var(--rail-cell);
   background: none;
   border: none;
   color: var(--muted);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
-  padding: 7px 2px 6px;
+  justify-content: center;
+  gap: 3px;
+  padding: 0 2px;
   font-size: 10px;
   line-height: 1.1;
 }
 .rail-item .icon {
-  width: 19px;
-  height: 19px;
+  width: 20px;
+  height: 20px;
 }
 .rail-item:hover {
   color: var(--text);
@@ -420,7 +433,8 @@ pre {
   flex-direction: column;
   gap: 4px;
   /* Mirrors .rail-agents' top air — the rows must stay on one line across the
-   seam, so both blocks pad identically. */
+   seam, so both blocks pad identically. The rows wear --rail-cell, the same
+   square the face across the seam sits in. */
   padding: 2px 0 4px;
   overflow-y: auto;
   overflow-x: hidden;
@@ -448,7 +462,7 @@ pre {
   border: none;
   background: none;
   color: var(--text);
-  font-size: 13px;
+  font-size: 14px;
   text-align: left;
   white-space: nowrap;
   overflow: hidden;
@@ -2806,13 +2820,9 @@ p.warning code,
        lit row crosses the rail and the panel as one unbroken line. */
     padding: 0 0 env(safe-area-inset-bottom);
   }
-  /* The pane buttons carry a 7px top pad of their own; on the first one that
-     reads as a gap under the band's hairline (the operator saw it twice). The
-     Chat cell touches the line: its icon sits at the same height the panel's
-     tool row does. */
-  nav.rail > .rail-item:first-child {
-    padding-top: 2px;
-  }
+  /* The pane cells are now a fixed --rail-cell square with the glyph+word
+   centered inside it, so the first one no longer needs its top pad shaved: the
+   gap the operator saw was the content box undershooting, not padding. */
   aside.sidebar {
     grid-row: 2;
     grid-column: 2;
