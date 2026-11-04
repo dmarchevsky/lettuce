@@ -1,5 +1,7 @@
-import { type CSSProperties, type Ref, useEffect, useRef, useState } from "react";
+import { type CSSProperties, type Ref, useEffect, useMemo, useRef, useState } from "react";
 import { resolveAvatar } from "../lib/agent-tint.ts";
+import type { FeatureFlags } from "../lib/features.ts";
+import { type GlobalSection, visibleGroups } from "../lib/settings-sections.ts";
 import type { Tab } from "../lib/tabs.ts";
 import type { AgentSummary, AgentsApi } from "../state/use-agents.ts";
 import { AgentAvatar } from "./AgentAvatar.tsx";
@@ -23,9 +25,22 @@ interface Props {
   onPreviewAgent: (agentId: string | null) => void;
   /** Resting on the **open** agent's avatar asks for its own list back, not a borrow. */
   onOwnAvatar: () => void;
-  onOpenSettings: () => void;
-  /** The `all` cell: the conversation panel, open, with the full agent list. */
+  /** Settings is a pane, and while it is the pane the rail holds its sections and
+   * nothing else: the app has one navigation column, so the sections cannot be a
+   * second list beside the panes. The door is the band's gear, in App. */
+  settingsOpen: boolean;
+  /** Which section the pane is showing — the rail marks it. */
+  settingsSection: GlobalSection;
+  /** Gated the way the pane gates its chips: a section whose compose token is off
+   * gets no cell here either. */
+  features?: FeatureFlags;
+  onPickSection: (section: GlobalSection) => void;
+  /** The sections rail's Back cell: put Settings away, back to Chat. */
+  onCloseSettings: () => void;
+  /** The `all` cell: the conversation panel with the full agent list — a toggle, so
+   * it also needs to know whether the panel is up. */
   onShowAll: () => void;
+  panelVisible: boolean;
   onEditAgent: (agentId: string) => void;
   /**
    * The agent whose *name* in the conversation panel's bottom block the pointer
@@ -78,8 +93,13 @@ export function NavRail({
   onOpenPanel,
   onPreviewAgent,
   onOwnAvatar,
-  onOpenSettings,
+  settingsOpen,
+  settingsSection,
+  features,
+  onPickSection,
+  onCloseSettings,
   onShowAll,
+  panelVisible,
   onEditAgent,
   heldAgentId,
   onHoverAgent,
@@ -170,6 +190,51 @@ export function NavRail({
 
   const visible = agents.agents.filter((agent) => !agents.archivedAgents.has(agent.id));
   const panes = paneItems(runsEnabled);
+  const groups = useMemo(() => visibleGroups(features), [features]);
+
+  // Settings is not a list stacked under the panes — it replaces them. The rail is
+  // the app's one navigation column and it holds one subject at a time, which is
+  // also what keeps it short enough to read: eleven sections, four group words, a
+  // Back cell and the all cell fit a laptop window without scrolling.
+  if (settingsOpen) {
+    return (
+      <nav className="rail rail-settings" aria-label="Settings sections">
+        <button
+          type="button"
+          className="rail-item rail-back"
+          onClick={onCloseSettings}
+          title="Back to Chat"
+          aria-label="Back to Chat"
+        >
+          <Icon name="back" />
+          Back
+        </button>
+        <div className="rail-groups">
+          {groups.map((group) => (
+            <div className="rail-group" key={group.label}>
+              <span className="rail-group-label">{group.label}</span>
+              {group.sections.map((section) => (
+                <button
+                  key={section.id}
+                  type="button"
+                  className={`rail-item rail-section${
+                    settingsSection === section.id ? " active" : ""
+                  }`}
+                  aria-current={settingsSection === section.id ? "page" : undefined}
+                  onClick={() => onPickSection(section.id)}
+                  title={section.label}
+                >
+                  <Icon name={section.icon} />
+                  {section.rail}
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+        <AllCell onShowAll={onShowAll} panelVisible={panelVisible} />
+      </nav>
+    );
+  }
 
   return (
     <nav className="rail" aria-label="Sections and agents">
@@ -185,16 +250,6 @@ export function NavRail({
           {pane.label}
         </button>
       ))}
-
-      <button
-        type="button"
-        className="rail-item"
-        onClick={onOpenSettings}
-        title="Settings for every agent"
-      >
-        <Icon name="settings" />
-        Settings
-      </button>
 
       {/* No divider element here: the seam hairline is .rail-agents' own
           border-top — the same 1px box edge the panel's agent block carries,
@@ -256,19 +311,11 @@ export function NavRail({
       </div>
 
       {/* The all cell is not part of the scrolling list: it is the fixed verb at the
-          foot of the column — pressing it opens the conversation panel with the full
-          agent list (on desktop there is no sheet any more), and it never scrolls
-          out of reach. There is no new-agent cell in the rail: New-agent lives in
-          the panel's list, where the agents are. */}
-      <button
-        type="button"
-        className="rail-agent rail-all"
-        onClick={onShowAll}
-        title="All agents: the full list in the conversation panel"
-        aria-label="All agents"
-      >
-        <Icon name="menu" />
-      </button>
+          foot of the column — pressing it brings the conversation panel with the full
+          agent list and pressing it again puts the panel away (on desktop there is no
+          sheet any more), and it never scrolls out of reach. There is no new-agent cell
+          in the rail: New-agent lives in the panel's list, where the agents are. */}
+      <AllCell onShowAll={onShowAll} panelVisible={panelVisible} />
 
       {menu ? (
         <AgentMenu
@@ -302,5 +349,29 @@ export function NavRail({
         <DeleteAgentSheet agents={agents} agent={deleting} onClose={() => setDeleting(null)} />
       ) : null}
     </nav>
+  );
+}
+
+/**
+ * The all cell, shared by both rails: the conversation panel with the full agent
+ * list, and the same press putting it away. It is the one cell that survives the
+ * rail changing subject — it is not a member of the list, it is the column's verb.
+ */
+function AllCell({ onShowAll, panelVisible }: { onShowAll: () => void; panelVisible: boolean }) {
+  return (
+    <button
+      type="button"
+      className="rail-agent rail-all"
+      onClick={onShowAll}
+      title={
+        panelVisible
+          ? "Hide the conversations panel"
+          : "All agents: the full list in the conversation panel"
+      }
+      aria-label="Conversations panel"
+      aria-pressed={panelVisible}
+    >
+      <Icon name="menu" />
+    </button>
   );
 }

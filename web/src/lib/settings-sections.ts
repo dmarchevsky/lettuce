@@ -1,4 +1,6 @@
 import type { IconName } from "../components/Icon.tsx";
+import { type FeatureFlags, type FeatureName, featureEnabled } from "./features.ts";
+import { defaultStorage, readStored } from "./storage.ts";
 
 /**
  * The Settings sections, in the order the rail and the phone's chip bar show them.
@@ -90,4 +92,56 @@ export function isGlobalSection(value: string | null): value is GlobalSection {
 
 export function globalSectionInfo(id: GlobalSection): SectionInfo | undefined {
   return GLOBAL_SECTIONS.find((section) => section.id === id);
+}
+
+/** The profile token each gated section rides on; the rest are always visible. */
+const SECTION_FEATURE: Partial<Record<GlobalSection, FeatureName>> = {
+  web: "web",
+  google: "google",
+  codex: "codex",
+  claude: "claude",
+  pi: "pi",
+};
+
+/**
+ * The sections this deployment can configure, group by group, empty groups dropped.
+ *
+ * A section whose compose token is off cannot be configured — the BFF refuses its
+ * save routes — so it appears nowhere: not in the rail, not in the phone's chips.
+ * Both surfaces call this, which is the only way they cannot drift.
+ */
+export function visibleGroups(features?: FeatureFlags) {
+  return GLOBAL_SECTION_GROUPS.map((group) => ({
+    ...group,
+    sections: group.sections.filter((section) => {
+      const feature = SECTION_FEATURE[section.id];
+      return !feature || featureEnabled(features, feature);
+    }),
+  })).filter((group) => group.sections.length > 0);
+}
+
+export function isSectionVisible(id: GlobalSection, features?: FeatureFlags): boolean {
+  return visibleGroups(features).some((group) =>
+    group.sections.some((section) => section.id === id),
+  );
+}
+
+/** Settings is a pane with no default, so it resumes where you were. */
+const LAST_SECTION_KEY = "lettuce:settings-section";
+
+export function readLastSection(): GlobalSection | null {
+  try {
+    const value = readStored(defaultStorage(), LAST_SECTION_KEY);
+    return isGlobalSection(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeLastSection(section: GlobalSection): void {
+  try {
+    defaultStorage()?.setItem(LAST_SECTION_KEY, section);
+  } catch {
+    // A convenience only: the pane still opens, just on the first section.
+  }
 }

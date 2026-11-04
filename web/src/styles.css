@@ -232,9 +232,9 @@ pre {
   justify-content: center;
   background: none;
   border: none;
-  /* One shared row height (var above, 44 inside the 48 pitch): the 34px avatar
-     keeps 5px of vertical air — enough for its 3px ring at the block's top
-     edge — and the face center and the name center land on the same line. */
+  /* One shared row height (var above): the face keeps its vertical air — enough
+     for its 3px ring at the block's top edge — and the face center and the name
+     center across the seam land on the same line. */
   height: var(--rail-cell);
   color: var(--muted);
 }
@@ -312,6 +312,69 @@ pre {
 .rail-all .icon {
   width: 18px;
   height: 18px;
+}
+
+/* ── The rail while Settings is the pane ────────────────────────────────── */
+
+/* The sections are the rail's content, not a submenu under the panes: the app has
+   one navigation column, so opening Settings replaces what the column is a list
+   OF rather than growing a second list under the first. Compact rows — eleven
+   sections and four group words have to fit a laptop window without scrolling, and
+   a section name is a word, not a sentence; the block scrolls if a short window
+   still refuses it. */
+.rail-groups {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+}
+.rail-groups::-webkit-scrollbar {
+  display: none;
+}
+.rail-settings .rail-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+}
+.rail-group-label {
+  width: 100%;
+  padding: 6px 2px 2px;
+  text-align: center;
+  font-size: 8.5px;
+  line-height: 1.1;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  /* A group word wider than the column is a bug in the word, but it must not be
+     the column's bug too: 64px is the budget and nothing gets to hang out of it. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rail-settings .rail-section {
+  height: 34px;
+  flex-direction: row;
+  gap: 6px;
+  font-size: 9px;
+}
+.rail-settings .rail-section .icon {
+  width: 16px;
+  height: 16px;
+}
+/* The first way out, and the only one that is a word: Back, at the head, where a
+   reader starts. It wears the pane-cell look because it is a pane cell's verb, and
+   the hairline under it is the same seam language as the agent block's. */
+.rail-back {
+  color: var(--text);
+}
+.rail-back + .rail-groups {
+  border-top: 1px solid var(--border);
 }
 .rail-all:hover {
   color: var(--text);
@@ -2330,12 +2393,20 @@ button {
 }
 .toast {
   position: fixed;
+  /* Top-centre, under the band — not bottom-right over the composer. On a phone the
+     bottom of the screen *is* the composer and its Send button, so a toast that
+     lands there covers the one control you were about to press, and these toasts
+     announce exactly the kind of thing (a reply arrived while you were away, a
+     command the allowlist refused) that shows up while a message is being written.
+     At the top it interrupts nothing, and it falls where the eye already looks when
+     the app has something to say. */
   left: 50%;
-  bottom: calc(78px + env(safe-area-inset-bottom));
+  top: calc(var(--topbar-h) + 10px);
   transform: translateX(-50%);
   z-index: 90;
   /* A width, not a max-width: with `left: 50%` the shrink-to-fit box would only
-     have half the viewport to grow into and wrap into a column of text. */
+     have half the viewport to grow into and wrap into a column of text. Also the
+     readable measure — a strip across a desktop window is a banner, not a message. */
   width: min(92vw, 560px);
   padding: 10px 14px;
   border-radius: 10px;
@@ -3731,9 +3802,8 @@ textarea.mono {
   border: 2px solid var(--warn);
   border-right-color: transparent;
 }
-.link-dot.spinning {
-  animation: link-spin 0.9s linear infinite;
-}
+/* No `.spinning` rule here any more: the idle ring is gone and the gear turns
+   instead (`.topbar-gear.warn`). The keyframes stay — the Remote Pi dot uses them. */
 @keyframes link-spin {
   to {
     transform: rotate(360deg);
@@ -3768,10 +3838,80 @@ textarea.mono {
   background: transparent;
 }
 @media (prefers-reduced-motion: reduce) {
-  .link-dot.spinning,
-  .link-dot.busy {
+  .link-dot.busy,
+  .topbar-gear.warn .icon {
     animation: none;
   }
+}
+
+/* The Settings gear, which is also the link light. It used to be a colourless glyph
+   beside a coloured dot that was not a control: two things in the corner to explain
+   one situation, and Settings still had no icon anyone recognised. Now the gear IS
+   the state — it wears the derived colour, and when the connection is working on it
+   the glyph turns, the way the ring used to. A status a button can hide is not a
+   status, so the busy count and the signed-out pill stay elements of their own. */
+.topbar-gear {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.topbar-gear .icon {
+  width: 20px;
+  height: 20px;
+}
+.topbar-gear.ok {
+  color: var(--ok);
+}
+.topbar-gear.bad {
+  color: var(--bad);
+}
+.topbar-gear.warn {
+  color: var(--warn);
+}
+.topbar-gear.warn .icon {
+  /* The spinner's job, inherited: working on it, rather than a ring beside it. */
+  animation: link-spin 3.2s linear infinite;
+  transform-origin: center;
+}
+.topbar-gear:hover {
+  background: var(--surface-2);
+}
+/* Open, not merely hoverable: the gear is Settings' only door, so it has to look
+   like the tab it is when the pane is up — the rail's own active treatment, in the
+   accent colour rather than the status colour, because "open" is a fact about the
+   app and the colour is a fact about the link. */
+.topbar-gear.open {
+  background: var(--surface-2);
+  color: var(--accent);
+}
+
+/* A pane's way out, in the corner a close button is always in — the same glyph a
+   sheet wears, so the app has one dismissal mark instead of two. Fixed rather than
+   in flow: every pane starts with a bar of its own (`.pane-bar`, with its own
+   buttons) and none of them should have to reserve a slot for this. It sits over the
+   band's hairline at the top-right, where the Settings dialog's X already was; the
+   inset is in because on a notched phone the pane area starts that much lower and a
+   fixed box knows nothing about it. */
+.pane-close {
+  position: fixed;
+  top: calc(var(--topbar-h) + 6px + env(safe-area-inset-top));
+  right: 4px;
+  z-index: 30;
+  background: var(--bg);
+}
+/* …and the pane's own bar stands clear of it. A chip or a search box ending under
+   the X is a control nobody can press, and on the Settings pane the first thing
+   under the X is a row of chips. Only while the X is on screen (`.closable`), so
+   Chat's tool row keeps every pixel it had. */
+.main.closable .pane-bar {
+  padding-right: 52px;
 }
 
 .auth-warning {
@@ -4591,30 +4731,9 @@ textarea.mono {
   font-size: inherit;
 }
 
-.settings-panel {
-  max-width: 640px;
-}
-.settings-body {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-}
-.settings-nav {
-  flex: 1;
-  min-width: 0;
-  overflow-y: auto;
-  padding: 0 12px 16px;
-}
-.settings-nav .switcher-group {
-  margin: 14px 0 6px;
-}
-.settings-nav-note {
-  margin: 10px 0 0;
-}
-.settings-content {
-  flex: 1;
-  min-width: 0;
-}
+/* Settings is a pane now, so the dialog's own frame is gone: no overlay, no panel
+   column, no second list of sections beside the rail (`.settings-pane` is a `.pane`
+   and needs nothing of its own). What is left is the section's title. */
 .settings-content-title {
   margin: 14px 12px 4px;
   font-size: 16px;
@@ -4646,16 +4765,9 @@ textarea.mono {
 }
 
 @media (min-width: 900px) {
-  .settings-panel {
-    max-width: 1100px;
-  }
-  .settings-nav {
-    flex: 0 0 260px;
-    border-right: 1px solid var(--border);
-  }
   /* The pane's reading-measure padding is for the full-width column; beside
-     the list it would squeeze the content twice. */
-  .settings-content.pane {
+     the rail it would squeeze the content twice. */
+  .settings-pane {
     padding-inline: 12px;
   }
 }

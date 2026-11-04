@@ -6,7 +6,17 @@ import { featureEnabled } from "./features.ts";
  * composer, and the one the conversation panel belongs to — and the rest are
  * secondary, reached from the desktop rail or the phone's bottom bar.
  */
-export const TABS = ["Chat", "Files", "Tasks", "Runs", "Tools", "Agent"] as const;
+/**
+ * The panes, in rail order.
+ *
+ * `Settings` is a pane like any other — it used to be a modal over the pane you
+ * were reading, which meant the app had two navigation systems and one of them
+ * hid the other. It is in this list so the deep link (`?tab=settings`) and the
+ * phone's More row land in the same place the gear does, but the desktop rail
+ * does NOT show it among the pane cells: when Settings is open its sections
+ * replace the pane list, and the gear in the band is the toggle.
+ */
+export const TABS = ["Chat", "Files", "Tasks", "Runs", "Tools", "Agent", "Settings"] as const;
 export type Tab = (typeof TABS)[number];
 
 /** `Runs` is a pane only where a coding worker is deployed; elsewhere it is absent. */

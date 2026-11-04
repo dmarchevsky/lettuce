@@ -296,6 +296,35 @@ async function openTab(page: Page, name: string): Promise<void> {
   await page.locator(`.sheet .menu-row-title:text-is("${name}")`).click();
 }
 
+/**
+ * Nothing may sit under the corner close. It is fixed over whatever the pane starts
+ * with, and a chip or a field under it is a control nobody can press — the rule
+ * `.main.closable .pane-bar` exists to prevent, asserted here rather than trusted.
+ */
+async function cornerIsClear(page: Page): Promise<Record<string, unknown>> {
+  return page.evaluate(() => {
+    const x = document.querySelector(".pane-close");
+    if (!x) return { error: "no .pane-close on screen" };
+    const r = x.getBoundingClientRect();
+    const clash = [...document.querySelectorAll(".pane-bar > *")]
+      .filter((el) => {
+        const b = el.getBoundingClientRect();
+        return (
+          b.width > 0 &&
+          b.right > r.left &&
+          b.left < r.right &&
+          b.bottom > r.top &&
+          b.top < r.bottom
+        );
+      })
+      .map((el) => (el.textContent ?? el.tagName).trim().slice(0, 24));
+    const hit = document
+      .elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+      ?.closest("button");
+    return { clash, wins: hit?.classList.contains("pane-close") ?? false };
+  });
+}
+
 mkdirSync(OUT_DIR, { recursive: true });
 
 const executablePath = chromiumExecutable();
@@ -1114,6 +1143,12 @@ try {
         ((await phoneClose.getAttribute("aria-label")) ?? "").includes("Agent"),
       await phoneClose.getAttribute("aria-label"),
     );
+    const phoneCorner = await cornerIsClear(page);
+    check(
+      "nothing sits under the corner close (phone)",
+      phoneCorner.wins === true && (phoneCorner.clash as string[]).length === 0,
+      phoneCorner,
+    );
     await phoneClose.click();
     await page.waitForTimeout(300);
     check(
@@ -1528,6 +1563,12 @@ try {
       "the band names the pane while a secondary pane is open",
       (await page.locator(".topbar .title").innerText()).trim() === "Files",
       await page.locator(".topbar .title").innerText(),
+    );
+    const deskCorner = await cornerIsClear(page);
+    check(
+      "nothing sits under the corner close (desktop)",
+      deskCorner.wins === true && (deskCorner.clash as string[]).length === 0,
+      deskCorner,
     );
     await paneClose.click();
     await page.waitForTimeout(300);

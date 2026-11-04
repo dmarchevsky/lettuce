@@ -1,6 +1,6 @@
 ---
 name: lettuce-ui-conventions
-description: 'lettuce UI conventions that are ours, not the protocol''s: pin/archive lists live in the BFF, not the agent; one viewport-fixed AgentMenu (agent surfaces clip it: above a phone ⋯, beside a rail avatar); the desktop rail — panes + Settings up top, a faces-only agent column docked at the foot by a fixed all-agents cell — beside a Chat-only pin-toggleable conversation panel ending in the same agents as a row-aligned names block; a phone bar of five equal slots under a header whose left corner carries the open agent's face (`.where-avatar`) as the switcher entry; both nav surfaces stay mounted and CSS picks one, so ui-check reads the open agent from .rail-agent.active[data-agent-id]; the three-way settings split (Agent, Tools, global Settings); no native checkbox anywhere (aria-pressed + .menu-row-box / .chip-check). Read before touching web/src/components/AgentMenu, NavRail, BottomBar, Sidebar, tabs/AgentTab.tsx, tabs/ToolsTab.tsx, GlobalSettings.tsx, lib/tabs.ts, use-agents, or bff/src/agents/id-list.ts.'
+description: 'lettuce UI conventions that are ours: pin/archive lists live in the BFF, not the agent; a viewport-fixed AgentMenu; the desktop rail — one 64px square per slot (`--rail-cell`), panes up top, a faces-only agent column docked at the foot by a fixed ☰ cell that TOGGLES the panel, and the column becoming Settings'' sections while that pane is open; a phone bar of five equal slots under a header carrying the open agent''s face (`.where-avatar`); the gear IS the link light and the door to Settings, and a non-Chat pane''s fixed corner `.pane-close` is what its bar keeps clear; both nav surfaces stay mounted and CSS picks one: ui-check reads the open agent from `.rail-agent.active[data-agent-id]`; the settings split (Agent, Tools, the Settings pane); no native checkbox (.menu-row-box / .chip-check). Read before touching web/src/components/AgentMenu, NavRail, BottomBar, Sidebar, tabs/AgentTab.tsx, tabs/ToolsTab.tsx, tabs/SettingsTab.tsx, lib/settings-sections.ts, lib/tabs.ts, use-agents, or bff/src/agents/id-list.ts.
 ---
 
 # Agent list and sidebar UI conventions
@@ -23,13 +23,26 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   archived agent has no way back yet (that entry retired with the all-in-one panel list; tracked as
   its own follow-up flow).
 - **Navigation is two surfaces, one per width, and `web/src/lib/tabs.ts` is the pane list they
-  share.** Desktop gets a 74px **rail** (`NavRail`: the named panes (Chat, Files, Tasks, Tools, Agent)
-  with Settings under them, then a **faces-only** agent column riding the foot (its own
+  share.** Desktop gets a `--rail-w` (64px) **rail** (`NavRail`: the named panes (Chat, Files,
+  Tasks, Tools, Agent) up top, then a **faces-only** agent column riding the foot (its own
   `border-top` draws the seam across both columns, riding the first agent) — no labels,
-  the name lives in the panel row beside each face — and a fixed ☰ all-agents cell docked at the
-  foot outside the scroll. The agent block is content-height and rides the foot: a short list sits
-  on the ☰, a long one shrinks back to under Settings and scrolls. There is no More, because a
-  rail has room to name every pane. **An avatar answers
+  the name lives in the panel row beside each face — and a fixed ☰ cell docked at the foot outside
+  the scroll. **Every slot is one square** (`--rail-cell`, 64px, and the column carries no side
+  padding): a ~46px content box beside a 44px face beside a 44px ☰ read as three unrelated lists,
+  where one number makes it one list with three kinds of row — and the panel's name rows wear the
+  same height so the seam still pairs. There is no Settings cell: the band's gear is the door, and
+  **while Settings is the open pane the rail is a different list** — Back at the head, the sections
+  in compact (34px) rows under their group words, the same ☰ at the foot. The agent block is
+  content-height and rides the foot: a short list sits on the ☰, a long one shrinks back and
+  scrolls. **The ☰ is a toggle**, not the one-way verb it was: with no panel up it goes to Chat and
+  brings the panel; with a panel up it puts it away, and a pinned panel gives up its pin in the same
+  click (`aria-pressed` is the panel's visibility) — the identity button's precedent, since asking to
+  hide a pinned column means you mean it. There is no More, because a rail has room to name every
+  pane. A secondary pane always carries a fixed **corner close** (`.pane-close`, top-right under the
+  band's hairline, the sheet's own glyph) whose verb is back to Chat, and the band's title names that
+  pane while it is up; `.main` grows `.closable` so the pane's own `.pane-bar` pads its right end
+  clear of it — an X over a chip is a control nobody can press, and `ui-check` proves the corner is
+  clear at both widths. **An avatar answers
   *who*, not *where*:** picking another agent keeps the pane you are on (Files stays Files, with
   their files), because being thrown to Chat made the avatars a place you dared not click while
   something else was open; on Chat it opens the panel, and the open agent's own avatar is the
@@ -47,7 +60,7 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   pane's top right — `show all`, which reads `<agent> only` while everything is showing; the scope is
   a look, never stored, and it resets when you switch agents. A run with no workspace owner (cron- and
   channel-fired workers run in `/work` itself) surfaces only under `show all`, reading `no agent`.
-  One `--rail-cell` (44px) is the shared row
+  One `--rail-cell` (64px) is the shared row
   height of a rail cell and the panel's name row, and the two agent blocks are congruent boxes —
   the seam is each block's own `border-top`, and `App` mirrors the rail block's measured height
   onto the panel — so a face's and a name's centers land on one line, and one hover lights both
@@ -98,15 +111,28 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   (`web/src/tabs/AgentTab.tsx`) holds what belongs to the selected agent: General (name, model, base
   system prompt, delete), Secrets, Reflection, and the Skills it sees. The **Tools** tab
   (`web/src/tabs/ToolsTab.tsx`) holds which shared tool families that agent is offered and what each
-  one points at *for it*. **Settings** (`components/GlobalSettings.tsx`, full screen; wrapping chips
-  with short names on a phone, the grouped list beside the section on desktop; reached from the
-  rail's pane list on desktop and the More sheet on a phone), holds what every agent shares — providers,
+  one points at *for it*. **Settings** (`web/src/tabs/SettingsTab.tsx`) is a **pane**, not a modal: it
+  used to be a full-screen dialog over the pane you were reading, which put a second navigation system
+  on top of the first (the rail kept showing panes you could not reach while Settings carried its own
+  list of sections beside them). Now `tab === "Settings"`, the band's `.topbar-gear` is the door and
+  the toggle back, the rail holds the sections while it is open, and a phone gets wrapping chips with
+  short names over the section. `web/src/lib/settings-sections.ts` is the one registry — `label` for
+  the pane's title, `short` for the chip, `rail` for the rail's word, the icon, and the compose-token
+  gate — because rail cell, chip and title are three renderings of one list that cannot be allowed to
+  drift. It holds what every agent shares — providers,
   web search, MCP servers, Google, Codex/Claude workers, global skills — plus this device's
   notifications and an About. Where a new setting goes is decided by its backend key, not by taste:
   keyed by `agent_id` → Agent tab; a BFF file or an app-server-wide command → Settings; `runtime`
   scope → next to the conversation (the composer). Feature-gated sections (web search, Google, the
   coding workers) render from `features` in `/api/status`, so a compose token that is off hides the
-  whole section rather than showing a disabled one.
+  whole section from **both** the rail and the chips (`visibleGroups`, called by each). The open
+  section is App's, remembered per device — the pane has no default.
+- **The band's right cluster is one control, not two.** The gear wears the derived link status
+  (`deriveLinkStatus`): its colour is the connection, the glyph turns while the connection is working
+  on, and its title carries the words — so there is no separate status dot to hunt for when the app
+  says something is wrong. The states a button must never swallow keep elements of their own: the busy
+  `N responding` slot (`.topbar-status.busy`, left of the gear) and the signed-out pill. A passive
+  light that names nothing and answers no click is decoration; the idle dot was retired.
 - **The Tools tab is chips-with-a-box, not a form.** Each family (Google, Codex, Claude, Remote Pi)
   is a `.chip-pair`: a small box button that allows or blocks the family, then a chip that opens its
   pane. The box writes the access record immediately — a toggle has no other fields to wait for —

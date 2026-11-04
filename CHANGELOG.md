@@ -6,6 +6,13 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 ## [Unreleased]
 
 ### Changed
+- **Settings is a pane now, not a dialog over everything.** Its gear moved into the top band and **became the connection light**: the dot that used to sit beside it said "Live" in a colour nobody could name and answered no click, so the gear wears that colour instead, turns while the app-server is reconnecting, and is the one door in. Opening Settings replaces the rail's pane list with the sections and a Back cell at the head, so the app has one navigation column again; on a phone the sections stay the wrapping chips above the section. A `?settings=google` link still lands on that section.
+- **Every rail slot is one square.** The panes, an agent's face and the ☰ wore three different heights in one column, which read as three unrelated lists; they are one 64-pixel cell now, and the conversation panel's name rows wear the same height, so a face and the name beside it still pair across the seam.
+- **The ☰ is a toggle.** It brings the conversation panel with the full agent list, and pressing it again puts the panel away — a pinned panel gives up its pin in the same click, which is the rule the agent's name in the band already followed. It used to be one-way, so the rail had no way to undo itself.
+- **Every pane but Chat carries a close ✕ in the window's top-right corner**, and the band names the pane you are looking at. Before, a secondary pane left the title reading "Lettuce" over a screen of MCP servers, and the only way out was finding the right word in the rail.
+- **Toasts arrive at the top**, under the band's line. They used to land bottom-right, which on a phone is the composer's Send button — and they announce exactly the kind of thing (a reply came while you were away) that shows up while a message is being written.
+
+### Changed
 - Sharpened the flow rules an agent follows: a green live-CI run no longer counts as a `ui-check`
   pass, redesign rounds re-prove layout and re-sweep stale claims about what they changed, and the
   pre-release review step names the verb that exists.

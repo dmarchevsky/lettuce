@@ -8,11 +8,6 @@ import { BottomBar } from "./components/BottomBar.tsx";
 import { Composer } from "./components/Composer.tsx";
 import { ContextGauge, ContextSheet } from "./components/ContextGauge.tsx";
 import { FileViewer } from "./components/FileViewer.tsx";
-import {
-  type GlobalSection,
-  GlobalSettings,
-  isGlobalSection,
-} from "./components/GlobalSettings.tsx";
 import { Icon } from "./components/Icon.tsx";
 import { MessageList } from "./components/MessageList.tsx";
 import { ModelPicker } from "./components/ModelPicker.tsx";
@@ -30,7 +25,7 @@ import { applyFavicon } from "./lib/favicon.ts";
 import { type FeatureFlags, featureEnabled } from "./lib/features.ts";
 import { markFreshConversation } from "./lib/fresh-conversations.ts";
 import { userHistory } from "./lib/input-history.ts";
-import { deriveLinkStatus } from "./lib/link-status.ts";
+import { deriveLinkStatus, type LinkStatus } from "./lib/link-status.ts";
 import { type FilterGroup, filterEntries, toggleShown } from "./lib/messages.ts";
 import { readRunsDeepLink } from "./lib/pi.ts";
 import {
@@ -41,6 +36,14 @@ import {
 } from "./lib/protocol.ts";
 import type { LinkState } from "./lib/session-client.ts";
 import { readSettingsDeepLink } from "./lib/settings-link.ts";
+import {
+  type GlobalSection,
+  isGlobalSection,
+  isSectionVisible,
+  readLastSection,
+  visibleGroups,
+  writeLastSection,
+} from "./lib/settings-sections.ts";
 import type { Access, Signin } from "./lib/signin.ts";
 import {
   readStructuredOutput,
@@ -60,6 +63,7 @@ import { useWide } from "./state/use-wide.ts";
 import { AgentTab } from "./tabs/AgentTab.tsx";
 import { FilesTab } from "./tabs/FilesTab.tsx";
 import { RunsTab } from "./tabs/RunsTab.tsx";
+import { SettingsPane } from "./tabs/SettingsTab.tsx";
 import { TasksTab } from "./tabs/TasksTab.tsx";
 import { ToolsTab } from "./tabs/ToolsTab.tsx";
 
@@ -204,7 +208,29 @@ function Workspace({ status }: { status: Status }) {
 
   /** `?tab=runs&run=<id>`: the run card's and settle pushes' landing spot. */
   const [runsLink] = useState(readRunsDeepLink);
-  const [tab, setTab] = useState<Tab>(runsLink.tab ? "Runs" : "Chat");
+  /** `?settings=google` — the link an agent gives when Google access is lost. Read
+   * once, because it decides which pane the app opens on. */
+  const [settingsLink] = useState(() => readSettingsDeepLink(isGlobalSection));
+  const [tab, setTab] = useState<Tab>(() => {
+    if (runsLink.tab) return "Runs";
+    // A `?settings=google` link opens the pane it names, not Chat with a dialog over it.
+    if (settingsLink) return "Settings";
+    return "Chat";
+  });
+  /**
+   * Which Settings section that pane shows. It has no default, so it resumes where
+   * you left it — but only where this deployment can still configure it: a
+   * remembered or deep-linked section behind a compose token that is off lands on
+   * the first visible one.
+   */
+  const [settingsSection, setSettingsSection] = useState<GlobalSection>(() => {
+    const wanted = settingsLink ?? readLastSection();
+    if (wanted && isSectionVisible(wanted, status.features)) return wanted;
+    return visibleGroups(status.features)[0]?.sections[0]?.id ?? "providers";
+  });
+  /** The pane Settings replaced, so the gear's second press goes back where you came
+   * from instead of always dumping you on Chat. */
+  const paneBeforeSettings = useRef<Tab>("Chat");
   /**
    * The desktop conversation panel: pinned is a column, unpinned is a peek.
    * Both are Chat-only — a conversation list next to the Files pane answers no
@@ -331,6 +357,9 @@ function Workspace({ status }: { status: Status }) {
       // A borrow belongs to the rail and to Chat; changing pane ends it.
       setPreviewId(null);
       setHeldAgent(null);
+      // Settings borrows the column from whatever pane was up, and gives it back on
+      // the way out — so the switcher remembers where it came from.
+      if (next === "Settings" && tab !== "Settings") paneBeforeSettings.current = tab;
       if (next === "Chat") {
         // Pinned, Chat has nothing to do (the panel is already there). Unpinned,
         // Chat is a toggle: pressing it while the peek is open puts it back.
@@ -343,11 +372,49 @@ function Workspace({ status }: { status: Status }) {
     [panelPinned, panelPeek, tab],
   );
 
-  /** The rail's all cell: Chat's panel, on screen, its full agent list at the foot. */
+  /** The all cell (the ☰ at the foot of the rail): Chat's panel with its full agent
+   * list — and a TOGGLE, which is what makes it safe to be the one cell that is
+   * always there. With no panel up it goes to Chat and brings the panel; with a panel
+   * up it puts it away, and a pinned panel gives up its pin in the same click — the
+   * identity button's precedent: asking to hide a pinned column means you mean it,
+   * and the pin button is one click away to re-pin it. */
   const showAllAgents = useCallback(() => {
+    if (tab === "Chat" && panelVisible) {
+      setPreviewId(null);
+      panelRest.current = false;
+      if (panelPinned) {
+        writePanelPin(false);
+        setPanelPinned(false);
+      }
+      setPanelPeek(false);
+      return;
+    }
     if (tab !== "Chat") selectPane("Chat");
     openPanel();
-  }, [tab, selectPane, openPanel]);
+  }, [tab, panelVisible, panelPinned, selectPane, openPanel]);
+
+  /** The rail's section cell: open a section and remember it as the one to resume. */
+  const pickSettingsSection = useCallback((section: GlobalSection) => {
+    setSettingsSection(section);
+    writeLastSection(section);
+  }, []);
+
+  /** The band's gear is the only door into Settings, so it is also the way out:
+   * pressed with the pane up it closes it, back to the pane it opened from. The
+   * corner X next to it is the other verb — close the pane and go to Chat. */
+  const toggleSettings = useCallback(() => {
+    selectPane(tab === "Settings" ? paneBeforeSettings.current : "Settings");
+  }, [selectPane, tab]);
+
+  /** A link from another pane into one Settings section — the gear's verb with the
+   * section chosen for you, which is how "Google access lost" lands on Google. */
+  const openSettings = useCallback(
+    (section?: GlobalSection | string) => {
+      if (typeof section === "string" && isGlobalSection(section)) pickSettingsSection(section);
+      selectPane("Settings");
+    },
+    [pickSettingsSection, selectPane],
+  );
 
   // An unpinned panel is a popover, and popovers get out of the way when you
   // press anywhere else. Pinned, it is a column and stays put. The identity
@@ -496,16 +563,9 @@ function Workspace({ status }: { status: Status }) {
     },
     [agents],
   );
-  const closeGlobalSettings = useCallback(() => setGlobalSettings(null), []);
   const [showModels, setShowModels] = useState(false);
   /** The New agent sheet. Editing an agent is the Agent tab's General section. */
   const [creatingAgent, setCreatingAgent] = useState(false);
-  /** Settings shared by every agent: `null` = closed, else the section to open on. */
-  const [globalSettings, setGlobalSettings] = useState<{ section?: GlobalSection } | null>(() => {
-    // `?settings=google` — the link an agent gives when Google access is lost.
-    const section = readSettingsDeepLink(isGlobalSection);
-    return section ? { section } : null;
-  });
   const [filters, setFilters] = useState<Set<FilterGroup>>(new Set());
   const [showTimestamps, setShowTimestamps] = useState(() => readShowTimestamps());
   /** Text an "Edit" put on its way to the composer; cleared once it lands. */
@@ -588,6 +648,14 @@ function Workspace({ status }: { status: Status }) {
   const title =
     agents.conversations.find((c) => c.id === agents.conversationId)?.summary ?? "Lettuce";
   const agentName = agents.agents.find((a) => a.id === agents.agentId)?.name ?? null;
+  /** The band's title: the conversation on Chat, the pane's own name everywhere else.
+   * A secondary pane used to leave the title saying "Lettuce" over a screen of MCP
+   * servers — the band named nothing, which is what the corner X now closes. */
+  /** The band's title: the conversation on Chat, the pane's own name everywhere else
+   * (which for Settings is simply the pane's name). A secondary pane used to leave
+   * the title saying "Lettuce" over a screen of MCP servers — the band named nothing,
+   * which is what the corner X now closes. */
+  const bandTitle = tab === "Chat" ? title : tab;
 
   const editAgent = (id: string) => {
     if (id !== agents.agentId) agents.selectAgent(id);
@@ -654,10 +722,10 @@ function Workspace({ status }: { status: Status }) {
         onClick={identityClick}
         aria-label={
           wide
-            ? `${agentName ?? "Agent"}: ${title}. ${panelVisible ? "Hide" : "Show"} conversations`
+            ? `${agentName ?? "Agent"}: ${bandTitle}. ${panelVisible ? "Hide" : "Show"} conversations`
             : respondingElsewhere > 0
-              ? `${agentName ?? "Agent"}: ${title}. Switch — ${respondingElsewhere} responding elsewhere`
-              : `${agentName ?? "Agent"}: ${title}. Switch agent or conversation`
+              ? `${agentName ?? "Agent"}: ${bandTitle}. Switch — ${respondingElsewhere} responding elsewhere`
+              : `${agentName ?? "Agent"}: ${bandTitle}. Switch agent or conversation`
         }
         title={wide ? (panelVisible ? "Hide conversations" : "Show conversations") : undefined}
       >
@@ -665,7 +733,7 @@ function Workspace({ status }: { status: Status }) {
           {agentName ?? "No agent"}
           {respondingElsewhere > 0 ? <span className="activity-dot badge-dot" /> : null}
         </span>
-        <h1 className="title">{title}</h1>
+        <h1 className="title">{bandTitle}</h1>
         {/* No chevron: on desktop the name is the panel toggle (click shows or
                 hides), and on a phone it opens the switcher — in both cases the
                 button says what it does in its accessible name, and the caret
@@ -689,6 +757,16 @@ function Workspace({ status }: { status: Status }) {
         count={respondingCount}
         onOpen={() => setActivityOpen(true)}
       />
+      {/* The gear is the link light now: it wears the link's colour, so one control
+          says "how is the connection" and "where are Settings" at once — the dot that
+          used to do the first half was not a control, which is why opening Settings
+          meant hunting for a second glyph beside it. The busy and signed-out states
+          keep their own element above it; a status a button can hide is not a status. */}
+      <SettingsGear
+        status={deriveLinkStatus(session.link, session.upstream)}
+        open={tab === "Settings"}
+        onToggle={toggleSettings}
+      />
       {featureEnabled(status.features, "pi") ? (
         <PiRunsChip active={piActive} onOpen={() => selectPane("Runs")} />
       ) : null}
@@ -707,8 +785,13 @@ function Workspace({ status }: { status: Status }) {
         onOpenPanel={openPanel}
         onPreviewAgent={previewFromRail}
         onOwnAvatar={ownAvatar}
-        onOpenSettings={() => setGlobalSettings({})}
+        settingsOpen={tab === "Settings"}
+        settingsSection={settingsSection}
+        features={status.features}
+        onPickSection={pickSettingsSection}
+        onCloseSettings={() => selectPane("Chat")}
         onShowAll={showAllAgents}
+        panelVisible={panelVisible}
         onEditAgent={editAgent}
         heldAgentId={heldAgent}
         onHoverAgent={(agentId) => setHeldAgent(agentId)}
@@ -744,10 +827,29 @@ function Workspace({ status }: { status: Status }) {
         onPickAgent={pickPanelAgent}
       />
 
-      <div className="main">
+      {/* `.closable` is not decoration: it is how the pane's own bar knows to stand
+          clear of the corner X (see `.main.closable .pane-bar`). */}
+      <div className={tab === "Chat" ? "main" : "main closable"}>
         {/* On desktop the top bar is hoisted into the grid's band above every
             column; the phone keeps it inside .main, exactly where it was. */}
         {wide ? null : topbar}
+
+        {/* Every pane but the primary one gets a way out in the corner it is always
+            in — the same glyph a sheet uses, and the same verb: back to Chat. The
+            band used to carry this as a text button and it read as a seven-tab bar
+            with the rail already beside it; a pane you can only leave by finding the
+            right word in a list is a pane you feel stuck in. */}
+        {tab === "Chat" ? null : (
+          <button
+            type="button"
+            className="sheet-close pane-close"
+            onClick={() => selectPane("Chat")}
+            aria-label={`Close ${bandTitle} and back to Chat`}
+            title={`Close ${bandTitle} and back to Chat`}
+          >
+            <Icon name="close" />
+          </button>
+        )}
 
         {/* A BFF error no request claimed (a rate limit, a command the browser
             allowlist refused) is an event, not a state: it is a toast now, so it
@@ -934,13 +1036,29 @@ function Workspace({ status }: { status: Status }) {
             agentName={agentName}
             agents={agents.agents}
           />
+        ) : tab === "Settings" ? (
+          <SettingsPane
+            session={session}
+            agentId={agents.agentId}
+            cwd={conversation.cwd}
+            skillsVersion={conversation.skillsVersion}
+            user={status.user}
+            access={status.access}
+            signin={status.signin}
+            hostBind={status.host_bind}
+            publicOrigin={status.public_origin}
+            passwordUpdatedAt={status.password_updated_at}
+            version={status.version}
+            features={status.features}
+            components={status.components}
+            section={settingsSection}
+            onPick={pickSettingsSection}
+          />
         ) : tab === "Tools" ? (
           <ToolsTab
             agents={agents}
             features={status.features}
-            onOpenGlobalSettings={(section) =>
-              setGlobalSettings({ section: section as GlobalSection })
-            }
+            onOpenGlobalSettings={openSettings}
           />
         ) : (
           <AgentTab
@@ -949,7 +1067,7 @@ function Workspace({ status }: { status: Status }) {
             conversationId={agents.conversationId}
             cwd={conversation.cwd}
             skillsVersion={conversation.skillsVersion}
-            onOpenGlobalSettings={(section) => setGlobalSettings({ section })}
+            onOpenGlobalSettings={openSettings}
           />
         )}
 
@@ -959,33 +1077,11 @@ function Workspace({ status }: { status: Status }) {
           agentName={agentName}
           tab={tab}
           onSelectPane={selectPane}
-          onOpenSettings={() => setGlobalSettings({})}
+          onOpenSettings={() => selectPane("Settings")}
           runsEnabled={runsFeature}
           runsRunning={piActive}
         />
       </div>
-
-      {/* Before the approval sheet: an approval that arrives while Settings is
-          open has to land on top of it, not hide underneath. */}
-      {globalSettings ? (
-        <GlobalSettings
-          session={session}
-          agentId={agents.agentId}
-          cwd={conversation.cwd}
-          skillsVersion={conversation.skillsVersion}
-          user={status.user}
-          access={status.access}
-          signin={status.signin}
-          hostBind={status.host_bind}
-          publicOrigin={status.public_origin}
-          passwordUpdatedAt={status.password_updated_at}
-          version={status.version}
-          features={status.features}
-          components={status.components}
-          initialSection={globalSettings.section}
-          onClose={closeGlobalSettings}
-        />
-      ) : null}
 
       {activityOpen ? (
         <ActivitySheet session={session} agents={agents} onClose={() => setActivityOpen(false)} />
@@ -1115,17 +1211,45 @@ function LinkPill({
       </button>
     );
   }
+  // Idle says nothing. The dot and its word used to sit in this slot reporting
+  // "Live" at a colour nobody could name, beside a gear that did not say what it
+  // was — two elements of furniture where one control would do. The gear below
+  // wears this status now; a passive light that names nothing and answers no click
+  // is decoration, and it has been retired from the only corner of the app where
+  // every pixel is claimed.
+  return null;
+}
+
+/**
+ * The band's Settings gear — which is also the link light.
+ *
+ * It wears the derived status colour, so one control answers "how is the
+ * connection" and "where do I configure the app" at once, and the status keeps a
+ * word in its title and accessible name (colour is never the whole message). When
+ * Settings is the open pane the gear is the close button too, and says so — but the
+ * colour stays the connection's, because the gear being pressed is not a fact about
+ * the link.
+ */
+function SettingsGear({
+  status,
+  open,
+  onToggle,
+}: {
+  status: LinkStatus;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const label = open ? `Close Settings — ${status.label}` : `Settings — ${status.label}`;
   return (
-    <span className="topbar-status">
-      <span
-        className={`link-dot ${tone}${tone === "warn" ? " spinning" : ""}`}
-        role="img"
-        aria-label={label}
-        title={label}
-      />
-      {/* The dot is the state at every width; the word only where there is room
-          for it, so the state is never colour alone on a wide screen. */}
-      <span className="topbar-word">{label}</span>
-    </span>
+    <button
+      type="button"
+      className={`topbar-gear ${status.tone}${open ? " open" : ""}`}
+      onClick={onToggle}
+      aria-pressed={open}
+      aria-label={label}
+      title={label}
+    >
+      <Icon name="settings" />
+    </button>
   );
 }
