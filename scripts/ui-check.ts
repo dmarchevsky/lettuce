@@ -1211,6 +1211,7 @@ try {
       ...(featureOn(features, "codex") ? ["Codex"] : []),
       ...(featureOn(features, "claude") ? ["Claude"] : []),
       ...(featureOn(features, "pi") ? ["Remote Pi"] : []),
+      ...(featureOn(features, "telegram") ? ["Telegram"] : []),
       "Skills",
       // Deployment: the two halves of what used to be one mode, reported read-only.
       "Access",
@@ -2287,6 +2288,7 @@ try {
       ...(featureOn(desktopFeatures, "codex") ? ["Codex workers"] : []),
       ...(featureOn(desktopFeatures, "claude") ? ["Claude Code workers"] : []),
       ...(featureOn(desktopFeatures, "pi") ? ["Remote Pi"] : []),
+      ...(featureOn(desktopFeatures, "telegram") ? ["Telegram"] : []),
       "Global skills",
       // Deployment: the two halves of what used to be one mode, reported read-only.
       "Access",
