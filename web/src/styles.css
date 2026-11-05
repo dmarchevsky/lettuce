@@ -1357,6 +1357,83 @@ pre {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* The channel send card (ChannelSendCard.tsx): a message the agent put on
+   Telegram/Slack, promoted out of the collapsed run so it can actually be read.
+
+   It is the agent's own words with a delivery fact attached, so it borrows the
+   agent's header (`.role`, the agent tint, the shared `<time>`) instead of
+   announcing a tool, and it stays QUIETER than an answer: a tint rail plus a faint
+   wash, no box, no pill. Failure is the only thing allowed to shout, because a
+   send that did not arrive is the story of the turn.
+
+   The header is one line that cannot wrap — the channel name is the fact on that
+   row, so nothing may push it off. Status is a glyph, not a label: check when the
+   channel took the message, warning when it refused, nothing while it is pending
+   (no return, no claim). */
+.entry.channel-send {
+  margin: 0;
+  padding: 3px 10px 7px 12px;
+  border-left: 2px solid var(--agent);
+  background: color-mix(in srgb, var(--agent) 6%, transparent);
+  border-radius: var(--radius);
+}
+.entry.channel-send.failed {
+  border-left-color: var(--bad);
+  background: color-mix(in srgb, var(--bad) 9%, transparent);
+}
+.chan-head {
+  /* `.entry` is a column flex with `align-items: flex-start`, so a row here is
+     sized by its content and would grow past the card instead of clipping —
+     nowrap without a width cap only refuses to wrap. `max-width` is what makes
+     the label's ellipsis reachable. */
+  max-width: 100%;
+  min-width: 0;
+  margin-bottom: 1px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.chan-head .who {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--agent);
+}
+/* The label is the one flexible thing on the row. A destination longer than the
+   card ellipsizes instead of pushing the time and the status glyph off the
+   edge — the header's "one line, nothing may push it off" rule needs a place for
+   the overflow to go, and nowrap alone only refuses to wrap. */
+.chan-head .chan-dest {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chan-head time,
+.chan-head .chan-status {
+  flex: 0 0 auto;
+}
+.chan-status {
+  margin-left: 2px;
+}
+.chan-status.sent {
+  color: var(--ok);
+}
+.chan-status.bad {
+  color: var(--bad);
+}
+/* The body takes the same three properties the agent's own bubble takes, or a
+   message containing one long unbreakable token (a link in a digest, which is
+   half the reason this card exists) sizes to max-content and puts the whole
+   transcript into sideways scroll at phone width. */
+.chan-body {
+  margin: 0;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
 .entry.notice .tool-head {
   background: none;
   border: none;

@@ -4,6 +4,7 @@ import {
   parseAskUserQuestionNotif,
   parseAskUserQuestionReceipt,
 } from "@letta-ai/letta-code/ask-user-question";
+import { type ChannelSend, readChannelSend } from "./channel-send.ts";
 
 /**
  * Normalizes Letta messages — whether streamed as deltas or loaded as history —
@@ -29,7 +30,8 @@ export type EntryKind =
   | "event"
   | "notice"
   | "question"
-  | "pi_run";
+  | "pi_run"
+  | "channel_send";
 
 /** The filter groups offered in the UI. */
 export type FilterGroup = "user" | "agent" | "tools" | "tasks" | "system";
@@ -83,6 +85,12 @@ export interface TranscriptEntry {
    * until a `questionResponse` shows up or the user dismisses it.
    */
   question?: AskUserQuestionReceipt;
+  /**
+   * channel_send: the promoted `MessageChannel` send — destination, body and
+   * whether the channel took it. Promoted because the call itself folds into a
+   * collapsed run, and a message the user is meant to read cannot hide there.
+   */
+  channelSend?: ChannelSend;
   /** task: an `<ask-user-question-response>` lifted out of a notification. */
   questionResponse?: AskUserQuestionResponse;
   /**
@@ -122,6 +130,10 @@ const FILTER_GROUPS: Record<EntryKind, FilterGroup> = {
   question: "tools",
   // A remote-pi run announced in the transcript; it rides the Tools switch.
   pi_run: "tools",
+  // A message the agent sent on Telegram/Slack. With the Tools switch off you
+  // have asked not to see tool activity, and this is tool activity — but unlike
+  // a run card it is content, so it hides only alongside the calls it reports.
+  channel_send: "tools",
 };
 
 export const FILTER_LABELS: Record<FilterGroup, string> = {
@@ -533,6 +545,72 @@ function promoteQuestions(entries: TranscriptEntry[]): TranscriptEntry[] {
 }
 
 /**
+ * Give every outbound `MessageChannel` call its own transcript entry.
+ *
+ * The call itself keeps folding into the run as the machine record it is, and the
+ * return keeps folding into the call; the promoted entry renders the card at top
+ * level, because a message the user came here to read must never hide inside a
+ * collapsed steps run — the same reasoning, and the same shape, as
+ * `promoteQuestions`. It runs after sorting and naming so live and rebuilt
+ * transcripts promote identically, and it looks up the paired return rather than
+ * waiting for one: a send with no return is pending, shown without a badge.
+ *
+ * Placement splits a run the same way a promoted question does — honest
+ * chronology before a tidy fold — and in the common case (send, then the agent's
+ * closing line) the card lands under the run anyway.
+ */
+function promoteChannelSends(entries: TranscriptEntry[]): TranscriptEntry[] {
+  // Cheap guard first, the way `promoteQuestions` does it: a conversation with no
+  // `MessageChannel` call returns the array untouched, so the map and the copy
+  // below only happen when there is something to promote. This runs on every
+  // stream flush.
+  if (!entries.some((entry) => entry.toolName === "MessageChannel")) return entries;
+
+  const returnsByCall = new Map<string, TranscriptEntry>();
+  for (const entry of entries) {
+    if (entry.kind === "tool_return" && entry.toolCallId) {
+      returnsByCall.set(entry.toolCallId, entry);
+    }
+  }
+
+  const out: TranscriptEntry[] = [];
+  const promoted = new Set<string>();
+  for (const entry of entries) {
+    out.push(entry);
+    // BOTH call kinds, not just `tool_call`: every tool call arrives on the wire
+    // as `approval_request_message` whether or not it needed approval, so a
+    // guard on `tool_call` alone matches nothing in a running app (the shape
+    // production actually produces, and the shape this first shipped without).
+    if (entry.kind !== "tool_call" && entry.kind !== "approval_request") continue;
+    if (entry.toolName !== "MessageChannel" || !entry.toolCallId) continue;
+    // A subagent's send stays the subagent's business. Promoting it here would
+    // drop a card into the *parent* transcript — in the parent's tint, claiming
+    // delivery for a child's message, and splitting the child's run in two. It
+    // stays a step line in the child's own transcript instead.
+    if (entry.subagentId) continue;
+    if (promoted.has(entry.toolCallId)) continue;
+    const send = readChannelSend(
+      entry,
+      entry.toolCallId ? (returnsByCall.get(entry.toolCallId) ?? null) : null,
+    );
+    if (!send) continue;
+    promoted.add(entry.toolCallId);
+    out.push({
+      id: `channel-send:${entry.toolCallId}`,
+      kind: "channel_send",
+      date: entry.date,
+      // Straight after the call it reports; fractional values are the existing
+      // convention for inserting between integer seqs (see mergeTurnErrors).
+      seenAt: entry.seenAt + 0.1,
+      text: send.body,
+      toolCallId: entry.toolCallId,
+      channelSend: send,
+    });
+  }
+  return out;
+}
+
+/**
  * The transcript as a render-ready list, ordered by arrival.
  *
  * Entries are mutated in place while streaming (`applyMessage` appends to
@@ -546,16 +624,18 @@ function promoteQuestions(entries: TranscriptEntry[]): TranscriptEntry[] {
 export function sortedEntries(transcript: Transcript): TranscriptEntry[] {
   return attachPiRunCards(
     promoteQuestions(
-      nameToolReturns(
-        [...transcript.values()]
-          .sort((a, b) => {
-            if (a.seenAt !== b.seenAt) return a.seenAt - b.seenAt;
-            return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-          })
-          .map((entry) => (entry.streaming ? { ...entry } : entry))
-          // After copying, so an extracted block keeps its parent's position and a
-          // settled entry keeps its identity.
-          .flatMap(splitInjectedBlocks),
+      promoteChannelSends(
+        nameToolReturns(
+          [...transcript.values()]
+            .sort((a, b) => {
+              if (a.seenAt !== b.seenAt) return a.seenAt - b.seenAt;
+              return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+            })
+            .map((entry) => (entry.streaming ? { ...entry } : entry))
+            // After copying, so an extracted block keeps its parent's position and a
+            // settled entry keeps its identity.
+            .flatMap(splitInjectedBlocks),
+        ),
       ),
     ),
   );
@@ -751,6 +831,13 @@ export function groupTranscript(entries: readonly TranscriptEntry[]): Transcript
     }
     if (entry.kind === "pi_run") {
       // Same as a question: the live run card must never hide inside a fold.
+      items.push({ kind: "message", entry });
+      run = null;
+      continue;
+    }
+    if (entry.kind === "channel_send") {
+      // Same again: the message the agent put on Telegram is the point of the
+      // turn, so it stands under the run rather than inside it.
       items.push({ kind: "message", entry });
       run = null;
       continue;

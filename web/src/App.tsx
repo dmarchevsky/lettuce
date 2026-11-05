@@ -17,6 +17,7 @@ import { Sidebar } from "./components/Sidebar.tsx";
 import { SignInScreen } from "./components/SignInScreen.tsx";
 import { Switcher } from "./components/Switcher.tsx";
 import { ToastLayer, toast } from "./components/Toast.tsx";
+import { resolveAvatar } from "./lib/agent-tint.ts";
 import type { PreparedImage } from "./lib/attachments.ts";
 import { applyDocumentTitle } from "./lib/document-title.ts";
 import { appendToDraft, draftKey, readDraft } from "./lib/draft.ts";
@@ -550,6 +551,12 @@ function Workspace({ status }: { status: Status }) {
   const title =
     agents.conversations.find((c) => c.id === agents.conversationId)?.summary ?? "Lettuce";
   const agentName = agents.agents.find((a) => a.id === agents.agentId)?.name ?? null;
+  // The agent's colour, from the one resolver the avatar and the rail use. The
+  // transcript needs it too: `--agent` is otherwise only ever set on the nav rail,
+  // so the answer rail kept the root default green next to an avatar of any colour.
+  const agentTint = agents.agentId
+    ? resolveAvatar(agents.agentId, agentName ?? "", agents.avatars[agents.agentId]).background
+    : null;
   /** The band's title: the conversation on Chat, the pane's own name everywhere else
    * (which for Settings is simply the pane's name). A secondary pane used to leave
    * the title saying "Lettuce" over a screen of MCP servers — the band named nothing,
@@ -765,6 +772,7 @@ function Workspace({ status }: { status: Status }) {
               onAnswerQuestion={conversation.answerQuestions}
               liveSubagents={conversation.liveSubagents}
               agentId={agents.agentId}
+              agentTint={agentTint}
               onStopSubagent={conversation.stopSubagent}
             />
 
