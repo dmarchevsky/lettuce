@@ -687,7 +687,9 @@ try {
       await page.locator('.agent-menu button:has-text("Unarchive")').click();
       // The un-archive round-trip is a sync, not a sleep: wait for the card to
       // return rather than reading after a fixed beat.
-      await otherCard().waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
+      await otherCard()
+        .waitFor({ state: "visible", timeout: 5000 })
+        .catch(() => {});
       check(
         "unarchived, it is back and the link is gone",
         (await otherCard().count()) === 1 &&
@@ -2067,10 +2069,7 @@ try {
     );
     // With the words gone the glyphs are the whole row — they grow into the strip.
     const glyph = (sel: string) =>
-      page.evaluate(
-        (s) => getComputedStyle(document.querySelector(`${s} .icon`)!).width,
-        sel,
-      );
+      page.evaluate((s) => getComputedStyle(document.querySelector(`${s} .icon`)!).width, sel);
     check(
       "the folded rail wears larger glyphs (20px)",
       (await glyph(".rail-panes .rail-item")) === "20px" &&
@@ -2256,11 +2255,10 @@ try {
       .waitFor({ state: "visible", timeout: 8000 })
       .then(() => true)
       .catch(() => false);
-    check(
-      "the agent's General section edits it in place",
-      agentRendered && deleteReady,
-      { agentRendered, deleteReady },
-    );
+    check("the agent's General section edits it in place", agentRendered && deleteReady, {
+      agentRendered,
+      deleteReady,
+    });
     const agentBox = await overflow(page);
     check("agent tab has nothing clipped", agentBox.clipped.length === 0, agentBox);
 

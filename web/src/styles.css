@@ -257,42 +257,6 @@ pre {
   opacity: 0.3;
   cursor: default;
 }
-/* Unpinned main rail: the words go, the glyphs center, and the `title` carries
-   the word a hover asks for. `--rail-w` follows from `.app` so the grid track and
-   the peek drawer's `left` move with the column — one variable, no mirror. */
-.app.rail-collapsed {
-  --rail-w: var(--rail-w-collapsed);
-}
-.rail-collapsed .rail-agents-head {
-  justify-content: center;
-  padding-right: 0;
-}
-.rail-collapsed .rail-agents-head .rail-group-label {
-  display: none;
-}
-/* font-size: 0 retires the label text-nodes the rows carry bare; every glyph in
-   those rows has an explicit width, so only the words feel it. */
-.rail-collapsed .rail-item,
-.rail-collapsed .rail-agent,
-.rail-collapsed .rail-new {
-  justify-content: center;
-  gap: 0;
-  padding: 0;
-  font-size: 0;
-}
-.rail-collapsed .rail-agent-name,
-.rail-collapsed .rail-foot-word {
-  display: none;
-}
-/* Nothing competes with the glyphs once the words go, so they grow into the
-   strip: 20px marks in a 30px row, where the expanded rail can afford 16px
-   only because the words carry the meaning. */
-.rail-collapsed .rail-item .icon,
-.rail-collapsed .rail-new .icon,
-.rail-collapsed .rail-door .icon {
-  width: 20px;
-  height: 20px;
-}
 .rail-agent {
   position: relative;
   flex: none;
@@ -519,6 +483,42 @@ pre {
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
+/* Unpinned main rail: the words go, the glyphs center, and the `title` carries
+   the word a hover asks for. `--rail-w` follows from `.app` so the grid track and
+   the peek drawer's `left` move with the column — one variable, no mirror. */
+.app.rail-collapsed {
+  --rail-w: var(--rail-w-collapsed);
+}
+.rail-collapsed .rail-agents-head {
+  justify-content: center;
+  padding-right: 0;
+}
+.rail-collapsed .rail-agents-head .rail-group-label {
+  display: none;
+}
+/* font-size: 0 retires the label text-nodes the rows carry bare; every glyph in
+   those rows has an explicit width, so only the words feel it. */
+.rail-collapsed .rail-item,
+.rail-collapsed .rail-agent,
+.rail-collapsed .rail-new {
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+  font-size: 0;
+}
+.rail-collapsed .rail-agent-name,
+.rail-collapsed .rail-foot-word {
+  display: none;
+}
+/* Nothing competes with the glyphs once the words go, so they grow into the
+   strip: 20px marks in a 30px row, where the expanded rail can afford 16px
+   only because the words carry the meaning. */
+.rail-collapsed .rail-item .icon,
+.rail-collapsed .rail-new .icon,
+.rail-collapsed .rail-door .icon {
+  width: 20px;
+  height: 20px;
+}
 /* The phone's bar, under the composer: six equal slots — the Chat pane, the
    secondary panes that earn one, Settings, and More. Identity is not its
    business; the agent's face sits in the header's corner. */

@@ -380,12 +380,9 @@ function Workspace({ status }: { status: Status }) {
    * app. Pressing the corner X or a bar slot closes the pane on screen and the
    * entry retires the same way every other overlay's does.
    */
-  useBackToClose(
-    () => {
-      selectPane("Chat");
-    },
-    tab !== "Chat",
-  );
+  useBackToClose(() => {
+    selectPane("Chat");
+  }, tab !== "Chat");
 
   /** The Settings column's ☰ at the foot: leave the pane and bring the conversation
    * drawer with you. It is a door, not a toggle — pressing it lands you on Chat with
