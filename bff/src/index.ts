@@ -118,6 +118,7 @@ import { mcpClient } from "./mcp-bridge/client.ts";
 import { BRIDGE_TOOL_SPECS, bridgeHandlers, MCP_BRIDGE_MOD_PATH } from "./mcp-bridge/tools.ts";
 import { registerPiRoutes } from "./pi/routes.ts";
 import { PI_TOOL_NAMES, PI_TOOL_SPECS, PiService } from "./pi/service.ts";
+import { installProcessGuards } from "./process-guards.ts";
 import { filterServedModels } from "./providers/allowlist.ts";
 import { registerProviderRoutes } from "./providers/routes.ts";
 import { ProviderSight } from "./providers/sight.ts";
@@ -970,6 +971,10 @@ if (!existsSync(WORKSPACE_ROOT)) {
       `host workspaces directory at ${WORKSPACE_ROOT} (see docker/compose.yml).`,
   );
 }
+
+// Before the first handshake: what escapes as an uncaught exception must be
+// judged by kind, not taken as a death sentence — see process-guards.ts.
+installProcessGuards({ log });
 
 upstream.start();
 
