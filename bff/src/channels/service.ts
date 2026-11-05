@@ -281,6 +281,44 @@ export async function approvePairing(
   return { route: shown };
 }
 
+/**
+ * Tell a chat its pairing was approved. Upstream never does this —
+ * `bindChannelPairing` only writes the files, so the approved user finds out
+ * only by speaking first. The BFF has the token and the Bot API has a verb,
+ * so approving from Settings pushes the outcome to the chat that earned it.
+ * Best effort in every way: it never throws — the pairing is already real on
+ * disk — and a network that fails quietly just means the user learns by
+ * messaging. The token is read here and sent nowhere but api.telegram.org.
+ */
+export async function notifyPairingApproved(
+  io: ChannelsIo,
+  chatId: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<boolean> {
+  const { accounts } = await readChannelFiles(io);
+  const account = findTelegramAccount(accounts);
+  const token = account ? accountView(account).token : null;
+  // A disabled bot cannot speak: its account is off, and saying so silently
+  // is honest — the approve itself already stood.
+  if (!account || !token || account.enabled !== true) return false;
+  try {
+    const response = await fetchImpl(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: "✅ Pairing approved — this chat is now connected to your agent. Send a message and it will answer.",
+      }),
+      // The pairing already stands on disk; a hanging Telegram must not hang
+      // the request on top of it.
+      signal: AbortSignal.timeout(5_000),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 /** Ignore a pending code. False when no pending entry carried it (→ 404). */
 export async function dropPending(io: ChannelsIo, code: string): Promise<boolean> {
   const { pairing, raw } = await readChannelFiles(io);

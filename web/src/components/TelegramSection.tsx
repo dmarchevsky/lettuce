@@ -90,12 +90,12 @@ export function TelegramSection({ session }: { session: SessionApi }) {
     }
   }, [status, loadConversations]);
 
-  const act = async (action: () => Promise<unknown>, done: string) => {
+  const act = async (action: () => Promise<unknown>, done: string | (() => string)) => {
     setBusy(true);
     try {
       await action();
       await load();
-      toast(done);
+      toast(typeof done === "function" ? done() : done);
       return true;
     } catch (error) {
       toast(error instanceof Error ? error.message : String(error), "bad");
@@ -152,12 +152,19 @@ export function TelegramSection({ session }: { session: SessionApi }) {
   const approve = (pending: TelegramPending) => {
     const pick = picks[pending.code];
     if (!pick?.conversationId) return;
+    let notified = false;
     void act(
       async () => {
-        await approveTelegramPairing(pending.code, pick.agentId, pick.conversationId);
+        notified = (await approveTelegramPairing(pending.code, pick.agentId, pick.conversationId))
+          .notified;
         setPicks(({ [pending.code]: _dropped, ...rest }) => rest);
       },
-      `Paired — ${senderLabel(pending)} now drives that conversation.`,
+      // The bot speaks for itself when the notice went out; when it could
+      // not, say what the user must do instead of pretending.
+      () =>
+        notified
+          ? `Paired — ${senderLabel(pending)} was told in their chat.`
+          : `Paired — ${senderLabel(pending)} can message now (the notice did not reach them).`,
     );
   };
 

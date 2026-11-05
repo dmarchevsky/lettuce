@@ -25,6 +25,7 @@ import {
   dropRoutes,
   InvalidTelegramRequestError,
   loadTelegramStatus,
+  notifyPairingApproved,
   saveTelegramAccount,
   TelegramPairingNotFoundError,
 } from "./service.ts";
@@ -35,13 +36,15 @@ export interface TelegramRouteDeps {
   /** The `telegram` compose-profile token — no gateway container, no channel. */
   telegramEnabled: boolean;
   io: ChannelsIo;
+  /** Injected in tests; the real Bot API call is the global fetch. */
+  send?: typeof fetch;
 }
 
 export function registerTelegramRoutes<Env extends RouteEnv>(
   app: Hono<Env>,
   deps: TelegramRouteDeps,
 ): void {
-  const { isReady, telegramEnabled, io } = deps;
+  const { isReady, telegramEnabled, io, send = fetch } = deps;
 
   app.get("/api/channels/telegram", async (c) => {
     if (!telegramEnabled) return c.text("Telegram is off: COMPOSE_PROFILES", 404);
@@ -73,7 +76,12 @@ export function registerTelegramRoutes<Env extends RouteEnv>(
     if (!isReady()) return c.text("App-server is not connected", 503);
     const body = await c.req.json().catch(() => null);
     try {
-      return c.json(await approvePairing(io, body));
+      const result = await approvePairing(io, body);
+      // The pairing is real the moment the files are written; telling the
+      // chat is a courtesy to the human on the other side, and its failure
+      // never unwinds the approval — it only says so in `notified`.
+      const notified = await notifyPairingApproved(io, result.route.chatId, send);
+      return c.json({ ...result, notified });
     } catch (error) {
       if (error instanceof InvalidTelegramRequestError) return c.text(error.message, 400);
       if (error instanceof TelegramPairingNotFoundError) return c.text(error.message, 404);

@@ -73,14 +73,16 @@ export async function approveTelegramPairing(
   code: string,
   agentId: string,
   conversationId: string,
-): Promise<void> {
-  await ok(
-    await fetch("/api/channels/telegram/pairings/approve", {
+): Promise<{ notified: boolean }> {
+  const body = await requestJson<{ notified?: boolean }>(
+    "/api/channels/telegram/pairings/approve",
+    {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ code, agentId, conversationId }),
-    }),
+    },
   );
+  return { notified: body.notified === true };
 }
 
 export async function ignoreTelegramPairing(code: string): Promise<void> {

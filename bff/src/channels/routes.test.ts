@@ -75,7 +75,13 @@ const LIVE_PENDING = {
 const EXPIRED_PENDING = { ...LIVE_PENDING, code: "OLDCODE", expiresAt: "2020-01-01T00:00:00.000Z" };
 
 function setup(
-  options: { files?: Record<string, unknown>; enabled?: boolean; ready?: boolean } = {},
+  options: {
+    files?: Record<string, unknown>;
+    enabled?: boolean;
+    ready?: boolean;
+    /** The Bot API call; default throws so no test can ever reach the network. */
+    send?: typeof fetch;
+  } = {},
 ) {
   const store = new Map<string, string>();
   for (const [path, value] of Object.entries(options.files ?? {})) {
@@ -94,6 +100,11 @@ function setup(
     isReady: () => options.ready ?? true,
     telegramEnabled: options.enabled ?? true,
     io,
+    send:
+      options.send ??
+      ((async () => {
+        throw new Error("no network in tests");
+      }) as unknown as typeof fetch),
   });
   const disk = (path: string): Record<string, unknown> | null => {
     const text = store.get(path);
@@ -398,6 +409,8 @@ describe("POST /api/channels/telegram/pairings/approve", () => {
         conversationId: "conv_home",
         enabled: true,
       },
+      // The setup stub cannot reach the Bot API, and saying so is the point.
+      notified: false,
     });
     const pairing = disk(TELEGRAM_PAIRING_PATH)! as {
       pending: unknown[];
@@ -457,6 +470,57 @@ describe("POST /api/channels/telegram/pairings/approve", () => {
     expect(reRouted.agentId).toBe("a2");
     expect(reRouted.conversationId).toBe("c2");
     expect(reRouted.createdAt).toBe("2026-09-01T10:00:00.000Z");
+  });
+
+  test("approve tells the chat through the Bot API — and says whether it landed", async () => {
+    const calls: { url: string; body: Record<string, unknown> }[] = [];
+    const { app } = setup({
+      files: {
+        [TELEGRAM_ACCOUNTS_PATH]: ACCOUNTS_FIXTURE,
+        [TELEGRAM_PAIRING_PATH]: { pending: [LIVE_PENDING], approved: [] },
+        [TELEGRAM_ROUTING_PATH]: { routes: [] },
+      },
+      send: (async (url: unknown, init: { body: string }) => {
+        calls.push({ url: String(url), body: JSON.parse(init.body) });
+        return new Response("{}", { status: 200 });
+      }) as unknown as typeof fetch,
+    });
+    const response = await send(app, "POST", "/api/channels/telegram/pairings/approve", {
+      code: "K7QX2M",
+      agentId: "a1",
+      conversationId: "c1",
+    });
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as { notified: boolean }).notified).toBe(true);
+    expect(calls).toHaveLength(1);
+    // The stored token rides to api.telegram.org and to the response body:
+    // the payload is chat + text, nothing else.
+    expect(calls[0]!.url).toContain("api.telegram.org");
+    expect(calls[0]!.body.chat_id).toBe("555111");
+    expect(JSON.stringify(calls[0]!.body)).not.toContain("AAStoredSecretValue");
+  });
+
+  test("an approve still stands when the notice cannot be delivered", async () => {
+    const { app, disk } = setup({
+      files: {
+        [TELEGRAM_ACCOUNTS_PATH]: ACCOUNTS_FIXTURE,
+        [TELEGRAM_PAIRING_PATH]: { pending: [LIVE_PENDING], approved: [] },
+        [TELEGRAM_ROUTING_PATH]: { routes: [] },
+      },
+      send: (async () => {
+        throw new Error("telegram unreachable");
+      }) as unknown as typeof fetch,
+    });
+    const response = await send(app, "POST", "/api/channels/telegram/pairings/approve", {
+      code: "K7QX2M",
+      agentId: "a1",
+      conversationId: "c1",
+    });
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as { notified: boolean }).notified).toBe(false);
+    // The pairing itself moved on disk regardless of the notice.
+    expect(disk(TELEGRAM_PAIRING_PATH)!.pending).toEqual([]);
+    expect(disk(TELEGRAM_ROUTING_PATH)!.routes).toHaveLength(1);
   });
 
   test("an unknown or expired code is a 404; a missing field is a 400; nothing moves", async () => {
