@@ -284,6 +284,15 @@ pre {
 .rail-collapsed .rail-foot-word {
   display: none;
 }
+/* Nothing competes with the glyphs once the words go, so they grow into the
+   strip: 20px marks in a 30px row, where the expanded rail can afford 16px
+   only because the words carry the meaning. */
+.rail-collapsed .rail-item .icon,
+.rail-collapsed .rail-new .icon,
+.rail-collapsed .rail-door .icon {
+  width: 20px;
+  height: 20px;
+}
 .rail-agent {
   position: relative;
   flex: none;

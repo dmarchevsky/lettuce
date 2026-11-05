@@ -2063,6 +2063,18 @@ try {
       wideBefore >= 180 && folded <= 56 && folded > 40,
       { wideBefore, folded },
     );
+    // With the words gone the glyphs are the whole row — they grow into the strip.
+    const glyph = (sel: string) =>
+      page.evaluate(
+        (s) => getComputedStyle(document.querySelector(`${s} .icon`)!).width,
+        sel,
+      );
+    check(
+      "the folded rail wears larger glyphs (20px)",
+      (await glyph(".rail-panes .rail-item")) === "20px" &&
+        (await glyph(".rail-new")) === "20px" &&
+        (await glyph(".rail-door")) === "20px",
+    );
     await page.reload({ waitUntil: "networkidle" });
     await page.waitForTimeout(1500);
     check("the rail's collapse survives a reload", (await railWidth()) <= 56);
