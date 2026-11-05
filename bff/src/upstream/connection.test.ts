@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { AppServerInfoResponseMessage } from "@letta-ai/letta-code/app-server-client";
 import type { WsProtocolMessage } from "@letta-ai/letta-code/app-server-protocol";
-import { type UpstreamClient, UpstreamConnection } from "./connection.ts";
+import { shouldLogConnectFailure, type UpstreamClient, UpstreamConnection } from "./connection.ts";
 
 const INFO = {
   letta_code_version: "0.0.0-test",
@@ -20,6 +20,10 @@ class FakeClient implements UpstreamClient {
   /** Pages served to `conversation_list`, in cursor order. */
   pages: { id: string }[][] = [];
   failConnect = false;
+  /** What a refused connect rejects with; bun's shape is the interesting one. */
+  connectError = new Error("app-server down");
+  /** What the socket's own error listener saw, as `failureDetail()`. */
+  socketDetail: string | null = null;
   /** Refuse every sync, to exercise the failure path. */
   failSync = false;
   /**
@@ -35,9 +39,12 @@ class FakeClient implements UpstreamClient {
 
   connect(): Promise<unknown> {
     this.connects += 1;
-    if (this.failConnect) return Promise.reject(new Error("app-server down"));
+    if (this.failConnect) return Promise.reject(this.connectError);
     this.page = 0;
     return Promise.resolve(this);
+  }
+  failureDetail(): string | null {
+    return this.socketDetail;
   }
   close(): void {
     this.closes += 1;
@@ -115,13 +122,15 @@ async function waitFor(what: string, done: () => boolean, ms = 3000): Promise<vo
 
 function makeConnection(client: FakeClient, frames: WsProtocolMessage[] = []) {
   const states: string[] = [];
+  const logs: string[] = [];
   const upstream = new UpstreamConnection({
     url: "ws://fake:4500",
     onFrame: (frame) => frames.push(frame),
     onStateChange: (state) => states.push(state),
+    log: (message) => logs.push(message),
     createClient: () => client,
   });
-  return { upstream, states, frames };
+  return { upstream, states, frames, logs };
 }
 
 test("a connect syncs every conversation of every agent, following the list cursor", async () => {
@@ -199,6 +208,43 @@ test("a failing app-server is retried until it answers", async () => {
   expect(upstream.getState()).toBe("disconnected");
   expect(upstream.isReady()).toBe(false);
   upstream.stop();
+});
+
+test("an outage says itself once, not once per retry", async () => {
+  const client = new FakeClient();
+  client.failConnect = true;
+  const { upstream, logs } = makeConnection(client);
+  upstream.start();
+  await waitFor("the first retry", () => client.connects >= 2, 5000);
+  const failures = logs.filter((line) => line.startsWith("Upstream connect failed"));
+  // Two refused connects, one line: the first failure is reported and the
+  // repetition is not, for as long as the app-server stays down.
+  expect(failures.length).toBe(1);
+  expect(failures[0]).toContain("app-server down");
+  upstream.stop();
+});
+
+test("the socket's own reason stands in when the rejection carries none", async () => {
+  const client = new FakeClient();
+  client.failConnect = true;
+  // What bun actually rejects with: the EventTarget event, stringified.
+  client.connectError = new Error("App-server WebSocket failed to open: [object ErrorEvent]");
+  client.socketDetail =
+    "WebSocket connection to 'ws://127.0.0.1:4500/ws' failed: Failed to connect";
+  const { upstream, logs } = makeConnection(client);
+  upstream.start();
+
+  await waitFor("the failure to be logged", () => logs.length > 0);
+  expect(logs[0]).toContain("failed: Failed to connect");
+  expect(logs[0]).not.toContain("[object ErrorEvent]");
+  upstream.stop();
+});
+
+test("the failure log keeps the first and every twentieth", () => {
+  expect(shouldLogConnectFailure(1)).toBe(true);
+  expect([2, 3, 19].every(shouldLogConnectFailure)).toBe(false);
+  expect(shouldLogConnectFailure(20)).toBe(true);
+  expect(shouldLogConnectFailure(40)).toBe(true);
 });
 
 test("an internal request id is known, a browser's is not, and the set stays bounded", async () => {
