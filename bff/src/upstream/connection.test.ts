@@ -1,7 +1,12 @@
 import { expect, test } from "bun:test";
 import type { AppServerInfoResponseMessage } from "@letta-ai/letta-code/app-server-client";
 import type { WsProtocolMessage } from "@letta-ai/letta-code/app-server-protocol";
-import { shouldLogConnectFailure, type UpstreamClient, UpstreamConnection } from "./connection.ts";
+import {
+  createAppServerClient,
+  shouldLogConnectFailure,
+  type UpstreamClient,
+  UpstreamConnection,
+} from "./connection.ts";
 
 const INFO = {
   letta_code_version: "0.0.0-test",
@@ -266,6 +271,28 @@ test("an internal request id is known, a browser's is not, and the set stays bou
   expect(upstream.isInternalRequest(ids[0] as string)).toBe(false);
   expect(upstream.isInternalRequest(ids[20_000] as string)).toBe(true);
   upstream.stop();
+});
+
+test("the production client attaches to the socket's own error event", () => {
+  // Version-independent half of the regression: bun 1.3.0 (CI's pin) lets a refused
+  // handshake through as a plain rejection, so only the listener itself can be
+  // asserted everywhere. It is what bun's shim counts, and it has to be there at
+  // construction — before any handshake has had the chance to fail.
+  const attached: string[] = [];
+  class RecordedSocket {
+    readyState = 0;
+    send(): void {}
+    close(): void {}
+    // Both halves of the EventTarget API, so upstream's listener helper prefers
+    // them over `on` — which is exactly what leaves bun's error count at zero.
+    addEventListener(): void {}
+    removeEventListener(): void {}
+    on(type: string): void {
+      attached.push(type);
+    }
+  }
+  createAppServerClient("ws://127.0.0.1:4599/ws", RecordedSocket as never);
+  expect(attached).toEqual(["error"]);
 });
 
 test("nothing is sent before the socket is up", () => {

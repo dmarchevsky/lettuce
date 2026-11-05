@@ -1,4 +1,7 @@
-import type { AppServerInfoResponseMessage } from "@letta-ai/letta-code/app-server-client";
+import type {
+  AppServerInfoResponseMessage,
+  AppServerSocketConstructor,
+} from "@letta-ai/letta-code/app-server-client";
 import { AppServerClient } from "@letta-ai/letta-code/app-server-client";
 import type {
   AgentListResponseMessage,
@@ -140,9 +143,16 @@ class HandshakeTolerantClient implements UpstreamClient {
  * token and would be locked out; nothing outside the shared network namespace
  * can reach it (docker/compose.yml). An unauthenticated upgrade carrying
  * `Origin` is rejected outright, which `ws` never sends unasked — and which is
- * why a browser cannot connect directly. */
-export function createAppServerClient(url: string): UpstreamClient {
-  const client = new AppServerClient({ url, WebSocket: WebSocket as never });
+ * why a browser cannot connect directly.
+ *
+ * `webSocket` is the seam that lets a test prove the tolerance is attached without
+ * a real socket; production never passes it.
+ */
+export function createAppServerClient(
+  url: string,
+  webSocket: AppServerSocketConstructor = WebSocket as unknown as AppServerSocketConstructor,
+): UpstreamClient {
+  const client = new AppServerClient({ url, WebSocket: webSocket });
   // Constructed before anything awaits: the handshake cannot fail before this
   // listener exists, because no event is delivered while this frame is on the stack.
   return new HandshakeTolerantClient(client);
