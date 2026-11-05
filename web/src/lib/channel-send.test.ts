@@ -69,6 +69,25 @@ describe("readChannelSend", () => {
     expect(readChannelSend(c, retn("error", FAILED, c.toolCallId!))?.delivery).toBe("failed");
   });
 
+  test("the card reads delivery from status, never from the return's wording", () => {
+    // Live returns are not always the canonical
+    // `Message sent to telegram (message_id: …)` — the app-server also answers
+    // `Message sent to Telegram` with no ids at all. Paraphrasing that string
+    // would drop the card on real data, so only `status` decides.
+    const c = call(SEND_ARGS);
+    expect(
+      readChannelSend(c, retn("success", "Message sent to Telegram", c.toolCallId!))?.delivery,
+    ).toBe("sent");
+    // A failure naming the channel in caps is still a failure.
+    const c2 = call(SEND_ARGS);
+    expect(
+      readChannelSend(
+        c2,
+        retn("error", "Error: Sending message to Telegram failed: bot blocked", c2.toolCallId!),
+      )?.delivery,
+    ).toBe("failed");
+  });
+
   test("no return is pending — the card may not claim a send the channel has not taken", () => {
     expect(readChannelSend(call(SEND_ARGS), null)?.delivery).toBe("pending");
   });
@@ -103,6 +122,8 @@ describe("readChannelSend", () => {
   test("channelLabel capitalises the wire id", () => {
     expect(channelLabel("telegram")).toBe("Telegram");
     expect(channelLabel("")).toBe("Channel");
+    // Never double-capitalize a destination the wire already capitalized.
+    expect(channelLabel("Telegram")).toBe("Telegram");
   });
 });
 
