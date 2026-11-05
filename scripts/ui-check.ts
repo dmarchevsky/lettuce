@@ -685,7 +685,9 @@ try {
       );
       await shot(page, "phone-archived-agent");
       await page.locator('.agent-menu button:has-text("Unarchive")').click();
-      await page.waitForTimeout(600);
+      // The un-archive round-trip is a sync, not a sleep: wait for the card to
+      // return rather than reading after a fixed beat.
+      await otherCard().waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
       check(
         "unarchived, it is back and the link is gone",
         (await otherCard().count()) === 1 &&
@@ -2246,9 +2248,18 @@ try {
       JSON.stringify(chipLabels) === JSON.stringify(expectedChips),
       chipLabels,
     );
+    // Wait for the section's own last control rather than one early control plus
+    // a fixed beat: the tab fetches the agent's details, and under a loaded
+    // app-server the tail of the pane arrives later than its chips.
+    const deleteReady = await page
+      .locator('.pane button:text-is("Delete agent…")')
+      .waitFor({ state: "visible", timeout: 8000 })
+      .then(() => true)
+      .catch(() => false);
     check(
       "the agent's General section edits it in place",
-      agentRendered && (await page.locator('.pane button:text-is("Delete agent…")').count()) === 1,
+      agentRendered && deleteReady,
+      { agentRendered, deleteReady },
     );
     const agentBox = await overflow(page);
     check("agent tab has nothing clipped", agentBox.clipped.length === 0, agentBox);
