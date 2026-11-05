@@ -182,10 +182,16 @@ describe("channel send promotion", () => {
     expect(entries.some((e) => e.kind === "channel_send")).toBe(false);
   });
 
-  test("a subagent's send stays scoped to that subagent", () => {
+  test("a subagent's send gets no card — it must not surface in the parent transcript", () => {
+    // The parent's transcript is not where a child's Telegram message belongs: a
+    // promoted card there speaks in the parent's voice, claims delivery for a
+    // message the parent did not send, and splits the child's run in two. The
+    // call stays a step in the child's own transcript.
     const c = call(SEND_ARGS, { subagentId: "sub-1" });
-    const card = sortedEntries(transcriptOf([c])).find((e) => e.kind === "channel_send");
-    expect(card?.subagentId).toBe("sub-1");
+    const entries = sortedEntries(transcriptOf([c]));
+    expect(entries.some((e) => e.kind === "channel_send")).toBe(false);
+    const items = groupTranscript(entries);
+    expect(items.some((i) => i.kind === "message" && i.entry.kind === "channel_send")).toBe(false);
   });
 });
 

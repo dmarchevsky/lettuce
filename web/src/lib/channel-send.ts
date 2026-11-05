@@ -73,7 +73,11 @@ export function readChannelSend(
 
   // No return yet is not a failure: a send settles within the same turn, and a
   // badge that claims "sent" before the channel answered is the lie this whole
-  // feature exists to stop.
+  // feature exists to stop. `retn.status` is the app-server's own normalised
+  // status (a return that carries none arrives as `success`, which is upstream's
+  // default, not our inference); the return's *wording* decides nothing, because
+  // the live text varies — with and without `(message_id: …)`, channel name in
+  // either case.
   const delivery: ChannelDelivery = !retn ? "pending" : retn.status === "error" ? "failed" : "sent";
   return { channel, action, body, delivery };
 }

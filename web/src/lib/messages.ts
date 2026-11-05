@@ -560,6 +560,12 @@ function promoteQuestions(entries: TranscriptEntry[]): TranscriptEntry[] {
  * closing line) the card lands under the run anyway.
  */
 function promoteChannelSends(entries: TranscriptEntry[]): TranscriptEntry[] {
+  // Cheap guard first, the way `promoteQuestions` does it: a conversation with no
+  // `MessageChannel` call returns the array untouched, so the map and the copy
+  // below only happen when there is something to promote. This runs on every
+  // stream flush.
+  if (!entries.some((entry) => entry.toolName === "MessageChannel")) return entries;
+
   const returnsByCall = new Map<string, TranscriptEntry>();
   for (const entry of entries) {
     if (entry.kind === "tool_return" && entry.toolCallId) {
@@ -577,8 +583,12 @@ function promoteChannelSends(entries: TranscriptEntry[]): TranscriptEntry[] {
     // production actually produces, and the shape this first shipped without).
     if (entry.kind !== "tool_call" && entry.kind !== "approval_request") continue;
     if (entry.toolName !== "MessageChannel" || !entry.toolCallId) continue;
+    // A subagent's send stays the subagent's business. Promoting it here would
+    // drop a card into the *parent* transcript — in the parent's tint, claiming
+    // delivery for a child's message, and splitting the child's run in two. It
+    // stays a step line in the child's own transcript instead.
+    if (entry.subagentId) continue;
     if (promoted.has(entry.toolCallId)) continue;
-    // Cheap guard first: this runs over every entry on every flush.
     const send = readChannelSend(
       entry,
       entry.toolCallId ? (returnsByCall.get(entry.toolCallId) ?? null) : null,
@@ -595,7 +605,6 @@ function promoteChannelSends(entries: TranscriptEntry[]): TranscriptEntry[] {
       text: send.body,
       toolCallId: entry.toolCallId,
       channelSend: send,
-      ...(entry.subagentId ? { subagentId: entry.subagentId } : {}),
     });
   }
   return out;

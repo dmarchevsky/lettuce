@@ -898,6 +898,12 @@ try {
     check("timestamp toggle is in the filter sheet", (await timestampToggle.count()) === 1);
     check("timestamps are on by default", await toggleInput.isChecked());
     const hasEntries = (await page.locator(".messages .entry").count()) > 0;
+    if (!hasEntries) {
+      // Say it out loud: a blank landing conversation silently skips every
+      // transcript-block assertion below (style, agent tint, channel card), and
+      // a silent skip reads exactly like a pass in the log.
+      console.log("  SKIP  every transcript assertion (the landing conversation has no entries)");
+    }
     if (hasEntries) {
       check("entries carry a timestamp", (await page.locator(".messages time").count()) > 0);
     }
@@ -984,6 +990,10 @@ try {
           rail: getComputedStyle(agent).borderLeftColor,
         };
       });
+      if (!tint)
+        console.log(
+          "  SKIP  the answer rail follows the agent's colour (no agent answer on screen)",
+        );
       if (tint) {
         check(
           "the transcript is handed the agent's tint rather than the root default",
@@ -997,6 +1007,8 @@ try {
       // conversation may not have one); the real Telegram send is the container
       // test's job.
       const cards = await page.locator(".messages .entry.channel-send").count();
+      if (cards === 0)
+        console.log("  SKIP  the channel send card (no conversation with a real send on screen)");
       if (cards > 0) {
         const card = await page.evaluate(() => {
           const el = document.querySelector<HTMLElement>(".messages .entry.channel-send")!;

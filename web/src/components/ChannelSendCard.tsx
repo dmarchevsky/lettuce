@@ -40,7 +40,7 @@ export function ChannelSendCard({
       <div className="role chan-head">
         <span className="who">
           <Icon name="send" className="chan-glyph" />
-          {channelLabel(send.channel)}
+          <span className="chan-dest">{channelLabel(send.channel)}</span>
         </span>
         {/* The one shared timestamp rule: with timestamps filtered off, no
             `<time>` element appears anywhere in the transcript. */}

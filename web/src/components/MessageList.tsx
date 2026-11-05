@@ -220,8 +220,26 @@ export function MessageList({
   // Steps fold once the turn is done. Only an explicit tap is remembered, so a
   // run that was open while live closes by itself when the answer lands.
   const [openSteps, setOpenSteps] = useState<ReadonlyMap<string, boolean>>(new Map());
-  const lastItem = items.at(-1);
-  const liveStepsId = processing && lastItem?.kind === "steps" ? lastItem.id : null;
+  // Every run after your last message is live — not just the last item. A
+  // promoted card (a channel send, a pending question) splits a turn into two
+  // runs, and treating only the final item as live folded the first one up while
+  // the agent was still working. Upstream tells agents to send a channel message
+  // mid-turn on purpose, so a card in the middle of a run is the normal case.
+  const liveStepsIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!processing) return ids;
+    let lastUser = -1;
+    items.forEach((item, i) => {
+      if (item.kind === "message" && item.entry.kind === "user" && !item.entry.reminder) {
+        lastUser = i;
+      }
+    });
+    for (let i = lastUser + 1; i < items.length; i++) {
+      const item = items[i];
+      if (item?.kind === "steps") ids.add(item.id);
+    }
+    return ids;
+  }, [items, processing]);
   const toggleSteps = (id: string, open: boolean) =>
     setOpenSteps((current) => new Map(current).set(id, !open));
 
@@ -304,7 +322,7 @@ export function MessageList({
 
         {items.map((item) => {
           if (item.kind !== "steps") return renderEntry(item.entry);
-          const open = openSteps.get(item.id) ?? item.id === liveStepsId;
+          const open = openSteps.get(item.id) ?? liveStepsIds.has(item.id);
           return (
             <StepsGroup
               key={`steps:${item.id}`}
