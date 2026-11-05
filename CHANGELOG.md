@@ -5,6 +5,12 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.32.1-letta_0.34.38] - 2026-11-05
+
+### Fixed
+- A reboot no longer leaves the app dead: the BFF quit when it started before the app-server was
+  listening, and nothing brought it back.
+
 ## [v0.32.0-letta_0.34.38] - 2026-11-05
 
 ### Added
