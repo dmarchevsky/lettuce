@@ -5,6 +5,11 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Changed
+- The agent playbook and its skills now carry the last two weeks' friction: prove the stack is up before
+  asking for a sign-in check, a failed dev deploy says the app is down, mockups approve layout and not size,
+  and "yolo" no longer stands in for a release approval.
+
 ## [v0.32.1-letta_0.34.38] - 2026-11-05
 
 ### Fixed

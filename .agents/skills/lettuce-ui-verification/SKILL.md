@@ -30,6 +30,15 @@ Skip mockups only for changes a screenshot of the fix would explain better than 
 label, colour token); say so in the PR. `--ui` is what makes the gate demand them: `flow start <slug>
 --ui`.
 
+**A mockup approves STRUCTURE, never SCALE.** What the operator signs off is what is on screen and where
+it sits; the pixel dimensions an unbuilt mock implies are provisional. A redesign that ran twenty approved
+mockups at one rail width then spent four implement rounds resizing that same rail burned a mockup + build
++ deploy cycle per round. So for a redesign: the plan marks its size tokens (`--rail-w`, row heights,
+icon sizes) provisional and its first build carries **geometry only** — layout and sizes, no skin — then
+the scale is decided once in front of the real app, and the mockups are re-rendered from the **live DOM**
+(inspect the rendered box, paste it into the mock) after each scale change so the approved artifact keeps
+matching what ships.
+
 ## Gate 2 — holistic visual pass after implementing
 
 After the implementation runs in the container (or the local stack), before handing to the operator's
