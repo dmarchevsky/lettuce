@@ -111,6 +111,10 @@ drain. Both must stay inside the deploy manager's own `compose up` timeout. With
 cannot reach llama.cpp; the signature is an error push five minutes after a BFF restart
 (`BUSY_RUN_WAIT_TIMEOUT_MS`): docs/upstream-notes.md#bff-redeploy-drain.
 
+**A refused handshake is fatal no more** — a permanent socket listener plus a narrow
+`bff/src/process-guards.ts` guard leave the retry loop as the only reactor to a missing app-server:
+docs/upstream-notes.md#bff-ws-error-crash-story.
+
 The same permanent connection is also what boots the cron scheduler and Telegram adapters: app-server
 process services start on *first client attach* (`listener/lifecycle.ts` →
 `startConnectedListenerRuntime`), so with no client ever connected, crons never fire.

@@ -338,3 +338,28 @@ pieces are shaped as they are:
   a mod registration and a connection must never become one. A fresh connect, a named
   provider saved under the prefix and a removal of it each drop the list.
 
+
+## BFF ws error crash story
+
+**A failed upstream handshake killed the process — under bun only.** Reproduced with the same
+construction as `createAppServerClient` against a closed port: bun exits 1 with
+`Unhandled error. (ErrorEvent { isTrusted: [Getter] })` thrown from `emitError`, while node rejects the
+promise and lives. Bun aliases `ws` onto its own WebSocket implementation, and that implementation
+decides whether an `error` event is unhandled by counting **EventEmitter** listeners. Upstream's client
+never registers one — `attachSocketListener` (`app-server-client.js`) prefers `addEventListener`
+whenever the socket has it, and Bun's does — so the count is zero and EventEmitter throws it: an
+uncaught exception, no matter that the `.catch()` a few lines below handles the rejection.
+
+What turned it from a log line into an outage is ordering. Compose honours
+`depends_on: condition: service_healthy` on `compose up` and nowhere else, so a docker-daemon boot
+starts `bff` while app-server is still inside its `start_period`, nothing is listening on 4500 yet, and
+the very first handshake ends the process — and the restart policy did not bring it back. It never
+appeared in local dev for the same reason it is invisible to a node typecheck: the BFF under node only
+rejects.
+
+The fix is one permanent **ws-style** listener on the socket (`HandshakeTolerantClient`), measured to be
+the only thing that satisfies the shim — `socket.onerror = …` and `addEventListener("error", …)` both
+leave its count at zero and still crash — plus the narrow guard in `bff/src/process-guards.ts`, which
+drops a transient socket error and exits for anything else. The listener keeps a second thing worth
+having: under bun the rejection reads `…failed to open: [object ErrorEvent]`, and the reason only ever
+appears on the event itself.

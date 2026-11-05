@@ -102,7 +102,7 @@ services:
         CODING_FEATURES: ${COMPOSE_PROFILES:-}
     # Tagged by release, not by pins: what is inside is what the tag's commit
     # built, and /opt/lettuce/features plus Settings → About report the CLIs.
-    image: ${LETTA_IMAGE_NS:-}lettuce-app-server:${LETTA_IMAGE_TAG:-v0.32.0-letta_0.34.38}
+    image: ${LETTA_IMAGE_NS:-}lettuce-app-server:${LETTA_IMAGE_TAG:-v0.32.1-letta_0.34.38}
     # An init process as PID 1, so exited orphans are reaped. Without it PID 1
     # is `node … letta server`, which waits only on children it spawned: every
     # process an agent shell backgrounds (`&`, nohup, servers) and outlives is
@@ -278,7 +278,7 @@ services:
       # and `bun run build:bff` passes it from the host checkout.
       args:
         GIT_SHA: ${GIT_SHA:-}
-    image: ${LETTA_IMAGE_NS:-}lettuce-bff:${LETTA_IMAGE_TAG:-v0.32.0-letta_0.34.38}
+    image: ${LETTA_IMAGE_NS:-}lettuce-bff:${LETTA_IMAGE_TAG:-v0.32.1-letta_0.34.38}
     depends_on:
       app-server:
         condition: service_healthy
@@ -296,6 +296,23 @@ services:
     # during a turn timed out, left the new container created but not started,
     # and prod had no bff once the old one drained (2026-09-29).
     stop_grace_period: 10m
+    # Liveness of THIS container, and deliberately not `/readyz`: that answers 503
+    # for as long as the app-server is not connected, so a readiness probe would
+    # call bff unhealthy through every app-server restart — while a bff that had
+    # died at boot (docs/upstream-notes.md#bff-ws-error-crash-story) was invisible
+    # to anyone until the UI came up blank. The image ships no curl
+    # (docker/bff.Dockerfile installs git and openssh-client and nothing else), so
+    # the probe is bun asking its own server. Docker takes no action on
+    # `unhealthy`; what it buys is that `docker compose ps`, `bun run deploy-check`
+    # and the deploy manager can see the container fail instead of infer it.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - bun -e 'fetch("http://127.0.0.1:"+(process.env.PORT||8080)+"/healthz").then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))'
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     environment:
       TZ: ${TZ:-America/Los_Angeles}
       PORT: "8080"
@@ -505,7 +522,7 @@ services:
       context: searxng
       args:
         SEARXNG_VERSION: ${SEARXNG_VERSION:-2026.10.23-629368e40}
-    image: ${LETTA_IMAGE_NS:-}lettuce-searxng:${LETTA_IMAGE_TAG:-v0.32.0-letta_0.34.38}
+    image: ${LETTA_IMAGE_NS:-}lettuce-searxng:${LETTA_IMAGE_TAG:-v0.32.1-letta_0.34.38}
     environment:
       TZ: ${TZ:-America/Los_Angeles}
     restart: unless-stopped
@@ -522,7 +539,7 @@ services:
       context: ddg-mcp
       args:
         DDG_MCP_VERSION: ${DDG_MCP_VERSION:-0.7.0}
-    image: ${LETTA_IMAGE_NS:-}lettuce-ddg-mcp:${LETTA_IMAGE_TAG:-v0.32.0-letta_0.34.38}
+    image: ${LETTA_IMAGE_NS:-}lettuce-ddg-mcp:${LETTA_IMAGE_TAG:-v0.32.1-letta_0.34.38}
     environment:
       TZ: ${TZ:-America/Los_Angeles}
       DDG_REGION: ${DDG_REGION:-us-en}
@@ -553,7 +570,7 @@ services:
       context: google-mcp
       args:
         WORKSPACE_MCP_VERSION: ${WORKSPACE_MCP_VERSION:-2.1.0}
-    image: ${LETTA_IMAGE_NS:-}lettuce-google-mcp:${LETTA_IMAGE_TAG:-v0.32.0-letta_0.34.38}
+    image: ${LETTA_IMAGE_NS:-}lettuce-google-mcp:${LETTA_IMAGE_TAG:-v0.32.1-letta_0.34.38}
     environment:
       TZ: ${TZ:-America/Los_Angeles}
     volumes:
