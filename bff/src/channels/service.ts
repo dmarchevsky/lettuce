@@ -297,6 +297,7 @@ export function pairingOutcomeText(binding: PairingBindingNames | null): string 
   const conversation = binding?.conversation ?? null;
   if (agent && conversation) return `✅ Paired with ${agent} · ${conversation}`;
   if (agent) return `✅ Paired with ${agent}`;
+  if (conversation) return `✅ Paired with ${conversation}`;
   return "✅ Pairing approved — send a message and your agent will answer.";
 }
 
@@ -315,13 +316,13 @@ export async function notifyPairingApproved(
   binding: PairingBindingNames | null = null,
   fetchImpl: typeof fetch = fetch,
 ): Promise<boolean> {
-  const { accounts } = await readChannelFiles(io);
-  const account = findTelegramAccount(accounts);
-  const token = account ? accountView(account).token : null;
-  // A disabled bot cannot speak: its account is off, and saying so silently
-  // is honest — the approve itself already stood.
-  if (!account || !token || account.enabled !== true) return false;
   try {
+    const { accounts } = await readChannelFiles(io);
+    const account = findTelegramAccount(accounts);
+    const token = account ? accountView(account).token : null;
+    // A disabled bot cannot speak: its account is off, and saying so silently
+    // is honest — the approve itself already stood.
+    if (!account || !token || account.enabled !== true) return false;
     const response = await fetchImpl(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -335,6 +336,9 @@ export async function notifyPairingApproved(
     });
     return response.ok;
   } catch {
+    // Everything here is courtesy: the file read rides the one upstream
+    // connection and can fail; the network can fail; Telegram can refuse. A
+    // pairing written a moment ago is real whatever happens to this notice.
     return false;
   }
 }

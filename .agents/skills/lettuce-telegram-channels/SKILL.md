@@ -62,14 +62,17 @@ pinned by tests against upstream's own writers (`bff/src/channels/state.ts`):
 
 So approvals, ignores and route removals are **live**; an account change (token, enable) is
 applied by `docker/channel-gateway-supervise.sh` — the wrapper compose mounts as the container's
-command. An approval also **tells the chat** (best effort): upstream never notifies, so
-`notifyPairingApproved` posts one `sendMessage` to `api.telegram.org` with the stored token —
-its failure never unwinds the approve, it only flips `notified: false` in the route response. It watches the checksum of every `accounts.json` (~5 s poll), TERM-restarts the gateway
+command. It watches the checksum of every `accounts.json` (~5 s poll), TERM-restarts the gateway
 when it changes, forwards TERM/INT, and backs off when the child dies at once. It restarts for
 **nothing else** — a restart drops any Telegram-fired turn in flight (browser turns never: the
 BFF owns that connection), so watching pairing or route churn would kill work for changes the
 gateway already picks up live. The wrapper also adds `--install-channel-runtimes`, so `letta
 channels install` is never a manual step.
+
+An approve also **tells the chat** (best effort): upstream never notifies the paired user, so
+`notifyPairingApproved` posts one `sendMessage` to `api.telegram.org` with the stored token, naming
+what the chat connected to. Its failure never unwinds the approve — it only flips `notified: false`
+in the route response.
 
 Rewrite rules the tests hold: parse lenient (missing/corrupt = empty store, like upstream's own
 loaders), clone-and-patch (unknown fields and other array entries survive), render exactly

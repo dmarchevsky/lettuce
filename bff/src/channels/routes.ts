@@ -39,6 +39,8 @@ export interface TelegramRouteDeps {
   io: ChannelsIo;
   /** Injected in tests; the real Bot API call is the global fetch. */
   send?: typeof fetch;
+  /** Server-side line when a notice fails — the UI already told its own half. */
+  log?: (message: string) => void;
   /** Human-readable names for the bound pair, for the chat's notice. */
   bindingNames?: (agentId: string, conversationId: string) => Promise<PairingBindingNames>;
 }
@@ -47,7 +49,7 @@ export function registerTelegramRoutes<Env extends RouteEnv>(
   app: Hono<Env>,
   deps: TelegramRouteDeps,
 ): void {
-  const { isReady, telegramEnabled, io, send = fetch, bindingNames } = deps;
+  const { isReady, telegramEnabled, io, send = fetch, bindingNames, log } = deps;
 
   app.get("/api/channels/telegram", async (c) => {
     if (!telegramEnabled) return c.text("Telegram is off: COMPOSE_PROFILES", 404);
@@ -90,6 +92,8 @@ export function registerTelegramRoutes<Env extends RouteEnv>(
         );
       }
       const notified = await notifyPairingApproved(io, result.route.chatId, binding, send);
+      if (!notified)
+        log?.(`telegram: pairing approved for chat ${result.route.chatId}, notice not delivered`);
       return c.json({ ...result, notified });
     } catch (error) {
       if (error instanceof InvalidTelegramRequestError) return c.text(error.message, 400);

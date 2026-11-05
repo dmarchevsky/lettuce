@@ -8,10 +8,25 @@
 import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import { registerTelegramRoutes } from "./routes.ts";
-import type { ChannelsIo } from "./service.ts";
+import { type ChannelsIo, notifyPairingApproved, pairingOutcomeText } from "./service.ts";
 import { TELEGRAM_ACCOUNTS_PATH, TELEGRAM_PAIRING_PATH, TELEGRAM_ROUTING_PATH } from "./state.ts";
 
 type TestEnv = { Variables: { session?: unknown } };
+
+describe("pairingOutcomeText", () => {
+  test("names what resolved, falls back one step at a time", () => {
+    expect(pairingOutcomeText({ agent: "Memo", conversation: "Daily log" })).toBe(
+      "✅ Paired with Memo · Daily log",
+    );
+    expect(pairingOutcomeText({ agent: "Memo", conversation: null })).toBe("✅ Paired with Memo");
+    expect(pairingOutcomeText({ agent: null, conversation: "Daily log" })).toBe(
+      "✅ Paired with Daily log",
+    );
+    expect(pairingOutcomeText(null)).toBe(
+      "✅ Pairing approved — send a message and your agent will answer.",
+    );
+  });
+});
 
 const ACCOUNTS_FIXTURE = {
   accounts: [
@@ -527,6 +542,71 @@ describe("POST /api/channels/telegram/pairings/approve", () => {
     expect(response.status).toBe(200);
     expect(((await response.json()) as { notified: boolean }).notified).toBe(true);
     expect(text).toBe("✅ Paired with Memo · Daily log");
+  });
+
+  test("a disabled account or a missing one says not-notified, never worse", async () => {
+    const disabled = structuredClone(ACCOUNTS_FIXTURE) as {
+      accounts: Record<string, unknown>[];
+    };
+    disabled.accounts[0]!.enabled = false;
+    const cases: Record<string, Record<string, unknown>>[] = [
+      { [TELEGRAM_ACCOUNTS_PATH]: disabled },
+      // No telegram account at all — only another channel's entry.
+      { [TELEGRAM_ACCOUNTS_PATH]: { accounts: [{ channel: "discord", accountId: "d1" }] } },
+    ];
+    for (const files of cases) {
+      const { app } = setup({
+        files: {
+          ...files,
+          [TELEGRAM_PAIRING_PATH]: { pending: [LIVE_PENDING], approved: [] },
+          [TELEGRAM_ROUTING_PATH]: { routes: [] },
+        },
+      });
+      const response = await send(app, "POST", "/api/channels/telegram/pairings/approve", {
+        code: "K7QX2M",
+        agentId: "a1",
+        conversationId: "c1",
+      });
+      expect(response.status).toBe(200);
+      expect(((await response.json()) as { notified: boolean }).notified).toBe(false);
+    }
+    // A read that throws inside the notice (the file channel rides the one
+    // upstream connection and can die) is the same story: the approve already
+    // wrote its files; the notice failing must not answer 502.
+    const hostile: ChannelsIo = {
+      async read() {
+        throw new Error("channel died");
+      },
+      async write() {},
+    };
+    expect(await notifyPairingApproved(hostile, "555111", null, fetch)).toBe(false);
+  });
+
+  test("a name lookup that throws cannot fail the approve either", async () => {
+    const { app } = setup({
+      files: {
+        [TELEGRAM_ACCOUNTS_PATH]: ACCOUNTS_FIXTURE,
+        [TELEGRAM_PAIRING_PATH]: { pending: [LIVE_PENDING], approved: [] },
+        [TELEGRAM_ROUTING_PATH]: { routes: [] },
+      },
+      bindingNames: (async () => {
+        throw new Error("upstream went away");
+      }) as unknown as (
+        a: string,
+        c: string,
+      ) => Promise<{
+        agent: string | null;
+        conversation: string | null;
+      }>,
+      send: (async () => new Response("{}", { status: 200 })) as unknown as typeof fetch,
+    });
+    const response = await send(app, "POST", "/api/channels/telegram/pairings/approve", {
+      code: "K7QX2M",
+      agentId: "a1",
+      conversationId: "c1",
+    });
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as { notified: boolean }).notified).toBe(true);
   });
 
   test("an approve still stands when the notice cannot be delivered", async () => {

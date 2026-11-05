@@ -4,7 +4,6 @@ import type {
   AgentListResponseMessage,
   AgentRetrieveResponseMessage,
   ConnectProviderResponseMessage,
-  ConversationListResponseMessage,
   ConversationRetrieveResponseMessage,
   DisconnectProviderResponseMessage,
   ExecuteCommandResponseMessage,
@@ -1339,36 +1338,40 @@ registerCodexRoutes(app, {
  * nothing throws — the notice must send with names or without.
  */
 async function telegramBindingNames(agentId: string, conversationId: string) {
-  const names = { agent: null as string | null, conversation: null as string | null };
-  try {
-    const agents = await upstream.request<AgentListResponseMessage>(
-      { type: "agent_list", request_id: `bff-telegram-${randomUUID()}`, query: { limit: 100 } },
-      8_000,
-    );
-    const found = agents.success ? agents.agents.find((agent) => agent.id === agentId) : undefined;
-    if (found && typeof found.name === "string" && found.name) names.agent = found.name;
-  } catch {
-    // a nameless notice still travels
-  }
-  try {
-    const conversations = await upstream.request<ConversationListResponseMessage>(
-      {
-        type: "conversation_list",
-        request_id: `bff-telegram-${randomUUID()}`,
-        query: { agent_id: agentId, limit: 100 },
-      },
-      8_000,
-    );
-    const found = conversations.success
-      ? conversations.conversations.find((conversation) => conversation.id === conversationId)
-      : undefined;
-    if (found && typeof found.summary === "string" && found.summary) {
-      names.conversation = found.summary;
-    }
-  } catch {
-    // as above
-  }
-  return names;
+  // One retrieve each, in parallel — same-by-id round trips the context sizer
+  // uses, so neither worst case stacks (≈8 s total, not 16) nor does a name
+  // hide past some list page.
+  const [agent, conversation] = await Promise.all([
+    upstream
+      .request<AgentRetrieveResponseMessage>(
+        { type: "agent_retrieve", request_id: `bff-telegram-${randomUUID()}`, agent_id: agentId },
+        8_000,
+      )
+      .catch(() => null),
+    conversationId === "default"
+      ? Promise.resolve(null)
+      : upstream
+          .request<ConversationRetrieveResponseMessage>(
+            {
+              type: "conversation_retrieve",
+              request_id: `bff-telegram-${randomUUID()}`,
+              conversation_id: conversationId,
+            },
+            8_000,
+          )
+          .catch(() => null),
+  ]);
+  return {
+    agent: oneLine(agent?.success ? agent.agent?.name : null, 60),
+    conversation: oneLine(conversation?.success ? conversation.conversation?.summary : null, 80),
+  };
+}
+
+/** A name that reaches a chat notice: one line, clipped, whatever it holds. */
+function oneLine(value: string | null | undefined, max: number): string | null {
+  const text = (value ?? "").replace(/\s+/g, " ").trim();
+  if (!text) return null;
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
 registerTelegramRoutes(app, {
@@ -1376,6 +1379,7 @@ registerTelegramRoutes(app, {
   telegramEnabled: config.features.telegram,
   io: codexIo,
   bindingNames: telegramBindingNames,
+  log,
 });
 
 // Settings → Web: the native web tools' switch, backend status and a test
