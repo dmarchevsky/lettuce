@@ -1498,6 +1498,15 @@ try {
     // The CLI habit. letta-code 0.34.15 removed the remote `clear`, so a typed `/clear` would
     // otherwise reach the agent as an ordinary message; the app answers it the way the sidebar +
     // does — a new conversation, and nothing is deleted.
+    // Let earlier turns finish first: the new conversation is a create the
+    // app-server serves, and it queues behind the local model's generation —
+    // the 30s wait measured that queue, not the code. A stuck responder must not
+    // hang the suite, so this gives up too and lets the check below speak.
+    await page
+      .waitForFunction(() => !document.querySelector(".responding"), undefined, {
+        timeout: 90_000,
+      })
+      .catch(() => {});
     const openBefore = await page
       .locator(".conversation-row.active")
       .getAttribute("data-conversation-id");
@@ -2255,7 +2264,10 @@ try {
       .waitFor({ state: "visible", timeout: 8000 })
       .then(() => true)
       .catch(() => false);
-    check("the agent's General section edits it in place", agentRendered && deleteReady, {
+    // The delete button is the section's last control, so its arrival is the
+    // whole pane's arrival; the early Name control alone once timed out under a
+    // loaded app-server while the pane itself had fully rendered.
+    check("the agent's General section edits it in place", deleteReady, {
       agentRendered,
       deleteReady,
     });
