@@ -1357,6 +1357,76 @@ pre {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* The channel send card (ChannelSendCard.tsx): a message the agent put on
+   Telegram/Slack, promoted out of the collapsed run so it can actually be read.
+   It borrows the question card's panel family — surface fill, hairline, a 3px
+   accent rule — and that rule flips to the error colour when the channel refused
+   the message, because a failed send is the story of the turn.
+
+   The header's yield order is load-bearing at 390px and was got wrong once: the
+   tool name yields FIRST and the destination LAST, so `MessageChannel` ellipsizes
+   before `→ Telegram` ever does, and the tag never wraps internally or leaves the
+   row. The destination is the fact; the tool name is decoration. */
+.entry.channel-send {
+  margin: 6px 0;
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+}
+.entry.channel-send.failed {
+  border-left-color: var(--bad);
+}
+.chan-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  white-space: nowrap;
+}
+.chan-head > code {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chan-dest {
+  flex: 0 0 auto;
+  max-width: 58%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  font-weight: 600;
+}
+.chan-tag {
+  margin-left: auto;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--bad);
+  white-space: nowrap;
+}
+.chan-tag.sent {
+  color: var(--ok);
+}
+.chan-tag svg {
+  width: 11px;
+  height: 11px;
+}
+.chan-body {
+  margin: 5px 0 0;
+  font-size: 14px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
 .entry.notice .tool-head {
   background: none;
   border: none;

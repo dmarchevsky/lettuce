@@ -1,5 +1,14 @@
 import type { AskUserQuestionResponse } from "@letta-ai/letta-code/ask-user-question";
-import { memo, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  memo,
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { claudeSessionInTaskText, fetchClaudeRuns } from "../lib/claude.ts";
 import { copyText } from "../lib/clipboard.ts";
 import { codexThreadInTaskText, fetchCodexRuns } from "../lib/codex.ts";
@@ -16,6 +25,7 @@ import { formatEntryTime, formatEntryTimeFull } from "../lib/timestamps.ts";
 import { parseToolArgs, summarizeToolCall } from "../lib/tool-summary.ts";
 import { type FileLinks, useFileLinks } from "../state/use-file-links.ts";
 import type { SessionApi } from "../state/use-session.ts";
+import { ChannelSendCard } from "./ChannelSendCard.tsx";
 import { ClaudeRunSheet } from "./ClaudeRunSheet.tsx";
 import { CodexRunSheet } from "./CodexRunSheet.tsx";
 import { Icon } from "./Icon.tsx";
@@ -48,6 +58,16 @@ interface Props {
   agentId?: string | null;
   /** Stop a running child (`subagent_stop`); resolves to an error string or null. */
   onStopSubagent?: (agentId: string) => Promise<string | null>;
+  /**
+   * The agent's own colour, resolved once by the caller with `resolveAvatar`.
+   *
+   * `--agent` is declared at the root and set per-agent by exactly one surface —
+   * the nav rail — so every other consumer of it (this transcript's answer rail,
+   * the agent's name, the narration rule) rendered the default green whatever the
+   * user had picked, two colours for one agent. Passing it here makes the
+   * transcript read the same choice the avatar already shows.
+   */
+  agentTint?: string | null;
 }
 
 const KIND_LABEL: Record<string, string> = {
@@ -114,6 +134,7 @@ export function MessageList({
   liveSubagents,
   agentId,
   onStopSubagent,
+  agentTint,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const fileLinks = useFileLinks(session, cwd);
@@ -265,7 +286,13 @@ export function MessageList({
 
   return (
     <div className="messages-wrap">
-      <div className="messages" ref={containerRef}>
+      <div
+        className="messages"
+        ref={containerRef}
+        // One --agent value for the whole conversation, so the rails, the name
+        // and the narration agree with the avatar in the header.
+        style={agentTint ? ({ "--agent": agentTint } as CSSProperties) : undefined}
+      >
         {entries.length === 0 && !processing ? (
           <p className="muted empty">
             {/* A conversation that is still fetching its history is not an empty
@@ -418,6 +445,10 @@ const MessageItem = memo(function MessageItem({
 
   if (entry.kind === "pi_run" && entry.piRunId) {
     return <PiRunCard runId={entry.piRunId} />;
+  }
+
+  if (entry.kind === "channel_send" && entry.channelSend) {
+    return <ChannelSendCard send={entry.channelSend} />;
   }
 
   if (entry.kind === "question" && entry.question) {

@@ -94,9 +94,17 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   **bottom bar** (`BottomBar`) is the navigation: five equal slots — Chat, Files,
   Tasks, Tools, then More holding Agent, Runs and Settings — and no avatar, because
   a letter in a bar never said which agent it meant. The open agent's **face** is in
-  the header's left corner (`.where-avatar`, hidden from 900px, `tintFor` + `initialOf`
-  + the responding dot) and opens the same switcher the agent-name button beside it
+  the header's left corner (`.where-avatar`, hidden from 900px, rendered by `AgentAvatar`, plus
+  the responding dot) and opens the same switcher the agent-name button beside it
   does. Identity lives in the header; the bar is panes and nothing else.
+  **`AgentAvatar` is the only caller of `tintFor`/`initialOf`** — every surface that shows an agent
+  renders through it, because a preference read in one place and hashed in another shows up in one
+  list only. The same rule governs `--agent`: it is declared at `:root` and must be **set per agent
+  wherever an agent's own work is rendered** — the nav rail sets it on each row, and the transcript
+  sets it on `.messages` from `resolveAvatar` (`App.tsx` → `MessageList`), so the answer rail, the
+  agent's name and the narration rule all match the face. When `--agent` was only ever set on the
+  rail, the whole conversation log stayed the root default green beside an avatar of any other
+  colour; `ui-check` asserts the rail colour equals the header face.
   Both nav surfaces stay mounted and CSS picks one, the way the sidebar always did, so `ui-check`
   reads state at either width. Conversation verbs are a hover-revealed `.conversation-archive`
   glyph beside the ⋯ on desktop and the ⋯ alone on a phone (there is no hover on a touch device),

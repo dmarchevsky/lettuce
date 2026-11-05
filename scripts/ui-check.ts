@@ -966,6 +966,56 @@ try {
         check("a tap opens the steps", (await steps.getAttribute("aria-expanded")) === "true");
         await steps.evaluate((el: HTMLElement) => el.click());
       }
+      // The answer rail must be the agent's OWN colour. `--agent` is declared at
+      // :root and was set per-agent by the nav rail only, so the transcript
+      // rendered default green beside an avatar of any other colour. The inline
+      // assertion is what keeps this from going vacuous: with an agent whose tint
+      // happens to be the default, a hardcoded green would still match on colour.
+      const tint = await page.evaluate(() => {
+        const list = document.querySelector<HTMLElement>(".messages");
+        const face = document.querySelector<HTMLElement>(".where-avatar-face");
+        const agent = document.querySelector<HTMLElement>(
+          ".messages .entry.assistant:not(.subagent)",
+        );
+        if (!list || !face || !agent) return null;
+        return {
+          inline: list.style.getPropertyValue("--agent").trim(),
+          face: getComputedStyle(face).backgroundColor,
+          rail: getComputedStyle(agent).borderLeftColor,
+        };
+      });
+      if (tint) {
+        check(
+          "the transcript is handed the agent's tint rather than the root default",
+          tint.inline !== "",
+          tint,
+        );
+        check("the answer rail is the agent's own colour", tint.rail === tint.face, tint);
+      }
+      // A promoted channel send: outside every fold, header on one line, no
+      // sideways overflow. Only asserted when a send is on screen (the seeded
+      // conversation may not have one); the real Telegram send is the container
+      // test's job.
+      const cards = await page.locator(".messages .entry.channel-send").count();
+      if (cards > 0) {
+        const card = await page.evaluate(() => {
+          const el = document.querySelector<HTMLElement>(".messages .entry.channel-send")!;
+          const head = el.querySelector<HTMLElement>(".chan-head")!;
+          const list = document.querySelector<HTMLElement>(".messages")!;
+          const body = el.querySelector<HTMLElement>(".chan-body");
+          return {
+            foldedInsideSteps: !!el.closest(".steps.open > *"),
+            topChild: el.parentElement === list,
+            headLines: head.getClientRects().length,
+            headH: Math.round(head.getBoundingClientRect().height),
+            bodySized: body ? getComputedStyle(body).fontSize : null,
+            listOverflow: list.scrollWidth > list.clientWidth + 1,
+          };
+        });
+        check("a channel send is not hidden inside a collapsed run", card.topChild, card);
+        check("its header holds one line", card.headLines === 1 && card.headH < 34, card);
+        check("the transcript still does not scroll sideways", !card.listOverflow, card);
+      }
     }
     await shot(page, "phone-filters");
     check(

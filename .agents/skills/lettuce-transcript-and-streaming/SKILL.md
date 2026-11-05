@@ -54,6 +54,17 @@ Loaded from `AGENTS.md`. Several of these are behavioural, not typed, so `bun ru
   normal send path, so it can arrive whenever the user gets to it — from any device, or even
   as a Telegram message. The turn push says "Asked a question and is waiting for your answer"
   when the last turn's stream carried a receipt (`bff/src/push/turn-watcher.ts`).
+- **An outbound `MessageChannel` send is promoted to a standalone `channel_send` entry, the same
+  way a question is.** Folded into the run, the call is one step line whose subtitle truncates, so
+  the transcript carried the agent's *claim* ("the digest is in your Telegram") instead of the
+  message. `promoteChannelSends` (`web/src/lib/messages.ts`) reads the call's args — only the
+  outbound actions `send` / `send-rich` / `upload-file`, because the same tool also reacts, binds
+  threads and downloads files — plus the paired return: its `status === "error"` is the **only**
+  failure signal, since upstream's executor returns `Error: …` text and sets `is_error` from that
+  same test, while success reads `Message sent to telegram (message_id: N)`
+  (`letta-code/src/channels/message-channel-executor.ts`). No return yet means pending, and
+  pending shows no delivery badge; a badge before the channel answers is the lie the card exists to
+  prevent. `groupTranscript` never folds it into a steps run (`ChannelSendCard`).
 - **Every model text part is an `assistant_message`, even `"\n"`.** Local models emit text
   between tool calls — narration and, for some, a lone newline per step (`[thinking, toolCall,
   "\n", toolCall]` in the pi-ai store). `groupTranscript`
