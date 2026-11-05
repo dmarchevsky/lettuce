@@ -62,6 +62,7 @@ import {
 import { readShowTimestamps, writeShowTimestamps } from "./lib/timestamps.ts";
 import { useAgentConversations } from "./state/use-agent-conversations.ts";
 import { useAgents } from "./state/use-agents.ts";
+import { useBackToClose } from "./state/use-back-to-close.ts";
 import { useContextLimit } from "./state/use-context-limit.ts";
 import { useContextSize } from "./state/use-context-size.ts";
 import { useConversation } from "./state/use-conversation.ts";
@@ -369,6 +370,21 @@ function Workspace({ status }: { status: Status }) {
       setTab(next);
     },
     [panelPinned, panelPeek, tab],
+  );
+
+  /**
+   * The browser's Back closes the open window, and a secondary pane IS the open
+   * window: Files, Tasks, Runs, Tools, Agent and Settings each own one history
+   * entry (the shared BackStack's floor rank, so any sheet or menu opened over
+   * the pane closes first), and Back steps back to Chat instead of leaving the
+   * app. Pressing the corner X or a bar slot closes the pane on screen and the
+   * entry retires the same way every other overlay's does.
+   */
+  useBackToClose(
+    () => {
+      selectPane("Chat");
+    },
+    tab !== "Chat",
   );
 
   /** The Settings column's ☰ at the foot: leave the pane and bring the conversation

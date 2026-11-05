@@ -668,7 +668,13 @@ try {
         (await otherCard().getAttribute("class"))?.includes("archived") === true &&
           (await otherCard().locator(".archived-tag").count()) === 1,
       );
-      await otherCard().locator(".switcher-more").click();
+      // The reveal scrolled the list. The list closes an open menu on any scroll
+      // (the anchor moves), so let that scroll settle before pressing ⋯ — a press
+      // whose auto-scroll lands after the mousedown would eat the menu.
+      const archivedMore = otherCard().locator(".switcher-more");
+      await archivedMore.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(400);
+      await archivedMore.click();
       const archivedItems = (await page.locator(".agent-menu button").allInnerTexts()).map((t) =>
         t.trim(),
       );
@@ -1277,6 +1283,19 @@ try {
     check(
       "and it goes back to Chat",
       (await phoneClose.count()) === 0 && (await page.locator(".composer textarea").isVisible()),
+    );
+
+    // The browser's Back is the phone's window verb: with a secondary pane open it
+    // steps back to Chat — it must not leave the app the way a plain page would.
+    await openTab(page, "Files");
+    await page.waitForTimeout(300);
+    check("Files is open before Back", (await page.locator(".pane-close").count()) === 1);
+    await page.goBack();
+    await page.waitForTimeout(400);
+    check(
+      "the browser's Back closes the pane back to Chat",
+      (await page.locator(".pane-close").count()) === 0 &&
+        (await page.locator(".composer textarea").isVisible()),
     );
 
     // Settings for every agent: a PANE, opened from More. A phone has no

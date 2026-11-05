@@ -55,7 +55,9 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   band's hairline, the sheet's own glyph) whose verb is back to Chat, and the band's title names that
   pane while it is up; `.main` grows `.closable` so the pane's own `.pane-bar` pads its right end
   clear of it — an X over a chip is a control nobody can press, and `ui-check` proves the corner is
-  clear at both widths. **An avatar answers
+  clear at both widths. The open pane also owns the phone's **Back** at the BackStack's floor rank
+  (`useBackToClose` in `App`): Back steps a secondary pane back to Chat rather than leaving the
+  app, and any sheet or menu opened over the pane closes first. **An avatar answers
   *who*, not *where*:** picking another agent keeps the pane you are on (Files stays Files, with
   their files), because being thrown to Chat made the avatars a place you dared not click while
   something else was open; on Chat it opens the panel, and the open agent's own avatar is the
