@@ -1,5 +1,5 @@
-import type { ChannelSend } from "../lib/channel-send.ts";
-import { channelLabel } from "../lib/channel-send.ts";
+import { type ChannelSend, channelLabel } from "../lib/channel-send.ts";
+import { formatEntryTime, formatEntryTimeFull } from "../lib/timestamps.ts";
 import { Icon } from "./Icon.tsx";
 
 /**
@@ -11,38 +11,46 @@ import { Icon } from "./Icon.tsx";
  * promoted out of the run and rendered here, the way a pending question is,
  * because a message the user came here to read cannot hide behind a fold.
  *
- * It is an `.entry` like the question card's, so it joins the transcript's own
- * column rather than inventing a panel; the left rule matches the question card's
- * accent and flips to the error colour when the channel refused the message.
+ * It is a message **from the agent**, so it borrows the agent's own header
+ * (`<glyph> Telegram · <time> · <status>`, the `.role` line and the agent tint)
+ * rather than announcing a tool: nobody reads this as "MessageChannel", they read
+ * it as "the agent sent this on Telegram". The panel stays quieter than an answer
+ * — a tint rail and a faint wash, no box — so it reads as the agent's words with
+ * a delivery fact attached, not as a second answer.
  *
- * Layout rules, each earned at 390px:
+ * Two rules the wire forced:
  *
- * - the header is **one line that cannot wrap**, and when it does not fit the
- *   **tool name yields first and the destination last**: `MessageChannel` may
- *   ellipsize, `→ Telegram` may not, and the pill never breaks internally or
- *   leaves the row. The first mock got the yield order backwards and cut the
- *   destination — the one token on that line worth reading.
- * - the body is message text at message size. The mock's muted 13px made the
- *   point of the card the hardest thing on screen.
- * - a pending send shows no pill at all. No return, no claim.
+ * - **a pending send shows no status glyph.** No return, no claim.
+ * - the header is **one line that cannot wrap**; the channel name is what matters,
+ *   so nothing on the row may push it out (`white-space: nowrap` end to end).
  */
-export function ChannelSendCard({ send }: { send: ChannelSend }) {
+export function ChannelSendCard({
+  send,
+  date,
+  showTimestamps,
+}: {
+  send: ChannelSend;
+  date: string;
+  showTimestamps: boolean;
+}) {
   const failed = send.delivery === "failed";
-  const destination =
-    send.action === "upload-file"
-      ? `→ ${channelLabel(send.channel)} · attachment`
-      : `→ ${channelLabel(send.channel)}`;
+  const short = formatEntryTime(date);
   return (
     <div className={`entry channel-send${failed ? " failed" : ""}`}>
-      <div className="chan-head">
-        <code>MessageChannel</code>
-        <span className="chan-dest">{destination}</span>
-        {send.delivery === "sent" ? (
-          <span className="chan-tag sent">
-            sent <Icon name="check" />
-          </span>
+      <div className="role chan-head">
+        <span className="who">
+          <Icon name="send" className="chan-glyph" />
+          {channelLabel(send.channel)}
+        </span>
+        {/* The one shared timestamp rule: with timestamps filtered off, no
+            `<time>` element appears anywhere in the transcript. */}
+        {short && showTimestamps ? (
+          <time dateTime={date} title={formatEntryTimeFull(date)}>
+            {short}
+          </time>
         ) : null}
-        {failed ? <span className="chan-tag">not delivered</span> : null}
+        {send.delivery === "sent" ? <Icon name="check" className="chan-status sent" /> : null}
+        {failed ? <Icon name="warning" className="chan-status bad" /> : null}
       </div>
       <p className="chan-body">{send.body}</p>
     </div>

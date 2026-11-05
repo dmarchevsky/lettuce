@@ -448,7 +448,9 @@ const MessageItem = memo(function MessageItem({
   }
 
   if (entry.kind === "channel_send" && entry.channelSend) {
-    return <ChannelSendCard send={entry.channelSend} />;
+    return (
+      <ChannelSendCard send={entry.channelSend} date={entry.date} showTimestamps={showTimestamps} />
+    );
   }
 
   if (entry.kind === "question" && entry.question) {

@@ -1003,17 +1003,41 @@ try {
           const head = el.querySelector<HTMLElement>(".chan-head")!;
           const list = document.querySelector<HTMLElement>(".messages")!;
           const body = el.querySelector<HTMLElement>(".chan-body");
+          // "Same colour and header style as the main agent" is only a claim once
+          // something measured proves it: the card's name must take the same tint
+          // the agent's own role line takes, and its body the same text size.
+          const who = el.querySelector<HTMLElement>(".chan-head .who");
+          const agentWho = document.querySelector<HTMLElement>(
+            ".messages .entry.assistant:not(.subagent) .role .who",
+          );
+          const agentBubble = document.querySelector<HTMLElement>(
+            ".messages .entry.assistant:not(.subagent) .bubble",
+          );
           return {
-            foldedInsideSteps: !!el.closest(".steps.open > *"),
             topChild: el.parentElement === list,
             headLines: head.getClientRects().length,
             headH: Math.round(head.getBoundingClientRect().height),
             bodySized: body ? getComputedStyle(body).fontSize : null,
+            agentSized: agentBubble ? getComputedStyle(agentBubble).fontSize : null,
+            whoColor: who ? getComputedStyle(who).color : null,
+            agentWhoColor: agentWho ? getComputedStyle(agentWho).color : null,
+            hasTime: !!el.querySelector("time"),
             listOverflow: list.scrollWidth > list.clientWidth + 1,
           };
         });
         check("a channel send is not hidden inside a collapsed run", card.topChild, card);
         check("its header holds one line", card.headLines === 1 && card.headH < 34, card);
+        check("its header carries the time like the agent's does", card.hasTime, card);
+        check(
+          "its name takes the agent's own colour",
+          !!card.whoColor && card.whoColor === card.agentWhoColor,
+          card,
+        );
+        check(
+          "its body is message text, not a caption",
+          !!card.bodySized && card.bodySized === card.agentSized,
+          card,
+        );
         check("the transcript still does not scroll sideways", !card.listOverflow, card);
       }
     }
