@@ -36,6 +36,14 @@ A force push needs no rule of its own: dev-flow asks the operator before any `gi
 updated by merging `main` into it — that includes a contributor's fork-PR branch, pushed to under
 maintainerCanModify with a PR comment saying so — never by rebasing it.
 
+**What a `yolo` word does, and what it still does not buy.** dev-flow takes yolo literally: every later
+checkpoint is pre-answered and the plugin tells you to run the remaining gates back to back without asking
+— Release? included. The gate will not stop you, so the rule is on the agent: **a versioned `flow release`
+still asks its own Release?**, with the derived version, the commit range and whether `app-server` is
+recreated stated back, and waits for the verb. AGENTS.md hard rule 5 is why — a yes spoken before the
+commits exist is not a yes for the tag, however it was worded, so "yolo, release as patch bump" at plan
+buys the bump's *preparation*, never the push.
+
 `protect` and `forbid` name a path and its subtree; a glob works in the **last segment only**, as a
 sibling set: `protect docker/.env*` covers `.env` and every `docker/.env.bak-20261021` a variable flip
 leaves beside it. Flip a variable **in place** anyway instead of copying `.env` aside, and never `-f` add
@@ -48,9 +56,13 @@ playbook itself is the one `-f` add that is right (`.dev-flow/` is ignored, `pro
 
 - [ ] (ui) mockups of every changed surface, rendered at 390 and 1280 and embedded in plan.md
 
-A mockup links the **worktree's** stylesheet (`../../worktree/web/src/styles.css` from `plan/mockups/`)
-— never the main checkout's, which lacks every class the branch adds until it merges, so a re-render
-silently loses the new styling. Check the link resolved before trusting a shot.
+A mockup rendered **at plan** has no worktree to link — `flow approve` is what creates it — so link the
+**main checkout's** `web/src/styles.css` (`../../../../web/src/styles.css` from `plan/mockups/`), and
+never another feature's worktree, which drifts and is removed at its finish. **After** approve, re-link
+and re-render every mockup you keep using at **this feature's** worktree stylesheet
+(`../../worktree/web/src/styles.css`) — the main checkout lacks every class the branch adds until it
+merges, so a re-render against it silently loses the new styling. Check the link resolved before
+trusting a shot.
 
 Write the plan to `plan/` **as the discussion goes**, not when it ends: pi has auto-compacted at the
 `release` stage twice now, and a plan that lived only in the transcript was gone with it — the gates read
@@ -63,8 +75,11 @@ operator's grant in chat, never self-selected. `flow approve` cuts the branch fr
 `origin/main` as this clone last fetched it, so `git fetch` right before approving — an unfetched
 `origin/main` puts the whole feature, its diff and every `flow check`, on a stale base that pre-release
 pays for with a merge and a full CI re-run. Local-only commits on `main`
-(`git log origin/main..main --oneline`) never reach the branch at all. When a parallel flow lands while
-you work, merge `main` into the branch then rather than leaving it to pre-release.
+(`git log origin/main..main --oneline`) never reach the branch at all.
+
+**A fold is not done until a repo-wide grep says so.** When a reflection names one stale string or verb,
+`git grep` the whole tree, not the file the note names: a rename that left `ponytail-review` printing in
+`scripts/verify.ts`'s epilogue cost an extra commit, and the note itself pointed nowhere near it.
 
 ## implement
 
@@ -110,20 +125,47 @@ a container path — the next recreate deletes it. A session that moved the sign
 locked screen, keeping its only backup inside `bff`, cost the operator their password when the container was
 rebuilt. Copy state **out** to the host to photograph it, or add data instead of moving it.
 
+**Never ask Verified? of a stack that is not up.** Prove it before the question: every service running
+(`docker ps`, or `docker compose -f docker/compose.yml ps` run from the **main** checkout — a worktree
+without `docker/.env` cannot interpolate the compose file), the `health` probe green, and where the stack
+signs in with a password (`SIGNIN=password`) sign in to the UI yourself and look at the change — an operator
+should click a working app, not discover a dead one. This machine's password lives in
+`.pi/local-secrets/test-password.md` in the main checkout (gitignored, per-machine, never committed and
+never pasted into a tracked file); if the file is missing, **ask** rather than guess. Because the stack is
+shared, check `docker ps` again just before asking: if another session recreated a service mid-pass, or the
+served `assets/index-*.js` changed under you, **stop and tell the operator** instead of competing for the
+environment or reporting a result you cannot stand behind.
+
+**A failed `dev` run can leave the app down with no hint.** When `flow verify`'s deploy fails, the first
+command is `docker compose -f docker/compose.yml ps -a`, before anything else: compose gates `bff` on
+`depends_on: app-server: condition: service_healthy`, so a transient unhealthy `/healthz` (busy under load)
+fails the dependency and leaves `bff` in `Created` — never started — while the gate prints only "dependency
+failed to start". The operator's app is silently down. The miss is usually transient (app-server was healthy
+seconds later): say plainly that the stack is down, then re-run `flow verify`.
+
 `smoke` and `ui-check` both stop at `LETTUCE_TEST_PASSWORD` when the stack signs in with a password
-(`scripts/harness.ts`), and an agent never stores that password: it is not a repo file, and exporting it
-into a shell is the operator's per-machine choice. So an agent that cannot run them records **what it
-probed in the container** instead — in the PR's *What was clicked* — and says plainly that a human pass on
-the sign-in path is still owed. `flow verify` deploying and probing `/readyz` is not that pass and never
-counts as one. When the branch edits `scripts/ui-check.ts` itself, the owed item is narrower: **the
-operator runs `bun run ui-check` once** during the container test — a click-through does not execute
-the suite and CI's `live.yml` runs with `UI_CHECK=off`, so a new assertion would otherwise ship never-run.
+(`scripts/harness.ts`), and an agent never stores that password: **it is not a repo file**, and exporting it
+into a shell is the operator's per-machine choice. The one exception is the machine-local file above: where
+`.pi/local-secrets/test-password.md` exists, that *is* the operator having made the choice — read it, export
+`LETTUCE_TEST_PASSWORD`, and run `smoke` / `ui-check` yourself. Where it does not exist, an agent that cannot
+run them records **what it probed in the container** instead — in the PR's *What was clicked* — and says
+plainly that a human pass on the sign-in path is still owed. `flow verify` deploying and probing `/readyz`
+is not that pass and never counts as one. When the branch edits `scripts/ui-check.ts` itself, the owed item
+is narrower: **the operator runs `bun run ui-check` once** during the container test — a click-through does
+not execute the suite and CI's `live.yml` runs with `UI_CHECK=off`, so a new assertion would otherwise ship
+never-run.
 
 - [ ] built and running in the local container stack by `flow verify`'s own `dev` run (`build:bff`
       first for any web/ change, then unscoped `up -d`), left up while Verified? is asked, and the
       operator clicked through the change and said it works
 - [ ] (ui) `bun run ui-check` screenshots plus a live look at 390 and 1280, reviewed as a whole screen
       — or `LETTUCE_TEST_PASSWORD` is not held: record the container probes and the owed human pass above
+- [ ] the stack was **proven** up before Verified? was asked (`docker ps` all running, `health` green, and
+      signed in with `.pi/local-secrets/test-password.md` where `SIGNIN=password`), and no other session
+      recreated a service mid-pass — if it did, pause and tell the operator instead of asking
+- [ ] `origin/main` has not moved since the branch point — if a parallel flow landed, merge `main` in and
+      re-run the checks **before** any review: a review judges the branch against the skills it branched
+      from, and a branch a day old is graded against rules the other flow already replaced
 
 ## pre-release
 
@@ -143,7 +185,12 @@ user-facing functionality, PATCH for everything else that ships. The version is 
 without a bump is red. The heading an entry lands under is what CI derives the bump from: `### Added` and
 `### Changed` are proof of a MINOR, so a PATCH flow files its entry under `### Fixed` or `### Removed`
 — otherwise the derivation answers `unknown` against a `bump:patch` label. A flow that ships no version runs `flow release --no-version` on the operator's
-word instead. Parallel branches collide on `VERSION` and `CHANGELOG.md`: merge `main` in and re-derive
+word instead, **and it still owes its line**: an unversioned flow files one `## [Unreleased]` entry even
+when `lettuce-releasing` calls the change internal-only, because the next versioned release folds
+`Unreleased` under its heading and remembers what no image carries. A harness-only entry (playbook, skills,
+CI) goes under `### Changed` — the heading rule above reads only at a versioned release, where the `bump:*`
+label is what CI derives from and a harness flow carries `bump:none`. Parallel branches collide on `VERSION`
+and `CHANGELOG.md`: merge `main` in and re-derive
 the version before asking Release?, because the gate refuses a tag that already exists.
 
 **A code-free release flow** (its only commit is the bump) inverts the order above: `flow verify` refuses

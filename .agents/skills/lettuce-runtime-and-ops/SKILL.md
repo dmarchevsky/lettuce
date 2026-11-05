@@ -70,6 +70,20 @@ Loaded from `AGENTS.md`. Timeouts, ports, and the two things that break spawns.
   `npm install --global --prefix /opt/codex|/opt/claude-code` is explicit, so the new default
   prefix does not move it.
 
+- **Inside a bound flow, `TMPDIR` points into the checkout, and `compose run` inherits a busy port.** Two
+  environment traps that fake a result. (a) Every gate command runs with `TMPDIR=.dev-flow/<slug>/tmp` (plus
+  `GIT_CEILING_DIRECTORIES`, which stops discovery *at* that directory but not a walk-up **past** it), so a
+  test that asserts "this directory is **not** a repository" false-fails under the gates and passes by hand:
+  git walks up out of `tmp/` and finds the worktree. The corollary is the expensive one — a "pre-existing, it
+  fails on `main` too" caveat is only proven by a control run that clears the flow's env
+  (`env -u TMPDIR -u GIT_CEILING_DIRECTORIES bun test …`); a control run that shares the same `TMPDIR` proves
+  nothing, and one such false caveat rode four `flow check` runs and a rejected `flow verify` for ~19 h while
+  masking a real fix (`bff/src/build-info.ts` now bounds the walk itself instead of trusting the env). (b) A
+  `docker compose run --rm --no-deps bff` probe shares `app-server`'s network namespace, where port 8080 is
+  already listening, so it dies on "Failed to start server. Is port 8080 in use?" and proves nothing about
+  what it was asked — pass `-e PORT=<free port>`. Only `bff` and `channel-gateway` share that netns, which is
+  why the same probe from any other service behaves.
+
 - **"Subagent process exited with code unknown before returning a result" = the spawn failed.**
   Subagents are child `letta` processes (`executeSubagent`); on Node a null exit code *and*
   signal comes only from the child's `error` event, and `spawnSubagentProcess` discards that

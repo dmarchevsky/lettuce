@@ -5,6 +5,11 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Changed
+- The agent-facing playbook and skills now say the things that cost a session to learn: prove the stack is
+  up before asking for a human check, report a failed dev deploy as the outage it is, treat mockup sizes as
+  provisional, and re-ask for release authorization at the tag.
+
 ## [v0.32.1-letta_0.34.38] - 2026-11-05
 
 ### Fixed
