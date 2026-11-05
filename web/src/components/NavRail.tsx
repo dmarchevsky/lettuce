@@ -40,6 +40,10 @@ interface Props {
   /** The main rail's foot cell: Settings' door. There is no glyph for it in the
    * band any more — the column that names the panes names this one too. */
   onOpenSettings: () => void;
+  /** Unpinned, the rail is a glyph-only strip (the pin in the AGENTS row toggles
+   * it). Never true while Settings is the pane — that rail keeps its word rows. */
+  railCollapsed: boolean;
+  onToggleRailPin: () => void;
   /** The Settings column's ☰: leave the pane and bring the conversation drawer. */
   onShowAll: () => void;
   onEditAgent: (agentId: string) => void;
@@ -64,13 +68,16 @@ function paneItems(runsEnabled: boolean): { tab: Tab; label: string; icon: IconN
 }
 
 /**
- * The desktop rail: the panes on top, the agents anchored at the bottom.
+ * The desktop rail: the agents up top — "who" before "where" — the panes fixed
+ * above the foot cell, and Settings' door on the foot.
  *
- * One column answers "which pane" and "which agent", in one row height, and the
- * agent block rides the foot above the foot cell — Settings' door. There is no second copy
- * of the agent list anywhere: the conversation drawer shows conversations only.
- * Chat is primary in the literal sense: it is the default pane, the only one with
- * a composer, and the only one with a drawer.
+ * One column answers "which agent" and "which pane", in one row height. The
+ * AGENTS row doubles as the column's head: its right corner carries the pin that
+ * collapses the rail to an icon strip (the Settings rail never collapses — a
+ * list of words needs a column that can hold one). Unpinned, words hide and
+ * every row centers its glyph; `title` carries the word there. Chat is primary
+ * in the literal sense: it is the default pane, the only one with a composer,
+ * and the only one with a drawer.
  */
 export function NavRail({
   agents,
@@ -87,6 +94,8 @@ export function NavRail({
   onPickSection,
   onCloseSettings,
   onOpenSettings,
+  railCollapsed,
+  onToggleRailPin,
   onShowAll,
   onEditAgent,
   onNewAgent,
@@ -221,24 +230,32 @@ export function NavRail({
   }
 
   return (
-    <nav className="rail" aria-label="Sections and agents">
-      {panes.map((pane) => (
-        <button
-          key={pane.tab}
-          type="button"
-          className={`rail-item${tab === pane.tab ? " active" : ""}`}
-          aria-current={tab === pane.tab ? "page" : undefined}
-          onClick={() => onSelectPane(pane.tab)}
-        >
-          <Icon name={pane.icon} />
-          {pane.label}
-        </button>
-      ))}
-
-      {/* The block's own border-top is the hairline that ends the panes; the word
-          under it says what the rows below answer. */}
+    <nav
+      className={`rail${railCollapsed ? " rail-collapsed" : ""}`}
+      aria-label="Agents and sections"
+    >
+      {/* The agents ride the top: the block fills the room above the panes and
+          scrolls on its own when the list outgrows it. Its head row carries the
+          group word and — in the right corner, on the drawer pin's metrics — the
+          pin that folds the rail down to glyphs. */}
       <div className="rail-agents" onScroll={() => setMenu(null)}>
-        <span className="rail-group-label">Agents</span>
+        <div className="rail-agents-head">
+          <span className="rail-group-label">Agents</span>
+          <button
+            type="button"
+            className="col-pin"
+            aria-pressed={!railCollapsed}
+            onClick={onToggleRailPin}
+            title={
+              railCollapsed
+                ? "Pin the rail open — show names again"
+                : "Unpin to collapse the rail to icons"
+            }
+            aria-label={railCollapsed ? "Expand the rail" : "Collapse the rail"}
+          >
+            <Icon name="pin" />
+          </button>
+        </div>
         {visible.map((agent) => (
           <button
             key={agent.id}
@@ -281,10 +298,34 @@ export function NavRail({
             <span className="rail-agent-name">{agent.name}</span>
           </button>
         ))}
-        <button type="button" className="rail-agent rail-new" onClick={onNewAgent}>
+        <button
+          type="button"
+          className="rail-agent rail-new"
+          onClick={onNewAgent}
+          title="New agent"
+        >
           <Icon name="plus" />
           New agent
         </button>
+      </div>
+
+      {/* The panes sit above the foot: the block's hairline above them is the one
+          that ends the agents, and these rows answer "where" last, nearest the
+          bottom where the steady things live. */}
+      <div className="rail-panes">
+        {panes.map((pane) => (
+          <button
+            key={pane.tab}
+            type="button"
+            className={`rail-item${tab === pane.tab ? " active" : ""}`}
+            aria-current={tab === pane.tab ? "page" : undefined}
+            title={railCollapsed ? pane.label : undefined}
+            onClick={() => onSelectPane(pane.tab)}
+          >
+            <Icon name={pane.icon} />
+            {pane.label}
+          </button>
+        ))}
       </div>
 
       {/* The foot cell, outside the scroll: Settings' door. It sits at the foot

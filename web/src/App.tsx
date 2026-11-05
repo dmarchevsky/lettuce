@@ -51,7 +51,14 @@ import {
   type StructuredOutputPreference,
   writeStructuredOutput,
 } from "./lib/structured-output.ts";
-import { readPanelPin, runsEnabled, type Tab, writePanelPin } from "./lib/tabs.ts";
+import {
+  readPanelPin,
+  readRailPin,
+  runsEnabled,
+  type Tab,
+  writePanelPin,
+  writeRailPin,
+} from "./lib/tabs.ts";
 import { readShowTimestamps, writeShowTimestamps } from "./lib/timestamps.ts";
 import { useAgentConversations } from "./state/use-agent-conversations.ts";
 import { useAgents } from "./state/use-agents.ts";
@@ -240,6 +247,13 @@ function Workspace({ status }: { status: Status }) {
   const [panelPinned, setPanelPinned] = useState(readPanelPin);
   const [panelPeek, setPanelPeek] = useState(false);
   /**
+   * The desktop rail's shape, per device: pinned is the column of words, unpinned
+   * is a glyph strip (the pin in the rail's AGENTS row flips it, and the choice
+   * survives a reload like the drawer's pin does). The Settings rail is exempt —
+   * its sections are words — so the collapse applies only while another pane is up.
+   */
+  const [railPinned, setRailPinned] = useState(readRailPin);
+  /**
    * The agent the rail is resting on, whose conversations the one panel shows for
    * the moment. There is no second list anywhere: a hover borrows the panel that is
    * already there, and an unpinned panel is already a peek, so borrowing it is the
@@ -313,6 +327,14 @@ function Workspace({ status }: { status: Status }) {
   }, [tab, conversationId, conversations, selectConversation]);
 
   const openPanel = useCallback(() => setPanelPeek(true), []);
+
+  const toggleRailPin = useCallback(() => {
+    setRailPinned((current) => {
+      writeRailPin(!current);
+      return !current;
+    });
+  }, []);
+
   // Unpinning is not closing: you are looking at the panel when you press it, so
   // it stays open as a peek. (It used to vanish on the un-pin, which made the pin
   // button — inside the panel — the thing you had just made unreachable.)
@@ -670,7 +692,7 @@ function Workspace({ status }: { status: Status }) {
   );
 
   return (
-    <div className="app">
+    <div className={`app${railPinned || tab === "Settings" ? "" : " rail-collapsed"}`}>
       {wide ? topbar : null}
       <NavRail
         agents={agents}
@@ -690,6 +712,8 @@ function Workspace({ status }: { status: Status }) {
         onShowAll={showAllAgents}
         onEditAgent={editAgent}
         onNewAgent={() => setCreatingAgent(true)}
+        railCollapsed={!railPinned && tab !== "Settings"}
+        onToggleRailPin={toggleRailPin}
       />
       <Sidebar
         agents={agents}
