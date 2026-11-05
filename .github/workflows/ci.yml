@@ -27,8 +27,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Mirrors "packageManager" in package.json. Bump both together; the image builds on
-  # oven/bun:1.3, which is a moving minor and does not need to match exactly.
+  # Mirrors "packageManager" in package.json. Bump both together, and keep the minor
+  # the same as the image's `FROM oven/bun:1.3` — the two runtimes disagree about a
+  # refused WebSocket handshake, and `check-version-pin` now fails the divergence.
   BUN_VERSION: "1.3.0"
 
 jobs:

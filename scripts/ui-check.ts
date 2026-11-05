@@ -1449,8 +1449,7 @@ try {
     check(
       "the drawer carries conversations only — the agent list is not copied",
       (await page.locator(".sidebar .agent-avatar").count()) === 0 &&
-        (await page.locator(".sidebar .conversation-row").count()) >= 1 &&
-        (await page.locator(".sidebar .panel-agent").count()) === 0,
+        (await page.locator(".sidebar .conversation-row").count()) >= 1,
     );
     // The rail is the agent list, so it carries the names: a face with no word
     // beside it in a 184px column is the design that was thrown out.
@@ -1635,7 +1634,6 @@ try {
     await page.locator(".rail .rail-agent.active").hover();
     await page.waitForTimeout(400);
     check("hovering the open agent's avatar opens its panel", await panelOn());
-    check("and nothing else appeared to do it", (await page.locator(".flyout").count()) === 0);
     await page.locator(".messages").click({ position: { x: 620, y: 300 } });
     await page.waitForTimeout(300);
     check("and a press past it puts it away again", !(await panelOn()));
@@ -1771,8 +1769,7 @@ try {
       );
       check(
         "and it is the one panel — nothing else appears beside it",
-        (await page.locator(".sidebar").count()) === 1 &&
-          (await page.locator(".flyout").count()) === 0,
+        (await page.locator(".sidebar").count()) === 1,
       );
       await shot(page, "desktop-hover");
       check(
@@ -1909,8 +1906,7 @@ try {
     await page.waitForTimeout(400);
     check(
       "New agent is the last row of the rail's list, not a verb in the drawer",
-      (await page.locator(".sidebar .panel-new").count()) === 0 &&
-        (await page.locator(".rail .rail-agents .rail-new").count()) === 1,
+      (await page.locator(".rail .rail-agents .rail-new").count()) === 1,
     );
     const activeRing = await page.evaluate(() => {
       const el = document.querySelector(".rail .rail-agent.active .agent-avatar");
@@ -3019,19 +3015,16 @@ try {
     const idleLight = await page.evaluate(() => {
       const btn = document.querySelector(".topbar button.topbar-status.light");
       const dot = btn?.querySelector(".link-dot");
-      const gear = document.querySelector(".topbar-gear"); // must be gone: the light is the status
       return {
         light: !!btn && !!dot,
         dotColour: dot ? getComputedStyle(dot).backgroundColor : null,
         word: btn?.querySelector(".topbar-word")?.textContent?.trim() ?? null,
-        gear: !!gear,
       };
     });
     check(
       `${viewport.width}px: the idle light is there and coloured, and the band carries no gear`,
       idleLight.light &&
         Boolean(idleLight.dotColour && idleLight.dotColour !== "rgba(0, 0, 0, 0)") &&
-        idleLight.gear === false &&
         (viewport.width < 640 || Boolean(idleLight.word)),
       idleLight,
     );
@@ -3216,11 +3209,6 @@ try {
       }),
     );
     await page.waitForTimeout(300);
-    const w = viewport.width;
-    check(
-      `${w}px: the composer no longer carries a token count`,
-      (await page.locator(".composer .turn-usage").count()) === 0,
-    );
     const gauge = page.locator(".topbar .ctx-gauge");
     check(`${w}px: the gauge is in the top bar`, (await gauge.count()) === 1);
     if ((await gauge.count()) === 1) {

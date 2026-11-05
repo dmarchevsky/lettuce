@@ -174,6 +174,54 @@ for (const site of found.filter((site) => site.advisory)) {
   );
 }
 
+// ---------------------------------------------------------------- bun runtime
+//
+// The runtime CI installs and the runtime the image ships are two different
+// things, and they answer a refused WebSocket handshake differently: 1.3.14 throws
+// it out of EventEmitter, 1.3.0 delivers an ordinary rejection. A test written
+// against one went red on the other, so the two must at least agree on a minor —
+// and `packageManager`, which the CI workflows read, is the one record of it.
+// This is a literal comparison (check-version-pin stays offline): the image tag is
+// allowed to float inside the minor, never across it.
+{
+  const pkg = await Bun.file(`${ROOT}package.json`).text();
+  const pm = /"packageManager"\s*:\s*"bun@([0-9]+)\.([0-9]+)\.([0-9]+)"/.exec(pkg);
+  const dockerfile = await Bun.file(`${ROOT}docker/bff.Dockerfile`).text();
+  const image = /FROM\s+oven\/bun:([0-9]+)\.([0-9]+)(?:\.([0-9]+))?/.exec(dockerfile);
+  const workflows = [];
+  for (const wf of ["ci.yml", "live.yml"]) {
+    const text = await Bun.file(`${ROOT}.github/workflows/${wf}`).text();
+    const m = /BUN_VERSION:\s*"?([0-9]+)\.([0-9]+)\.([0-9]+)"?/.exec(text);
+    if (m) workflows.push([wf, `${m[1]}.${m[2]}.${m[3]}`] as [string, string]);
+  }
+  if (!pm)
+    problems.push('package.json: no "packageManager": "bun@<x.y.z>" to derive the runtime from');
+  if (!image)
+    problems.push("docker/bff.Dockerfile: no `FROM oven/bun:<x.y>` to compare the runtime against");
+  if (workflows.length === 0)
+    problems.push(".github/workflows: no BUN_VERSION pin found in ci.yml or live.yml");
+  if (pm && image) {
+    if (`${pm[1]}.${pm[2]}` !== `${image[1]}.${image[2]}`) {
+      problems.push(
+        `bun runtime: package.json says bun@${pm[1]}.${pm[2]} but docker/bff.Dockerfile is ` +
+          `oven/bun:${image[1]}.${image[2]} — a test may pass in CI on a runtime the image never runs`,
+      );
+    } else {
+      console.log(
+        `    ${`bun@${pm[1]}.${pm[2]}.${pm[3]}`.padEnd(16)} runtime (package.json ↔ oven/bun:${image[1]}.${image[2]})`,
+      );
+    }
+  }
+  for (const [wf, version] of workflows) {
+    if (version !== `${pm?.[1]}.${pm?.[2]}.${pm?.[3]}`) {
+      problems.push(
+        `${wf}: BUN_VERSION ${version} disagrees with package.json's packageManager ` +
+          `bun@${pm?.[1]}.${pm?.[2]}.${pm?.[3]} — bump both together`,
+      );
+    }
+  }
+}
+
 if (problems.length > 0) {
   console.log(`\n✗ version pin check FAILED`);
   for (const problem of problems) console.log(`    ${problem}`);

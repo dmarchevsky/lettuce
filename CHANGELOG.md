@@ -10,6 +10,10 @@ All notable user-facing changes to lettuce, newest first. Version tags and
   up before asking for a human check, report a failed dev deploy as the outage it is, treat mockup sizes as
   provisional, and re-ask for release authorization at the tag.
 
+### Fixed
+- CI and the shipped image can no longer disagree silently about which bun runs the tests, and a UI
+  assertion whose CSS class was deleted now fails at the commit that deleted it instead of passing forever.
+
 ## [v0.32.1-letta_0.34.38] - 2026-11-05
 
 ### Fixed

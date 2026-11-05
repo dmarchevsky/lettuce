@@ -70,7 +70,7 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   A secondary pane puts it away, and the pin (in the tool row under the owner; localStorage,
   **unpinned by default** — the rail carries the names now, so the drawer is something you reach
   for, not something you live beside) decides its shape: pinned it is a column of the grid
-  (`--panel-w`), unpinned it is a **peek** floating over the transcript with a shadow
+  (`--rail-w`), unpinned it is a **peek** floating over the transcript with a shadow
   (`--drawer-w`), and it puts itself away when you press outside it or choose something in it —
   choosing is what closes a peek, since it was opened to answer that one question. The exception is
   the top band, whose  identity button IS the show/hide verb (clicking it while pinned unpins and hides). It stays **mounted** when hidden — its
