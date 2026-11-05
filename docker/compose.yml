@@ -296,6 +296,23 @@ services:
     # during a turn timed out, left the new container created but not started,
     # and prod had no bff once the old one drained (2026-09-29).
     stop_grace_period: 10m
+    # Liveness of THIS container, and deliberately not `/readyz`: that answers 503
+    # for as long as the app-server is not connected, so a readiness probe would
+    # call bff unhealthy through every app-server restart — while a bff that had
+    # died at boot (docs/upstream-notes.md#bff-ws-error-crash-story) was invisible
+    # to anyone until the UI came up blank. The image ships no curl
+    # (docker/bff.Dockerfile installs git and openssh-client and nothing else), so
+    # the probe is bun asking its own server. Docker takes no action on
+    # `unhealthy`; what it buys is that `docker compose ps`, `bun run deploy-check`
+    # and the deploy manager can see the container fail instead of infer it.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - bun -e 'fetch("http://127.0.0.1:"+(process.env.PORT||8080)+"/healthz").then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))'
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     environment:
       TZ: ${TZ:-America/Los_Angeles}
       PORT: "8080"
