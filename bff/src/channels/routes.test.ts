@@ -81,6 +81,10 @@ function setup(
     ready?: boolean;
     /** The Bot API call; default throws so no test can ever reach the network. */
     send?: typeof fetch;
+    bindingNames?: (
+      agentId: string,
+      conversationId: string,
+    ) => Promise<{ agent: string | null; conversation: string | null }>;
   } = {},
 ) {
   const store = new Map<string, string>();
@@ -105,6 +109,7 @@ function setup(
       ((async () => {
         throw new Error("no network in tests");
       }) as unknown as typeof fetch),
+    bindingNames: options.bindingNames,
   });
   const disk = (path: string): Record<string, unknown> | null => {
     const text = store.get(path);
@@ -498,6 +503,30 @@ describe("POST /api/channels/telegram/pairings/approve", () => {
     expect(calls[0]!.url).toContain("api.telegram.org");
     expect(calls[0]!.body.chat_id).toBe("555111");
     expect(JSON.stringify(calls[0]!.body)).not.toContain("AAStoredSecretValue");
+  });
+
+  test("the notice names the agent and conversation it could resolve", async () => {
+    let text = "";
+    const { app } = setup({
+      files: {
+        [TELEGRAM_ACCOUNTS_PATH]: ACCOUNTS_FIXTURE,
+        [TELEGRAM_PAIRING_PATH]: { pending: [LIVE_PENDING], approved: [] },
+        [TELEGRAM_ROUTING_PATH]: { routes: [] },
+      },
+      bindingNames: async () => ({ agent: "Memo", conversation: "Daily log" }),
+      send: (async (_url: unknown, init: { body: string }) => {
+        text = (JSON.parse(init.body) as { text: string }).text;
+        return new Response("{}", { status: 200 });
+      }) as unknown as typeof fetch,
+    });
+    const response = await send(app, "POST", "/api/channels/telegram/pairings/approve", {
+      code: "K7QX2M",
+      agentId: "agent_home",
+      conversationId: "conv_home",
+    });
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as { notified: boolean }).notified).toBe(true);
+    expect(text).toBe("✅ Paired with Memo · Daily log");
   });
 
   test("an approve still stands when the notice cannot be delivered", async () => {

@@ -4,6 +4,7 @@ import type {
   AgentListResponseMessage,
   AgentRetrieveResponseMessage,
   ConnectProviderResponseMessage,
+  ConversationListResponseMessage,
   ConversationRetrieveResponseMessage,
   DisconnectProviderResponseMessage,
   ExecuteCommandResponseMessage,
@@ -1331,10 +1332,50 @@ registerCodexRoutes(app, {
 // Settings → Telegram: the bot account, routes and pairing, edited straight
 // in the gateway's own state files — see `channels/state.ts` for why the BFF,
 // not the protocol, touches them.
+/**
+ * The human names of a bound pair, for the pairing notice Telegram gets.
+ * Best effort over the one permanent connection (the same internal round
+ * trip the context sizer uses): whatever cannot be resolved reads null, and
+ * nothing throws — the notice must send with names or without.
+ */
+async function telegramBindingNames(agentId: string, conversationId: string) {
+  const names = { agent: null as string | null, conversation: null as string | null };
+  try {
+    const agents = await upstream.request<AgentListResponseMessage>(
+      { type: "agent_list", request_id: `bff-telegram-${randomUUID()}`, query: { limit: 100 } },
+      8_000,
+    );
+    const found = agents.success ? agents.agents.find((agent) => agent.id === agentId) : undefined;
+    if (found && typeof found.name === "string" && found.name) names.agent = found.name;
+  } catch {
+    // a nameless notice still travels
+  }
+  try {
+    const conversations = await upstream.request<ConversationListResponseMessage>(
+      {
+        type: "conversation_list",
+        request_id: `bff-telegram-${randomUUID()}`,
+        query: { agent_id: agentId, limit: 100 },
+      },
+      8_000,
+    );
+    const found = conversations.success
+      ? conversations.conversations.find((conversation) => conversation.id === conversationId)
+      : undefined;
+    if (found && typeof found.summary === "string" && found.summary) {
+      names.conversation = found.summary;
+    }
+  } catch {
+    // as above
+  }
+  return names;
+}
+
 registerTelegramRoutes(app, {
   isReady: () => upstream.isReady(),
   telegramEnabled: config.features.telegram,
   io: codexIo,
+  bindingNames: telegramBindingNames,
 });
 
 // Settings → Web: the native web tools' switch, backend status and a test

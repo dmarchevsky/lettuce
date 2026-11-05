@@ -281,6 +281,25 @@ export async function approvePairing(
   return { route: shown };
 }
 
+export interface PairingBindingNames {
+  agent: string | null;
+  conversation: string | null;
+}
+
+/**
+ * The notice is one short line, and it names what the chat just connected to
+ * — “who am I talking to” is the whole question a paired user has. Names
+ * that could not be resolved fall back to the generic line: a plain notice
+ * beats no notice.
+ */
+export function pairingOutcomeText(binding: PairingBindingNames | null): string {
+  const agent = binding?.agent ?? null;
+  const conversation = binding?.conversation ?? null;
+  if (agent && conversation) return `✅ Paired with ${agent} · ${conversation}`;
+  if (agent) return `✅ Paired with ${agent}`;
+  return "✅ Pairing approved — send a message and your agent will answer.";
+}
+
 /**
  * Tell a chat its pairing was approved. Upstream never does this —
  * `bindChannelPairing` only writes the files, so the approved user finds out
@@ -293,6 +312,7 @@ export async function approvePairing(
 export async function notifyPairingApproved(
   io: ChannelsIo,
   chatId: string,
+  binding: PairingBindingNames | null = null,
   fetchImpl: typeof fetch = fetch,
 ): Promise<boolean> {
   const { accounts } = await readChannelFiles(io);
@@ -307,7 +327,7 @@ export async function notifyPairingApproved(
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         chat_id: chatId,
-        text: "✅ Pairing approved — this chat is now connected to your agent. Send a message and it will answer.",
+        text: pairingOutcomeText(binding),
       }),
       // The pairing already stands on disk; a hanging Telegram must not hang
       // the request on top of it.
