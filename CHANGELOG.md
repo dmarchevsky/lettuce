@@ -5,6 +5,15 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.32.0-letta_0.34.38] - 2026-11-05
+
+### Added
+- **Settings → Telegram.** Connect a BotFather bot without any container steps: a switch to turn it off, a write-only token, who may DM, and a list of chats whose pairing codes you approve to a chosen agent and conversation.
+- A paired Telegram chat is told its outcome: the bot messages that chat which agent and conversation it now drives.
+
+### Changed
+- The Telegram gateway watches its bot's settings and restarts itself when they change, and installs its own runtime — the `docker exec` pairing steps are gone.
+
 ## [v0.31.0-letta_0.34.38] - 2026-11-04
 
 ### Changed

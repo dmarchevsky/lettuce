@@ -136,8 +136,8 @@ before exposing anything.
 
 ### Channels
 
-- **Telegram.** Talk to your agents from a chat app and pair a chat to a
-  specific agent and conversation.
+- **Telegram.** Connect a bot in Settings and talk to your agents from a
+  chat app; pair a chat to a specific agent and conversation.
 
 ## How it fits together
 
