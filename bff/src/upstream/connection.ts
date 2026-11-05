@@ -1,4 +1,7 @@
-import type { AppServerInfoResponseMessage } from "@letta-ai/letta-code/app-server-client";
+import type {
+  AppServerInfoResponseMessage,
+  AppServerSocketConstructor,
+} from "@letta-ai/letta-code/app-server-client";
 import { AppServerClient } from "@letta-ai/letta-code/app-server-client";
 import type {
   AgentListResponseMessage,
@@ -20,6 +23,12 @@ export type UpstreamState = "connecting" | "connected" | "disconnected";
  * alone and gets the real client over a real socket.
  */
 export interface UpstreamClient {
+  /**
+   * Why the socket itself last failed, when the client knows more than its
+   * rejection says. Present on the production client only (see
+   * `createAppServerClient`); a test fake need not implement it.
+   */
+  failureDetail?(): string | null;
   connect(): Promise<unknown>;
   close(): void;
   onMessage(handler: (message: WsProtocolMessage) => void): () => void;
@@ -41,18 +50,128 @@ export interface UpstreamOptions {
   createClient?: (url: string) => UpstreamClient;
 }
 
+/** What a socket-level error event actually says, under either runtime. */
+function describeSocketError(event: unknown): string {
+  if (event instanceof Error) return event.message;
+  if (event && typeof event === "object") {
+    const record = event as { message?: unknown; error?: unknown };
+    if (typeof record.message === "string") return record.message;
+    if (record.error != null) return String(record.error);
+  }
+  return String(event);
+}
+
+/**
+ * The real client, wrapped so that a failed handshake cannot end the process.
+ *
+ * Bun aliases `ws` onto its own WebSocket implementation, and that implementation
+ * decides whether an `error` event is "unhandled" by counting **EventEmitter**
+ * listeners. Upstream's client never registers one: `attachSocketListener`
+ * (`@letta-ai/letta-code` `dist/app-server-client.js`) prefers `addEventListener`
+ * whenever the socket has it, and Bun's does. So when the handshake fails — the
+ * app-server not listening yet, which is what a docker-daemon boot hands this
+ * process before `depends_on: condition: service_healthy` means anything — the
+ * event reaches an EventEmitter with zero `error` listeners and EventEmitter
+ * throws it:
+ *
+ * ```text
+ * error: Unhandled error. (ErrorEvent { isTrusted: [Getter] })
+ *     at emitError (node:events:60:30)
+ * ```
+ *
+ * That is an uncaught exception, so the BFF exits 1 even though the rejection a
+ * few lines below is handled — and node, running the identical code, only ever
+ * rejects. Measured on bun 1.4.2 / node 22: keeping **one** permanent ws-style
+ * listener on the socket is what stops it; `socket.onerror = …` and
+ * `addEventListener("error", …)` both leave the count at zero and still crash.
+ *
+ * The listener also keeps the reason the rejection loses. Under bun the rejection
+ * reads `App-server WebSocket failed to open: [object ErrorEvent]`, while the
+ * event carries `WebSocket connection to 'ws://…' failed: Failed to connect`.
+ */
+class HandshakeTolerantClient implements UpstreamClient {
+  private lastError: string | null = null;
+  /**
+   * The same client as this class's own seam. One boundary cast, for the command
+   * and option types the seam states loosely on purpose: the caller owns
+   * `request_id` allocation and always supplies `type`, so `Record<string,
+   * unknown>` is what flows here even though upstream's signatures ask for more.
+   */
+  private readonly upstream: UpstreamClient;
+
+  constructor(client: AppServerClient) {
+    this.upstream = client as unknown as UpstreamClient;
+    // `socket.on` is optional in upstream's own `AppServerSocketLike` because a
+    // browser WebSocket has no EventEmitter API; the one built above always does.
+    client.socket.on?.("error", (event) => {
+      this.lastError = describeSocketError(event);
+    });
+  }
+
+  failureDetail(): string | null {
+    return this.lastError;
+  }
+
+  connect(): Promise<unknown> {
+    return this.upstream.connect();
+  }
+  close(): void {
+    this.upstream.close();
+  }
+  onMessage(handler: (message: WsProtocolMessage) => void): () => void {
+    return this.upstream.onMessage(handler);
+  }
+  onDisconnect(handler: () => void): () => void {
+    return this.upstream.onDisconnect(handler);
+  }
+  sendRaw(command: Record<string, unknown>): void {
+    this.upstream.sendRaw(command);
+  }
+  requestRaw(
+    command: Record<string, unknown>,
+    options: { timeoutMs?: number; predicate?: (message: WsProtocolMessage) => boolean },
+  ): Promise<unknown> {
+    return this.upstream.requestRaw(command, options);
+  }
+  info(): Promise<AppServerInfoResponseMessage> {
+    return this.upstream.info();
+  }
+}
+
 /** The real client: no `authToken`, deliberately. The app-server listens on
  * loopback without `--ws-auth`, because `letta channel-gateway` cannot send a
  * token and would be locked out; nothing outside the shared network namespace
  * can reach it (docker/compose.yml). An unauthenticated upgrade carrying
  * `Origin` is rejected outright, which `ws` never sends unasked — and which is
- * why a browser cannot connect directly. */
-function createAppServerClient(url: string): UpstreamClient {
-  return new AppServerClient({ url, WebSocket: WebSocket as never });
+ * why a browser cannot connect directly.
+ *
+ * `webSocket` is the seam that lets a test prove the tolerance is attached without
+ * a real socket; production never passes it.
+ */
+export function createAppServerClient(
+  url: string,
+  webSocket: AppServerSocketConstructor = WebSocket as unknown as AppServerSocketConstructor,
+): UpstreamClient {
+  const client = new AppServerClient({ url, WebSocket: webSocket });
+  // Constructed before anything awaits: the handshake cannot fail before this
+  // listener exists, because no event is delivered while this frame is on the stack.
+  return new HandshakeTolerantClient(client);
 }
 
 const INITIAL_RETRY_MS = 500;
 const MAX_RETRY_MS = 15_000;
+/**
+ * How often one long outage repeats itself in the log. Backoff caps at 15 s, so
+ * an app-server that stays down would otherwise print four lines a minute forever
+ * — `/readyz` answers `app-server connecting|disconnected` for anyone who wants
+ * the state rather than the noise.
+ */
+const CONNECT_FAILURE_LOG_EVERY = 20;
+
+/** Whether the Nth consecutive failed connect earns a log line (exported for tests). */
+export function shouldLogConnectFailure(failures: number): boolean {
+  return failures === 1 || failures % CONNECT_FAILURE_LOG_EVERY === 0;
+}
 /** Cron itself only ticks every 60s, so a sweep well slower than that still
  * finds a new conversation quickly without hammering the app-server. */
 const SCOPE_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
@@ -126,6 +245,8 @@ export class UpstreamConnection {
   private state: UpstreamState = "connecting";
   private info: AppServerInfoResponseMessage | null = null;
   private retryMs = INITIAL_RETRY_MS;
+  /** Failed connect attempts since the last success — see `CONNECT_FAILURE_LOG_EVERY`. */
+  private connectFailures = 0;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
   private stopped = false;
@@ -328,6 +449,7 @@ export class UpstreamConnection {
       .connect()
       .then(async () => {
         this.retryMs = INITIAL_RETRY_MS;
+        this.connectFailures = 0;
         this.generation += 1;
         this.info = await client.info();
         this.setState("connected");
@@ -343,11 +465,32 @@ export class UpstreamConnection {
         void this.subscribeToAllScopes();
       })
       .catch((error) => {
-        this.log(`Upstream connect failed: ${errorMessage(error)}`);
+        this.logConnectFailure(error, client);
         this.client = null;
         this.setState("disconnected");
         this.scheduleRetry();
       });
+  }
+
+  /**
+   * One line per failed connect, then a quieter rhythm — an app-server that is
+   * still booting is the normal case at container start, not an incident, and it
+   * stays normal for as long as it takes.
+   *
+   * The client's own socket reason is preferred when the rejection has none: under
+   * bun the rejection is `App-server WebSocket failed to open: [object
+   * ErrorEvent]`, which says nothing an operator can act on.
+   */
+  private logConnectFailure(error: unknown, client: UpstreamClient): void {
+    this.connectFailures += 1;
+    if (!shouldLogConnectFailure(this.connectFailures)) return;
+    const tally = this.connectFailures === 1 ? "" : ` (×${this.connectFailures})`;
+    let message = errorMessage(error);
+    if (/\[object \w+\]$/.test(message)) {
+      const detail = client.failureDetail?.();
+      if (detail) message = message.replace(/\[object \w+\]$/, detail);
+    }
+    this.log(`Upstream connect failed${tally}: ${message}`);
   }
 
   /**
