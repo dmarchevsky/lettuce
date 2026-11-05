@@ -117,8 +117,9 @@ export interface BffConfig {
   /**
    * Which integrations this deployment offers at all, from the tokens in
    * `COMPOSE_PROFILES` (passed through as `LETTA_MODE`): `web`⇐`search`,
-   * `google`⇐`google`, and the two VIRTUAL coding tokens `codex` and `claude`
-   * — profiles no service declares, which exist to decide the app-server
+   * `google`⇐`google`, `telegram`⇐`telegram` (the real token that creates the
+   * `channel-gateway` container), and the two VIRTUAL coding tokens `codex`
+   * and `claude` — profiles no service declares, which exist to decide the app-server
    * image's install (see `docker/codex/Dockerfile`) and, here, which Settings
    * sections exist and which integrations the BFF will switch on. A stored
    * Settings switch is only honoured when its feature is on: effective-enabled
@@ -143,6 +144,12 @@ export interface FeatureFlags {
   claude: boolean;
   /** Virtual token like codex/claude, but BFF-side only: no image involvement. */
   pi: boolean;
+  /**
+   * Real token, like `google`: the `telegram` profile is what creates the
+   * `channel-gateway` container (docker/compose.yml), so without it there is
+   * no bot to configure and Settings → Telegram hides.
+   */
+  telegram: boolean;
 }
 
 export interface GoogleConfig {
@@ -519,7 +526,8 @@ function readSignin(access: Access): Signin {
  * token because that token is what makes SearXNG and ddg-mcp exist — the web
  * tools have nothing to call without them. `codex` and `claude` are virtual
  * tokens: no container declares them, and the same tokens decide whether the
- * CLIs are baked into the app-server image.
+ * CLIs are baked into the app-server image. `telegram` is a real one: the
+ * token creates the `channel-gateway` container the channel runs in.
  */
 function readFeatures(): FeatureFlags {
   const profiles = profileList();
@@ -529,6 +537,7 @@ function readFeatures(): FeatureFlags {
     codex: hasProfile(profiles, "codex"),
     claude: hasProfile(profiles, "claude"),
     pi: hasProfile(profiles, "pi"),
+    telegram: hasProfile(profiles, "telegram"),
   };
 }
 

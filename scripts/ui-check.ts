@@ -1211,6 +1211,7 @@ try {
       ...(featureOn(features, "codex") ? ["Codex"] : []),
       ...(featureOn(features, "claude") ? ["Claude"] : []),
       ...(featureOn(features, "pi") ? ["Remote Pi"] : []),
+      ...(featureOn(features, "telegram") ? ["Telegram"] : []),
       "Skills",
       // Deployment: the two halves of what used to be one mode, reported read-only.
       "Access",
@@ -2287,6 +2288,7 @@ try {
       ...(featureOn(desktopFeatures, "codex") ? ["Codex workers"] : []),
       ...(featureOn(desktopFeatures, "claude") ? ["Claude Code workers"] : []),
       ...(featureOn(desktopFeatures, "pi") ? ["Remote Pi"] : []),
+      ...(featureOn(desktopFeatures, "telegram") ? ["Telegram"] : []),
       "Global skills",
       // Deployment: the two halves of what used to be one mode, reported read-only.
       "Access",
@@ -2382,6 +2384,19 @@ try {
         "remote pi status row says one word of state",
         (await page.locator(".settings-pane .pi-status .pi-state").count()) === 1,
         await page.locator(".settings-pane").innerText(),
+      );
+    }
+
+    if (featureOn(desktopFeatures, "telegram")) {
+      // Same for Telegram (GET /api/channels/telegram): the form means the route
+      // answered. Which half of the form depends on stored state, so assert
+      // either heading rather than assume an unconfigured container.
+      await openSection("Telegram");
+      const telegramText = await page.locator(".settings-pane").innerText();
+      check(
+        "telegram section loads its state",
+        telegramText.includes("Connect a bot") || telegramText.includes("Bot settings"),
+        telegramText,
       );
     }
 

@@ -1,6 +1,6 @@
 ---
 name: lettuce-upstream-sync
-description: 'Run `bun run sync-upstream v<x.y.z>` to move lettuce to a new letta-code release: what the script does, why only published release tags are acceptable, typed vs behavioural drift and the upstream files whose changes typecheck cannot catch (connection-lifecycle, gateway supervisor, background-process-protocol, toolset-catalog, settings-path, subagent-control), the six version literal sites and the stale-pin precedence trap, why the reference checkout must not lag the pin, and why a version bump is a full redeploy. Read when bumping LETTA_CODE_VERSION or running sync-upstream.'
+description: 'Run `bun run sync-upstream v<x.y.z>` to move lettuce to a new letta-code release: what the script does, why only published release tags are acceptable, typed vs behavioural drift and the upstream files whose changes typecheck cannot catch (connection-lifecycle, gateway supervisor, background-process-protocol, toolset-catalog, settings-path, subagent-control, the channel state files Settings → Telegram writes), the six version literal sites and the stale-pin precedence trap, why the reference checkout must not lag the pin, and why a version bump is a full redeploy. Read when bumping LETTA_CODE_VERSION or running sync-upstream.'
 ---
 
 # Upstream sync and version pinning

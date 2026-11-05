@@ -53,7 +53,7 @@ Other profiles are orthogonal to access:
 |---|---|
 | `google` | the Gmail / Calendar / Tasks / Contacts sidecar + Settings → Google Workspace |
 | `search` | SearXNG + `ddg-mcp`, behind the agents' web tools + Settings → Web |
-| `telegram` | the messaging channel gateway |
+| `telegram` | the messaging channel gateway + Settings → Telegram |
 | `codex` | virtual: installs the Codex CLI into the app-server image + Settings → Codex workers |
 | `claude` | virtual: installs the Claude Code CLI + Settings → Claude Code workers |
 | `pi` | virtual: Settings → Remote Pi — agents dispatch coding tasks to a `pi` install on another host over SSH (nothing installs on that host); Tools gives an agent its own folder or host |
@@ -498,9 +498,9 @@ own scheduled turn instead, not a cron job.
 
 ## Telegram
 
-Needs the `telegram` profile. There are no environment variables for it —
-channel configuration happens once inside the gateway container, and the
-web UI has no path to it at all.
+Needs the `telegram` profile, and is then configured in **Settings →
+Telegram** — the same shape as every other integration: the token makes the
+feature exist, the Settings switch and the bot live on top of it.
 
 Turn the profile on by adding `telegram` to `COMPOSE_PROFILES` in
 `docker/.env` (or the deploy manager's stack variables), keeping whatever is
@@ -513,28 +513,36 @@ running one:
 docker compose -f docker/compose.yml --profile telegram rm -sf channel-gateway
 ```
 
-Then configure it:
+Then, in the web UI: put the bot token from @BotFather into Settings →
+Telegram and save. The channel writes upstream's own state under
+`/root/.letta/channels/telegram/` (`accounts.json`, `routing.json`,
+`pairing.yaml`), the runtime dependency installs itself when the gateway
+starts (`--install-channel-runtimes`), and the supervise wrapper
+(`docker/channel-gateway-supervise.sh`) restarts the gateway within seconds
+when that account file changes — no container steps, and the enable toggle
+stops the bot just as quietly. Now message the bot once; the pairing appears
+under **Pending pairings** with its code, and approving it binds the chat to
+an agent and a conversation. Removal works the same way from the Chats list.
+
+What applies when: pairing approvals and route removals are re-read by the
+gateway per inbound message, so they take effect immediately; account changes
+(token, enable) apply when the wrapper restarts it — about the poll interval,
+not the next message.
+
+The `letta channels` CLI inside the gateway remains the fallback for anything
+the screen does not model (more than one bot, the other channels):
 
 ```bash
 C="docker compose -f docker/compose.yml exec channel-gateway"
-
-$C letta channels install telegram   # installs the runtime dependency
-$C letta channels status             # should show telegram configured:false
-
-# Interactive; needs a bot token from @BotFather. -it, not exec -T.
-docker compose -f docker/compose.yml exec -it channel-gateway \
-  letta channels configure telegram
-
-docker compose -f docker/compose.yml restart channel-gateway
-```
-
-Message the bot, then pair the chat to an agent:
-
-```bash
+$C letta channels status
 $C letta channels pair --channel telegram --code <code-from-bot> \
   --agent <agent-id> --conversation <conversation-id>
-$C letta channels status
 ```
+
+Two honest edges. The bot token lives on the state root, so agents on this
+server can read it — the same documented reach as the `gh` login. And the
+screen cannot see the gateway container itself (nothing in that namespace
+listens for it), so it reports the state, not a health light.
 
 ## GitHub (WatchPR)
 

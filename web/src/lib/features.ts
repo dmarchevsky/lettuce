@@ -11,6 +11,8 @@ export interface FeatureFlags {
   claude: boolean;
   /** Virtual token like codex/claude; the transport lives in the BFF itself. */
   pi: boolean;
+  /** The `channel-gateway` container itself — without the token there is no bot to configure. */
+  telegram: boolean;
 }
 
 export type FeatureName = keyof FeatureFlags;

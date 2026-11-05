@@ -39,6 +39,7 @@ import {
   type SessionPayload,
 } from "./auth/session-cookie.ts";
 import { GoogleSignIn, registerGoogleSignInRoutes } from "./auth/signin-google.ts";
+import { registerTelegramRoutes } from "./channels/routes.ts";
 import { registerClaudeRoutes } from "./claude/routes.ts";
 import { type ClaudeFileIo, reapplyClaudeSettings } from "./claude/service.ts";
 import { AGENT_POLICY_MOD_PATH, renderAgentPolicyMod } from "./codex/policy-mod.ts";
@@ -412,8 +413,9 @@ async function fileCommand<T extends ReadFileResponseMessage | ListInDirectoryRe
 }
 
 // Codex workers' files, reached through the app-server like every other file
-// the BFF touches — see `codex/settings.ts`. Only these routes use it, never a
-// browser: `/root/.letta` is outside the workspace clamp on purpose.
+// the BFF touches — see `codex/settings.ts`. Only these routes (and the
+// `channels/` module, which shares this io) use it, never a browser:
+// `/root/.letta` is outside the workspace clamp on purpose.
 const codexIo: CodexFileIo = {
   async read(path) {
     return fileCommand<ReadFileResponseMessage, string>(
@@ -1324,6 +1326,60 @@ registerCodexRoutes(app, {
   isReady: () => upstream.isReady(),
   codexEnabled: config.features.codex,
   io: codexIo,
+});
+
+// Settings → Telegram: the bot account, routes and pairing, edited straight
+// in the gateway's own state files — see `channels/state.ts` for why the BFF,
+// not the protocol, touches them.
+/**
+ * The human names of a bound pair, for the pairing notice Telegram gets.
+ * Best effort over the one permanent connection (the same internal round
+ * trip the context sizer uses): whatever cannot be resolved reads null, and
+ * nothing throws — the notice must send with names or without.
+ */
+async function telegramBindingNames(agentId: string, conversationId: string) {
+  // One retrieve each, in parallel — same-by-id round trips the context sizer
+  // uses, so neither worst case stacks (≈8 s total, not 16) nor does a name
+  // hide past some list page.
+  const [agent, conversation] = await Promise.all([
+    upstream
+      .request<AgentRetrieveResponseMessage>(
+        { type: "agent_retrieve", request_id: `bff-telegram-${randomUUID()}`, agent_id: agentId },
+        8_000,
+      )
+      .catch(() => null),
+    conversationId === "default"
+      ? Promise.resolve(null)
+      : upstream
+          .request<ConversationRetrieveResponseMessage>(
+            {
+              type: "conversation_retrieve",
+              request_id: `bff-telegram-${randomUUID()}`,
+              conversation_id: conversationId,
+            },
+            8_000,
+          )
+          .catch(() => null),
+  ]);
+  return {
+    agent: oneLine(agent?.success ? agent.agent?.name : null, 60),
+    conversation: oneLine(conversation?.success ? conversation.conversation?.summary : null, 80),
+  };
+}
+
+/** A name that reaches a chat notice: one line, clipped, whatever it holds. */
+function oneLine(value: string | null | undefined, max: number): string | null {
+  const text = (value ?? "").replace(/\s+/g, " ").trim();
+  if (!text) return null;
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+registerTelegramRoutes(app, {
+  isReady: () => upstream.isReady(),
+  telegramEnabled: config.features.telegram,
+  io: codexIo,
+  bindingNames: telegramBindingNames,
+  log,
 });
 
 // Settings → Web: the native web tools' switch, backend status and a test

@@ -102,7 +102,7 @@ services:
         CODING_FEATURES: ${COMPOSE_PROFILES:-}
     # Tagged by release, not by pins: what is inside is what the tag's commit
     # built, and /opt/lettuce/features plus Settings → About report the CLIs.
-    image: ${LETTA_IMAGE_NS:-}lettuce-app-server:${LETTA_IMAGE_TAG:-v0.31.0-letta_0.34.38}
+    image: ${LETTA_IMAGE_NS:-}lettuce-app-server:${LETTA_IMAGE_TAG:-v0.32.0-letta_0.34.38}
     # An init process as PID 1, so exited orphans are reaped. Without it PID 1
     # is `node … letta server`, which waits only on children it spawned: every
     # process an agent shell backgrounds (`&`, nohup, servers) and outlives is
@@ -278,7 +278,7 @@ services:
       # and `bun run build:bff` passes it from the host checkout.
       args:
         GIT_SHA: ${GIT_SHA:-}
-    image: ${LETTA_IMAGE_NS:-}lettuce-bff:${LETTA_IMAGE_TAG:-v0.31.0-letta_0.34.38}
+    image: ${LETTA_IMAGE_NS:-}lettuce-bff:${LETTA_IMAGE_TAG:-v0.32.0-letta_0.34.38}
     depends_on:
       app-server:
         condition: service_healthy
@@ -439,8 +439,11 @@ services:
   #
   # Opt-in, like `cloudflared`: created only when COMPOSE_PROFILES contains
   # "telegram" (e.g. COMPOSE_PROFILES=cloudflared,telegram). Off by default
-  # because nothing here uses a channel yet and it costs ~170 MiB idle. Turning
-  # it off later does NOT remove an existing container — `up -d` just stops
+  # because the gateway costs ~170 MiB idle. The token is what makes the
+  # Settings → Telegram section and the BFF's /api/channels routes exist
+  # (bff/src/config.ts readFeatures); the bot itself is configured there, in
+  # the files under /root/.letta/channels this container mounts. Turning the
+  # profile off later does NOT remove an existing container — `up -d` just stops
   # managing it — so stop it explicitly:
   #   docker compose -f docker/compose.yml --profile telegram rm -sf channel-gateway
   channel-gateway:
@@ -451,13 +454,14 @@ services:
       app-server:
         condition: service_healthy
     network_mode: "service:app-server"
+    # Our wrapper (mounted below, the image untouched), which runs
+    # `letta channel-gateway --app-server-url ws://127.0.0.1:4500
+    #  --restore-enabled-channels --allow-startup-errors --install-channel-runtimes`
+    # and restarts it when Settings changes accounts.json — the one file
+    # upstream reads only at startup. Read the script before changing this.
     command:
-      - letta
-      - channel-gateway
-      - --app-server-url
-      - ws://127.0.0.1:4500
-      - --restore-enabled-channels
-      - --allow-startup-errors
+      - /bin/sh
+      - /opt/lettuce/channel-gateway-supervise.sh
     # Same anchor as the app-server: a gateway-initiated turn must not land in a
     # different directory from a browser-initiated one.
     working_dir: /work
@@ -472,10 +476,15 @@ services:
       # channel messages to the app-server, which runs the turn and every tool.
       # The app-server owns scheduling; a second scheduler would fight for the lease.
       LETTA_DISABLE_CRON_SCHEDULER: "1"
+      # Pin the channel credential store to its file mode: a container has no
+      # OS keyring, "auto" already falls back to this, and the Settings screen
+      # writes and merges accounts.json directly (bff/src/channels/).
+      LETTA_CHANNEL_CREDENTIALS_STORE: "file"
     volumes:
       - ${LETTA_STATE_DIR:-../..}/letta-home:/root/.letta
       - ${LETTA_STATE_DIR:-../..}/letta-data:/data
       - ${LETTA_STATE_DIR:-../..}/workspaces:/work
+      - ./channel-gateway-supervise.sh:/opt/lettuce/channel-gateway-supervise.sh:ro
     restart: unless-stopped
 
   # Metasearch behind the agents' native `web_search` tool: the BFF queries its
@@ -496,7 +505,7 @@ services:
       context: searxng
       args:
         SEARXNG_VERSION: ${SEARXNG_VERSION:-2026.10.23-629368e40}
-    image: ${LETTA_IMAGE_NS:-}lettuce-searxng:${LETTA_IMAGE_TAG:-v0.31.0-letta_0.34.38}
+    image: ${LETTA_IMAGE_NS:-}lettuce-searxng:${LETTA_IMAGE_TAG:-v0.32.0-letta_0.34.38}
     environment:
       TZ: ${TZ:-America/Los_Angeles}
     restart: unless-stopped
@@ -513,7 +522,7 @@ services:
       context: ddg-mcp
       args:
         DDG_MCP_VERSION: ${DDG_MCP_VERSION:-0.7.0}
-    image: ${LETTA_IMAGE_NS:-}lettuce-ddg-mcp:${LETTA_IMAGE_TAG:-v0.31.0-letta_0.34.38}
+    image: ${LETTA_IMAGE_NS:-}lettuce-ddg-mcp:${LETTA_IMAGE_TAG:-v0.32.0-letta_0.34.38}
     environment:
       TZ: ${TZ:-America/Los_Angeles}
       DDG_REGION: ${DDG_REGION:-us-en}
@@ -544,7 +553,7 @@ services:
       context: google-mcp
       args:
         WORKSPACE_MCP_VERSION: ${WORKSPACE_MCP_VERSION:-2.1.0}
-    image: ${LETTA_IMAGE_NS:-}lettuce-google-mcp:${LETTA_IMAGE_TAG:-v0.31.0-letta_0.34.38}
+    image: ${LETTA_IMAGE_NS:-}lettuce-google-mcp:${LETTA_IMAGE_TAG:-v0.32.0-letta_0.34.38}
     environment:
       TZ: ${TZ:-America/Los_Angeles}
     volumes:

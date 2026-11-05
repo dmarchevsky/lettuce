@@ -72,7 +72,7 @@ export interface ConversationSummary {
   titled: boolean;
 }
 
-function readAgents(response: unknown): AgentSummary[] {
+export function readAgents(response: unknown): AgentSummary[] {
   const agents = (response as { agents?: unknown })?.agents;
   if (!Array.isArray(agents)) return [];
   return agents.flatMap((raw) => {
