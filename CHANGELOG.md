@@ -12,7 +12,9 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ### Changed
 - **The transcript takes the colour of the agent you are talking to.** The answer rail, the name in a turn header and the agent's narration rendered in one default tint whatever the agent's configured colour was, so five agents with five colours still produced one transcript — only the rail's face and the top bar knew who you were talking to. They follow the selected agent's colour now, and the channel-send card takes it too.
-
+- The agent-facing playbook and skills now say the things that cost a session to learn: prove the stack is
+  up before asking for a human check, report a failed dev deploy as the outage it is, treat mockup sizes as
+  provisional, and re-ask for release authorization at the tag.
 
 ## [v0.32.1-letta_0.34.38] - 2026-11-05
 

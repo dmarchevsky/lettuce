@@ -31,3 +31,4 @@ docker/secrets/
 .pi/goals/
 .pi/.goals-pool-snapshot.json
 .pi/plans/
+.pi/local-secrets/

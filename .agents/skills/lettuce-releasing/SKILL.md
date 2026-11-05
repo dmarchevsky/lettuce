@@ -68,7 +68,11 @@ to this repo's tag scheme:
   what a user of the app notices — not the implementation. "Edit text files from the Files
   tab", not "wire `conversation_files_update` through the BFF".
 - **Who writes them**: in the flow. Internal-only changes (refactors, CI, docs, test-only) need no
-  entry; anything with user-visible behavior needs ≥1.
+  entry; anything with user-visible behavior needs ≥1. **An unversioned flow is the exception**: a flow
+  released with `flow release --no-version` files exactly one line under `## [Unreleased]` even when the
+  change is internal-only, because that heading is the only record of what shipped without a tag — a
+  harness-only change (playbook, skills, CI) files under `### Changed` and rides into whatever release
+  folds `Unreleased`.
 - **The release-prep commit renames the section**: it turns `## [Unreleased]` into
   `## [v<new-tag>] - <YYYY-MM-DD>` (that commit's date) and leaves a fresh empty `[Unreleased]` above it.
   `check-release-hygiene` requires the `[Unreleased]` heading *and* asserts `VERSION` equals the newest
