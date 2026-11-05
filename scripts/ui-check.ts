@@ -275,7 +275,7 @@ async function openSkillsSection(page: Page): Promise<boolean> {
  * Open the Settings **pane** (`tab === "Settings"`), which is not a modal any more.
  *
  * Settings has no glyph in the band: the door is the **rail's foot cell** on
- * desktop (`.rail-settings-cell`) and the **More sheet's row** on a phone, because the
+ * desktop (`.rail-settings-cell`) and a **slot of the phone's bar**, because the
  * column that names the panes is the one place a pane belongs. From there the ways
  * out are the rail's Back cell, the corner `.pane-close`, and the drawer cell;
  * Escape belongs to sheets, not to panes.
@@ -285,9 +285,7 @@ async function openSettings(page: Page): Promise<void> {
   if (await railDoor.isVisible().catch(() => false)) {
     await railDoor.click();
   } else {
-    await page.locator('.bottombar > button:text-is("More")').click();
-    await page.waitForTimeout(250);
-    await page.locator('.sheet .menu-row-title:text-is("Settings")').click();
+    await page.locator('.bottombar > button:text-is("Settings")').click();
   }
   await page.locator(".settings-pane").waitFor();
 }
@@ -371,10 +369,11 @@ try {
     const box = await overflow(page);
     check("nothing is clipped off-screen", box.clipped.length === 0, box);
 
-    // The bar is five equal slots — Chat, three secondary panes, More — and the
-    // agent's identity is not one of them: its face is in the header's corner.
+    // The bar is six equal slots — Chat, the secondary panes, Settings, More —
+    // and the agent's identity is not one of them: its face is in the header's
+    // corner. Settings graduated out of More to a slot of its own.
     const slots = await page.locator(".bottombar > *", { hasText: /./ }).count();
-    check("the bar has five slots", (await page.locator(".bottombar > button").count()) === 5, {
+    check("the bar has six slots", (await page.locator(".bottombar > button").count()) === 6, {
       slots,
     });
     check(
@@ -475,17 +474,17 @@ try {
     check("no drawer on a phone", !(await page.locator(".sidebar").isVisible()));
     check("no rail on a phone", !(await page.locator(".rail").isVisible()));
 
-    // More is the overflow the bar cannot name: the agent's own settings, the
-    // shared ones, and nothing else — the four slots are the app's centre.
+    // More is what belongs to the agent and nothing else: its own settings (and
+    // where deployed, the workers). The shared Settings has its own slot now.
     await page.locator('.bottombar > button:text-is("More")').click();
     const moreRows = (await page.locator(".sheet .menu-row-title").allInnerTexts()).map((t) =>
       t.trim(),
     );
     check(
-      "More holds the settings the bar has no slot for",
+      "More holds only the agent's own rows — Settings has a slot of its own",
       (await page.locator(".sheet").isVisible()) &&
         moreRows.includes("Agent") &&
-        moreRows.includes("Settings"),
+        !moreRows.includes("Settings"),
       moreRows,
     );
     await shot(page, "phone-more");
@@ -1318,9 +1317,10 @@ try {
         (await page.locator(".settings-content-title").count()) === 0,
     );
     check(
-      "the bar knows the open pane is one of More's",
-      (await page.locator('.bottombar > button:text-is("More")').getAttribute("aria-current")) ===
-        "page",
+      "the bar knows the open pane is Settings' own slot",
+      (await page
+        .locator('.bottombar > button:text-is("Settings")')
+        .getAttribute("aria-current")) === "page",
     );
     const chipsFit = await page.evaluate(() => {
       const bar = document.querySelector(".settings-pane .section-tabs") as HTMLElement;
@@ -1372,18 +1372,17 @@ try {
       await shot(page, "phone-settings-pi");
     }
     // The ways out of the pane, and none of them is Escape: the corner X and the
-    // More row that opened it (the rail's Back cell is the desktop's third).
+    // bar slot that opened it (the rail's Back cell is the desktop's third).
     const lastChip = (
       await page.locator(".settings-pane .section-tabs button.active").innerText()
     ).trim();
     await phoneClose.click();
     await page.waitForTimeout(300);
     check("the corner X leaves settings", (await page.locator(".settings-pane").count()) === 0);
-    await page.locator('.bottombar > button:text-is("More")').click();
-    await page.locator('.sheet .menu-row-title:text-is("Settings")').click();
+    await page.locator('.bottombar > button:text-is("Settings")').click();
     await page.waitForTimeout(400);
     check(
-      "More is the second door, and the pane resumes the section it left",
+      "the Settings slot is the second door, and the pane resumes the section it left",
       (await page.locator(".settings-pane .section-tabs button.active").innerText()).trim() ===
         lastChip,
       {
@@ -1939,7 +1938,9 @@ try {
         bandBottom: round(band?.bottom ?? null),
         bandRight: round(band?.right ?? null),
         railRight: round(rail?.right ?? null),
-        firstPaneTop: top(".rail .rail-item"),
+        firstPaneTop: top(".rail .rail-agents-head"),
+        railPinY: top(".rail .rail-agents-head .col-pin"),
+        sidePinY: top(".sidebar .panel-owner .col-pin"),
         sideLeft: round(side?.left ?? null),
         sideRight: round(side?.right ?? null),
         mainLeft: round(main?.left ?? null),
@@ -1969,6 +1970,16 @@ try {
     check(
       "the rail's own foot verb is the last thing in the column",
       layout.allBottom >= layout.height - 12 && layout.agentsBottom <= layout.allBottom,
+      layout,
+    );
+    // The rail's collapse pin (AGENTS row) and the drawer's head pin are one
+    // control in two columns — same corner, same line. The operator asked for
+    // this alignment explicitly; a drift of even a few px reads as two dialects.
+    check(
+      "the two column pins sit on one line",
+      layout.railPinY > 0 &&
+        layout.sidePinY > 0 &&
+        Math.abs(layout.railPinY - layout.sidePinY) <= 2,
       layout,
     );
     // A short window no longer clamps a mirrored pair — the rail block scrolls in
@@ -2015,6 +2026,38 @@ try {
       activeRing !== null && activeRing.barWidth === "3px" && activeRing.barLeft === "0px",
       activeRing,
     );
+
+    // The main rail's collapse: the pin in the AGENTS row folds the column to a
+    // glyph strip, the choice survives a reload, and the Settings rail is exempt
+    // — its sections are words and a list of words needs a column that can hold
+    // one. The pin goes back before the rest of the suite walks the full rail.
+    const railWidth = () =>
+      page.evaluate(() =>
+        Math.round(document.querySelector("nav.rail")!.getBoundingClientRect().width),
+      );
+    const wideBefore = await railWidth();
+    await page.locator(".rail .rail-agents-head .col-pin").click();
+    await page.waitForTimeout(300);
+    const folded = await railWidth();
+    check(
+      "unpinning the rail folds it to a glyph strip",
+      wideBefore >= 180 && folded <= 56 && folded > 40,
+      { wideBefore, folded },
+    );
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForTimeout(1500);
+    check("the rail's collapse survives a reload", (await railWidth()) <= 56);
+    await openSettings(page);
+    check(
+      "the Settings rail never collapses — its sections keep their words",
+      (await railWidth()) >= 180 && (await page.locator(".rail .rail-section").first().isVisible()),
+    );
+    await page.locator(".rail .rail-back").click();
+    await page.waitForTimeout(300);
+    check("and leaving Settings folds the main rail again", (await railWidth()) <= 56);
+    await page.locator(".rail .rail-agents-head .col-pin").click();
+    await page.waitForTimeout(300);
+    check("re-pinning gives the words back", (await railWidth()) >= 180);
 
     // The band's identity is the drawer verb on desktop: it never opens the sheet.
     // The toggle only exists for an UNPINNED drawer (pinned is always visible), so
