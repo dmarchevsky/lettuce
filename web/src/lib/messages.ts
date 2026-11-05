@@ -568,15 +568,23 @@ function promoteChannelSends(entries: TranscriptEntry[]): TranscriptEntry[] {
   }
 
   const out: TranscriptEntry[] = [];
+  const promoted = new Set<string>();
   for (const entry of entries) {
     out.push(entry);
-    if (entry.kind !== "tool_call" || entry.toolName !== "MessageChannel") continue;
+    // BOTH call kinds, not just `tool_call`: every tool call arrives on the wire
+    // as `approval_request_message` whether or not it needed approval, so a
+    // guard on `tool_call` alone matches nothing in a running app (the shape
+    // production actually produces, and the shape this first shipped without).
+    if (entry.kind !== "tool_call" && entry.kind !== "approval_request") continue;
+    if (entry.toolName !== "MessageChannel" || !entry.toolCallId) continue;
+    if (promoted.has(entry.toolCallId)) continue;
     // Cheap guard first: this runs over every entry on every flush.
     const send = readChannelSend(
       entry,
       entry.toolCallId ? (returnsByCall.get(entry.toolCallId) ?? null) : null,
     );
-    if (!send || !entry.toolCallId) continue;
+    if (!send) continue;
+    promoted.add(entry.toolCallId);
     out.push({
       id: `channel-send:${entry.toolCallId}`,
       kind: "channel_send",

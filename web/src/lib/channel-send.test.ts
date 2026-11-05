@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { channelLabel, readChannelSend } from "./channel-send.ts";
 import {
+  applyStreamDelta,
+  createStreamIndex,
   groupTranscript,
   sortedEntries,
   type Transcript,
@@ -181,5 +183,102 @@ describe("channel send grouping", () => {
         expect(item.entries.some((e) => e.kind === "channel_send")).toBe(false);
       }
     }
+  });
+});
+
+/* ── The wire shape, not a hand-built one ──────────────────────────────────
+ * These drive `applyStreamDelta` with real frames instead of assembling
+ * `TranscriptEntry` objects by hand. The first version of this feature shipped
+ * with hand-built `kind: "tool_call"` fixtures and passed every test while the
+ * running app showed nothing: a tool call reaches the client as an
+ * `approval_request_message` whether or not it needed approval, so the guard
+ * that accepted only `tool_call` matched no real traffic. Any future test here
+ * that does not go through the wire is testing a shape the app never sees.
+ */
+
+function streamed(frames: unknown[]): Transcript {
+  const transcript: Transcript = new Map();
+  const index = createStreamIndex();
+  frames.forEach((frame, seq) => {
+    applyStreamDelta(transcript, index, frame, seq);
+  });
+  return transcript;
+}
+
+function callFrame(id: string, toolCallId: string, args: object) {
+  return {
+    type: "message",
+    message_type: "approval_request_message",
+    id,
+    date: "2026-11-05T10:42:00.000Z",
+    tool_call: {
+      tool_call_id: toolCallId,
+      name: "MessageChannel",
+      arguments: JSON.stringify(args),
+    },
+  };
+}
+
+function returnFrame(id: string, toolCallId: string, status: "success" | "error", text: string) {
+  return {
+    type: "message",
+    message_type: "tool_return_message",
+    id,
+    date: "2026-11-05T10:42:01.000Z",
+    status,
+    tool_call_id: toolCallId,
+    tool_return: text,
+    tool_returns: [{ tool_call_id: toolCallId, status, tool_return: text }],
+  };
+}
+
+describe("channel send on the wire", () => {
+  test("an approval_request_message send gets the card — the shape the app actually gets", () => {
+    const entries = sortedEntries(
+      streamed([
+        callFrame("msg-call-1", "tc-1", SEND_ARGS),
+        returnFrame("msg-ret-1", "tc-1", "success", SENT),
+      ]),
+    );
+    const card = entries.find((e) => e.kind === "channel_send");
+    expect(card?.channelSend?.delivery).toBe("sent");
+    expect(card?.channelSend?.body).toBe("Morning digest.");
+  });
+
+  test("a failed wire send is marked failed", () => {
+    const entries = sortedEntries(
+      streamed([
+        callFrame("msg-call-2", "tc-2", SEND_ARGS),
+        returnFrame("msg-ret-2", "tc-2", "error", FAILED),
+      ]),
+    );
+    expect(entries.find((e) => e.kind === "channel_send")?.channelSend?.delivery).toBe("failed");
+  });
+
+  test("the card arrives with the call, before its return lands", () => {
+    const entries = sortedEntries(streamed([callFrame("msg-call-3", "tc-3", SEND_ARGS)]));
+    expect(entries.find((e) => e.kind === "channel_send")?.channelSend?.delivery).toBe("pending");
+  });
+
+  test("one call gets one card even if both call frames show up for it", () => {
+    const both = streamed([
+      callFrame("msg-call-4", "tc-4", SEND_ARGS),
+      { ...callFrame("msg-call-4b", "tc-4", SEND_ARGS), message_type: "tool_call_message" },
+      returnFrame("msg-ret-4", "tc-4", "success", SENT),
+    ]);
+    expect(sortedEntries(both).filter((e) => e.kind === "channel_send")).toHaveLength(1);
+  });
+
+  test("an approval_request frame for another tool gets nothing", () => {
+    const entries = sortedEntries(
+      streamed([
+        {
+          ...callFrame("msg-call-5", "tc-5", { command: "ls" }),
+          tool_call: { tool_call_id: "tc-5", name: "Bash", arguments: '{"command":"ls"}' },
+        },
+        returnFrame("msg-ret-5", "tc-5", "success", "total 0"),
+      ]),
+    );
+    expect(entries.some((e) => e.kind === "channel_send")).toBe(false);
   });
 });
