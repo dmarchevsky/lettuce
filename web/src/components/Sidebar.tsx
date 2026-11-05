@@ -161,14 +161,32 @@ export function Sidebar({
       onPointerLeave={() => onHold(false)}
     >
       {/* Whose list this is, said out loud: the rail names the agents, the band names
-          the one you are talking to, and this column would otherwise name nothing. */}
+          the one you are talking to, and this column would otherwise name nothing.
+          The head's right corner carries the drawer pin, on the same metrics as the
+          rail's collapse pin — same corner, same box, same rest/on treatment. */}
       <div className="panel-owner">
-        {listAgentName ?? "Conversations"}
-        {liveCount > 0 ? (
-          <span className="count">
-            {liveCount} {liveCount === 1 ? "conversation" : "conversations"}
-          </span>
-        ) : null}
+        <span className="panel-owner-text">
+          {listAgentName ?? "Conversations"}
+          {liveCount > 0 ? (
+            <span className="count">
+              {liveCount} {liveCount === 1 ? "conversation" : "conversations"}
+            </span>
+          ) : null}
+        </span>
+        <button
+          type="button"
+          className="col-pin panel-pin"
+          onClick={onTogglePin}
+          aria-pressed={pinned}
+          title={
+            pinned
+              ? "Keeping the drawer open on Chat — click to make it a peek"
+              : "Peek only — click to keep the drawer open on Chat"
+          }
+          aria-label={pinned ? "Unpin the conversation drawer" : "Pin the conversation drawer"}
+        >
+          <Icon name="pin" />
+        </button>
       </div>
       <div className="convo">
         <div className="panel-tools">
@@ -184,20 +202,6 @@ export function Sidebar({
             aria-label={preview ? `New conversation with ${preview.name}` : "New conversation"}
           >
             <Icon name="plus" /> {preview ? `New ${preview.name}` : "New"}
-          </button>
-          <button
-            type="button"
-            className={`icon-button flat panel-pin${pinned ? " on" : ""}`}
-            onClick={onTogglePin}
-            aria-pressed={pinned}
-            title={
-              pinned
-                ? "Keeping the drawer open on Chat — click to make it a peek"
-                : "Peek only — click to keep the drawer open on Chat"
-            }
-            aria-label={pinned ? "Unpin the conversation drawer" : "Pin the conversation drawer"}
-          >
-            <Icon name="pin" />
           </button>
         </div>
 
