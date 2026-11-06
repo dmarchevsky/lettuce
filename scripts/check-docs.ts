@@ -14,6 +14,9 @@
  *   - every `bun run <name>` in the guide is a real script.
  *   - every skill has valid frontmatter — one a real YAML parser accepts, not just
  *     the regexes here — and is named in the guide so it is actually discoverable.
+ *   - every `.class` and `--token` the UI suites and the UI skills cite still exists
+ *     in `web/src` (delegated to `check-ui-claims.ts`, which also reports assertions
+ *     that can no longer fail).
  *
  * Usage: bun scripts/check-docs.ts [--print-size]
  */
@@ -140,6 +143,17 @@ if (existsSync(guidePath)) {
     `${GUIDE} is inside its context budget (${size} of ${SIZE_BUDGET_BYTES} bytes)`,
     `${size - SIZE_BUDGET_BYTES} bytes over. Move task-scoped mechanics into .agents/skills/.`,
   );
+  // The trap this exists to prevent: an agent writes an honest new paragraph,
+  // discovers the budget only when the gate fails, and spends the round-trip
+  // compressing. So say up front how much room is left, and shout when there is
+  // barely any.
+  const headroom = SIZE_BUDGET_BYTES - size;
+  if (headroom < SIZE_BUDGET_BYTES * 0.05) {
+    console.log(
+      `  ! ${GUIDE} has ${headroom} bytes of headroom left (${((size / SIZE_BUDGET_BYTES) * 100).toFixed(1)}% of budget) —` +
+        ` a new paragraph needs a matching trim; move task-scoped prose into .agents/skills/ to buy room.`,
+    );
+  }
   const claude = join(ROOT, "CLAUDE.md");
   const isSymlink = existsSync(claude) && lstatSync(claude).isSymbolicLink();
   check(
@@ -340,6 +354,31 @@ for (const dir of skillDirs) {
     `${file}: is named in ${GUIDE}`,
     "an unreferenced skill is invisible to the index table",
   );
+}
+
+// ------------------------------------------------------------- UI claims
+
+// The UI suites assert against the running app, so a selector whose class was
+// deleted does not fail — it passes forever on an empty result set. That is a
+// docs-of-code problem as much as a test problem: the suite claims something the
+// app no longer does. The checker is its own script (it parses scripts, not
+// prose), run here so it lands in tier 1 and in CI's hygiene job.
+{
+  const claimsScript = join(ROOT, "scripts", "check-ui-claims.ts");
+  if (existsSync(claimsScript)) {
+    const run = Bun.spawnSync([process.execPath, "scripts/check-ui-claims.ts"], { cwd: ROOT });
+    const out = `${run.stdoutText}${run.stderrText}`.trim();
+    check(
+      run.exitCode === 0,
+      "the UI suites and the UI skills cite selectors/tokens that exist",
+      out.split("\n").slice(-14).join("\n      "),
+    );
+    for (const line of out.split("\n")) {
+      if (line.trim().startsWith("!")) console.log(`  ${line.trim()}`);
+    }
+  } else {
+    check(false, "scripts/check-ui-claims.ts exists", "the UI-claim gate lost its script");
+  }
 }
 
 // --------------------------------------------------------------------- report

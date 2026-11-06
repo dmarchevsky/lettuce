@@ -174,6 +174,77 @@ for (const site of found.filter((site) => site.advisory)) {
   );
 }
 
+// ---------------------------------------------------------------- bun runtime
+//
+// The runtime CI installs and the runtime the image ships are two different
+// things, and they have disagreed about a refused WebSocket handshake (1.3.14
+// throws it out of EventEmitter, 1.3.0 delivers an ordinary rejection), which
+// turned a green branch red in CI. The literal pins must at least agree on a
+// minor — and `packageManager`, which the CI workflows mirror, is the one record
+// of it. This stays an offline literal comparison: the image tag may float inside
+// the minor, never across it. A patch-level divergence is still possible by
+// design, so runtime-sensitive tests must keep branching on the runtime they run
+// on (see bff/src/upstream/socket-tolerance.test.ts).
+{
+  const read = (path: string) =>
+    Bun.file(`${ROOT}${path}`)
+      .text()
+      .catch(() => null);
+  const pkg = await read("package.json");
+  // `bun@1.3.0` and the integrity form `bun@1.3.0+sha512-…` are both legitimate.
+  const pm = pkg
+    ? /"packageManager"\s*:\s*"bun@([0-9]+)\.([0-9]+)\.([0-9]+)(?:\+[^"]*)?"/.exec(pkg)
+    : null;
+  const dockerfile = await read("docker/bff.Dockerfile");
+  const image = dockerfile
+    ? /FROM\s+oven\/bun:([0-9]+)\.([0-9]+)(?:\.([0-9]+))?/.exec(dockerfile)
+    : null;
+  const workflows: [string, string][] = [];
+  for (const wf of ["ci.yml", "live.yml"]) {
+    const text = await read(`.github/workflows/${wf}`);
+    if (text === null) {
+      problems.push(`.github/workflows/${wf}: unreadable — the bun runtime check lost a pin site`);
+      continue;
+    }
+    const m = /BUN_VERSION:\s*"?([0-9]+)\.([0-9]+)\.([0-9]+)"?/.exec(text);
+    if (m) workflows.push([wf, `${m[1]}.${m[2]}.${m[3]}`]);
+  }
+  if (pkg && !pm) {
+    problems.push(
+      'package.json: "packageManager" is not a bun release (`bun@<x.y.z>[+sha…]`) — cannot derive the runtime',
+    );
+  } else if (!pkg) {
+    problems.push("package.json: unreadable — the bun runtime check lost its source of truth");
+  }
+  if (dockerfile && !image) {
+    problems.push("docker/bff.Dockerfile: no `FROM oven/bun:<x.y>` to compare the runtime against");
+  } else if (!dockerfile) {
+    problems.push("docker/bff.Dockerfile: unreadable — the bun runtime check lost the image side");
+  }
+  if (workflows.length === 0)
+    problems.push(".github/workflows: no BUN_VERSION pin left to compare");
+  if (pm && image) {
+    if (`${pm[1]}.${pm[2]}` !== `${image[1]}.${image[2]}`) {
+      problems.push(
+        `bun runtime: package.json says bun@${pm[1]}.${pm[2]} but docker/bff.Dockerfile is ` +
+          `oven/bun:${image[1]}.${image[2]} — a test may pass in CI on a runtime the image never runs`,
+      );
+    } else {
+      console.log(
+        `    ${`bun@${pm[1]}.${pm[2]}.${pm[3]}`.padEnd(16)} runtime (package.json ↔ oven/bun:${image[1]}.${image[2]})`,
+      );
+    }
+  }
+  for (const [wf, version] of workflows) {
+    if (version !== `${pm?.[1]}.${pm?.[2]}.${pm?.[3]}`) {
+      problems.push(
+        `${wf}: BUN_VERSION ${version} disagrees with package.json's packageManager ` +
+          `bun@${pm?.[1]}.${pm?.[2]}.${pm?.[3]} — bump both together`,
+      );
+    }
+  }
+}
+
 if (problems.length > 0) {
   console.log(`\n✗ version pin check FAILED`);
   for (const problem of problems) console.log(`    ${problem}`);
