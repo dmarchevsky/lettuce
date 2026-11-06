@@ -209,6 +209,13 @@ pre {
   align-items: center;
   height: 28px;
   padding-right: 12px;
+  /* Sticky over the scrolling agent list: the head carries the rail's only
+     shape control, and a control you scroll away from is not a control. The
+     surface matches the column so rows pass under it, not through it. */
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
 }
 .rail-agents-head .rail-group-label {
   padding: 0 12px;
@@ -514,7 +521,10 @@ pre {
    strip: 28px marks in a 36px row (the row grows only while folded), where
    the expanded rail can afford 16px in 30px only because the words carry the
    meaning. The operator picked 28/36 from a mockup sheet. */
-.rail-collapsed {
+/* Scoped to the nav itself: `.app` also wears this class, and `--rail-row` is
+   read outside the rail too (the ⋯ menus size themselves by it) — redefining it
+   app-wide would resize every menu the moment the rail folds. */
+nav.rail.rail-collapsed {
   --rail-row: 36px;
 }
 .rail-collapsed .rail-item .icon,

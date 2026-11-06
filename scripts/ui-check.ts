@@ -590,6 +590,12 @@ try {
       agentMenuWidth >= 150 && agentMenuWidth <= 260,
       { agentMenuWidth },
     );
+    const phoneMenuRow = await agentMenu.locator("button").first().boundingBox();
+    check(
+      "⋯ menus keep the fingertip row on a phone (≥44px)",
+      (phoneMenuRow?.height ?? 0) >= 44,
+      phoneMenuRow?.height,
+    );
     const menuBox = await agentMenu.boundingBox();
     check(
       "the agent menu is fully on screen",
@@ -1609,8 +1615,9 @@ try {
       bars,
     );
 
-    // The agent verbs are a right-click on the avatar: a 64px column has no room
-    // for a ⋯ per agent, and the menu is the phone's own, unchanged.
+    // The agent verbs are a right-click on the rail row, the same menu the phone
+    // switcher opens — and at the mouse it now speaks the rail's row scale, which
+    // the height check under the screenshot proves.
     await page.locator(".rail .rail-agent.active").click({ button: "right" });
     const deskMenu = page.locator(".agent-menu");
     const deskItems = (await deskMenu.locator("button").allInnerTexts()).map((t) => t.trim());
@@ -1629,9 +1636,15 @@ try {
         deskBox.x >= 40,
       deskBox,
     );
+    const deskRow = await deskMenu.locator("button").first().boundingBox();
     await shot(page, "desktop-agent-menu");
     await page.keyboard.press("Escape");
     check("Escape closes it", (await deskMenu.count()) === 0);
+    check(
+      "desktop ⋯ menus wear the rail row scale (30px rows)",
+      Math.round(deskRow?.height ?? 0) === 30,
+      deskRow?.height,
+    );
 
     // The rail is the pane list and the pane list only: Settings is not a cell here
     // any more — the rail's foot cell opens it, and while it is open its own sections
@@ -2087,6 +2100,17 @@ try {
         (await page.evaluate(
           () => getComputedStyle(document.querySelector(".rail-panes .rail-item")!).height,
         )) === "36px",
+    );
+    // The taller row is the rail's own business: `.app` also wears the class, and
+    // the ⋯ menus size by --rail-row from there — a leak resizes every menu in
+    // the app the moment the rail folds.
+    const appRow = await page.evaluate(() =>
+      getComputedStyle(document.querySelector(".app")!).getPropertyValue("--rail-row").trim(),
+    );
+    check(
+      "folding the rail leaves menus outside it at 30px (--rail-row on .app)",
+      appRow === "30px",
+      appRow,
     );
     await page.reload({ waitUntil: "networkidle" });
     await page.waitForTimeout(1500);

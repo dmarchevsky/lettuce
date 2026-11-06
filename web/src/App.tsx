@@ -374,11 +374,12 @@ function Workspace({ status }: { status: Status }) {
 
   /**
    * The browser's Back closes the open window, and a secondary pane IS the open
-   * window: Files, Tasks, Runs, Tools, Agent and Settings each own one history
+   * window: while any pane other than Chat is up the pane area owns one history
    * entry (the shared BackStack's floor rank, so any sheet or menu opened over
    * the pane closes first), and Back steps back to Chat instead of leaving the
-   * app. Pressing the corner X or a bar slot closes the pane on screen and the
-   * entry retires the same way every other overlay's does.
+   * app. Switching panes does not add entries — one window, one step. Pressing
+   * the corner X or a bar slot closes the pane on screen and the entry retires
+   * the same way every other overlay's does.
    */
   useBackToClose(() => {
     selectPane("Chat");

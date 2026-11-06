@@ -190,10 +190,10 @@ export function Sidebar({
       </div>
       <div className="convo">
         <div className="panel-tools">
-          {/* The panel's two verbs, always present — including borrowed, where New
-              reads after the shown agent and acts on it ("new conversation with
-              Grove", the switcher's own semantics), while pin remains refused: a
-              borrow is a hover, and App decides what a press on it means. */}
+          {/* New reads after the shown agent and acts on it ("new conversation with
+              Grove", the switcher's own semantics) even when borrowed: a borrow is a
+              hover, and App decides what a press on it means. The pin is not here —
+              it moved to the head row, on the rail pin's metrics. */}
           <button
             type="button"
             className="button ghost compact"
