@@ -8,10 +8,10 @@ import { featureEnabled } from "./features.ts";
  *
  * `Settings` is a pane like any other — it used to be a modal over the pane you
  * were reading, which meant the app had two navigation systems and one of them hid
- * the other. It is in this list so the phone's More row lands where the desktop
- * rail's foot cell does, but the rail does not show it among the pane cells: with
- * Settings open, its sections replace the pane list, and that column's Back cell
- * (or the corner X) is the way out — to Chat.
+ * the other. It is in this list because the phone bar's Settings slot lands where
+ * the desktop rail's foot cell does, but the rail does not show it among the pane
+ * cells: with Settings open, its sections replace the pane list, and that column's
+ * Back cell (or the corner X) is the way out — to Chat.
  */
 export const TABS = ["Chat", "Files", "Tasks", "Runs", "Tools", "Agent", "Settings"] as const;
 export type Tab = (typeof TABS)[number];
@@ -54,6 +54,33 @@ export function readPanelPin(): boolean {
 export function writePanelPin(pinned: boolean): void {
   try {
     globalThis.localStorage?.setItem(PANEL_PIN_KEY, pinned ? "1" : "0");
+  } catch {
+    /* Private mode: the choice just does not survive the reload. */
+  }
+}
+
+/**
+ * Whether the desktop rail is pinned open, per device.
+ *
+ * Pinned (the default) is the full column of words; unpinned the main rail
+ * collapses to a glyph strip and the pin in its AGENTS row is the way back.
+ * The Settings rail never collapses, so this only ever describes the main one.
+ */
+const RAIL_PIN_KEY = "lettuce:rail-pin-expanded";
+
+export function readRailPin(): boolean {
+  try {
+    // Pinned until someone says otherwise: an absent key is the layout every
+    // device had before the collapse existed.
+    return globalThis.localStorage?.getItem(RAIL_PIN_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+export function writeRailPin(pinned: boolean): void {
+  try {
+    globalThis.localStorage?.setItem(RAIL_PIN_KEY, pinned ? "1" : "0");
   } catch {
     /* Private mode: the choice just does not survive the reload. */
   }

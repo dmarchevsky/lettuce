@@ -5,6 +5,15 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.34.0-letta_0.34.38] - 2026-11-05
+
+### Changed
+- **The main rail folds away.** AGENTS moved to the top of the rail and its row carries the pin in its right corner: unpinned, the rail folds to a 56px strip of 28px glyphs and the transcript takes the width; the choice is remembered per device, and the Settings rail never folds — a list of words needs a column that can hold one.
+- **The conversation drawer's pin moved to its head row and sits on the rail pin's exact metrics** — same corner, same line, one control language for both columns.
+- **⋯ and right-click menus speak the rail's compact scale at the mouse** (30px rows, 12.5px words); touch devices keep fingertip rows.
+- **Settings is a slot of its own in the phone's bottom bar** — Chat · Files · Tasks · Tools · Settings · More — and More now holds only this agent's Agent and Runs rows.
+- **The phone's Back closes the open pane.** With Files, Tasks, Settings or any secondary pane up, Back steps back to Chat instead of leaving the app; a sheet or menu opened over a pane still closes first.
+
 ## [v0.33.0-letta_0.34.38] - 2026-11-05
 
 ### Added

@@ -1,6 +1,6 @@
 ---
 name: lettuce-ui-conventions
-description: 'lettuce UI conventions that are ours: pin/archive lists live in the BFF, not the agent; a viewport-fixed AgentMenu; the desktop rail — one 184px column of 30px rows: named panes, an AGENTS group of face+name rows, and a foot cell (⚙ Settings, or ☰ Conversations in the Settings column); the conversation drawer is a pinned column or an unpinned peek, opened from the agent name in the band; a phone bar of five equal slots under a header carrying the open agent''s face (`.where-avatar`); the band's clickable status light opens the responding list (no Settings glyph is in the band), and a non-Chat pane''s fixed corner `.pane-close` is what its bar keeps clear; both nav surfaces stay mounted and CSS picks one: ui-check reads the open agent from `.rail-agent.active[data-agent-id]`; the settings split (Agent, Tools, the Settings pane); no native checkbox (.menu-row-box / .chip-check). Read before touching NavRail, Sidebar, BottomBar, AgentMenu, the Agent/Tools/Settings tabs, settings-sections.ts or tabs.ts.'
+description: 'lettuce UI conventions that are ours: pin/archive lists live in the BFF; a viewport-fixed AgentMenu; the desktop rail: AGENTS face+name rows up top (its head-row pin collapses the main rail to a 56px glyph strip; the Settings rail never collapses), panes above a foot cell (⚙ Settings / ☰ Conversations); ⋯ menus wear the rail row scale at the mouse, fingertip under coarse pointers; the drawer is a pinned column or a peek opened from the band''s agent name, its head pin sharing the rail pin (.col-pin); a phone bar of six equal slots (Chat, Files, Tasks, Tools, Settings, More) under a header carrying the agent''s face (.where-avatar); the band''s status light opens the responding list; a non-Chat pane''s corner .pane-close; both nav surfaces stay mounted; the settings split (Agent, Tools, Settings); no native checkbox. Read before touching NavRail, Sidebar, BottomBar, AgentMenu, the Agent/Tools/Settings tabs, settings-sections.ts or tabs.ts.'
 ---
 
 # Agent list and sidebar UI conventions
@@ -18,14 +18,19 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   (opening beside it — the rail is a narrow column, and an avatar's verbs are a right-click), and
   the switcher's rows; it is fixed to the viewport because the agent surfaces scroll in boxes of
   their own, which clip an absolute menu, and closes itself on Back, Escape and presses elsewhere.
+  Every `.switcher-menu` speaks the rail's row scale at the mouse (30px rows, 12.5px words) and the
+  fingertip scale again under `(max-width: 899px), (pointer: coarse)` — one voice with the column
+  it opens over, at both densities.
   `use-agents` returns `agents` pinned-first; the rail, the bar and the panel hide archived agents,
   and only the phone switcher brings them back behind "archived agents (N)" — on desktop an
   archived agent has no way back yet (that entry retired with the all-in-one panel list; tracked as
   its own follow-up flow).
 - **Navigation is two surfaces, one per width, and `web/src/lib/tabs.ts` is the pane list they
-  share.** Desktop gets a `--rail-w` (184px) **rail** (`NavRail`): the named panes (Chat, Files,
-  Tasks, Tools, Agent) up top, then an `AGENTS` group word with one **face+name row per agent**
-  (face at 22px, the name taking the room), then `＋ New agent`. **Every slot is one row**
+  share.** Desktop gets a `--rail-w` (184px) **rail** (`NavRail`): an `AGENTS` group up top — its
+  head row carries the group word and, in the right corner, the **collapse pin** — then one
+  **face+name row per agent** (face at 22px, the name taking the room), then `＋ New agent`;
+  the panes (Chat, Files, Tasks, Tools, Agent) ride above the foot, because "who" is the first
+  question and the steady things live nearest the bottom. **Every slot is one row**
   (`--rail-row`, 30px, glyph then word, left-aligned). The rail used to be a 56px strip of icon-only
   squares whose agent names lived in a *second* copy of the same list inside the panel, and that pair
   needed a mirrored height, a mirrored scrollTop and a shared hover mark to pass for one control —
@@ -36,8 +41,13 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   because the column that names the panes should name its own exit too. **While Settings is the open
   pane the rail is a different list**: Back at the head, the sections in the same rows under their
   group words, and **☰ Conversations** (`.rail-all`) at the foot — leave the pane and bring the
-  drawer with you. The agent block is content-height and rides the foot: a short list sits on it, a
-  long one shrinks back and scrolls. **The drawer's toggle is the band's agent name** (`.where`): it
+  drawer with you. The agent block fills the room above the panes and scrolls on its own: a long
+  list scrolls in the block, and the panes and the door never move. **The AGENTS-row pin collapses
+  the MAIN rail** to a `--rail-w-collapsed` (56px) glyph strip — words hide, the glyphs grow to 28px
+  on 36px rows (both only while folded), `title`
+  carries the word, and the choice persists per device (`lettuce:rail-pin-expanded`, default
+  expanded). The Settings rail is exempt: a list of words needs a column that can hold one, so the
+  collapse re-applies only when a non-Settings pane is up. **The drawer's toggle is the band's agent name** (`.where`): it
   opens the drawer, hides it, and gives up a pin in the same click (`aria-pressed` on that button is
   the drawer's visibility) — asking to hide a pinned column means you mean it, and the pin is one
   click away to re-pin. The word on each foot cell is the point: a bare glyph under a column of words
@@ -46,7 +56,9 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   band's hairline, the sheet's own glyph) whose verb is back to Chat, and the band's title names that
   pane while it is up; `.main` grows `.closable` so the pane's own `.pane-bar` pads its right end
   clear of it — an X over a chip is a control nobody can press, and `ui-check` proves the corner is
-  clear at both widths. **An avatar answers
+  clear at both widths. The open pane also owns the phone's **Back** at the BackStack's floor rank
+  (`useBackToClose` in `App`): Back steps a secondary pane back to Chat rather than leaving the
+  app, and any sheet or menu opened over the pane closes first. **An avatar answers
   *who*, not *where*:** picking another agent keeps the pane you are on (Files stays Files, with
   their files), because being thrown to Chat made the avatars a place you dared not click while
   something else was open; on Chat it opens the panel, and the open agent's own avatar is the
@@ -67,7 +79,8 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   Beside the rail sits the **drawer** (`Sidebar`), Chat's, holding conversations and nothing else —
   there is no agent list in it, because the rail is that list. It names whose list it is at its head
   (`.panel-owner`: the agent, then `N conversations`, the count left out while it is still unknown).
-  A secondary pane puts it away, and the pin (in the tool row under the owner; localStorage,
+  A secondary pane puts it away, and the pin (in the owner row's right corner, on the rail pin's
+  metrics — the shared `.col-pin`, same corner and line in both columns; localStorage,
   **unpinned by default** — the rail carries the names now, so the drawer is something you reach
   for, not something you live beside) decides its shape: pinned it is a column of the grid
   (`--panel-w`), unpinned it is a **peek** floating over the transcript with a shadow
@@ -91,8 +104,8 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   runs, and once a list is up the next replaces it at once — the 120ms prices an *opening*, not a
   change of mind, and a panel that blinks back to your own list mid-move is the bug.
   Below 900px both are `display: none` and the
-  **bottom bar** (`BottomBar`) is the navigation: five equal slots — Chat, Files,
-  Tasks, Tools, then More holding Agent, Runs and Settings — and no avatar, because
+  **bottom bar** (`BottomBar`) is the navigation: six equal slots — Chat, Files,
+  Tasks, Tools, Settings, then More holding Agent and Runs — and no avatar, because
   a letter in a bar never said which agent it meant. The open agent's **face** is in
   the header's left corner (`.where-avatar`, hidden from 900px, rendered by `AgentAvatar`, plus
   the responding dot) and opens the same switcher the agent-name button beside it

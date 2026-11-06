@@ -39,6 +39,10 @@
      56px wide and every word in it an abbreviation ("Pi", "Push"). A word needs a
      column that can hold one; 184px holds every label and section name we ship. */
   --rail-w: 184px;
+  /* Unpinned, the MAIN rail collapses to a glyph strip this wide. The Settings
+     rail never collapses — a list of words needs a column that can hold one —
+     so the number only ever describes the agent/pane column. */
+  --rail-w-collapsed: 56px;
   --rail-row: 30px;
   /* The conversation drawer, pinned or peeking — the same box either way. */
   --drawer-w: 270px;
@@ -177,25 +181,88 @@ pre {
      the pane items and the footer sit in the same place with 3 agents or 30. */
   overflow: hidden;
 }
-/* The agent block rides the foot — content-height and bottom-docked, its own
-   border-top the hairline that ends the panes — and scrolls on its own when the
-   list outgrows the room under the panes. */
+/* The agent block sits at the top and fills the room above the panes — "who"
+   before "where" — and scrolls on its own when the list outgrows it. */
 .rail-agents {
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 0;
   width: 100%;
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   scrollbar-width: none;
-  border-top: 1px solid var(--border);
-  margin-top: auto;
-  padding: 2px 0 4px;
+  padding: 0;
 }
 .rail-agents::-webkit-scrollbar {
   display: none;
+}
+/* The column's head row: the group word, and in the right corner the pin that
+   folds the rail to glyphs. Its metrics ARE the drawer owner row's — a 24px pin
+   centered 18px below the band (rail's 4px of top air + half of 28 here;
+   drawer's 6px + half of 24 there), same 12px of right inset — so with both
+   columns up the two pins share one line and one look. */
+.rail-agents-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding-right: 12px;
+  /* Sticky over the scrolling agent list: the head carries the rail's only
+     shape control, and a control you scroll away from is not a control. The
+     surface matches the column so rows pass under it, not through it. */
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+}
+.rail-agents-head .rail-group-label {
+  padding: 0 12px;
+}
+.rail-agents-head .col-pin {
+  margin-left: auto;
+}
+/* The panes ride the foot above the door, and the hairline above them is the one
+   that ends the agents. */
+.rail-panes {
+  flex: none;
+  border-top: 1px solid var(--border);
+  padding-top: 2px;
+}
+/* One control language, two columns: the rail's collapse pin and the drawer's
+   pin. Quiet at rest, full weight only when it is on or asked for — it is a
+   setting you set once, not a button you press. */
+.col-pin {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--muted);
+  opacity: 0.55;
+  cursor: pointer;
+}
+.col-pin .icon {
+  width: 15px;
+  height: 15px;
+}
+.col-pin:hover {
+  opacity: 1;
+  color: var(--text);
+  background: var(--surface-2);
+}
+.col-pin[aria-pressed="true"] {
+  color: var(--accent);
+  opacity: 0.95;
+}
+.col-pin:disabled {
+  opacity: 0.3;
+  cursor: default;
 }
 .rail-agent {
   position: relative;
@@ -423,9 +490,52 @@ pre {
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
-/* The phone's bar, under the composer: five equal slots — the Chat pane, the
-   three secondary panes that earn one, and More. Identity is not its business;
-   the agent's face sits in the header's corner. */
+/* Unpinned main rail: the words go, the glyphs center, and the `title` carries
+   the word a hover asks for. `--rail-w` follows from `.app` so the grid track and
+   the peek drawer's `left` move with the column — one variable, no mirror. */
+.app.rail-collapsed {
+  --rail-w: var(--rail-w-collapsed);
+}
+.rail-collapsed .rail-agents-head {
+  justify-content: center;
+  padding-right: 0;
+}
+.rail-collapsed .rail-agents-head .rail-group-label {
+  display: none;
+}
+/* font-size: 0 retires the label text-nodes the rows carry bare; every glyph in
+   those rows has an explicit width, so only the words feel it. */
+.rail-collapsed .rail-item,
+.rail-collapsed .rail-agent,
+.rail-collapsed .rail-new {
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+  font-size: 0;
+}
+.rail-collapsed .rail-agent-name,
+.rail-collapsed .rail-foot-word {
+  display: none;
+}
+/* Nothing competes with the glyphs once the words go, so they grow into the
+   strip: 28px marks in a 36px row (the row grows only while folded), where
+   the expanded rail can afford 16px in 30px only because the words carry the
+   meaning. The operator picked 28/36 from a mockup sheet. */
+/* Scoped to the nav itself: `.app` also wears this class, and `--rail-row` is
+   read outside the rail too (the ⋯ menus size themselves by it) — redefining it
+   app-wide would resize every menu the moment the rail folds. */
+nav.rail.rail-collapsed {
+  --rail-row: 36px;
+}
+.rail-collapsed .rail-item .icon,
+.rail-collapsed .rail-new .icon,
+.rail-collapsed .rail-door .icon {
+  width: 28px;
+  height: 28px;
+}
+/* The phone's bar, under the composer: six equal slots — the Chat pane, the
+   secondary panes that earn one, Settings, and More. Identity is not its
+   business; the agent's face sits in the header's corner. */
 .bottombar {
   display: flex;
   align-items: stretch;
@@ -455,8 +565,10 @@ pre {
   box-shadow: inset 0 2px 0 var(--accent);
 }
 .bottombar .icon {
-  width: 20px;
-  height: 20px;
+  /* 18, not the old 20: six labels of 11px share 390px now, and the glyph makes
+     room so no slot has to truncate a word. */
+  width: 18px;
+  height: 18px;
 }
 
 /* The panel's scroll region: tool row, search, the list. It starts at the band's
@@ -483,36 +595,30 @@ pre {
 }
 /* The drawer's owner. Once the rail names the agents, a column of conversations
    with no name over it is ambiguous about whose they are — the band names the
-   agent, but the band is describing the transcript, not this list. */
+   agent, but the band is describing the transcript, not this list. The row is
+   the rail head's twin: same height box, same 12px inset, and the pin in the
+   right corner so the two column pins read as one control in two places. */
 .panel-owner {
+  display: flex;
+  align-items: center;
+  padding: 6px 12px 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.panel-owner-text {
   display: flex;
   align-items: baseline;
   gap: 6px;
-  padding: 10px 12px 0;
-  font-size: 13px;
-  font-weight: 600;
+  flex: 1;
+  min-width: 0;
 }
 .panel-owner .count {
   color: var(--muted);
   font-weight: 400;
   font-size: 12px;
 }
-.panel-pin .icon {
-  width: 15px;
-  height: 15px;
-}
-/* The pin rides the row's right end and stays quiet: it is a setting you set
-   once, not a button you press. Full weight only when it is on, or asked for. */
-.panel-pin {
+.panel-owner .col-pin {
   margin-left: auto;
-  opacity: 0.5;
-}
-.panel-pin:hover {
-  opacity: 1;
-}
-.panel-pin.on {
-  color: var(--accent);
-  opacity: 0.9;
 }
 
 /* "Where you are" is two verbs by width: on a phone `.where` opens the
@@ -4087,17 +4193,27 @@ textarea.mono {
   border: 1px solid var(--border);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
 }
+/* ⋯ menus wear the rail's row language at the mouse: same 30px row, the same
+   12.5px word and 12px inset as the rows the menu opens over — a menu that
+   spoke 15px/46px beside a 12.5px/30px column read as two apps. The touch
+   block at the foot of this file restores the fingertip scale. */
 .switcher-menu button {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px 14px;
+  height: var(--rail-row);
+  gap: 9px;
+  padding: 0 12px;
   background: none;
   border: none;
   color: var(--text);
-  font: inherit;
+  font-size: 12.5px;
+  line-height: 1;
   text-align: left;
   cursor: pointer;
+}
+.switcher-menu button .icon {
+  width: 16px;
+  height: 16px;
 }
 .switcher-menu button + button {
   border-top: 1px solid var(--border);
@@ -4996,6 +5112,19 @@ textarea.mono {
   }
   .menu-row {
     padding: 7px 10px 7px 12px;
+  }
+  /* ⋯ menus back to the fingertip scale (the desktop rule puts them at the
+     rail's 30px/12.5px; a thumb wants the 44 the token carries). */
+  .switcher-menu button {
+    height: auto;
+    min-height: var(--menu-row-h);
+    gap: 10px;
+    padding: 12px 14px;
+    font: inherit;
+  }
+  .switcher-menu button .icon {
+    width: 1.15em;
+    height: 1.15em;
   }
   .menu-row-check,
   .menu-row-box {
