@@ -177,29 +177,52 @@ for (const site of found.filter((site) => site.advisory)) {
 // ---------------------------------------------------------------- bun runtime
 //
 // The runtime CI installs and the runtime the image ships are two different
-// things, and they answer a refused WebSocket handshake differently: 1.3.14 throws
-// it out of EventEmitter, 1.3.0 delivers an ordinary rejection. A test written
-// against one went red on the other, so the two must at least agree on a minor —
-// and `packageManager`, which the CI workflows read, is the one record of it.
-// This is a literal comparison (check-version-pin stays offline): the image tag is
-// allowed to float inside the minor, never across it.
+// things, and they have disagreed about a refused WebSocket handshake (1.3.14
+// throws it out of EventEmitter, 1.3.0 delivers an ordinary rejection), which
+// turned a green branch red in CI. The literal pins must at least agree on a
+// minor — and `packageManager`, which the CI workflows mirror, is the one record
+// of it. This stays an offline literal comparison: the image tag may float inside
+// the minor, never across it. A patch-level divergence is still possible by
+// design, so runtime-sensitive tests must keep branching on the runtime they run
+// on (see bff/src/upstream/socket-tolerance.test.ts).
 {
-  const pkg = await Bun.file(`${ROOT}package.json`).text();
-  const pm = /"packageManager"\s*:\s*"bun@([0-9]+)\.([0-9]+)\.([0-9]+)"/.exec(pkg);
-  const dockerfile = await Bun.file(`${ROOT}docker/bff.Dockerfile`).text();
-  const image = /FROM\s+oven\/bun:([0-9]+)\.([0-9]+)(?:\.([0-9]+))?/.exec(dockerfile);
-  const workflows = [];
+  const read = (path: string) =>
+    Bun.file(`${ROOT}${path}`)
+      .text()
+      .catch(() => null);
+  const pkg = await read("package.json");
+  // `bun@1.3.0` and the integrity form `bun@1.3.0+sha512-…` are both legitimate.
+  const pm = pkg
+    ? /"packageManager"\s*:\s*"bun@([0-9]+)\.([0-9]+)\.([0-9]+)(?:\+[^"]*)?"/.exec(pkg)
+    : null;
+  const dockerfile = await read("docker/bff.Dockerfile");
+  const image = dockerfile
+    ? /FROM\s+oven\/bun:([0-9]+)\.([0-9]+)(?:\.([0-9]+))?/.exec(dockerfile)
+    : null;
+  const workflows: [string, string][] = [];
   for (const wf of ["ci.yml", "live.yml"]) {
-    const text = await Bun.file(`${ROOT}.github/workflows/${wf}`).text();
+    const text = await read(`.github/workflows/${wf}`);
+    if (text === null) {
+      problems.push(`.github/workflows/${wf}: unreadable — the bun runtime check lost a pin site`);
+      continue;
+    }
     const m = /BUN_VERSION:\s*"?([0-9]+)\.([0-9]+)\.([0-9]+)"?/.exec(text);
-    if (m) workflows.push([wf, `${m[1]}.${m[2]}.${m[3]}`] as [string, string]);
+    if (m) workflows.push([wf, `${m[1]}.${m[2]}.${m[3]}`]);
   }
-  if (!pm)
-    problems.push('package.json: no "packageManager": "bun@<x.y.z>" to derive the runtime from');
-  if (!image)
+  if (pkg && !pm) {
+    problems.push(
+      'package.json: "packageManager" is not a bun release (`bun@<x.y.z>[+sha…]`) — cannot derive the runtime',
+    );
+  } else if (!pkg) {
+    problems.push("package.json: unreadable — the bun runtime check lost its source of truth");
+  }
+  if (dockerfile && !image) {
     problems.push("docker/bff.Dockerfile: no `FROM oven/bun:<x.y>` to compare the runtime against");
+  } else if (!dockerfile) {
+    problems.push("docker/bff.Dockerfile: unreadable — the bun runtime check lost the image side");
+  }
   if (workflows.length === 0)
-    problems.push(".github/workflows: no BUN_VERSION pin found in ci.yml or live.yml");
+    problems.push(".github/workflows: no BUN_VERSION pin left to compare");
   if (pm && image) {
     if (`${pm[1]}.${pm[2]}` !== `${image[1]}.${image[2]}`) {
       problems.push(

@@ -3230,7 +3230,7 @@ try {
       };
     });
     check(
-      `${viewport.width}px: the idle light is there and coloured, and the band carries no gear`,
+      `${viewport.width}px: the idle light is there and coloured`,
       idleLight.light &&
         Boolean(idleLight.dotColour && idleLight.dotColour !== "rgba(0, 0, 0, 0)") &&
         (viewport.width < 640 || Boolean(idleLight.word)),
@@ -3367,9 +3367,9 @@ try {
   // Usage lives in the BFF (`GET /api/turn-usage`), which knows only real
   // turns, so that route is stubbed with a cache-hit turn and one
   // `usage_statistics` delta is injected to make the page fetch it.
-  // Asserted: the gauge lands in the top bar (not the composer, where it did
-  // not fit on a phone), leaves the title room, the sheet shows the whole
-  // prompt with its cache hit, and opens the limit editor. Nothing is saved —
+  // Asserted: the gauge lands in the top bar, leaves the title room, the sheet
+  // shows the whole prompt with its cache hit, and opens the limit editor.
+  // Nothing is saved —
   // the limit is real agent state.
   section("Context gauge");
   for (const viewport of [DESKTOP, PHONE]) {

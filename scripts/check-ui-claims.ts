@@ -29,7 +29,7 @@ import { join } from "node:path";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 
-const SCRIPTS = ["scripts/ui-check.ts", "scripts/screenshots.ts"];
+const SCRIPTS = ["scripts/ui-check.ts", "scripts/screenshots.ts", "scripts/signin-screens.ts"];
 const SKILL_GLOB = ".agents/skills";
 const WEB_DIR = "web/src";
 
@@ -81,6 +81,8 @@ const NOT_A_CLASS = new Set([
   "html",
   "txt",
   "wasm",
+  // Output-directory names that are quoted like a selector (`.ui-check`).
+  "ui-check",
 ]);
 
 interface Claim {
@@ -108,6 +110,7 @@ function readWebCorpus(): { classes: Set<string>; tokens: Set<string> } {
         continue;
       }
       if (!/\.(tsx?|css)$/.test(entry.name)) continue;
+      const isCss = entry.name.endsWith(".css");
       const text = readFileSync(full, "utf8");
       // JSX `className="a b"` / `className={"a"}`, template-built class lists,
       // and CSS rule selectors — one flat vocabulary, matching the loose way a
@@ -127,7 +130,13 @@ function readWebCorpus(): { classes: Set<string>; tokens: Set<string> } {
           if (/^[a-z][a-z0-9-]*$/.test(name)) classes.add(name);
         }
       }
-      for (const m of text.matchAll(/\.([a-z][a-z0-9-]*)\s*[,{:\s]/g)) classes.add(m[1]!);
+      // `.foo` shaped text is only a class rule inside the stylesheet. Over .ts/.tsx
+      // it registers property accesses (`state.again`) and extensions in comments
+      // (`.pdf`), and a vocabulary padded with common words is a silent false pass
+      // for a deleted class that happens to share one.
+      if (isCss) {
+        for (const m of text.matchAll(/\.([a-z][a-z0-9-]*)\s*[,{:\s]/g)) classes.add(m[1]!);
+      }
       for (const m of text.matchAll(/(--[a-z][a-z0-9-]*)\s*:/g)) tokens.add(m[1]!);
     }
   };
@@ -145,13 +154,14 @@ function claimsIn(path: string, text: string, skill: boolean): Claim[] {
     // satisfy. (Its prose is the claim-level sweep's job, not this one's.)
     const code = line.replace(/^\s*(\/\/|\*)+\s?/, "");
     if (code !== line) return;
-    // A negative assertion: the line (or the few before it, where the label
-    // sits) asks for an empty result — `count() === 0`, `!found`, `x === false`.
-    // Only meaningful for selector claims.
-    const window = lines.slice(Math.max(0, i - 6), i + 1).join(" ");
+    // A negative assertion is decided by the claim's OWN line, never by a window
+    // of neighbours: the label above a `check(` often says "nothing else appeared",
+    // and a nearby `count() === 0` from the previous assertion is not this one's
+    // business. Reading a window downgraded dead-positive assertions to a warning,
+    // which is the exact bug this script exists to catch.
     const negative =
-      /\.count\(\)\)?\s*===?\s*0\b|\.count\(\)\)?\s*<\s*1\b|not\.exists|length\s*===?\s*0\b|===?\s*false\b|==\s*null\b|!\w+\s*&&|&&\s*!\w+/.test(
-        window,
+      /\.count\(\)\)?\s*===?\s*0\b|\.count\(\)\)?\s*<\s*1\b|not\.exists|length\s*===?\s*0\b|===?\s*false\b|==\s*null\b/.test(
+        line,
       ) || /\b(must be gone|no longer|must be absent|is gone)\b/i.test(line);
 
     // CSS custom properties in backticks (docs voice) or in a `var(--)` call.
