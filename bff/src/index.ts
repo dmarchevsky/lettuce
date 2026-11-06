@@ -64,6 +64,7 @@ import {
 import { errorMessage } from "./errors.ts";
 import { contentDisposition } from "./files/content-disposition.ts";
 import { inlineContentType } from "./files/content-type.ts";
+import { deleteWorkspaceEntry } from "./files/delete.ts";
 import {
   declaredSizeViolation,
   MAX_UPLOAD_BYTES,
@@ -1792,6 +1793,26 @@ app.post("/api/files/upload", async (c) => {
     return hardenedResponse(hardened, result.text ?? "Failed to write file", {}, result.status);
   }
   return c.json(result.json);
+});
+
+// ── Delete a workspace file or folder (Files → the row's trash) ───────────
+// The one file verb the app-server protocol does not have: no delete, no rename,
+// no move. So it happens here, over the BFF's own bind of the workspace, and the
+// whole guard chain (session, clamp, the floor under it, symlink walk, realpath
+// re-check) lives in `files/delete.ts` with its own tests. Nothing goes upstream.
+app.post("/api/files/delete", async (c) => {
+  const result = await deleteWorkspaceEntry(
+    { hasSession: !!c.get("session") },
+    {
+      path: c.req.query("path"),
+    },
+  );
+  // The handler picked the status; plain numbers do not satisfy Hono's json
+  // overload, which is the entire reason for the cast.
+  const status = result.status as 200;
+  return result.json !== undefined
+    ? c.json(result.json, status)
+    : hardenedResponse(hardened, result.text ?? "", {}, status);
 });
 
 // ── Git history (Files → History) ──────────────────────────────────────────
