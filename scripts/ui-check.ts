@@ -336,8 +336,8 @@ async function openSkillsSection(page: Page): Promise<boolean> {
  * Settings has no glyph in the band: the door is the **rail's foot cell** on
  * desktop (`.rail-settings-cell`) and a **slot of the phone's bar**, because the
  * column that names the panes is the one place a pane belongs. From there the ways
- * out are the rail's Back cell, the corner `.pane-close`, and the drawer cell;
- * Escape belongs to sheets, not to panes.
+ * out are the rail's Back cell, the corner `.pane-close`, the drawer cell, and
+ * Escape — which reaches a pane only when no sheet is over it.
  */
 async function openSettings(page: Page): Promise<void> {
   const railDoor = page.locator("nav.rail .rail-settings-cell");
@@ -1462,8 +1462,9 @@ try {
       );
       await shot(page, "phone-settings-pi");
     }
-    // The ways out of the pane, and none of them is Escape: the corner X and the
-    // bar slot that opened it (the rail's Back cell is the desktop's third).
+    // The ways out of the pane: the corner X, the bar slot that opened it, and
+    // Escape — which used to belong to sheets only, and now closes a pane too
+    // (the rail's Back cell is the desktop's third).
     const lastChip = (
       await page.locator(".settings-pane .section-tabs button.active").innerText()
     ).trim();
@@ -1485,11 +1486,14 @@ try {
       },
     );
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(300);
     check(
-      "escape does not close a pane (it belongs to sheets)",
-      (await page.locator(".settings-pane").count()) === 1,
+      "escape closes the pane, the same step Back takes",
+      (await page.locator(".settings-pane").count()) === 0 &&
+        (await page.locator(".composer textarea").count()) === 1,
     );
+    await page.locator('.bottombar > button:text-is("Settings")').click();
+    await page.waitForTimeout(400);
     await phoneClose.click();
     await page.waitForTimeout(300);
     check(
@@ -2524,14 +2528,18 @@ try {
       "the skills link opens global skills",
       (await page.locator(".settings-content-title").innerText()) === "Global skills",
     );
-    // A pane is not the dialog it used to be: Escape belongs to whatever sheet is
-    // over it, never to the pane underneath, so its way out is the corner X.
+    // A pane answers Escape now — the press it used to hand straight to a sheet is
+    // the same step the corner X takes. The corner stays the second way out, so
+    // the pane is opened again to prove it still works when Escape exists.
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(300);
     check(
-      "escape leaves the settings pane up",
-      (await page.locator(".settings-pane").count()) === 1,
+      "escape closes the settings pane back to Chat",
+      (await page.locator(".settings-pane").count()) === 0 &&
+        (await page.locator(".rail .rail-item.active").innerText()).trim() === "Chat",
     );
+    await openSettings(page);
+    await page.waitForTimeout(300);
     await page.locator(".pane-close").click();
     await page.waitForTimeout(300);
     check(
