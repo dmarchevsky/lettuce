@@ -2080,10 +2080,13 @@ try {
     const glyph = (sel: string) =>
       page.evaluate((s) => getComputedStyle(document.querySelector(`${s} .icon`)!).width, sel);
     check(
-      "the folded rail wears larger glyphs (24px)",
-      (await glyph(".rail-panes .rail-item")) === "24px" &&
-        (await glyph(".rail-new")) === "24px" &&
-        (await glyph(".rail-door")) === "24px",
+      "the folded rail wears larger glyphs (28px on 36px rows)",
+      (await glyph(".rail-panes .rail-item")) === "28px" &&
+        (await glyph(".rail-new")) === "28px" &&
+        (await glyph(".rail-door")) === "28px" &&
+        (await page.evaluate(
+          () => getComputedStyle(document.querySelector(".rail-panes .rail-item")!).height,
+        )) === "36px",
     );
     await page.reload({ waitUntil: "networkidle" });
     await page.waitForTimeout(1500);

@@ -43,8 +43,8 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   group words, and **☰ Conversations** (`.rail-all`) at the foot — leave the pane and bring the
   drawer with you. The agent block fills the room above the panes and scrolls on its own: a long
   list scrolls in the block, and the panes and the door never move. **The AGENTS-row pin collapses
-  the MAIN rail** to a `--rail-w-collapsed` (56px) glyph strip — words hide, the glyphs grow to 24px
-  and center, `title`
+  the MAIN rail** to a `--rail-w-collapsed` (56px) glyph strip — words hide, the glyphs grow to 28px
+  on 36px rows (both only while folded), `title`
   carries the word, and the choice persists per device (`lettuce:rail-pin-expanded`, default
   expanded). The Settings rail is exempt: a list of words needs a column that can hold one, so the
   collapse re-applies only when a non-Settings pane is up. **The drawer's toggle is the band's agent name** (`.where`): it

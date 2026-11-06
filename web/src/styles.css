@@ -511,13 +511,17 @@ pre {
   display: none;
 }
 /* Nothing competes with the glyphs once the words go, so they grow into the
-   strip: 24px marks in a 30px row, where the expanded rail can afford 16px
-   only because the words carry the meaning. */
+   strip: 28px marks in a 36px row (the row grows only while folded), where
+   the expanded rail can afford 16px in 30px only because the words carry the
+   meaning. The operator picked 28/36 from a mockup sheet. */
+.rail-collapsed {
+  --rail-row: 36px;
+}
 .rail-collapsed .rail-item .icon,
 .rail-collapsed .rail-new .icon,
 .rail-collapsed .rail-door .icon {
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
 }
 /* The phone's bar, under the composer: six equal slots — the Chat pane, the
    secondary panes that earn one, Settings, and More. Identity is not its
