@@ -161,21 +161,39 @@ export function Sidebar({
       onPointerLeave={() => onHold(false)}
     >
       {/* Whose list this is, said out loud: the rail names the agents, the band names
-          the one you are talking to, and this column would otherwise name nothing. */}
+          the one you are talking to, and this column would otherwise name nothing.
+          The head's right corner carries the drawer pin, on the same metrics as the
+          rail's collapse pin — same corner, same box, same rest/on treatment. */}
       <div className="panel-owner">
-        {listAgentName ?? "Conversations"}
-        {liveCount > 0 ? (
-          <span className="count">
-            {liveCount} {liveCount === 1 ? "conversation" : "conversations"}
-          </span>
-        ) : null}
+        <span className="panel-owner-text">
+          {listAgentName ?? "Conversations"}
+          {liveCount > 0 ? (
+            <span className="count">
+              {liveCount} {liveCount === 1 ? "conversation" : "conversations"}
+            </span>
+          ) : null}
+        </span>
+        <button
+          type="button"
+          className="col-pin panel-pin"
+          onClick={onTogglePin}
+          aria-pressed={pinned}
+          title={
+            pinned
+              ? "Keeping the drawer open on Chat — click to make it a peek"
+              : "Peek only — click to keep the drawer open on Chat"
+          }
+          aria-label={pinned ? "Unpin the conversation drawer" : "Pin the conversation drawer"}
+        >
+          <Icon name="pin" />
+        </button>
       </div>
       <div className="convo">
         <div className="panel-tools">
-          {/* The panel's two verbs, always present — including borrowed, where New
-              reads after the shown agent and acts on it ("new conversation with
-              Grove", the switcher's own semantics), while pin remains refused: a
-              borrow is a hover, and App decides what a press on it means. */}
+          {/* New reads after the shown agent and acts on it ("new conversation with
+              Grove", the switcher's own semantics) even when borrowed: a borrow is a
+              hover, and App decides what a press on it means. The pin is not here —
+              it moved to the head row, on the rail pin's metrics. */}
           <button
             type="button"
             className="button ghost compact"
@@ -184,20 +202,6 @@ export function Sidebar({
             aria-label={preview ? `New conversation with ${preview.name}` : "New conversation"}
           >
             <Icon name="plus" /> {preview ? `New ${preview.name}` : "New"}
-          </button>
-          <button
-            type="button"
-            className={`icon-button flat panel-pin${pinned ? " on" : ""}`}
-            onClick={onTogglePin}
-            aria-pressed={pinned}
-            title={
-              pinned
-                ? "Keeping the drawer open on Chat — click to make it a peek"
-                : "Peek only — click to keep the drawer open on Chat"
-            }
-            aria-label={pinned ? "Unpin the conversation drawer" : "Pin the conversation drawer"}
-          >
-            <Icon name="pin" />
           </button>
         </div>
 

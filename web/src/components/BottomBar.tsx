@@ -20,12 +20,13 @@ interface Props {
  * The phone's navigation: one bar under the composer, replacing the top tab
  * strip that used to squeeze six labels onto 390px.
  *
- * Five equal slots — Chat, the three secondary panes that earn one on their own,
- * and More, which holds what is left: the agent's own settings, the coding
- * workers, this device's Settings. The agent's avatar is not here; it moved to
- * the header's left corner (`where-avatar` in App), because a letter the size of
- * a full stop never told you which agent you were talking to, and the bar's job
- * is panes, not identity.
+ * Six equal slots — Chat, the secondary panes that earn one on their own, and
+ * Settings, which graduated out of More so the shared configuration is one press
+ * from anywhere. More keeps only what belongs to the agent: its own settings and,
+ * where the deployment has them, the coding workers. The agent's avatar is not
+ * here; it moved to the header's left corner (`where-avatar` in App), because a
+ * letter the size of a full stop never told you which agent you were talking to,
+ * and the bar's job is panes, not identity.
  */
 export function BottomBar({
   agentName,
@@ -36,9 +37,9 @@ export function BottomBar({
   runsRunning,
 }: Props) {
   const [moreOpen, setMoreOpen] = useState(false);
-  // More is active for everything it holds — including Settings, which has no slot
-  // of its own on any width. A pane you are standing in must not light nothing.
-  const inMore = tab === "Agent" || tab === "Runs" || tab === "Settings";
+  // More holds the agent's own panes; Settings got a slot of its own, so a pane
+  // you are standing in must light its own slot, not this one.
+  const inMore = tab === "Agent" || tab === "Runs";
 
   const secondary: { tab: Tab; label: string; icon: IconName }[] = [
     { tab: "Files", label: "Files", icon: "folder" },
@@ -71,6 +72,16 @@ export function BottomBar({
             {pane.label}
           </button>
         ))}
+
+        <button
+          type="button"
+          className={tab === "Settings" ? "active" : ""}
+          aria-current={tab === "Settings" ? "page" : undefined}
+          onClick={onOpenSettings}
+        >
+          <Icon name="settings" />
+          Settings
+        </button>
 
         <button
           type="button"
@@ -126,26 +137,6 @@ export function BottomBar({
                 </button>
               </li>
             ) : null}
-          </ul>
-
-          <p className="menu-section">This device</p>
-          <ul className="menu-list">
-            <li>
-              <button
-                type="button"
-                className="menu-row"
-                onClick={() => {
-                  setMoreOpen(false);
-                  onOpenSettings();
-                }}
-              >
-                <Icon name="settings" />
-                <span className="menu-row-text">
-                  <span className="menu-row-title">Settings</span>
-                  <span className="menu-row-desc">Providers, search, MCP, Google, workers</span>
-                </span>
-              </button>
-            </li>
           </ul>
         </Sheet>
       ) : null}

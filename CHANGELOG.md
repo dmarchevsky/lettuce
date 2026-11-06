@@ -5,7 +5,22 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.34.0-letta_0.34.38] - 2026-11-05
+
 ### Changed
+- **The main rail folds away.** AGENTS moved to the top of the rail and its row carries the pin in its right corner: unpinned, the rail folds to a 56px strip of 28px glyphs and the transcript takes the width; the choice is remembered per device, and the Settings rail never folds — a list of words needs a column that can hold one.
+- **The conversation drawer's pin moved to its head row and sits on the rail pin's exact metrics** — same corner, same line, one control language for both columns.
+- **⋯ and right-click menus speak the rail's compact scale at the mouse** (30px rows, 12.5px words); touch devices keep fingertip rows.
+- **Settings is a slot of its own in the phone's bottom bar** — Chat · Files · Tasks · Tools · Settings · More — and More now holds only this agent's Agent and Runs rows.
+- **The phone's Back closes the open pane.** With Files, Tasks, Settings or any secondary pane up, Back steps back to Chat instead of leaving the app; a sheet or menu opened over a pane still closes first.
+
+## [v0.33.0-letta_0.34.38] - 2026-11-05
+
+### Added
+- **A message the agent sent you on Telegram now appears in the conversation, with its delivery.** A send was one line inside a collapsed run (`MessageChannel · Message sent to telegram (message_id: 13)`), so the digest a cron posted at 7am left no trace in the very transcript that holds it, and the agent's closing `Sent.` was a claim rather than a fact. A sent message gets a card of its own under the run now: destination, time, the text itself, a check when the channel took it and a warning when it refused — and nothing at all while the send is still out, because no answer is not a success. It is styled as the agent's own message instead of a tool panel (`✈ Telegram · 10:42 AM · ✓`), because that is what you read it as.
+
+### Changed
+- **The transcript takes the colour of the agent you are talking to.** The answer rail, the name in a turn header and the agent's narration rendered in one default tint whatever the agent's configured colour was, so five agents with five colours still produced one transcript — only the rail's face and the top bar knew who you were talking to. They follow the selected agent's colour now, and the channel-send card takes it too.
 - The agent-facing playbook and skills now say the things that cost a session to learn: prove the stack is
   up before asking for a human check, report a failed dev deploy as the outage it is, treat mockup sizes as
   provisional, and re-ask for release authorization at the tag.

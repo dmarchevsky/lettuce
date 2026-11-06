@@ -1,5 +1,14 @@
 import type { AskUserQuestionResponse } from "@letta-ai/letta-code/ask-user-question";
-import { memo, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  memo,
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { claudeSessionInTaskText, fetchClaudeRuns } from "../lib/claude.ts";
 import { copyText } from "../lib/clipboard.ts";
 import { codexThreadInTaskText, fetchCodexRuns } from "../lib/codex.ts";
@@ -16,6 +25,7 @@ import { formatEntryTime, formatEntryTimeFull } from "../lib/timestamps.ts";
 import { parseToolArgs, summarizeToolCall } from "../lib/tool-summary.ts";
 import { type FileLinks, useFileLinks } from "../state/use-file-links.ts";
 import type { SessionApi } from "../state/use-session.ts";
+import { ChannelSendCard } from "./ChannelSendCard.tsx";
 import { ClaudeRunSheet } from "./ClaudeRunSheet.tsx";
 import { CodexRunSheet } from "./CodexRunSheet.tsx";
 import { Icon } from "./Icon.tsx";
@@ -48,6 +58,16 @@ interface Props {
   agentId?: string | null;
   /** Stop a running child (`subagent_stop`); resolves to an error string or null. */
   onStopSubagent?: (agentId: string) => Promise<string | null>;
+  /**
+   * The agent's own colour, resolved once by the caller with `resolveAvatar`.
+   *
+   * `--agent` is declared at the root and set per-agent by exactly one surface —
+   * the nav rail — so every other consumer of it (this transcript's answer rail,
+   * the agent's name, the narration rule) rendered the default green whatever the
+   * user had picked, two colours for one agent. Passing it here makes the
+   * transcript read the same choice the avatar already shows.
+   */
+  agentTint?: string | null;
 }
 
 const KIND_LABEL: Record<string, string> = {
@@ -114,6 +134,7 @@ export function MessageList({
   liveSubagents,
   agentId,
   onStopSubagent,
+  agentTint,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const fileLinks = useFileLinks(session, cwd);
@@ -199,8 +220,26 @@ export function MessageList({
   // Steps fold once the turn is done. Only an explicit tap is remembered, so a
   // run that was open while live closes by itself when the answer lands.
   const [openSteps, setOpenSteps] = useState<ReadonlyMap<string, boolean>>(new Map());
-  const lastItem = items.at(-1);
-  const liveStepsId = processing && lastItem?.kind === "steps" ? lastItem.id : null;
+  // Every run after your last message is live — not just the last item. A
+  // promoted card (a channel send, a pending question) splits a turn into two
+  // runs, and treating only the final item as live folded the first one up while
+  // the agent was still working. Upstream tells agents to send a channel message
+  // mid-turn on purpose, so a card in the middle of a run is the normal case.
+  const liveStepsIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!processing) return ids;
+    let lastUser = -1;
+    items.forEach((item, i) => {
+      if (item.kind === "message" && item.entry.kind === "user" && !item.entry.reminder) {
+        lastUser = i;
+      }
+    });
+    for (let i = lastUser + 1; i < items.length; i++) {
+      const item = items[i];
+      if (item?.kind === "steps") ids.add(item.id);
+    }
+    return ids;
+  }, [items, processing]);
   const toggleSteps = (id: string, open: boolean) =>
     setOpenSteps((current) => new Map(current).set(id, !open));
 
@@ -265,7 +304,13 @@ export function MessageList({
 
   return (
     <div className="messages-wrap">
-      <div className="messages" ref={containerRef}>
+      <div
+        className="messages"
+        ref={containerRef}
+        // One --agent value for the whole conversation, so the rails, the name
+        // and the narration agree with the avatar in the header.
+        style={agentTint ? ({ "--agent": agentTint } as CSSProperties) : undefined}
+      >
         {entries.length === 0 && !processing ? (
           <p className="muted empty">
             {/* A conversation that is still fetching its history is not an empty
@@ -277,7 +322,7 @@ export function MessageList({
 
         {items.map((item) => {
           if (item.kind !== "steps") return renderEntry(item.entry);
-          const open = openSteps.get(item.id) ?? item.id === liveStepsId;
+          const open = openSteps.get(item.id) ?? liveStepsIds.has(item.id);
           return (
             <StepsGroup
               key={`steps:${item.id}`}
@@ -418,6 +463,12 @@ const MessageItem = memo(function MessageItem({
 
   if (entry.kind === "pi_run" && entry.piRunId) {
     return <PiRunCard runId={entry.piRunId} />;
+  }
+
+  if (entry.kind === "channel_send" && entry.channelSend) {
+    return (
+      <ChannelSendCard send={entry.channelSend} date={entry.date} showTimestamps={showTimestamps} />
+    );
   }
 
   if (entry.kind === "question" && entry.question) {
