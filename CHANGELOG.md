@@ -5,6 +5,10 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Added
+- **The BFF can now drive an app-server on another machine.** Point `LETTA_APP_SERVER_URL` at it and set `LETTA_APP_SERVER_TOKEN` to the capability token it was started with (`--ws-auth`); without the token the handshake is refused, and the BFF now says so at boot instead of leaving the app quietly stuck at "app-server disconnected". A remote app-server is a reduced one whatever the token says — the agent tools that call back into the BFF, the search and Google sidecars, the agent workspaces and the coding-worker CLIs all live in this stack — and `docs/CONFIGURATION.md` ("Remote app-server") lists what is missing and why.
+
+D
 ### Fixed
 - **A restart no longer freezes the app for minutes.** The BFF now catches up with conversations one at a time instead of eight at once, so opening a conversation or running a tool while it catches up stops waiting.
 - **Opening a conversation shows its messages at once.** The transcript no longer waits for the runtime to answer first, which on a slow disk meant seconds of a blank conversation every time you opened one.
