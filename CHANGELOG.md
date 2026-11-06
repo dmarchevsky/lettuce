@@ -5,6 +5,17 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.35.0-letta_0.34.38] - 2026-11-06
+
+### Added
+- **Files can delete.** Every row carries a trash now, file or folder, and one confirm prints the full path and says plainly that there is no trash to restore from. An agent's own directory refuses — clear its contents instead.
+
+### Changed
+- **Escape closes the open pane** on desktop, the same step the corner ✕ and a phone's Back already took. The thing closest to you still answers first: a sheet, the agent switcher or a ⋯ menu takes the press and the pane stays.
+- **Chat no longer lifts the conversation panel on its way past.** Arriving at Chat from Files or any other pane leaves a hidden panel hidden; the Chat button is the only thing that toggles it, and it still toggles when you press it while already in Chat.
+- **The desktop band wears the agent's face**, inside the same click that shows or hides the conversation list, and **Settings no longer shows an agent name over it** — what every agent shares shouldn't be wearing one agent's name.
+- **The composer types at 14px on desktop.** It was 16px everywhere so iOS would not zoom on focus, and that only matters under a finger.
+
 ## [v0.34.1-letta_0.34.38] - 2026-11-05
 
 ### Fixed
