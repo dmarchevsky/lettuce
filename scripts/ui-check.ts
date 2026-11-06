@@ -217,6 +217,65 @@ async function uploadSheetChecks(page: Page, label: string): Promise<void> {
 }
 
 /**
+ * Files → the row's trash, and Escape as the way out of a pane.
+ * The caller is already on the Files pane; this leaves it there.
+ *
+ * Nothing here deletes anything: the confirm sheet is opened against a real row
+ * and then dismissed with Escape, because a check that removes a file the agent
+ * may be working on is a worse bug than the one it would catch. What is asserted
+ * is the affordance, the sheet's own words, and that Escape closes the sheet
+ * before it touches the pane — the precedence `App.tsx` implements.
+ */
+async function deleteAndEscapeChecks(page: Page, label: string): Promise<void> {
+  const rows = page.locator("li.file-row");
+  const rowCount = await rows.count();
+  check(
+    `every row carries a delete, file or folder (${label})`,
+    rowCount > 0 &&
+      (await page.locator('li.file-row button[aria-label^="Delete "]').count()) === rowCount,
+    { rowCount, deletes: await page.locator('li.file-row button[aria-label^="Delete "]').count() },
+  );
+
+  const first = rows.first().locator('button[aria-label^="Delete "]');
+  const named = (await first.getAttribute("aria-label")) ?? "";
+  const name = named.replace(/^Delete /, "");
+  const before = await page.locator("li.file-row").count();
+  await first.click();
+  const sheet = page.locator(".sheet-panel").filter({ hasText: "removed from the workspace" });
+  await sheet.waitFor({ state: "visible", timeout: 5000 });
+  check(
+    `the confirm names what is going (${label})`,
+    name !== "" && (await sheet.locator("strong").first().innerText()) === name,
+    name,
+  );
+  check(
+    `the confirm prints the path and offers a danger verb (${label})`,
+    (await sheet.locator("code").count()) === 1 &&
+      (await sheet.locator(".sheet-actions .button.danger").count()) === 1,
+  );
+  await shot(page, `${label}-files-delete`);
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(300);
+  check(
+    `escape closes the confirm and removes nothing (${label})`,
+    (await page.locator(".sheet-panel").count()) === 0 &&
+      (await page.locator("li.file-row").count()) === before,
+    { before, after: await page.locator("li.file-row").count() },
+  );
+
+  // …and with no sheet up, the same key is the pane's way out — the same step
+  // Back and the corner X take.
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(400);
+  check(
+    `escape with nothing over the pane leaves the pane (${label})`,
+    (await page.locator(".pane").count()) === 0 &&
+      (await page.locator(".composer textarea").count()) === 1,
+  );
+  await openTab(page, "Files");
+}
+
+/**
  * Skills are the one pane whose content arrives late: the BFF walks the agent's
  * memfs and the global list only after the first agent connection, and after a
  * bff restart that walk can outlast any short budget. Two budgets have failed a
@@ -843,7 +902,9 @@ try {
       // Agent identity is content too: an avatar preference or a name the operator
       // chose (🐢, 🚀) is not a glyph the UI drew, and failing on it made this check
       // depend on who happens to be installed in the stack you are pointing at.
-      const chromeOnly = ".entry, .agent-avatar, .where-avatar, .rail-agent";
+      // Agent identity is content, and the band wears a face of its own now:
+      // `.where-face` is the same initial the rail rows already excuse.
+      const chromeOnly = ".entry, .agent-avatar, .where-avatar, .where-face, .rail-agent";
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
         acceptNode: (node) =>
           node.parentElement?.closest(chromeOnly)
@@ -1224,6 +1285,7 @@ try {
     // Upload shares the same bar as New file and the git buttons; the phone bar
     // is the one at risk of not fitting.
     await uploadSheetChecks(page, "phone");
+    await deleteAndEscapeChecks(page, "phone");
 
     await openTab(page, "Chat");
 
@@ -1453,6 +1515,14 @@ try {
         .locator('.composer-row button[aria-label="Agents and conversations"]')
         .count()) === 0,
     );
+    // The 16px floor is iOS Safari's no-zoom size, and a desktop was paying it: the
+    // input is now the size every other desktop control is.
+    check(
+      "the desktop composer types at 14px",
+      (await page.evaluate(
+        () => getComputedStyle(document.querySelector(".composer textarea")!).fontSize,
+      )) === "14px",
+    );
     check(
       "the rail carries the all-agents cell",
       (await page.locator(".rail .rail-settings-cell").count()) === 1,
@@ -1559,8 +1629,20 @@ try {
     // panes, with nothing about them reading as another conversation.
     check("no agent dropdown on desktop", (await page.locator(".sidebar select").count()) === 0);
     check(
-      "and no agent face in the desktop header — the rail already is that",
+      "and no 44px phone face in the desktop header — the rail already is that",
       !(await page.locator(".topbar .where-avatar").isVisible()),
+    );
+    // The band does carry a face, and inside the same button as the name: the
+    // identity is one verb, not a glyph beside it waiting to be clicked.
+    check(
+      "the desktop band wears the agent's face beside its name",
+      await page.evaluate(() => {
+        const face = document.querySelector(".topbar .where .where-face");
+        const words = document.querySelector(".topbar .where .where-words .where-agent");
+        if (!face || !words) return false;
+        const r = face.getBoundingClientRect();
+        return Math.round(r.width) === 22 && (face.textContent ?? "").trim().length > 0;
+      }),
     );
     check(
       "the rail lists every agent, with New-agent in the list and Settings' door fixed under it",
@@ -1759,6 +1841,13 @@ try {
     await page.locator(".messages").click({ position: { x: 620, y: 300 } });
     await page.waitForTimeout(300);
     check("clicking past it puts the peek away", !(await panelOn()));
+    // The peek is shut, so a pane round-trip has to leave it shut: arriving at Chat
+    // used to lift it, which made Files → Chat a drawer you never asked to open.
+    await openTab(page, "Files");
+    await page.waitForTimeout(300);
+    await openTab(page, "Chat");
+    await page.waitForTimeout(300);
+    check("a trip through a secondary pane leaves a shut panel shut", !(await panelOn()));
     // Hovering the open agent's avatar is the other way back, and it answers with
     // the panel itself: there is no second list anywhere on this screen.
     await page.locator(".rail .rail-agent.active").hover();
@@ -2112,6 +2201,16 @@ try {
     await page.waitForTimeout(1500);
     check("the rail's collapse survives a reload", (await railWidth()) <= 56);
     await openSettings(page);
+    // Settings is what every agent shares, so the open agent's name over it reads
+    // as a claim about scope that is not true. The face stays (it is the band's
+    // identity), the name goes.
+    check(
+      "Settings shows no agent name in the band",
+      (await page.locator(".topbar .where-agent").count()) === 0 &&
+        (await page.locator(".topbar .where-face").count()) === 1 &&
+        (await page.locator(".topbar .title").innerText()).trim() === "Settings",
+      await page.locator(".topbar").innerText(),
+    );
     check(
       "the Settings rail never collapses — its sections keep their words",
       (await railWidth()) >= 180 && (await page.locator(".rail .rail-section").first().isVisible()),
@@ -3026,6 +3125,7 @@ try {
     // The same affordance at desktop width, where the bar has room for all six
     // controls on one row.
     await uploadSheetChecks(page, "desktop");
+    await deleteAndEscapeChecks(page, "desktop");
 
     // Git history: the controls only exist for a folder inside a repository,
     // and the probed workspace usually is not one — so a missing pair is
