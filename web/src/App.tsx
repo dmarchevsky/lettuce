@@ -353,17 +353,20 @@ function Workspace({ status }: { status: Status }) {
   /**
    * The one pane switcher, shared by the rail and the phone bar.
    *
-   * A secondary pane always puts the panel away (it is Chat's), and on Chat an
-   * unpinned panel toggles — pressing Chat again is how you put the peek back.
+   * A secondary pane always puts the panel away (it is Chat's), and arriving back on
+   * Chat leaves it where you left it: only a press on Chat *while on Chat* is a
+   * toggle. A pane switch used to lift the peek on arrival, which turned Files → Chat
+   * into a way of opening a panel you had just shut.
    */
   const selectPane = useCallback(
     (next: Tab) => {
       // A borrow belongs to the rail and to Chat; changing pane ends it.
       setPreviewId(null);
       if (next === "Chat") {
-        // Pinned, Chat has nothing to do (the panel is already there). Unpinned,
-        // Chat is a toggle: pressing it while the peek is open puts it back.
-        setPanelPeek(!panelPinned && !(tab === "Chat" && panelPeek));
+        // Pinned, Chat has nothing to do (the panel is already there). Unpinned and
+        // already on Chat, Chat is a toggle: pressing it while the peek is open puts
+        // it back, and pressing it while shut is the one way to open the peek.
+        if (tab === "Chat") setPanelPeek(!panelPinned && !panelPeek);
       } else {
         setPanelPeek(false);
       }
@@ -384,6 +387,26 @@ function Workspace({ status }: { status: Status }) {
   useBackToClose(() => {
     selectPane("Chat");
   }, tab !== "Chat");
+
+  /**
+   * Escape closes the open pane, the same step Back takes.
+   *
+   * A secondary pane is the app's one open window on desktop and the corner X was
+   * its only mouse-free way out. A sheet owns Escape when one is up — `Sheet` hands
+   * the press to the innermost sheet alone, and an unanswered approval renders
+   * `.sheet` with no Escape handler at all, on purpose — so this stays off the
+   * field entirely while any sheet is in the document.
+   */
+  useEffect(() => {
+    if (tab === "Chat") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (document.querySelector(".sheet")) return;
+      selectPane("Chat");
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [tab, selectPane]);
 
   /** The Settings column's ☰ at the foot: leave the pane and bring the conversation
    * drawer with you. It is a door, not a toggle — pressing it lands you on Chat with
@@ -477,7 +500,10 @@ function Workspace({ status }: { status: Status }) {
       return;
     }
     selectPane("Chat");
-  }, [wide, openSwitcher, tab, panelPinned, panelPeek, previewAgent, selectPane]);
+    // Arriving on Chat no longer opens the panel by itself (see `selectPane`), so
+    // the verb this button advertises has to be spoken here.
+    openPanel();
+  }, [wide, openSwitcher, tab, panelPinned, panelPeek, previewAgent, selectPane, openPanel]);
   /** New conversation for the agent a list is showing — the switcher's "with X". */
   const newConversationWith = useCallback(
     async (agentId: string) => {
@@ -671,11 +697,34 @@ function Workspace({ status }: { status: Status }) {
         }
         title={wide ? (panelVisible ? "Hide conversations" : "Show conversations") : undefined}
       >
-        <span className="where-agent">
-          {agentName ?? "No agent"}
-          {respondingElsewhere > 0 ? <span className="activity-dot badge-dot" /> : null}
+        {/* The agent's face, desktop only — a phone already has the fingertip one
+            above. It lives inside the same button because the face is the identity
+            and the identity is the panel toggle: a second control beside it would
+            be a second verb doing the same thing. */}
+        {wide ? (
+          <AgentAvatar
+            agentId={agents.agentId ?? ""}
+            name={agentName ?? ""}
+            pref={agents.agentId ? agents.avatars[agents.agentId] : undefined}
+            className="where-face"
+            ariaHidden
+          />
+        ) : null}
+        {/* The two lines the button carries. `.where` is a row now (face beside
+            them), so the column it used to be moves into this span — otherwise the
+            face lands above the name and the band grows past `--topbar-h`. */}
+        <span className="where-words">
+          {/* Settings is what every agent shares, so the open agent's name over it
+              is noise; the pane's own word is already the title. The face stays —
+              it is the button's identity, and on desktop its verb. */}
+          {tab === "Settings" ? null : (
+            <span className="where-agent">
+              {agentName ?? "No agent"}
+              {respondingElsewhere > 0 ? <span className="activity-dot badge-dot" /> : null}
+            </span>
+          )}
+          <h1 className="title">{bandTitle}</h1>
         </span>
-        <h1 className="title">{bandTitle}</h1>
         {/* No chevron: on desktop the name is the panel toggle (click shows or
                 hides), and on a phone it opens the switcher — in both cases the
                 button says what it does in its accessible name, and the caret
