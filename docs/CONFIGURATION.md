@@ -757,10 +757,12 @@ method).
   permission levels live on volumes only the BFF and the sidecar mount.
 - **The BFF can remove files from `workspaces/`.** The app-server protocol has no
   delete verb at all, so the Files tab's trash is our own route over the BFF's bind
-  of that tree, and it is read-write for that one route. A signed-in browser could
-  already overwrite every byte there through `write_file`, so this adds removal,
-  not a new tree; the route refuses anything outside the workspace, any symlink in
-  the path, the workspace root and each agent's own directory.
+  of that tree. That bind is read-write — like the app-server's own — and what is
+  narrow is the use: the BFF writes there through this one route and nowhere else.
+  A signed-in browser could already overwrite every byte through `write_file`, so
+  this adds removal, not a new tree; the route refuses anything outside the
+  workspace, any symlink in the path, the workspace root and each agent's own
+  directory.
 - **Agent-served web apps are unauthenticated** and do not survive an
   app-server restart.
 

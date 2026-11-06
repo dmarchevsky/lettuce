@@ -490,9 +490,10 @@ export function FilesTab({ session, cwd, agentId }: Props) {
               <SortMark active={sortKey === "modified"} dir={sortDir} />
             </button>
             {/* Matches the body row's two action slots exactly (same classes) so
-                this header row is exactly as wide as a body row — see styles.css. */}
+                this header row is exactly as wide as a body row — see styles.css.
+                Each slot is named for the column it holds, not one name for both. */}
             <span className="icon-button ghost file-download-placeholder" aria-hidden="true" />
-            <span className="icon-button ghost file-download-placeholder" aria-hidden="true" />
+            <span className="icon-button ghost file-delete-placeholder" aria-hidden="true" />
           </div>
           <ul className="list">
             {sortedEntries.map((entry) => {
@@ -566,8 +567,10 @@ export function FilesTab({ session, cwd, agentId }: Props) {
                   {/* At the workspace root every row is an agent's own directory,
                       which the route refuses by the same floor the panel refuses
                       to climb — so no trash is offered there. A placeholder holds
-                      the column, and the row stays clickable to open it. */}
-                  {root === WORKSPACE_ROOT ? (
+                      the column, and the row stays clickable to open it. The root
+                      is compared trimmed because a `cwd` can arrive with a
+                      trailing slash, and the route's floor will not care. */}
+                  {root.replace(/\/+$/, "") === WORKSPACE_ROOT ? (
                     <span
                       className="icon-button ghost file-delete-placeholder"
                       aria-hidden="true"

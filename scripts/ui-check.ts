@@ -269,6 +269,18 @@ async function deleteAndEscapeChecks(page: Page, label: string): Promise<void> {
     { before, after: await page.locator("li.file-row").count() },
   );
 
+  // …and the floor the route refuses is a floor the pane must not offer either: one
+  // level up is `/work`, where every row is an agent's own directory. Listing it is
+  // fine; a trash button there would be a button that cannot work.
+  await page.locator('.pane button:has-text("Up")').first().click();
+  await page.waitForTimeout(800);
+  const rootRows = await page.locator("li.file-row").count();
+  check(
+    `the workspace root lists its agents and offers no delete (${label})`,
+    rootRows > 0 && (await page.locator('li.file-row button[aria-label^="Delete "]').count()) === 0,
+    { rootRows },
+  );
+
   // …and with no sheet up, the same key is the pane's way out — the same step
   // Back and the corner X take.
   await page.keyboard.press("Escape");

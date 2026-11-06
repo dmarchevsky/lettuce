@@ -430,9 +430,9 @@ function Workspace({ status }: { status: Status }) {
 
   /** The rail's foot cell is the door into Settings. It is a door and not a toggle:
    * the cell is not on screen while Settings is the pane (the rail holds its sections
-   * then), so the way out is the sections rail's Back cell or the corner X, and both
-   * go back to Chat — remembering which pane opened Settings would be a fourth thing
-   * for the rail's foot to remember, for a verb you cannot press twice. */
+   * then), so the way out is the sections rail's Back cell, the corner X or Escape,
+   * and all three go back to Chat — remembering which pane opened Settings would be a
+   * fourth thing for the rail's foot to remember, for a verb you cannot press twice. */
   const openSettingsPane = useCallback(() => selectPane("Settings"), [selectPane]);
 
   /** A link from another pane into one Settings section — the door's verb with the

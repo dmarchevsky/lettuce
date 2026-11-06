@@ -3469,7 +3469,8 @@ p.warning code,
     width: auto;
     padding-right: 6px;
   }
-  .file-row-head > .file-download-placeholder {
+  .file-row-head > .file-download-placeholder,
+  .file-row-head > .file-delete-placeholder {
     display: none;
   }
 }
