@@ -3209,6 +3209,7 @@ try {
       }),
     );
     await page.waitForTimeout(300);
+    const w = viewport.width;
     const gauge = page.locator(".topbar .ctx-gauge");
     check(`${w}px: the gauge is in the top bar`, (await gauge.count()) === 1);
     if ((await gauge.count()) === 1) {
