@@ -513,11 +513,7 @@ test("no token means no second constructor argument at all", () => {
       authToken: unset,
       WebSocket: RecordingSocket as never,
     });
-    expect(RecordingSocket.calls[0]).toEqual([
-      "ws://127.0.0.1:4599/ws",
-      undefined,
-      undefined,
-    ]);
+    expect(RecordingSocket.calls[0]).toEqual(["ws://127.0.0.1:4599/ws", undefined, undefined]);
   }
 });
 
@@ -546,7 +542,7 @@ test("a remote app-server with no token is said out loud at boot", () => {
   expect(remoteAppServerNotice("ws://localhost:4500/ws", null)).toBeNull();
   expect(remoteAppServerNotice("ws://[::1]:4500/ws", null)).toBeNull();
   // A token means the operator chose this; no line, so the line keeps meaning.
-  expect(remoteAppServerNotice("ws://10.0.0.5:4500/ws", "tok")).toBeNull();
+  expect(remoteAppServerNotice("ws://192.0.2.5:4500/ws", "tok")).toBeNull();
   expect(remoteAppServerNotice("not a url", null)).toBeNull();
 
   const warning = remoteAppServerNotice("ws://linux-box:4500/ws", null);

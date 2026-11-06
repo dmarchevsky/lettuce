@@ -168,7 +168,7 @@ import { drainActiveTurns } from "./shutdown.ts";
 import { hostSkillFs, upstreamSkillFs } from "./skills/fs.ts";
 import { InvalidSkillScopeError, SkillCatalog } from "./skills/service.ts";
 import { listSystemCron, withTopLevelOwners } from "./system-cron.ts";
-import { UpstreamConnection, remoteAppServerNotice } from "./upstream/connection.ts";
+import { remoteAppServerNotice, UpstreamConnection } from "./upstream/connection.ts";
 import { readUiVersion } from "./version.ts";
 import { ddgCaller } from "./web-tools/ddg.ts";
 import { loadWebToolsSettings, retireSeededDdgMcp } from "./web-tools/install.ts";
