@@ -563,15 +563,26 @@ export function FilesTab({ session, cwd, agentId }: Props) {
                       aria-hidden="true"
                     />
                   )}
-                  <button
-                    type="button"
-                    className="icon-button ghost"
-                    title={`Delete ${entry.path}`}
-                    aria-label={`Delete ${entry.path}`}
-                    onClick={() => setDeleteTarget({ path: absolute, type: entry.type })}
-                  >
-                    <Icon name="trash" />
-                  </button>
+                  {/* At the workspace root every row is an agent's own directory,
+                      which the route refuses by the same floor the panel refuses
+                      to climb — so no trash is offered there. A placeholder holds
+                      the column, and the row stays clickable to open it. */}
+                  {root === WORKSPACE_ROOT ? (
+                    <span
+                      className="icon-button ghost file-delete-placeholder"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className="icon-button ghost"
+                      title={`Delete ${entry.path}`}
+                      aria-label={`Delete ${entry.path}`}
+                      onClick={() => setDeleteTarget({ path: absolute, type: entry.type })}
+                    >
+                      <Icon name="trash" />
+                    </button>
+                  )}
                 </li>
               );
             })}

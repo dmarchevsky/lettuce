@@ -220,11 +220,13 @@ async function uploadSheetChecks(page: Page, label: string): Promise<void> {
  * Files → the row's trash, and Escape as the way out of a pane.
  * The caller is already on the Files pane; this leaves it there.
  *
- * Nothing here deletes anything: the confirm sheet is opened against a real row
- * and then dismissed with Escape, because a check that removes a file the agent
- * may be working on is a worse bug than the one it would catch. What is asserted
- * is the affordance, the sheet's own words, and that Escape closes the sheet
- * before it touches the pane — the precedence `App.tsx` implements.
+ * The affordance checks (every row offers a delete, the sheet's own words, Escape
+ * closes it before it touches the pane — the precedence `App.tsx` implements) run
+ * against a row the check did NOT create, and dismiss with Escape: a check that
+ * removes a file the agent may be working on is a worse bug than the one it would
+ * catch. The one destructive round trip then makes its own file — New file, trash,
+ * Delete — so the route's 200 and the listing's refresh are proven end to end
+ * without touching anything that was here first.
  */
 async function deleteAndEscapeChecks(page: Page, label: string): Promise<void> {
   const rows = page.locator("li.file-row");
@@ -262,6 +264,28 @@ async function deleteAndEscapeChecks(page: Page, label: string): Promise<void> {
       (await page.locator("li.file-row").count()) === before,
     { before, after: await page.locator("li.file-row").count() },
   );
+
+  // The round trip, on a file this check made: New file → the row → trash → Delete
+  // → gone. Everything above proves the sheet says the right thing; this is the
+  // only assertion that the button behind it actually removes the file.
+  const made = `ui-check-${label}-delete.txt`;
+  await page.locator('.pane button:has-text("New file")').first().click();
+  const create = page.locator('.sheet-panel[aria-label="New file"]');
+  await create.waitFor({ state: "visible", timeout: 5000 });
+  await create.locator("input").first().fill(made);
+  await create.locator('.sheet-actions button:has-text("Create")').click();
+  const row = page.locator("li.file-row").filter({ hasText: made });
+  await row.waitFor({ state: "visible", timeout: 15_000 }).catch(() => {});
+  check(`New file writes a row the pane lists (${label})`, (await row.count()) === 1, made);
+  await row.locator('button[aria-label^="Delete "]').click();
+  const confirm = page.locator(".sheet-panel").filter({ hasText: "removed from the workspace" });
+  await confirm.waitFor({ state: "visible", timeout: 5000 });
+  await confirm.locator(".sheet-actions .button.danger").click();
+  await row.waitFor({ state: "detached", timeout: 15_000 }).catch(() => {});
+  check(`a confirmed delete removes the file for good (${label})`, (await row.count()) === 0, {
+    made,
+    still: await row.count(),
+  });
 
   // …and with no sheet up, the same key is the pane's way out — the same step
   // Back and the corner X take.

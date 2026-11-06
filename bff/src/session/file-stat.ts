@@ -1,9 +1,8 @@
 import { statSync } from "node:fs";
 
 /**
- * Augments `get_tree` entries with real modification times and file sizes,
- * read directly off the BFF's own read-only mount of the workspace
- * (`docker/compose.yml`).
+ * Augments `get_tree` entries with real modification times and file sizes, read
+ * directly off the BFF's own mount of the workspace (`docker/compose.yml`).
  *
  * `get_tree` reports only `{path, type}` — no mtime, no size — and the fork
  * that owns the protocol cannot be patched (see CLAUDE.md's zero-fork-delta

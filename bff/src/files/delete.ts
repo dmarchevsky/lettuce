@@ -105,6 +105,11 @@ function guardEntry(deps: DeleteRouteDeps, rawPath: string | undefined): GuardOk
   const fail = (result: DeleteRouteResult): GuardFail => ({ ok: false, result });
 
   if (!rawPath) return fail({ status: 400, text: "Missing path" });
+  // A NUL never reaches the filesystem, and `rmSync` would answer it with Node's
+  // own argument error — a 500 for what is simply a bad request.
+  if (rawPath.includes("\0")) {
+    return fail({ status: 400, text: "path contains a null byte" });
+  }
   if (!rawPath.startsWith("/")) {
     return fail({ status: 400, text: `path must be an absolute path inside ${root}` });
   }
@@ -120,6 +125,15 @@ function guardEntry(deps: DeleteRouteDeps, rawPath: string | undefined): GuardOk
   // are what a live turn is standing in — `/work/agent-…` is a runtime's cwd and
   // the whole listing the Files pane is showing — so removing one is not a verb
   // this UI should offer, whatever the path spelling turns out to be.
+  //
+  // The floor is drawn by DEPTH, not by identity: it refuses `parent === root`
+  // rather than checking the name against the list of agents, because the BFF has
+  // no agent list to check and a name is the weaker of the two guarantees. The
+  // consequence is that everything at depth 2 or deeper is fair game, including a
+  // working directory a future worker might be given under an agent's own
+  // directory. None exists today — the coding and channel workers all run inside
+  // an agent's directory, never below it — so the line holds; if that changes, the
+  // floor has to grow a name check with it.
   if (resolved === root || parentOf(resolved) === root) {
     return fail({
       status: 400,

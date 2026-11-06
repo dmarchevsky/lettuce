@@ -401,7 +401,11 @@ function Workspace({ status }: { status: Status }) {
     if (tab === "Chat") return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      if (document.querySelector(".sheet")) return;
+      // The innermost surface owns the press. A sheet claims Escape in its own
+      // handler and stops propagation, but the switcher and a ⋯ menu do not —
+      // neither renders `.sheet` — so without naming them here one press would
+      // answer twice: the menu closes AND the pane underneath it closes.
+      if (document.querySelector(".sheet, .switcher, .agent-menu")) return;
       selectPane("Chat");
     };
     document.addEventListener("keydown", onKeyDown);
@@ -690,7 +694,7 @@ function Workspace({ status }: { status: Status }) {
         onClick={identityClick}
         aria-label={
           wide
-            ? `${agentName ?? "Agent"}: ${bandTitle}. ${panelVisible ? "Hide" : "Show"} conversations`
+            ? `${agentName ?? "Agent"}: ${bandTitle}${respondingElsewhere > 0 ? ` — ${respondingElsewhere} responding elsewhere` : ""}. ${panelVisible ? "Hide" : "Show"} conversations`
             : respondingElsewhere > 0
               ? `${agentName ?? "Agent"}: ${bandTitle}. Switch — ${respondingElsewhere} responding elsewhere`
               : `${agentName ?? "Agent"}: ${bandTitle}. Switch agent or conversation`
@@ -715,14 +719,17 @@ function Workspace({ status }: { status: Status }) {
             face lands above the name and the band grows past `--topbar-h`. */}
         <span className="where-words">
           {/* Settings is what every agent shares, so the open agent's name over it
-              is noise; the pane's own word is already the title. The face stays —
-              it is the button's identity, and on desktop its verb. */}
-          {tab === "Settings" ? null : (
+              is noise; the pane's own word is already the title. Only the NAME is
+              dropped — the responding-elsewhere dot is this agent's own signal and
+              an agent is still selected, so the row stays and the name inside it
+              goes. The face above is unaffected: it is the button's identity, and
+              on desktop its verb. */}
+          {tab !== "Settings" || respondingElsewhere > 0 ? (
             <span className="where-agent">
-              {agentName ?? "No agent"}
+              {tab === "Settings" ? null : (agentName ?? "No agent")}
               {respondingElsewhere > 0 ? <span className="activity-dot badge-dot" /> : null}
             </span>
-          )}
+          ) : null}
           <h1 className="title">{bandTitle}</h1>
         </span>
         {/* No chevron: on desktop the name is the panel toggle (click shows or

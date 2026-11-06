@@ -99,6 +99,11 @@ describe("the clamp", () => {
     expect((await ok("agent-local-1/persona.md")).status).toBe(400);
   });
 
+  test("a null byte is a bad request, not Node's argument error", async () => {
+    expect((await ok(`${root}/agent-local-1/persona.md\0.md`)).status).toBe(400);
+    expect(removed).toEqual([]);
+  });
+
   test("a missing path is a 400, and a vanished one is a 404", async () => {
     expect((await ok(undefined)).status).toBe(400);
     expect((await ok(join(root, "agent-local-1", "gone.md"))).status).toBe(404);

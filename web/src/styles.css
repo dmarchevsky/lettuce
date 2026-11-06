@@ -3389,8 +3389,12 @@ p.warning code,
    class already exists (line ~150, an empty-state icon+text centering rule)
    and also matches this span, and since neither rule declares every flex
    property, the two silently blend — its `flex: 1` overrode this element's
-   width, growing it to fill the row instead of holding a fixed slot. */
-.file-row .icon-button.ghost.file-download-placeholder {
+   width, growing it to fill the row instead of holding a fixed slot. The
+   delete slot uses the same trick one level up the tree: at the workspace root
+   every row is an agent's own directory, which the route refuses, so nothing is
+   offered there and the column is held by a placeholder of the same width. */
+.file-row .icon-button.ghost.file-download-placeholder,
+.file-row .icon-button.ghost.file-delete-placeholder {
   visibility: hidden;
 }
 

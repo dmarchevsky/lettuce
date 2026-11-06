@@ -1817,7 +1817,7 @@ app.post("/api/files/delete", async (c) => {
 
 // ── Git history (Files → History) ──────────────────────────────────────────
 // Upstream exposes only branch commands and the app-server image ships no git
-// binary, so the log is read here, against the BFF's read-only view of /work,
+// binary, so the log is read here, against the BFF's own mount of /work,
 // and nothing goes upstream. The handlers (session, workspace clamp, symlink
 // guard, realpath re-check, then git) live in `git/routes.ts`; this is only
 // the HTTP plumbing. See that file and `git/log.ts` for the reasoning.
