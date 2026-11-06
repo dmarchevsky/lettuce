@@ -100,7 +100,7 @@ export function checkUpgradeOrigin(
 }
 
 /** `localhost`, `127.x.x.x` and `::1`, with or without brackets. */
-function isLoopbackHostname(hostname: string): boolean {
+export function isLoopbackHostname(hostname: string): boolean {
   const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
   return host === "localhost" || host === "::1" || host.startsWith("127.");
 }

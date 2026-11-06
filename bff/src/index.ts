@@ -168,7 +168,7 @@ import { drainActiveTurns } from "./shutdown.ts";
 import { hostSkillFs, upstreamSkillFs } from "./skills/fs.ts";
 import { InvalidSkillScopeError, SkillCatalog } from "./skills/service.ts";
 import { listSystemCron, withTopLevelOwners } from "./system-cron.ts";
-import { UpstreamConnection } from "./upstream/connection.ts";
+import { UpstreamConnection, remoteAppServerNotice } from "./upstream/connection.ts";
 import { readUiVersion } from "./version.ts";
 import { ddgCaller } from "./web-tools/ddg.ts";
 import { loadWebToolsSettings, retireSeededDdgMcp } from "./web-tools/install.ts";
@@ -252,6 +252,8 @@ function log(message: string): void {
 // adapters), which only boot on first client attach.
 const upstream = new UpstreamConnection({
   url: config.appServerUrl,
+  // null/undefined keeps today's container shape: loopback, no auth header at all.
+  authToken: config.appServerToken,
   onFrame: (frame: WsProtocolMessage) => {
     // Before the fan-out: a browser refetches usage when it sees a usage
     // delta, and must find this step already counted.
@@ -314,6 +316,13 @@ const upstream = new UpstreamConnection({
   },
   log,
 });
+
+// Boot-time honesty about a remote app-server: an unauthenticated socket to
+// another host is refused, and even an authenticated one loses everything that
+// calls back into the BFF over loopback. Say it once here rather than let the
+// operator discover it as a silent 401 and five missing tools.
+const remoteAppServerWarning = remoteAppServerNotice(config.appServerUrl, config.appServerToken);
+if (remoteAppServerWarning) log(`WARNING: ${remoteAppServerWarning}`);
 
 const registry = new SessionRegistry(upstream, config.frameBufferSize, log);
 
