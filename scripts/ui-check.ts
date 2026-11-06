@@ -233,6 +233,18 @@ async function uploadSheetChecks(page: Page, label: string): Promise<void> {
  * precedence `App.tsx` implements.
  */
 async function deleteAndEscapeChecks(page: Page, label: string): Promise<void> {
+  // The pane opens wherever the landing conversation works, and a cron or channel
+  // conversation works at `/work` itself — the one directory nothing may be deleted
+  // from, so it has no trash to press. Step into the first agent directory when the
+  // pane landed there, so the press below always has a button behind it.
+  const here = async () =>
+    ((await page.locator(".pane code.path").first().innerText()) ?? "").replace(/\/+$/, "");
+  const walkedIn = (await here()) === "/work";
+  if (walkedIn) {
+    await page.locator("li.file-row").first().click();
+    await page.waitForTimeout(700);
+  }
+
   const rows = page.locator("li.file-row");
   const rowCount = await rows.count();
   check(
@@ -269,16 +281,21 @@ async function deleteAndEscapeChecks(page: Page, label: string): Promise<void> {
     { before, after: await page.locator("li.file-row").count() },
   );
 
-  // …and the floor the route refuses is a floor the pane must not offer either: one
-  // level up is `/work`, where every row is an agent's own directory. Listing it is
-  // fine; a trash button there would be a button that cannot work.
-  await page.locator('.pane button:has-text("Up")').first().click();
-  await page.waitForTimeout(800);
+  // …and the floor the route refuses is a floor the pane must not offer either: at
+  // `/work` every row is an agent's own directory. Listing it is fine; a trash
+  // button there would be a button that cannot work. Walk up to it by whatever
+  // depth the pane is at, so this holds whichever conversation the run landed on.
+  for (let up = 0; up < 3 && (await here()) !== "/work"; up++) {
+    await page.locator('.pane button:has-text("Up")').first().click();
+    await page.waitForTimeout(700);
+  }
   const rootRows = await page.locator("li.file-row").count();
   check(
     `the workspace root lists its agents and offers no delete (${label})`,
-    rootRows > 0 && (await page.locator('li.file-row button[aria-label^="Delete "]').count()) === 0,
-    { rootRows },
+    (await here()) === "/work" &&
+      rootRows > 0 &&
+      (await page.locator('li.file-row button[aria-label^="Delete "]').count()) === 0,
+    { rootRows, at: await here() },
   );
 
   // …and with no sheet up, the same key is the pane's way out — the same step
@@ -498,9 +515,10 @@ try {
       // shows. Asserted by its label because that IS the state — there is no
       // pressed style to read and nothing should be.
       const scopeLink = page.locator(".pane .filters button.link").first();
-      // A cold app-server makes the pane's own controls arrive late; give them the
-      // chance before deciding the pane lost its one control.
-      await scopeLink.waitFor({ state: "attached", timeout: 10_000 }).catch(() => {});
+      // The control renders only once the agent list has resolved, and on a cold
+      // app-server that is the slowest part of a fresh sign-in — it measured 14s
+      // here end to end. The budget is for that wait, not for the assertion.
+      await scopeLink.waitFor({ state: "attached", timeout: 45_000 }).catch(() => {});
       const hasScopeLink = (await scopeLink.count()) > 0;
       // Not wrapped in the `if` below: a pane that lost its one control must fail
       // the run, not skip its assertions.
