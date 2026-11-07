@@ -622,20 +622,23 @@ const piService = new PiService({
   // dispatching conversation gets the same news as a <task-notification>, so
   // the agent learns by event instead of a pi_wait/pi_status poll loop.
   onSettle: (meta) => {
-    const verdict =
-      meta.state === "completed" || meta.state === "failed" || meta.state === "cancelled"
-        ? meta.state
-        : null;
-    if (!verdict) return;
-    if (pushStore)
+    // Every terminal state reports into the conversation, `detached` included.
+    // Silence is what taught agents to poll: a run that ended without the
+    // upstream settle line, or that a BFF restart orphaned, used to tell nobody
+    // anything, so the agent that trusted the wake-up learned to wait instead —
+    // and a report that never arrives is indistinguishable from a run that never
+    // finishes. The phone stays out of it for a detach: "your run was lost track
+    // of" is a line for the transcript, not a notification.
+    const pushes = meta.state !== "detached";
+    if (pushes && pushStore)
       void notify(
         pushStore,
         {
-          title: `Remote pi ${verdict}`,
+          title: `Remote pi ${meta.state}`,
           body: meta.prompt.split("\n")[0]?.slice(0, 90) ?? meta.runId,
           url: `/?tab=runs&run=${encodeURIComponent(meta.runId)}`,
         },
-        verdict === "failed" ? "failed" : "completed",
+        meta.state === "failed" ? "failed" : "completed",
         log,
       );
     if (meta.agentId && meta.conversationId) {

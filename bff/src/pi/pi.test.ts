@@ -25,6 +25,8 @@ import {
 } from "./runner.ts";
 import {
   lastAssistantText,
+  PI_TOOL_NAMES,
+  PI_TOOL_SPECS,
   PiService,
   piKeyFile,
   piKnownHostsFile,
@@ -453,9 +455,11 @@ test("the progress feed fires on the throttled flushes and exactly once at settl
   child.finish(0);
   await Bun.sleep(20);
   expect(frames.length).toBe(2);
-  // No `agent_settled` line was ever captured, so the honest verdict is
-  // detached — what matters here is that the terminal frame fires once.
-  expect(frames[1]?.state).toBe("detached");
+  // A clean ssh exit is the finish line even with no `agent_settled` line in the
+  // stream: pi exits when its prompts are done, and treating that one event as
+  // the only completion signal left runs unreported. What matters here is that
+  // the terminal frame fires once.
+  expect(frames[1]?.state).toBe("completed");
   void meta;
 });
 
@@ -893,7 +897,7 @@ test("pi_run records the dispatching conversation and the settle report answers 
   );
   const answer = await started;
   expect(answer.isError).toBe(false);
-  expect(answer.text).toContain("do not poll"); // Option A: event, not polling
+  expect(answer.text).toContain("nothing to poll"); // Option A: event, not polling
   const runId = answer.text.match(/run ([0-9a-f-]{36})/)?.[1] ?? "";
   expect(runId).not.toBe("");
   const child = spawnedChild(spawned, 0);
@@ -913,11 +917,75 @@ test("pi_run records the dispatching conversation and the settle report answers 
   expect(report).toContain("completed");
   expect(report).toContain("clone the repo");
   expect(report).toContain("cloned");
-  expect(report).toContain("Do not poll");
+  expect(report).toContain("do not poll");
 });
 
-test("pi_wait returns when the run settles, and times out honestly", async () => {
+test("a clean exit with no settle line is a completed run, not a mystery", async () => {
+  // The bug that taught agents to poll: the run finished, ssh exited 0, and
+  // because the stream never carried `agent_settled` we called it detached and
+  // told no one.
+  const { store, runner, children } = await freshRunner();
+  const meta = await runner.start(
+    BASE,
+    { keyFile: "/k", knownHostsFile: "/kh" },
+    { kind: "run", prompt: "hi" },
+  );
+  const child = only(children);
+  child.emit(`{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/tmp"}\n`);
+  child.finish(0);
+  await Bun.sleep(10);
+  expect(meta.state).toBe("completed");
+  expect(meta.settled).toBe(false); // the fact is still recorded separately
+  expect((await store.read(meta.runId))?.state).toBe("completed");
+});
+
+test("an interrupted capture still detaches, and a run with no output still fails", async () => {
+  const { store, runner, children } = await freshRunner();
+  const meta = await runner.start(
+    BASE,
+    { keyFile: "/k", knownHostsFile: "/kh" },
+    { kind: "run", prompt: "hi" },
+  );
+  const child = only(children);
+  child.emit(`{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/tmp"}\n`);
+  child.finish(255); // ssh died mid-stream: we stopped watching, that is all we know
+  await Bun.sleep(10);
+  expect(meta.state).toBe("detached");
+  const failed = await runner.start(
+    BASE,
+    { keyFile: "/k", knownHostsFile: "/kh" },
+    { kind: "run", prompt: "hi again" },
+  );
+  only(children.slice(-1)).finish(0); // exit 0, but nothing was ever captured
+  await Bun.sleep(10);
+  expect(failed.state).toBe("failed");
+  void store;
+});
+
+test("a detached run reports itself too — silence is what taught agents to poll", async () => {
   const { service, spawned, settled, files } = await runHarness();
+  const meta = await service.runner.start(await service.load(), files, {
+    kind: "run",
+    prompt: "orphan",
+    agentId: "agent-local-0fefdba6",
+    conversationId: "local-conv-120",
+  });
+  const child = spawnedChild(spawned, 0);
+  child.emit(`{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/w"}\n`);
+  service.runner.stop(meta.runId); // the capture dies while the remote may live on
+  await waitFor("the run to settle", () => settled.length === 1);
+  const pending = service.settleReport(settled[0]!);
+  const findChild = await waitForSpawns(spawned, 2); // the manifest find must answer too
+  findChild.finish(0);
+  const report = await pending;
+  expect(report).toContain("detached");
+  expect(report).toContain("stopped capturing");
+  expect(report).toContain("never start a duplicate");
+  void child;
+});
+
+test("pi_wait never waits: it says the wait is retired and gives the status", async () => {
+  const { service, spawned, files } = await runHarness();
   const meta = await service.runner.start(await service.load(), files, {
     kind: "run",
     prompt: "slow task",
@@ -925,27 +993,64 @@ test("pi_wait returns when the run settles, and times out honestly", async () =>
   const child = spawnedChild(spawned, 0);
   expect(child.stdinText).toBe("slow task"); // C2: the prompt rode the stdin, not argv
   child.emit(`{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/w"}\n`);
-  setTimeout(() => {
-    child.emit(`{"type":"agent_settled"}\n`);
-    child.finish(0);
-  }, 50);
   const t0 = Date.now();
-  const waited = await service.piWait({ run: meta.runId, timeout_seconds: 5 });
+  const waited = await service.piWait({ run: meta.runId });
+  expect(Date.now() - t0).toBeLessThan(1_000); // it does not hold the turn
   expect(waited.isError).toBe(false);
-  expect(waited.text).toContain("completed");
-  expect(Date.now() - t0).toBeLessThan(4_000);
-  expect(settled.map((m) => m.runId)).toContain(meta.runId); // the push hook fired once
+  expect(waited.text).toContain("waiting is retired");
+  expect(waited.text).toContain(`run ${meta.runId} — running`); // and it says where the run is
+  service.runner.stop(meta.runId);
+});
 
-  // A run that never settles times out — and says so instead of hanging.
-  const stuck = await service.runner.start(await service.load(), files, {
+test("pi_wait is off the menu the model reads, but the handler still answers", async () => {
+  expect(PI_TOOL_SPECS.some((spec) => spec.name === "pi_wait")).toBe(false);
+  expect(PI_TOOL_NAMES).not.toContain("pi_wait");
+  const { service } = await runHarness();
+  expect(service.handlers().has("pi_wait")).toBe(true);
+  const answer = await service.handlers().get("pi_wait")!({});
+  expect(answer.isError).toBe(true); // it wants a run, and it says so
+  expect(answer.text).toContain("`run`");
+});
+
+test("a session's runs come back oldest first, and only its own", async () => {
+  const { store } = await freshRunner();
+  const other = "02b20f00-0000-4000-8000-000000000000";
+  const make = (runId: string, startedAt: string, session: string | null): PiRunMeta => ({
+    runId,
     kind: "run",
-    prompt: "stuck task",
+    agentId: null,
+    conversationId: null,
+    session,
+    prompt: `p ${runId}`,
+    model: null,
+    target: "worker@pi.example.invalid",
+    startedAt,
+    endedAt: null,
+    state: "completed",
+    exitCode: 0,
+    settled: true,
+    eventCount: 1,
+    lastEventAt: null,
+    bytesCaptured: 0,
+    remotePid: null,
+    error: null,
   });
-  const slow = await service.piWait({ run: stuck.runId, timeout_seconds: 5 });
-  expect(slow.isError).toBe(false);
-  expect(slow.text).toContain("still running after 5s");
-  service.runner.stop(stuck.runId);
-}, 15_000); // the honest-timeout leg really waits the 5 s floor
+  await store.create(
+    make("11111111-1111-4111-8111-111111111111", "2026-10-05T12:03:00.000Z", SESSION),
+  );
+  await store.create(
+    make("22222222-2222-4222-8222-222222222222", "2026-10-05T12:01:00.000Z", SESSION),
+  );
+  await store.create(
+    make("33333333-3333-4333-8333-333333333333", "2026-10-05T12:02:00.000Z", other),
+  );
+  const mine = await store.listBySession(SESSION);
+  expect(mine.map((m) => m.startedAt)).toEqual([
+    "2026-10-05T12:01:00.000Z",
+    "2026-10-05T12:03:00.000Z",
+  ]);
+  expect(await store.listBySession("no-such-session")).toEqual([]);
+});
 
 test("force stop kills the remote pi and records cancelled — later, never rewritten", async () => {
   const { service, spawned, files } = await runHarness();
@@ -1024,7 +1129,7 @@ test("a send onto a session with a live run is announced as queueing", async () 
   const res = await service.piSend({ session: SESSION, prompt: "second" }, { agentId: null });
   expect(res.isError).toBe(false);
   expect(res.text).toContain(`run ${meta.runId} is still live on this session`);
-  expect(res.text).toContain("pi_wait");
+  expect(res.text).toContain("queues behind it");
   spawnedChild(spawned, 0).kill(); // the first run (detach via kill closes its capture)
   spawnedChild(spawned, 1).kill(); // the queued send
 });

@@ -9,7 +9,9 @@
  *
  * Cancellation is detach-only (§ 4.5): killing the local ssh stops the
  * capture, the remote keeps working; `stop()` records that honestly as
- * `detached`, never pretending the remote stopped.
+ * `detached`, never pretending the remote stopped. So `detached` always means
+ * "we stopped watching", never "the remote did not finish": completion is a
+ * clean ssh exit, with or without the upstream `agent_settled` line.
  */
 
 import { randomUUID } from "node:crypto";
@@ -369,6 +371,20 @@ export class DirPiRunStore implements PiRunStore {
     }
     return null;
   }
+  /**
+   * Every run on one pi session, oldest first — the session viewer's spine.
+   * A pi session is a file on one host, so the runs sharing it are the whole
+   * history of what lettuce asked of that conversation. The in-process index
+   * names only each session's origin run, so this scans the way
+   * `findBySession`'s fallback does (retention keeps a few hundred metas), and
+   * `cap` keeps the newest few when a session has outlived its usefulness.
+   */
+  async listBySession(session: string, cap = 60): Promise<PiRunMeta[]> {
+    const mine = (await this.list(Number.MAX_SAFE_INTEGER)).filter(
+      (meta) => meta.session === session,
+    );
+    return mine.sort((a, b) => (a.startedAt < b.startedAt ? -1 : 1)).slice(-cap);
+  }
   async readEventsTail(runId: string, maxChars: number): Promise<string | null> {
     const fs = await import("node:fs/promises");
     try {
@@ -486,8 +502,6 @@ export class PiRunner {
   private readonly children = new Map<string, PiProcess>();
   /** Live runs by id — the in-process truth behind the on-disk meta. */
   private readonly metas = new Map<string, PiRunMeta>();
-  /** Resolve-callbacks waiting on a run reaching a terminal state (`pi_wait`). */
-  private readonly waiters = new Map<string, Set<() => void>>();
 
   constructor(
     private readonly store: PiRunStore,
@@ -675,7 +689,14 @@ export class PiRunner {
       }
       meta.exitCode = code;
       meta.endedAt = this.now().toISOString();
-      if (meta.settled) meta.state = "completed";
+      // A clean ssh exit IS the finish line: pi exits when its prompts are done,
+      // so a zero with a captured stream is a finished run whether or not the
+      // stream carried `agent_settled`. Making that one upstream event the only
+      // completion signal meant a pi version skew or a truncated tail read as
+      // "never finished" — and a run nobody reports is exactly what taught agents
+      // to poll. `settled` stays on the meta as the separate fact it is.
+      if (code === 0 && meta.eventCount > 0) meta.state = "completed";
+      else if (meta.settled) meta.state = "completed";
       else if (meta.eventCount === 0) {
         meta.state = "failed";
         meta.error = stderrTail.trim() || `ssh exited ${code}`;
@@ -686,15 +707,11 @@ export class PiRunner {
     return meta;
   }
 
-  /** Once-per-run settle bookkeeping: waiters wake, the terminal progress and
-   * `onSettle` fire, meta is retired. */
+  /** Once-per-run settle bookkeeping: the terminal progress and `onSettle` fire
+   * and the meta is retired. Nothing waits for a run any more — a settled run
+   * reports itself into its conversation — so there are no waiters to wake. */
   private settle(meta: PiRunMeta): void {
     if (!this.metas.delete(meta.runId)) return;
-    const waiting = this.waiters.get(meta.runId);
-    if (waiting) {
-      this.waiters.delete(meta.runId);
-      for (const wake of [...waiting]) wake();
-    }
     try {
       this.onProgress?.(meta);
     } catch {
@@ -735,32 +752,5 @@ export class PiRunner {
     this.children.get(runId)?.kill();
     this.settle(meta);
     return true;
-  }
-
-  /**
-   * Resolve when `runId` reaches a terminal state, or after `timeoutMs`. A run
-   * this runner never started (or already finished) resolves immediately — the
-   * caller reads the store and gets the truth either way.
-   */
-  wait(runId: string, timeoutMs: number): Promise<void> {
-    if (!this.metas.has(runId)) return Promise.resolve();
-    return new Promise((resolve) => {
-      let done = false;
-      const wake = () => {
-        if (done) return;
-        done = true;
-        clearTimeout(timer);
-        this.waiters.get(runId)?.delete(wake);
-        resolve();
-      };
-      const timer = setTimeout(wake, timeoutMs);
-      timer.unref?.();
-      let waiting = this.waiters.get(runId);
-      if (!waiting) {
-        waiting = new Set();
-        this.waiters.set(runId, waiting);
-      }
-      waiting.add(wake);
-    });
   }
 }
