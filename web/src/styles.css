@@ -1929,6 +1929,18 @@ nav.rail.rail-collapsed {
   }
 }
 
+/* The other half of that 16px: it exists so iOS Safari does not zoom the page on
+   focus, which is a touch reason, and a desktop was paying it. At the desktop
+   breakpoint with a mouse the input drops to `--control-font`, the size every
+   other control in the app already wears — an input smaller than the app's own
+   body text is not the point, an input larger than its own send button was.
+   `(pointer: fine)` is what keeps a touch tablet at desktop width at 16px. */
+@media (min-width: 900px) and (pointer: fine) {
+  .composer textarea {
+    font-size: 14px;
+  }
+}
+
 /* A manually sized box holds its height and scrolls inside; auto-fit is back
    the moment the grip is double-clicked (see Composer.tsx). The auto-grow
    `max-height` no longer applies — the drag's own clamp (half the viewport)
@@ -3024,8 +3036,9 @@ p.warning code,
   .bottombar {
     display: none;
   }
-  /* Same reason the other way: the rail already lists the agents, so the header's
-     face would be a second copy of a thing already on screen. */
+  /* The 44px face a phone wears in its header is a phone affordance (it opens the
+     switcher); on desktop the rail is a column of faces and the band carries its
+     own, small — `.where-face`, beside the name. */
   .where-avatar {
     display: none;
   }
@@ -3367,16 +3380,21 @@ p.warning code,
 .file-row .icon-button.ghost:hover {
   opacity: 1;
 }
-/* A directory has nothing to download, but the slot still renders — same
-   classes, hidden — so Size/Modified line up whether or not a row after them
-   carries a button. Without this a folder's date sat flush against the row's
-   right edge while a file's sat one icon-width short of it.
+/* A row's action slots are buttons when they can be, and a hidden copy of the
+   box when they cannot — a folder has nothing to download, and the header row
+   has no actions at all (it carries two, one per column, so its Size and Date
+   sit where a body row's do). Without this a folder's date sat flush against
+   the row's right edge while a file's sat one icon-width short of it.
    Named file-download-placeholder, not the bare "placeholder": that generic
    class already exists (line ~150, an empty-state icon+text centering rule)
    and also matches this span, and since neither rule declares every flex
    property, the two silently blend — its `flex: 1` overrode this element's
-   width, growing it to fill the row instead of holding a fixed slot. */
-.file-row .icon-button.ghost.file-download-placeholder {
+   width, growing it to fill the row instead of holding a fixed slot. The
+   delete slot uses the same trick one level up the tree: at the workspace root
+   every row is an agent's own directory, which the route refuses, so nothing is
+   offered there and the column is held by a placeholder of the same width. */
+.file-row .icon-button.ghost.file-download-placeholder,
+.file-row .icon-button.ghost.file-delete-placeholder {
   visibility: hidden;
 }
 
@@ -3451,7 +3469,8 @@ p.warning code,
     width: auto;
     padding-right: 6px;
   }
-  .file-row-head > .file-download-placeholder {
+  .file-row-head > .file-download-placeholder,
+  .file-row-head > .file-delete-placeholder {
     display: none;
   }
 }
@@ -3843,15 +3862,37 @@ textarea.mono {
   flex: 1;
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0;
+  /* A row: the face, then its words. `.where-words` is the column the button used
+     to be, so the face sits beside both lines instead of above them. */
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
   padding: 2px 0;
   background: none;
   border: none;
   color: var(--text);
   text-align: left;
   cursor: pointer;
+}
+.where-words {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+}
+/* The open agent's face in the band, on desktop only (a phone has the fingertip
+   `.where-avatar` button beside the same words). Small on purpose: the rail is a
+   column of 34px faces, and this one labels a line of text, not a row. */
+.where-face {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-round);
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--on-accent);
 }
 .where-agent {
   display: inline-flex;

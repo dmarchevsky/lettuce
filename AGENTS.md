@@ -248,6 +248,10 @@ lives in a skill — the table above says which.
   client must join them; `grep_in_files` takes `query`, not `pattern`, and the wrong key produces **no
   response at all** — a silent hang, not an error; and it follows ripgrep defaults, so hidden and
   ignored files are skipped.
+- **There is no delete verb in the workspace file protocol** — no delete, rename or move, and
+  `write_file`'s `move_to` renames only the file that same command just wrote. So Files' trash is
+  ours and never goes upstream (`bff/src/files/delete.ts`), over the BFF's own `workspaces` bind —
+  which is why that mount is not read-only.
 - **Conversations DO have a native `archived` field** (plus `archived_at`), set with
   `conversation_update {body:{archived}}`, but `conversation_list` ignores an `archived` filter, so the
   *list* is filtered client-side. **Rename** = `conversation_update {body:{summary}}`; a fresh

@@ -64,6 +64,7 @@ import {
 import { errorMessage } from "./errors.ts";
 import { contentDisposition } from "./files/content-disposition.ts";
 import { inlineContentType } from "./files/content-type.ts";
+import { registerFilesRoutes } from "./files/routes.ts";
 import {
   declaredSizeViolation,
   MAX_UPLOAD_BYTES,
@@ -1794,9 +1795,18 @@ app.post("/api/files/upload", async (c) => {
   return c.json(result.json);
 });
 
+// ── Delete a workspace file or folder (Files → the row's trash) ───────────
+// The one file verb the app-server protocol does not have: no delete, no rename,
+// no move. So it happens here, over the BFF's own bind of the workspace, and the
+// whole guard chain (session, clamp, the floor under it, symlink walk, realpath
+// re-check) lives in `files/delete.ts` with its own tests. Nothing goes upstream.
+// The mount is in `files/routes.ts` so a test can hand a real Hono app a real
+// request; see `files/routes.test.ts`.
+registerFilesRoutes(app, { hardened });
+
 // ── Git history (Files → History) ──────────────────────────────────────────
 // Upstream exposes only branch commands and the app-server image ships no git
-// binary, so the log is read here, against the BFF's read-only view of /work,
+// binary, so the log is read here, against the BFF's own mount of /work,
 // and nothing goes upstream. The handlers (session, workspace clamp, symlink
 // guard, realpath re-check, then git) live in `git/routes.ts`; this is only
 // the HTTP plumbing. See that file and `git/log.ts` for the reasoning.

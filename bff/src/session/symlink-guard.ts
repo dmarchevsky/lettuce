@@ -20,9 +20,11 @@ import { lstatSync } from "node:fs";
  * component-wise `lstat` is sufficient — no `realpath` needed, and nothing
  * follows a link in the process of checking it.
  *
- * This runs in the BFF against its own read-only bind of the same host
- * directory (`docker/compose.yml`), so it sees exactly the tree the
- * app-server will write to, and cannot itself be tricked into writing.
+ * This runs in the BFF against its own bind of the same host directory
+ * (`docker/compose.yml`), so it sees exactly the tree the app-server will write
+ * to. The BFF can write that tree now — one route, `POST /api/files/delete` —
+ * which is precisely why that route re-runs this guard on the path it was handed
+ * rather than trusting the mount to hold it still.
  */
 
 export type Lstat = (path: string) => { isSymbolicLink(): boolean };
