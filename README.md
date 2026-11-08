@@ -129,9 +129,10 @@ before exposing anything.
 - **Claude Code workers.** The same for Claude Code, signed in with your Claude
   subscription or pointed at any Anthropic-compatible endpoint.
 - **Remote Pi.** Dispatch a coding task to a [`pi`](https://github.com/earendil-works/pi)
-  agent on another host over SSH, iterate on the same session, read the full
-  transcript under Tasks — and give each agent its own working folder or host for it
-  under Tools.
+  agent on another host over SSH — or to whatever that host calls the program, since the
+  command is configurable (`pi-bolt`, an absolute path, plus fixed flags) — iterate on the same
+  session, read the full transcript under Tasks, and give each agent its own working
+  folder, command or host for it under Tools.
 - **Worker runs, per agent.** The Runs tab lists the Codex, Claude and remote-pi runs
   that ran in the open agent's workspace; **show all** widens it to every agent on the
   machine.

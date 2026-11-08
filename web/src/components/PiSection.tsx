@@ -20,6 +20,7 @@ interface Draft {
   port: string;
   user: string;
   pathPrepend: string;
+  command: string;
   workdir: string;
   model: string;
   /** Typed only; the stored key is never sent back. */
@@ -34,6 +35,7 @@ function draftOf(settings: PiSettings): Draft {
     port: String(settings.port),
     user: settings.user,
     pathPrepend: settings.pathPrepend,
+    command: settings.command,
     workdir: settings.workdir,
     model: settings.model ?? "",
     privateKey: "",
@@ -48,6 +50,7 @@ function isDirty(draft: Draft, settings: PiSettings): boolean {
     draft.port !== String(settings.port) ||
     draft.user.trim() !== settings.user ||
     draft.pathPrepend.trim() !== settings.pathPrepend ||
+    draft.command.trim() !== settings.command ||
     draft.workdir.trim() !== settings.workdir ||
     draft.model.trim() !== (settings.model ?? "") ||
     draft.privateKey.trim() !== ""
@@ -117,6 +120,7 @@ export function PiSection() {
       port: Number(draft.port) || 22,
       user: draft.user.trim(),
       pathPrepend: draft.pathPrepend.trim(),
+      command: draft.command.trim(),
       workdir: draft.workdir.trim(),
       model: draft.model.trim() || null,
     };
@@ -152,6 +156,7 @@ export function PiSection() {
     port: Number(from.port) || 22,
     user: from.user.trim(),
     pathPrepend: from.pathPrepend.trim(),
+    command: from.command.trim(),
     workdir: from.workdir.trim(),
   });
 
@@ -400,6 +405,23 @@ export function PiSection() {
           <span className="muted small">
             Prepended to PATH in every remote command — a non-interactive SSH shell usually misses
             pi and node without it.
+          </span>
+        </label>
+
+        <label className="field">
+          Command
+          <input
+            value={draft.command}
+            placeholder="pi"
+            autoComplete="off"
+            spellCheck={false}
+            disabled={off}
+            onChange={(event) => set({ command: event.target.value })}
+          />
+          <span className="muted small">
+            The program to run on the remote host, with any fixed arguments — for example
+            <code>pi-bolt --thinking high</code>. A path must be absolute; empty runs
+            <code>pi</code>.
           </span>
         </label>
 

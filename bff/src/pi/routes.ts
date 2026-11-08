@@ -28,6 +28,7 @@ import {
   piConfigured,
   toPublicPiSettings,
 } from "./service.ts";
+import { parsePiCommand } from "./settings.ts";
 import { parsePiRun, summarizePiRun } from "./transcript.ts";
 
 /** What a handler may borrow from the boot module. */
@@ -64,7 +65,7 @@ function piDraftFromBody(body: unknown): Partial<Record<string, unknown>> {
   if (!body || typeof body !== "object") return {};
   const r = body as Record<string, unknown>;
   const draft: Partial<Record<string, unknown>> = {};
-  for (const field of ["host", "user", "pathPrepend", "workdir"] as const) {
+  for (const field of ["host", "user", "pathPrepend", "command", "workdir"] as const) {
     if (typeof r[field] === "string") draft[field] = r[field];
   }
   if (r.port !== undefined) draft.port = r.port;
@@ -147,7 +148,10 @@ export function registerPiRoutes<Env extends RouteEnv>(app: Hono<Env>, deps: PiR
     const body = await c.req.json().catch(() => null);
     const override = parsePiAgentSettings(body);
     if (!override) {
-      return c.text("Body must be { mode, host, port, user, pathPrepend, workdir, model }", 400);
+      return c.text(
+        "Body must be { mode, host, port, user, pathPrepend, command, workdir, model }",
+        400,
+      );
     }
     try {
       assertEffectiveUsable(await effectivePiSettings(await piService.load(), override));
@@ -178,8 +182,14 @@ export function registerPiRoutes<Env extends RouteEnv>(app: Hono<Env>, deps: PiR
     const body = await c.req.json().catch(() => null);
     try {
       const { draft, agentId } = piCheckBody(body);
+      if (typeof draft.command === "string") {
+        // A form typo is a 400 with the reason, not a 502 about a probe that never
+        // ran: the command is the operator's own value and is checkable right here.
+        parsePiCommand(draft.command);
+      }
       return c.json({ check: await piService.checkHost(draft as never, agentId) });
     } catch (error) {
+      if (error instanceof InvalidPiSettingsError) return c.text(error.message, 400);
       return c.text(errorMessage(error), 502);
     }
   });

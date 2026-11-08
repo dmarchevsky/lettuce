@@ -382,9 +382,13 @@ function PiPane({
     port: (own && form.port ? form.port : global.port) || 22,
     user: own && form.user ? form.user : global.user,
     pathPrepend: own && form.pathPrepend ? form.pathPrepend : global.pathPrepend,
+    command: own && form.command ? form.command : global.command,
     workdir: own && form.workdir ? form.workdir : global.workdir,
   };
-  const stale = check !== null && check.target !== `${target.user}@${target.host}:${target.port}`;
+  // Like Settings → Remote Pi: editing any field the probe used (command, PATH,
+  // workdir) makes the last answer about another setup, not this one.
+  const stale =
+    check !== null && (dirty || check.target !== `${target.user}@${target.host}:${target.port}`);
   const set = (patch: Partial<PiAgentOverride>) => setForm({ ...form, ...patch });
 
   const save = async () => {
@@ -557,6 +561,19 @@ function PiPane({
               spellCheck={false}
               onChange={(event) => set({ pathPrepend: event.target.value })}
             />
+          </label>
+          <label className="field">
+            Command
+            <input
+              value={form.command}
+              placeholder={global.command || "pi"}
+              autoComplete="off"
+              spellCheck={false}
+              onChange={(event) => set({ command: event.target.value })}
+            />
+            <span className="muted small">
+              Empty uses the global command; a command here is used only by this agent.
+            </span>
           </label>
           <label className="field">
             Model
