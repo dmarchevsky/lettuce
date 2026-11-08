@@ -1212,7 +1212,7 @@ export class PiService {
       ["pi_send", this.piSend],
       ["pi_status", this.piStatus],
       // Registered on the handler map but NOT in PI_TOOL_SPECS: `pi_wait` is
-      // retired, so the mod never offers it and no model can be tempted by it —
+      // retired, so the mod never offers it and no model can be tempted by it;
       // but a direct call (an agent's own curl, an old link) still gets the
       // guidance instead of a 404.
       ["pi_wait", this.piWait],

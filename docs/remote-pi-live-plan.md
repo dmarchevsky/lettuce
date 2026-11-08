@@ -60,7 +60,7 @@ A3. **A real `pi_status`** (`service.ts`). When `state === "running"`:
 
 A4. **`pi_wait {run, timeout_seconds}`** (new tool, cap 120 s, default 60) — **retired later: see
     the note at the top.** The handler stays as a non-blocking stub so old conversations get an
-    honest answer instead of an unknown tool. Original intent: it resolved when the
+    honest answer if a call still reaches the BFF. Original intent: it resolved when the
     run reaches a terminal state, returning the `pi_status` body; on timeout, returns the
     current status with a `still running` line. Implementation: an in-process wait map keyed
     by runId that the runner's exit hook drains; also resolves on `force` kill. This is the
