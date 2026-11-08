@@ -13,7 +13,8 @@
  * read-only side: is the host pinned, is the key accepted, is pi reachable.
  */
 
-import { normalizePathPrepend, type PiSettings } from "./settings.ts";
+import { shqWord } from "./runner.ts";
+import { normalizePathPrepend, type PiSettings, piCommandWords } from "./settings.ts";
 
 /** What a check concluded. Every state is something the form can act on. */
 export type PiCheckState =
@@ -118,7 +119,13 @@ export function classifyCheckOutput(args: {
   code: number | null;
   stdout: string;
   stderr: string;
+  /** What the check was asked to run, as configured (`pi`, `pi-bolt`). */
+  commandName?: string;
 }): { state: PiCheckState; detail: string; piVersion: string | null } {
+  // The operator typed this word, so the answer names it: "`pi-bolt` is not on
+  // the PATH a run gets" is actionable, "pi is not on the PATH" sends you to
+  // install the thing you already installed.
+  const name = (args.commandName || "pi").trim() || "pi";
   const text = `${args.stdout}\n${args.stderr}`;
   const oneLine = (fallback: string) => {
     const line = text
@@ -130,7 +137,7 @@ export function classifyCheckOutput(args: {
   if (/lettuce: pi not on PATH/.test(text)) {
     return {
       state: "no_pi",
-      detail: "Signed in, but `pi` is not on the PATH a run gets — set PATH prefix.",
+      detail: `Signed in, but \`${name}\` is not on the PATH a run gets — set PATH prefix.`,
       piVersion: null,
     };
   }
@@ -154,20 +161,20 @@ export function classifyCheckOutput(args: {
     const node = /lettuce: node (.+)/.exec(text);
     return {
       state: "no_pi",
-      detail: `pi is installed but cannot run: ${reason.slice(0, 160)}${node ? ` · node ${node[1]}` : ""}`,
+      detail: `${name} is installed but cannot run: ${reason.slice(0, 160)}${node ? ` · node ${node[1]}` : ""}`,
       piVersion: null,
     };
   }
   const marked = /^lettuce: pi (.+)$/m.exec(text);
   if (marked && args.code === 0) {
     const value = (marked[1] ?? "").trim().replace(/^v/, "");
-    return { state: "ready", detail: `pi v${value}`, piVersion: value || null };
+    return { state: "ready", detail: `${name} v${value}`, piVersion: value || null };
   }
   const version = /^pi v?([0-9][^\s]*)/m.exec(args.stdout);
   if (args.code === 0 && version) {
     return {
       state: "ready",
-      detail: `pi v${version[1] ?? version[0]}`,
+      detail: `${name} v${version[1] ?? version[0]}`,
       piVersion: version[1] ?? null,
     };
   }
@@ -211,7 +218,11 @@ export function classifyCheckOutput(args: {
 export function buildProbeRemoteCommand(settings: {
   workdir: string;
   pathPrepend: string;
+  /** The configured command; empty means `pi`. */
+  command?: string;
 }): string {
+  const words = piCommandWords(settings.command);
+  const commandLine = words.map(shqWord).join(" ");
   const parts: string[] = [];
   if (settings.workdir) {
     parts.push(`[ -d ${quote(settings.workdir)} ] || echo 'lettuce: no such workdir';`);
@@ -225,8 +236,8 @@ export function buildProbeRemoteCommand(settings: {
   // because "pi is there and broken · node v20.19.2" is actionable and a stack
   // line is not.
   const inner = [
-    "command -v pi >/dev/null 2>&1 || { echo 'lettuce: pi not on PATH'; exit 0; };",
-    "pi_out=$(pi --version 2>&1); pi_rc=$?;",
+    `command -v ${shqWord(words[0]!)} >/dev/null 2>&1 || { echo 'lettuce: pi not on PATH'; exit 0; };`,
+    `pi_out=$(${commandLine} --version 2>&1); pi_rc=$?;`,
     'if [ "$pi_rc" -eq 0 ]; then',
     "  printf 'lettuce: pi %s\\n' \"$(printf '%s\\n' \"$pi_out\" | head -1)\";",
     "else",

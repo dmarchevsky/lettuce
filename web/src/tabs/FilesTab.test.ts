@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { isEditableFile } from "../components/FileViewer.tsx";
 import {
   gitActionsVisible,
+  isSameOrInside,
   newFilePath,
   parentDirectory,
   resolve,
@@ -115,5 +116,22 @@ describe("upload names", () => {
     expect(uploadNameProblem("a/b.jpg", existing)).toContain("plain filename");
     expect(uploadNameProblem("..", existing)).toContain("plain filename");
     expect(uploadNameProblem("/etc/passwd", existing)).toContain("plain filename");
+  });
+});
+
+describe("what a delete takes with it", () => {
+  test("a deleted path closes the viewer only for that file or one under it", () => {
+    // The file open in the viewer, and the folder that was removed.
+    expect(isSameOrInside(`${AGENT}/notes/a.md`, `${AGENT}/notes`)).toBe(true);
+    expect(isSameOrInside(`${AGENT}/notes`, `${AGENT}/notes`)).toBe(true);
+    // A sibling that survived keeps its viewer open.
+    expect(isSameOrInside(`${AGENT}/persona.md`, `${AGENT}/notes`)).toBe(false);
+    // And a folder is not "inside" something deeper than it.
+    expect(isSameOrInside(`${AGENT}`, `${AGENT}/notes`)).toBe(false);
+  });
+
+  test("a trailing slash on either side is the same path", () => {
+    expect(isSameOrInside(`${AGENT}/notes/`, `${AGENT}/notes/`)).toBe(true);
+    expect(isSameOrInside(`${AGENT}/notes/a.md`, `${AGENT}/notes/`)).toBe(true);
   });
 });

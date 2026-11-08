@@ -15,7 +15,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { normalizePathPrepend, type PiSettings, piTarget } from "./settings.ts";
+import { normalizePathPrepend, type PiSettings, piCommandWords, piTarget } from "./settings.ts";
 
 /** pi session ids are plain UUIDs (docs/session-format.md). */
 const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -99,6 +99,19 @@ export function shq(value: string): string {
 }
 
 /**
+ * Quote a command word for the remote shell only when it needs it. Words made of
+ * portable filename characters (`pi`, `pi-bolt`, `--thinking`, `/opt/pi/bin/pi`)
+ * go through bare so the generated command stays readable — and so the fixtures
+ * that read it, including the ones that substitute a program to run the shape
+ * locally, keep matching.
+ */
+export function shqWord(value: string): string {
+  // A negated class rather than `^[…]+$`, whose `$` would also match before a
+  // trailing newline and let a word ending in one through unquoted.
+  return value !== "" && !/[^\w@%+=:,./-]/.test(value) ? value : shq(value);
+}
+
+/**
  * The remote command: cd into the workdir, give a non-interactive PATH what it
  * misses (spike finding § 3.1), and run pi in json mode. Empty `pathPrepend`
  * must NOT emit `env PATH=:$PATH` — an empty PATH entry means the cwd.
@@ -136,7 +149,13 @@ export function buildPiRemoteCommand(
   const inner: string[] = [
     'echo "lettuce-remote-pid $$" >&2;',
     "exec",
-    "pi",
+    // The program and its fixed arguments, from the `command` setting: one line
+    // typed by the operator, split into words and quoted here (see settings.ts).
+    // Our flags come AFTER them on purpose: `--mode json` and `--approve` are the
+    // contract this runner parses and the reason a run never blocks on a prompt.
+    // They stay the last words because `parsePiCommand` refuses the ones it
+    // could clash with (`--`, `--mode`, `--approve`, `--session`, `--model`).
+    ...piCommandWords(settings.command).map(shqWord),
     "--mode",
     "json",
     // Trust project-local files: a session resumed onto another project's dir

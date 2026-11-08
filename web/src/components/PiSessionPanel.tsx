@@ -232,20 +232,27 @@ export function PiSessionPanel({ runId, session, onClose }: Props) {
     }
   }, [sessionId, runs, liveFrames, loadList]);
 
-  // Escape is the keyboard's Back here: `App` owns the corner close and the phone
-  // gesture, and this is the pane's own key.
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.stopPropagation();
-        onClose();
+    if (tab === "Chat" && !piView) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      // The innermost surface owns the press. A sheet claims Escape in its own
+      // handler and stops propagation, but the switcher and a ⋯ menu do not —
+      // neither renders `.sheet` — so without naming them here one press would
+      // answer twice: the menu closes AND the pane underneath it closes.
+      if (document.querySelector(".sheet, .switcher, .agent-menu")) return;
+      // The session viewer is the innermost thing in the pane, so it takes the
+      // press and the pane underneath it stays: Escape from a run you opened from
+      // the Runs list returns the list, not Chat.
+      if (piView) {
+        closePiRun();
+        return;
       }
+      selectPane("Chat");
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  // "Go to run N" means the end of that run: what it last said, which is where
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [tab, piView, closePiRun, selectPane]);  // "Go to run N" means the end of that run: what it last said, which is where
   // its attention was when it finished — or where it is now, live.
   const scrollToFocus = useCallback(() => {
     const box = scroller.current;

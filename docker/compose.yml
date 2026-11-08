@@ -102,7 +102,7 @@ services:
         CODING_FEATURES: ${COMPOSE_PROFILES:-}
     # Tagged by release, not by pins: what is inside is what the tag's commit
     # built, and /opt/lettuce/features plus Settings → About report the CLIs.
-    image: ${LETTA_IMAGE_NS:-}lettuce-app-server:${LETTA_IMAGE_TAG:-v0.34.1-letta_0.34.38}
+    image: ${LETTA_IMAGE_NS:-}lettuce-app-server:${LETTA_IMAGE_TAG:-v0.36.0-letta_0.34.38}
     # An init process as PID 1, so exited orphans are reaped. Without it PID 1
     # is `node … letta server`, which waits only on children it spawned: every
     # process an agent shell backgrounds (`&`, nohup, servers) and outlives is
@@ -278,7 +278,7 @@ services:
       # and `bun run build:bff` passes it from the host checkout.
       args:
         GIT_SHA: ${GIT_SHA:-}
-    image: ${LETTA_IMAGE_NS:-}lettuce-bff:${LETTA_IMAGE_TAG:-v0.34.1-letta_0.34.38}
+    image: ${LETTA_IMAGE_NS:-}lettuce-bff:${LETTA_IMAGE_TAG:-v0.36.0-letta_0.34.38}
     depends_on:
       app-server:
         condition: service_healthy
@@ -431,13 +431,21 @@ services:
       # Same host directory the app-server mounts read-write at /work, and at
       # the same absolute path inside the container — file-stat.ts stats paths
       # exactly as the app-server reported them.
-      # Read-only here: the BFF only needs `stat()` to report real modified
-      # times for the Files tab (get_tree carries no mtime field, and the
-      # fork cannot be patched to add one — see CLAUDE.md). It never lists
-      # directories from this mount for the Files tab, only stats paths get_tree
-      # already returned, so it can't show anything get_tree wouldn't have.
-      # Settings → Skills does list `<cwd>/.agents/skills` here (see below).
-      - ${LETTA_STATE_DIR:-../..}/workspaces:/work:ro
+      # Two things are read here: `stat()` for real modified times on the Files
+      # tab (get_tree carries no mtime field, and the fork cannot be patched to
+      # add one — see CLAUDE.md), and the listing Settings → Skills takes of
+      # `<cwd>/.agents/skills`. It never lists directories for the Files tab
+      # itself, only stats paths get_tree already returned, so it cannot show
+      # anything get_tree would not have.
+      # Read-write, and only for one verb: the app-server protocol has no delete
+      # (no rename or move either), so Files → trash removes the path here
+      # (`bff/src/files/delete.ts`). Do not read that as licence to widen what
+      # the BFF does in this tree — the mount is rw because a delete cannot be
+      # done read-only, and every refusal a caller can provoke lives in that one
+      # file's guard chain: session, workspace clamp, the floor under it, the
+      # symlink walk, then the realpath re-check. Note this is not a boundary
+      # against an agent: app-server mounts the same tree read-write as uid 0.
+      - ${LETTA_STATE_DIR:-../..}/workspaces:/work
       # Settings → Skills (bff/src/skills/): the global, agent and memfs skill
       # roots, read-only and at the app-server's own absolute paths so the
       # symlinks in them resolve. Not over the protocol: upstream publishes no
@@ -522,7 +530,7 @@ services:
       context: searxng
       args:
         SEARXNG_VERSION: ${SEARXNG_VERSION:-2026.10.23-629368e40}
-    image: ${LETTA_IMAGE_NS:-}lettuce-searxng:${LETTA_IMAGE_TAG:-v0.34.1-letta_0.34.38}
+    image: ${LETTA_IMAGE_NS:-}lettuce-searxng:${LETTA_IMAGE_TAG:-v0.36.0-letta_0.34.38}
     environment:
       TZ: ${TZ:-America/Los_Angeles}
     restart: unless-stopped
@@ -539,7 +547,7 @@ services:
       context: ddg-mcp
       args:
         DDG_MCP_VERSION: ${DDG_MCP_VERSION:-0.7.0}
-    image: ${LETTA_IMAGE_NS:-}lettuce-ddg-mcp:${LETTA_IMAGE_TAG:-v0.34.1-letta_0.34.38}
+    image: ${LETTA_IMAGE_NS:-}lettuce-ddg-mcp:${LETTA_IMAGE_TAG:-v0.36.0-letta_0.34.38}
     environment:
       TZ: ${TZ:-America/Los_Angeles}
       DDG_REGION: ${DDG_REGION:-us-en}
@@ -570,7 +578,7 @@ services:
       context: google-mcp
       args:
         WORKSPACE_MCP_VERSION: ${WORKSPACE_MCP_VERSION:-2.1.0}
-    image: ${LETTA_IMAGE_NS:-}lettuce-google-mcp:${LETTA_IMAGE_TAG:-v0.34.1-letta_0.34.38}
+    image: ${LETTA_IMAGE_NS:-}lettuce-google-mcp:${LETTA_IMAGE_TAG:-v0.36.0-letta_0.34.38}
     environment:
       TZ: ${TZ:-America/Los_Angeles}
     volumes:

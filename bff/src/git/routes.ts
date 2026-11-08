@@ -1,6 +1,6 @@
 /**
  * The three session-gated HTTP routes behind Files → History/Branch. They read
- * a git repository through the BFF's read-only `/work` mount because upstream
+ * a git repository through the BFF's own `/work` mount because upstream
  * exposes only `search_branches` / `checkout_branch` and the app-server image
  * ships no git binary — so the log is read here, and nothing goes upstream.
  *

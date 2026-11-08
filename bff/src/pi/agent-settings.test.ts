@@ -21,6 +21,7 @@ const GLOBAL: PiSettings = {
   port: 22,
   workdir: "/home/worker/pi",
   pathPrepend: "/home/worker/.nvm/bin",
+  command: "pi-bolt",
   model: "big/model",
   privateKey: "-----BEGIN TEST KEY-----\nabc\n",
 };
@@ -47,6 +48,13 @@ describe("parsePiAgentSettings", () => {
     expect(parsePiAgentSettings({ pathPrepend: "/home/w/.pi/bin/:/opt/x//" })?.pathPrepend).toBe(
       "/home/w/.pi/bin:/opt/x",
     );
+  });
+
+  test("the command is kept as typed (trimmed) — the words are the runner's business", () => {
+    expect(parsePiAgentSettings({ command: "  pi-bolt --thinking high " })?.command).toBe(
+      "pi-bolt --thinking high",
+    );
+    expect(parsePiAgentSettings({ command: 7 })).toBe(null);
   });
 
   test("junk is refused, not coerced", () => {
@@ -80,6 +88,7 @@ describe("effectivePiSettings", () => {
       port: null,
       user: "",
       pathPrepend: "",
+      command: "",
       workdir: "/home/worker/research",
       model: null,
     });
@@ -87,6 +96,7 @@ describe("effectivePiSettings", () => {
     expect(effective.host).toBe("pi.example.invalid");
     expect(effective.port).toBe(22);
     expect(effective.pathPrepend).toBe("/home/worker/.nvm/bin");
+    expect(effective.command).toBe("pi-bolt");
     expect(effective.model).toBe("big/model");
     expect(effective.source).toBe("agent");
   });
@@ -98,12 +108,19 @@ describe("effectivePiSettings", () => {
       port: 2222,
       user: "research",
       pathPrepend: "",
+      command: "pi",
       workdir: "/srv/research",
       model: "",
     });
     expect(effective.host).toBe("other.example.invalid");
     expect(effective.port).toBe(2222);
     expect(effective.user).toBe("research");
+    // One agent can run a different build than the rest, and an empty command
+    // falls back to the global one rather than to nothing.
+    expect(effective.command).toBe("pi");
+    expect(effectivePiSettings(GLOBAL, { ...DEFAULT_PI_AGENT_SETTINGS, mode: "own" }).command).toBe(
+      "pi-bolt",
+    );
     // "" is the agent opting out of a model, not inheriting the global one.
     expect(effective.model).toBe("");
     // Custody is never forked: the key is the global one, always.
@@ -120,6 +137,14 @@ describe("effectivePiSettings", () => {
     expect(() => assertEffectiveUsable({ ...GLOBAL, privateKey: null, source: "agent" })).toThrow(
       /deploy key/,
     );
+    // A command the runner could not tokenize is refused here, at save, rather
+    // than thrown back from an agent's turn.
+    expect(() =>
+      assertEffectiveUsable({ ...GLOBAL, command: "pi-bolt 'oops", source: "agent" }),
+    ).toThrow(/Command/);
+    expect(() =>
+      assertEffectiveUsable({ ...GLOBAL, command: "pi --mode text", source: "agent" }),
+    ).toThrow(/the run adds its own/);
   });
 });
 
@@ -150,6 +175,7 @@ describe("PiAgentSettingsStore", () => {
       port: null,
       user: "",
       pathPrepend: "",
+      command: "",
       workdir: "/w",
       model: null,
     });

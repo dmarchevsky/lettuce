@@ -9,6 +9,22 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 - **A remote pi run opens as a session, not a popup.** Clicking a run — its card in a conversation, its row in the Runs list, or a completion push's link — opens the whole pi conversation in the pane: every run you asked of that session in one transcript, in the conversation's own rows on a tinted surface, with a dropdown that jumps between runs and lands on what each one last said. Closing it gives back the screen you opened it from — a conversation keeps its draft, the Runs list keeps its place.
 - **A remote run reports itself, so nothing waits.** `pi_wait` is out of the tool menu: every terminal state — finished, failed, cancelled, or detached — now posts its own line into the conversation that dispatched it, including the two that used to be silent. A clean exit counts as finished even when pi never sent its idle signal, and a detached run says so plainly: capture stopped, the remote pi may still be working, `pi_send` resumes its session. That is what was putting sleep-and-poll loops in your chats.
 
+## [v0.36.0-letta_0.34.38] - 2026-11-08
+
+### Added
+- **Remote Pi runs the program you name.** Settings → Remote Pi gained a **Command** — the remote program with its fixed arguments, `pi-bolt` or `/srv/pi/bin/pi --thinking high` — instead of the hard-coded `pi`, and **Tools → Remote Pi** carries the same field per agent, empty meaning "use the global one". Checking the host asks that command too, so a host that calls the program something else stops being reported as "`pi` is not on the PATH", and the answer now names the program you configured. The run adds its own flags (`--mode json --approve …`) after yours, so a typo in this field cannot turn a run into something Lettuce cannot read.
+
+## [v0.35.0-letta_0.34.38] - 2026-11-06
+
+### Added
+- **Files can delete.** Every row carries a trash now, file or folder, and one confirm prints the full path and says plainly that there is no trash to restore from. An agent's own directory refuses — clear its contents instead.
+
+### Changed
+- **Escape closes the open pane**, the same step the corner ✕ and a phone's Back already took — with a keyboard on any width, not just the desktop one. The thing closest to you still answers first: a sheet, the agent switcher or a ⋯ menu takes the press and the pane stays.
+- **Chat no longer lifts the conversation panel on its way past.** Arriving at Chat from Files or any other pane leaves a hidden panel hidden; the Chat button is the only thing that toggles it, and it still toggles when you press it while already in Chat.
+- **The desktop band wears the agent's face**, inside the same click that shows or hides the conversation list, and **Settings no longer shows an agent name over it** — what every agent shares shouldn't be wearing one agent's name.
+- **The composer types at 14px on desktop.** It was 16px everywhere so iOS would not zoom on focus, and that only matters under a finger.
+
 ## [v0.34.1-letta_0.34.38] - 2026-11-05
 
 ### Fixed

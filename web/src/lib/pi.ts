@@ -20,6 +20,8 @@ export interface PiSettings {
   /** Who made the stored key, so the form shows the flow that is true. */
   keySource: "generated" | "pasted";
   pathPrepend: string;
+  /** The remote program plus its fixed arguments, as one line; empty runs `pi`. */
+  command: string;
   workdir: string;
   model: string | null;
   /** The stored private key is reduced to this — it never comes to the browser. */
@@ -68,6 +70,8 @@ export interface PiAgentOverride {
   port: number | null;
   user: string;
   pathPrepend: string;
+  /** "" inherits the global command. */
+  command: string;
   workdir: string;
   model: string | null;
 }

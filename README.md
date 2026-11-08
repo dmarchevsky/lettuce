@@ -99,6 +99,10 @@ before exposing anything.
 - **Upload puts a file in.** A photo or PDF from a phone lands in the folder
   you are looking at (up to 25 MB), so the agent can read what you just
   photographed. A name that exists there is refused until you type another.
+- **Trash takes one out.** Every file and folder in the browser carries a
+  delete and one confirm that prints the full path; it is a removal, not an
+  archive, and an agent's own directory is never offered — delete its contents
+  instead.
 - **Git branch switcher** for the workspace, including checking out remote
   branches.
 - **Git history** in the Files tab: the commit log of the open folder and a
@@ -125,9 +129,10 @@ before exposing anything.
 - **Claude Code workers.** The same for Claude Code, signed in with your Claude
   subscription or pointed at any Anthropic-compatible endpoint.
 - **Remote Pi.** Dispatch a coding task to a [`pi`](https://github.com/earendil-works/pi)
-  agent on another host over SSH, iterate on the same session, read the full
-  transcript under Tasks — and give each agent its own working folder or host for it
-  under Tools.
+  agent on another host over SSH — or to whatever that host calls the program, since the
+  command is configurable (`pi-bolt`, an absolute path, plus fixed flags) — iterate on the same
+  session, read the full transcript under Tasks, and give each agent its own working
+  folder, command or host for it under Tools.
 - **Worker runs, per agent.** The Runs tab lists the Codex, Claude and remote-pi runs
   that ran in the open agent's workspace; **show all** widens it to every agent on the
   machine.

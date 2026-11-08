@@ -11,7 +11,7 @@ import { featureEnabled } from "./features.ts";
  * the other. It is in this list because the phone bar's Settings slot lands where
  * the desktop rail's foot cell does, but the rail does not show it among the pane
  * cells: with Settings open, its sections replace the pane list, and that column's
- * Back cell (or the corner X) is the way out — to Chat.
+ * Back cell, the corner X or Escape is the way out — to Chat.
  */
 export const TABS = ["Chat", "Files", "Tasks", "Runs", "Tools", "Agent", "Settings"] as const;
 export type Tab = (typeof TABS)[number];

@@ -56,7 +56,7 @@ Other profiles are orthogonal to access:
 | `telegram` | the messaging channel gateway + Settings → Telegram |
 | `codex` | virtual: installs the Codex CLI into the app-server image + Settings → Codex workers |
 | `claude` | virtual: installs the Claude Code CLI + Settings → Claude Code workers |
-| `pi` | virtual: Settings → Remote Pi — agents dispatch coding tasks to a `pi` install on another host over SSH (nothing installs on that host); Tools gives an agent its own folder or host |
+| `pi` | virtual: Settings → Remote Pi — agents dispatch coding tasks to a `pi` install on another host over SSH (nothing installs on that host, and the program itself is configurable — `pi-bolt`, an absolute path, plus fixed flags); Tools gives an agent its own folder, command or host |
 
 Combine them with commas and keep any profile you already have when adding
 another: `COMPOSE_PROFILES=cloudflared,google,search,codex,claude,pi`.
@@ -755,6 +755,14 @@ method).
 - **Agent tokens are not equally protected.** The GitHub token under
   `/root/.letta` is readable by every agent shell; the Google token and its
   permission levels live on volumes only the BFF and the sidecar mount.
+- **The BFF can remove files from `workspaces/`.** The app-server protocol has no
+  delete verb at all, so the Files tab's trash is our own route over the BFF's bind
+  of that tree. That bind is read-write — like the app-server's own — and what is
+  narrow is the use: the BFF writes there through this one route and nowhere else.
+  A signed-in browser could already overwrite every byte through `write_file`, so
+  this adds removal, not a new tree; the route refuses anything outside the
+  workspace, any symlink in the path, the workspace root and each agent's own
+  directory.
 - **Agent-served web apps are unauthenticated** and do not survive an
   app-server restart.
 

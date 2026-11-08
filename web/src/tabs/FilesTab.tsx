@@ -6,6 +6,7 @@ import { Icon } from "../components/Icon.tsx";
 import { Sheet } from "../components/Sheet.tsx";
 import { toast } from "../components/Toast.tsx";
 import { shortDate } from "../lib/conversation-groups.ts";
+import { deleteWorkspacePath } from "../lib/delete.ts";
 import { downloadUrl, formatBytes, triggerDownload } from "../lib/download.ts";
 import { errorMessage } from "../lib/errors.ts";
 import { fetchGitRepo } from "../lib/git.ts";
@@ -84,10 +85,22 @@ export function isPlainFileName(name: string): boolean {
 }
 
 /**
+ * Whether `path` names `ancestor` or anything under it — the test the delete
+ * confirmation applies to the file viewer: a deleted ancestor takes the open
+ * file with it, and leaving the viewer up on a path that no longer exists is a
+ * pane that can only fail on its next save.
+ */
+export function isSameOrInside(path: string, ancestor: string): boolean {
+  const base = ancestor.replace(/\/+$/, "");
+  const candidate = path.replace(/\/+$/, "");
+  return candidate === base || candidate.startsWith(`${base}/`);
+}
+
+/**
  * Why this upload cannot go under `name`, or null when it can. A collision is
- * refused rather than auto-suffixed: Files has no rename and no delete, so the
- * name field is where a clash has to be resolved — and a silent ` (1)` would
- * hide that the file you meant to replace is still there.
+ * refused rather than auto-suffixed: Files has no rename, so the name field is
+ * where a clash has to be resolved — and a silent ` (1)` would hide that the
+ * file you meant to replace is still there.
  *
  * The check is against the listing on screen. A file the agent wrote a moment
  * ago is not in it and would be overwritten: upstream's base64 write has no
@@ -142,6 +155,16 @@ export function FilesTab({ session, cwd, agentId }: Props) {
   const [branchesOpen, setBranchesOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [newFileOpen, setNewFileOpen] = useState(false);
+  /**
+   * The entry a trash button was pressed on, waiting for the confirm. Held as
+   * `{path, type}` rather than a boolean because the sheet says both what it is
+   * and where it lives, and a folder's sentence is different (“and everything
+   * inside it”).
+   */
+  const [deleteTarget, setDeleteTarget] = useState<{
+    path: string;
+    type: "file" | "dir";
+  } | null>(null);
   /** The picked file is what keeps the Upload sheet open; null closes it. */
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
@@ -466,9 +489,11 @@ export function FilesTab({ session, cwd, agentId }: Props) {
               Modified
               <SortMark active={sortKey === "modified"} dir={sortDir} />
             </button>
-            {/* Matches the download slot's box exactly (same classes) so this
-                header row is exactly as wide as a body row — see styles.css. */}
+            {/* Matches the body row's two action slots exactly (same classes) so
+                this header row is exactly as wide as a body row — see styles.css.
+                Each slot is named for the column it holds, not one name for both. */}
             <span className="icon-button ghost file-download-placeholder" aria-hidden="true" />
+            <span className="icon-button ghost file-delete-placeholder" aria-hidden="true" />
           </div>
           <ul className="list">
             {sortedEntries.map((entry) => {
@@ -520,7 +545,9 @@ export function FilesTab({ session, cwd, agentId }: Props) {
                   {/* Directories have nothing to hand over: there is no archive
                       command in the protocol, so ask the agent to tar one. A
                       placeholder still renders in their slot — same classes,
-                      hidden — so Size/Modified line up with file rows either way. */}
+                      hidden — so Size/Date line up with file rows either way.
+                      They are deletable, though: a folder is what `rm -r` is for,
+                      and the confirm is where the cost of that gets said. */}
                   {entry.type === "file" ? (
                     <button
                       type="button"
@@ -536,6 +563,28 @@ export function FilesTab({ session, cwd, agentId }: Props) {
                       className="icon-button ghost file-download-placeholder"
                       aria-hidden="true"
                     />
+                  )}
+                  {/* At the workspace root every row is an agent's own directory,
+                      which the route refuses by the same floor the panel refuses
+                      to climb — so no trash is offered there. A placeholder holds
+                      the column, and the row stays clickable to open it. The root
+                      is compared trimmed because a `cwd` can arrive with a
+                      trailing slash, and the route's floor will not care. */}
+                  {root.replace(/\/+$/, "") === WORKSPACE_ROOT ? (
+                    <span
+                      className="icon-button ghost file-delete-placeholder"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className="icon-button ghost"
+                      title={`Delete ${entry.path}`}
+                      aria-label={`Delete ${entry.path}`}
+                      onClick={() => setDeleteTarget({ path: absolute, type: entry.type })}
+                    >
+                      <Icon name="trash" />
+                    </button>
                   )}
                 </li>
               );
@@ -567,6 +616,21 @@ export function FilesTab({ session, cwd, agentId }: Props) {
             setNewFileOpen(false);
             void load(root);
             setSelected(path);
+          }}
+        />
+      ) : null}
+
+      {deleteTarget ? (
+        <DeleteEntrySheet
+          target={deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+          onDeleted={(path, type) => {
+            setDeleteTarget(null);
+            // The listing is the truth about this folder and we have just changed
+            // it; the viewer only if the path it is showing is gone with it.
+            void load(root);
+            if (selected && isSameOrInside(selected, path)) setSelected(null);
+            toast(`${type === "dir" ? "Folder" : "File"} deleted: ${path.split("/").pop()}`);
           }}
         />
       ) : null}
@@ -695,6 +759,85 @@ function NewFileSheet({
         onChange={(event) => setContent(event.target.value)}
         spellCheck={false}
       />
+    </Sheet>
+  );
+}
+
+/**
+ * The one confirm between a row's trash button and an undoable removal.
+ *
+ * It names the entry, prints the full path, and for a folder says plainly that
+ * everything inside it goes too. There is no trash to restore from and no undo,
+ * so the sheet's job is not to explain a feature — it is to make the cost of the
+ * press legible before it lands. A workspace is also where an agent may be
+ * working right now, which is the other sentence.
+ */
+function DeleteEntrySheet({
+  target,
+  onClose,
+  onDeleted,
+}: {
+  target: { path: string; type: "file" | "dir" };
+  onClose: () => void;
+  onDeleted: (path: string, type: "file" | "dir") => void;
+}) {
+  const [status, setStatus] = useState("");
+  const [busy, setBusy] = useState(false);
+  const name = target.path.split("/").filter(Boolean).pop() ?? target.path;
+  const folder = target.type === "dir";
+
+  const remove = async () => {
+    setBusy(true);
+    setStatus("");
+    try {
+      const result = await deleteWorkspacePath(target.path);
+      onDeleted(result.deleted, result.type);
+    } catch (cause) {
+      // The BFF said why; keep the sheet open so the path stays on screen while
+      // a person reads it.
+      setStatus(errorMessage(cause));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Sheet
+      title={folder ? "Delete folder" : "Delete file"}
+      onClose={busy ? () => undefined : onClose}
+      actions={
+        <>
+          <button type="button" className="button ghost" onClick={busy ? undefined : onClose}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="button danger"
+            disabled={busy}
+            onClick={() => void remove()}
+          >
+            {busy ? "Deleting…" : "Delete"}
+          </button>
+        </>
+      }
+    >
+      <p>
+        <strong>{name}</strong>
+        {folder
+          ? " and everything inside it will be removed from the workspace."
+          : " will be removed from the workspace."}
+      </p>
+      <p className="muted small">
+        <code>{target.path}</code>
+      </p>
+      <p className="muted small">
+        This is not the archive — there is no trash to restore from, and an agent may be working in
+        this folder right now.
+      </p>
+      {status ? (
+        <p className="small bad" role="alert">
+          {status}
+        </p>
+      ) : null}
     </Sheet>
   );
 }
