@@ -51,8 +51,8 @@ Loaded from `AGENTS.md`. Settings decide what exists; this narrows who is offere
   only thing that writes it, so a pane and a checkbox can never disagree about whether an agent gets
   a family. Anything else per-agent is a *different* record with its own file, and must not grow an
   `enabled` field of its own. Remote Pi's is `$PI_DIR/agents.json`
-  (`bff/src/pi/agent-settings.ts`): `{ agentId: { mode, host, port, user, pathPrepend, workdir,
-  model } }`, only non-default entries, merged over the global pi record at tool-call time by
+  (`bff/src/pi/agent-settings.ts`): `{ agentId: { mode, host, port, user, pathPrepend, command,
+  workdir, model } }`, only non-default entries, merged over the global pi record at tool-call time by
   `PiService.settingsFor(agentId)` from the same `x-letta-agent-id`. So a `pi_run` needs the global
   switch on and its own agent not blocked, and then works in *its* folder on *its* host with the
   global deploy key — the key is never per-agent, and `pi_send` resolves the host from the run that
