@@ -5,6 +5,11 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.36.0-letta_0.34.38] - 2026-11-08
+
+### Added
+- **Remote Pi runs the program you name.** Settings → Remote Pi gained a **Command** — the remote program with its fixed arguments, `pi-bolt` or `/srv/pi/bin/pi --thinking high` — instead of the hard-coded `pi`, and **Tools → Remote Pi** carries the same field per agent, empty meaning "use the global one". Checking the host asks that command too, so a host that calls the program something else stops being reported as "`pi` is not on the PATH", and the answer now names the program you configured. The run adds its own flags (`--mode json --approve …`) after yours, so a typo in this field cannot turn a run into something Lettuce cannot read.
+
 ## [v0.35.0-letta_0.34.38] - 2026-11-06
 
 ### Added
