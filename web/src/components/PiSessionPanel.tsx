@@ -20,7 +20,6 @@ interface Props {
   runId: string;
   /** Its session, when the caller knows it; null means "learn it from the run". */
   session: string | null;
-  onClose: () => void;
 }
 
 /** How close to the bottom counts as "reading the end", so a live run can follow. */
@@ -60,15 +59,16 @@ function stepKey(step: PiRun["steps"][number], index: number): string {
  * it: whoever opened it (a conversation's run card, a row in the Runs list, a
  * completion push's deep link) gets the same screen back when it closes, because
  * nothing underneath it changed — this is only what is rendered in its place
- * while it is open. It borrows a pane's exit too: the corner close and the phone's
- * Back belong to `App`, which owns the decision to close it.
+ * while it is open. It borrows a pane's exits too and asks for none of them: the
+ * corner close, the phone's Back and Escape all live in `App`, which owns the
+ * decision to close it.
  *
  * The runs come from the BFF's own captures: one run is one ssh invocation, so a
  * session is N files stitched in the order they started. Each run's body is
  * fetched on its own (the capture tail is capped per run) and the focused one
  * first, so opening a long session reads one run rather than all of them.
  */
-export function PiSessionPanel({ runId, session, onClose }: Props) {
+export function PiSessionPanel({ runId, session }: Props) {
   const [sessionId, setSessionId] = useState<string | null>(session);
   const [runs, setRuns] = useState<PiRunSummary[]>([]);
   const [bodies, setBodies] = useState<Record<string, PiRun>>({});
@@ -232,27 +232,7 @@ export function PiSessionPanel({ runId, session, onClose }: Props) {
     }
   }, [sessionId, runs, liveFrames, loadList]);
 
-  useEffect(() => {
-    if (tab === "Chat" && !piView) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      // The innermost surface owns the press. A sheet claims Escape in its own
-      // handler and stops propagation, but the switcher and a ⋯ menu do not —
-      // neither renders `.sheet` — so without naming them here one press would
-      // answer twice: the menu closes AND the pane underneath it closes.
-      if (document.querySelector(".sheet, .switcher, .agent-menu")) return;
-      // The session viewer is the innermost thing in the pane, so it takes the
-      // press and the pane underneath it stays: Escape from a run you opened from
-      // the Runs list returns the list, not Chat.
-      if (piView) {
-        closePiRun();
-        return;
-      }
-      selectPane("Chat");
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [tab, piView, closePiRun, selectPane]);  // "Go to run N" means the end of that run: what it last said, which is where
+  // "Go to run N" means the end of that run: what it last said, which is where
   // its attention was when it finished — or where it is now, live.
   const scrollToFocus = useCallback(() => {
     const box = scroller.current;

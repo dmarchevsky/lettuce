@@ -880,7 +880,7 @@ function Workspace({ status }: { status: Status }) {
             transcript until someone notices the dismiss button. */}
 
         {piView ? (
-          <PiSessionPanel runId={piView.runId} session={piView.session} onClose={closePiRun} />
+          <PiSessionPanel runId={piView.runId} session={piView.session} />
         ) : tab === "Chat" ? (
           <>
             {conversation.error ? (
