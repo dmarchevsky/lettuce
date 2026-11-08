@@ -35,6 +35,9 @@ export type PiRunState = "running" | "completed" | "detached" | "failed" | "canc
 export const PI_META_FLUSH_INTERVAL_MS = 2_000;
 /** … or how many captured lines force a flush regardless of time. */
 export const PI_META_FLUSH_LINES = 64;
+/** How many runs of one session the listing keeps, newest first. The session
+ * viewer says so out loud when a session is longer than this. */
+export const PI_SESSION_RUN_CAP = 60;
 
 export interface PiRunMeta {
   runId: string;
@@ -379,7 +382,7 @@ export class DirPiRunStore implements PiRunStore {
    * `findBySession`'s fallback does (retention keeps a few hundred metas), and
    * `cap` keeps the newest few when a session has outlived its usefulness.
    */
-  async listBySession(session: string, cap = 60): Promise<PiRunMeta[]> {
+  async listBySession(session: string, cap = PI_SESSION_RUN_CAP): Promise<PiRunMeta[]> {
     const mine = (await this.list(Number.MAX_SAFE_INTEGER)).filter(
       (meta) => meta.session === session,
     );
@@ -519,12 +522,19 @@ export class PiRunner {
     let orphaned = 0;
     for (const meta of await this.store.list(1000)) {
       if (meta.state !== "running") continue;
-      await this.store.update({
+      const orphan: PiRunMeta = {
         ...meta,
         state: "detached",
         endedAt: meta.endedAt ?? this.now().toISOString(),
         error: "capture ended when the BFF restarted; the remote run may have continued",
-      });
+      };
+      await this.store.update(orphan);
+      // Report it the way a run that ended in front of us reports itself. These
+      // are the runs whose dispatching conversation is still waiting for a line
+      // that will now never arrive on its own, and `settle()` only serves runs
+      // this process was watching, so the hooks fire directly. The upstream send
+      // retries until the app-server connection is up — reconcile runs at boot.
+      this.report(orphan);
       orphaned += 1;
     }
     return orphaned;
@@ -712,6 +722,12 @@ export class PiRunner {
    * reports itself into its conversation — so there are no waiters to wake. */
   private settle(meta: PiRunMeta): void {
     if (!this.metas.delete(meta.runId)) return;
+    this.report(meta);
+  }
+
+  /** The once-per-run notifications, guarded so a broken subscriber can never
+   * corrupt a recorded run. */
+  private report(meta: PiRunMeta): void {
     try {
       this.onProgress?.(meta);
     } catch {

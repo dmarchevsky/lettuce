@@ -35,6 +35,7 @@ import {
   buildSshArgs,
   DirPiRunStore,
   isPiSessionId,
+  PI_SESSION_RUN_CAP,
   type PiKeyFiles,
   type PiRunMeta,
   PiRunner,
@@ -545,8 +546,14 @@ export class PiService {
    * with. A pi session is a file on one host, so these runs are the whole history
    * of what lettuce asked of that conversation, in the order it was asked.
    */
-  async listSessionRuns(session: string): Promise<PiRunMeta[]> {
-    return this.store.listBySession(session);
+  /**
+   * Every run of one pi session, oldest first — and whether that is all of them.
+   * A session a long-lived agent keeps reusing can outlive the listing window, and
+   * a viewer that shows a window has to say so rather than look like the history.
+   */
+  async listSessionRuns(session: string): Promise<{ runs: PiRunMeta[]; capped: boolean }> {
+    const runs = await this.store.listBySession(session);
+    return { runs, capped: runs.length >= PI_SESSION_RUN_CAP };
   }
 
   // ── tools ──────────────────────────────────────────────────────────────────

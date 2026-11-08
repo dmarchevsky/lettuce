@@ -117,6 +117,7 @@ import { McpCatalog } from "./mcp-bridge/catalog.ts";
 import { mcpClient } from "./mcp-bridge/client.ts";
 import { BRIDGE_TOOL_SPECS, bridgeHandlers, MCP_BRIDGE_MOD_PATH } from "./mcp-bridge/tools.ts";
 import { registerPiRoutes } from "./pi/routes.ts";
+import type { PiRunMeta } from "./pi/runner.ts";
 import { PI_TOOL_NAMES, PI_TOOL_SPECS, PiService } from "./pi/service.ts";
 import { installProcessGuards } from "./process-guards.ts";
 import { filterServedModels } from "./providers/allowlist.ts";
@@ -642,25 +643,42 @@ const piService = new PiService({
         log,
       );
     if (meta.agentId && meta.conversationId) {
-      void piService
-        .settleReport(meta)
-        .then((content) =>
-          // `sendInternal`, not `send`: the app-server answers any `input` that
-          // carries a request_id with `input_accepted`, and unless the id is
-          // registered as BFF-internal that answer is treated as an
-          // unsolicited frame — sequenced, buffered, and relayed to every tab
-          // watching the conversation with a request id nobody issued.
-          upstream.sendInternal({
-            type: "input",
-            request_id: crypto.randomUUID(),
-            runtime: { agent_id: meta.agentId, conversation_id: meta.conversationId },
-            payload: { kind: "create_message", messages: [{ role: "user", content }] },
-          }),
-        )
-        .catch((error) => log(`Remote pi: settle report failed: ${errorMessage(error)}`));
+      void reportToConversation(meta, 0);
     }
   },
 });
+
+/**
+ * Post one run's verdict into the conversation that dispatched it, retrying
+ * while the app-server connection is not up yet.
+ *
+ * `sendInternal` refuses before the connection is ready, and a boot reconcile
+ * reports its orphans at exactly that moment — a report logged and dropped there
+ * is the silence this path exists to end, so a late report beats a lost one. Give
+ * up after a couple of minutes and say so in the log.
+ */
+async function reportToConversation(meta: PiRunMeta, attempt: number): Promise<void> {
+  try {
+    const content = await piService.settleReport(meta);
+    // `sendInternal`, not `send`: the app-server answers any `input` that
+    // carries a request_id with `input_accepted`, and unless the id is
+    // registered as BFF-internal that answer is treated as an
+    // unsolicited frame — sequenced, buffered, and relayed to every tab
+    // watching the conversation with a request id nobody issued.
+    upstream.sendInternal({
+      type: "input",
+      request_id: randomUUID(),
+      runtime: { agent_id: meta.agentId, conversation_id: meta.conversationId },
+      payload: { kind: "create_message", messages: [{ role: "user", content }] },
+    });
+  } catch (error) {
+    if (attempt < 24) {
+      setTimeout(() => void reportToConversation(meta, attempt + 1), 5_000).unref?.();
+      return;
+    }
+    log(`Remote pi: settle report failed: ${errorMessage(error)}`);
+  }
+}
 void piService
   .reconcile()
   .catch((error) => log(`Remote pi: reconcile failed: ${errorMessage(error)}`));

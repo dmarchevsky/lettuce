@@ -397,6 +397,45 @@ test("boot reconciliation detaches orphaned runs", async () => {
   expect((await store.read(orphan.runId))?.state).toBe("detached");
 });
 
+test("boot reconciliation reports the orphan it detaches — the conversation is waiting", async () => {
+  // A BFF restart mid-run leaves a conversation that dispatched the run waiting
+  // for a verdict that will never arrive on its own. Marking the meta detached is
+  // half the job; the other half is the hook that writes the line into the
+  // transcript, which used to fire only for runs this process had watched.
+  const dir = await mkdtemp(`${tmpdir()}/pi-runs-`);
+  const store = new DirPiRunStore(dir);
+  const { spawner } = harness();
+  const settled: { state: string; conversationId: string | null }[] = [];
+  const runner = new PiRunner(
+    store,
+    spawner,
+    () => new Date(),
+    (meta) => settled.push({ state: meta.state, conversationId: meta.conversationId }),
+  );
+  await store.create({
+    runId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+    kind: "send",
+    agentId: "agent-local-0fefdba6",
+    conversationId: "local-conv-120",
+    session: SESSION,
+    prompt: "old work",
+    model: null,
+    target: "worker@pi.example.invalid",
+    startedAt: "2026-10-04T10:00:00.000Z",
+    endedAt: null,
+    state: "running",
+    exitCode: null,
+    settled: false,
+    eventCount: 12,
+    lastEventAt: null,
+    bytesCaptured: 0,
+    remotePid: null,
+    error: null,
+  });
+  expect(await runner.reconcileOnBoot()).toBe(1);
+  expect(settled).toEqual([{ state: "detached", conversationId: "local-conv-120" }]);
+});
+
 test("progress reaches the store while the run streams — throttled, and never only in memory", async () => {
   // The prod lesson in one test: a `send` run streams for minutes and read
   // `events 0` the whole time, because the meta reached disk only at exit.

@@ -61,8 +61,8 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   app, and any sheet or menu opened over the pane closes first. A full-screen **viewer of one
   thread** borrows a pane instead of floating over the app: `PiSessionPanel` renders in the open
   pane's place with a `.pane-bar`, keeps `.closable` and Back while it is up, and closing it restores
-  the pane it opened from — a conversation keeps its draft and scroll, so nothing needed a
-  `from`-origin memory. It is opened by a callback threaded to its entry points (`onOpenRun`,
+  the pane it opened from, so nothing needed a `from`-origin memory (the chat's draft survives in
+  localStorage; its scroll does not survive the remount, as with any pane switch). It is opened by a callback threaded to its entry points (`onOpenRun`,
   `onOpenPiRun`), never by an `<a href="/?tab=runs&run=…">`, which reloaded the page and lost where
   you were; the `?run=` deep link still works because App resolves it on boot. Its transcript is the
   conversation's own vocabulary on a tinted surface (`.pi-session` around `.messages`, the same

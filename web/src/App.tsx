@@ -633,7 +633,10 @@ function Workspace({ status }: { status: Status }) {
 
   const editAgent = (id: string) => {
     if (id !== agents.agentId) agents.selectAgent(id);
-    setTab("Agent");
+    // Through `selectPane`, not `setTab`: the pane chooser is what ends the
+    // session viewer, and an "Edit agent" that left a run transcript on screen
+    // would look like nothing had been pressed.
+    selectPane("Agent");
   };
 
   const toggleFilter = (group: FilterGroup) => {

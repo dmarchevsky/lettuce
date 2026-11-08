@@ -281,9 +281,14 @@ export async function fetchPiRun(runId: string): Promise<{ run: PiRun; capturing
  * A session is one pi conversation on one host, so its runs are the whole history
  * of what the agent asked of it: one `pi_run`/`pi_send` each.
  */
-export async function fetchPiSessionRuns(session: string): Promise<PiRunSummary[]> {
+export async function fetchPiSessionRuns(
+  session: string,
+): Promise<{ runs: PiRunSummary[]; capped: boolean }> {
   const response = await ok(await fetch(`/api/pi/session/${encodeURIComponent(session)}/runs`));
-  return ((await response.json()) as { runs: PiRunSummary[] }).runs;
+  const body = (await response.json()) as { runs: PiRunSummary[]; capped?: boolean };
+  // `capped` is the store saying it dropped older runs to keep the listing a
+  // bounded read; an older BFF that omits it simply means "not truncated".
+  return { runs: body.runs, capped: body.capped ?? false };
 }
 
 /**

@@ -240,8 +240,8 @@ export function registerPiRoutes<Env extends RouteEnv>(app: Hono<Env>, deps: PiR
     if (!piEnabled) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
     const session = c.req.param("session");
     if (!isPiSessionId(session)) return c.text("Not a pi session id", 400);
-    const runs = await piService.listSessionRuns(session);
-    return c.json({ session, runs: runs.map(summarizePiRun) });
+    const { runs, capped } = await piService.listSessionRuns(session);
+    return c.json({ session, runs: runs.map(summarizePiRun), capped });
   });
 
   app.get("/api/pi/runs/:runId", async (c) => {
