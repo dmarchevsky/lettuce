@@ -276,6 +276,40 @@ export async function fetchPiRun(runId: string): Promise<{ run: PiRun; capturing
   return (await response.json()) as { run: PiRun; capturing: boolean };
 }
 
+/**
+ * Every run on one pi session, oldest first — what the session panel opens with.
+ * A session is one pi conversation on one host, so its runs are the whole history
+ * of what the agent asked of it: one `pi_run`/`pi_send` each.
+ */
+export async function fetchPiSessionRuns(session: string): Promise<PiRunSummary[]> {
+  const response = await ok(await fetch(`/api/pi/session/${encodeURIComponent(session)}/runs`));
+  return ((await response.json()) as { runs: PiRunSummary[] }).runs;
+}
+
+/**
+ * The session panel's run dropdown, newest first: a session can hold dozens of
+ * runs, so the choice is a line per run rather than a list to scroll. The label
+ * carries the status and the prompt because that is what tells two runs apart.
+ */
+export function piRunOptions(runs: readonly PiRunSummary[]): { runId: string; label: string }[] {
+  return runs
+    .map((run, index) => ({
+      runId: run.runId,
+      label: `Run ${index + 1} · ${STATUS_LABELS[run.status]} · ${oneLine(run.prompt) || "(no prompt recorded)"}`,
+    }))
+    .reverse();
+}
+
+/** The same index the dropdown and the run's own boundary line agree on. */
+export function piRunNumber(runs: readonly PiRunSummary[], runId: string): number {
+  const at = runs.findIndex((run) => run.runId === runId);
+  return at < 0 ? runs.length : at + 1;
+}
+
+function oneLine(text: string): string {
+  return (text || "").split("\n")[0]?.trim().slice(0, 80) ?? "";
+}
+
 export const STATUS_LABELS: Record<PiRunStatus, string> = {
   running: "Running",
   completed: "Finished",

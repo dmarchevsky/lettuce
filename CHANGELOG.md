@@ -5,6 +5,10 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Changed
+- **A remote pi run opens as a session, not a popup.** Clicking a run — its card in a conversation, its row in the Runs list, or a completion push's link — opens the whole pi conversation in the pane: every run you asked of that session in one transcript, in the conversation's own rows on a tinted surface, with a dropdown that jumps between runs and lands on what each one last said. Closing it gives back the screen you opened it from, draft and scroll position intact.
+- **A remote run reports itself, so nothing waits.** `pi_wait` is out of the tool menu: every terminal state — finished, failed, cancelled, or detached — now posts its own line into the conversation that dispatched it, including the two that used to be silent. A clean exit counts as finished even when pi never sent its idle signal, and a detached run says so plainly: capture stopped, the remote pi may still be working, `pi_send` resumes its session. That is what was putting sleep-and-poll loops in your chats.
+
 ## [v0.34.1-letta_0.34.38] - 2026-11-05
 
 ### Fixed

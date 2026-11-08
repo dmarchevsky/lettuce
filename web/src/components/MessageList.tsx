@@ -46,6 +46,12 @@ interface Props {
   cwd: string | null;
   /** Open a workspace file the agent linked, in the app's file viewer. */
   onOpenFile: (path: string) => void;
+  /**
+   * Open a remote-pi session the transcript dispatched, in the pane. The card
+   * hands back the session it learned from the run's facts, so a caller holding
+   * only a run id still lands on the whole session.
+   */
+  onOpenPiRun: (runId: string, session: string | null) => void;
   /** Label entries with their time; toggled in the filter sheet. */
   showTimestamps: boolean;
   /** "Edit" on your last message: put its text back in the composer. Stable. */
@@ -128,6 +134,7 @@ export function MessageList({
   session,
   cwd,
   onOpenFile,
+  onOpenPiRun,
   showTimestamps,
   onEditMessage,
   onAnswerQuestion,
@@ -291,6 +298,7 @@ export function MessageList({
         cwd={cwd}
         fileLinks={fileLinks}
         onOpenFile={onOpenFile}
+        onOpenPiRun={onOpenPiRun}
         showTimestamps={showTimestamps}
         onEdit={entry.id === lastUserId ? onEditMessage : undefined}
         liveChild={liveChild}
@@ -371,6 +379,7 @@ const MessageItem = memo(function MessageItem({
   cwd,
   fileLinks,
   onOpenFile,
+  onOpenPiRun,
   showTimestamps,
   onEdit,
   narration = false,
@@ -389,6 +398,7 @@ const MessageItem = memo(function MessageItem({
   cwd: string | null;
   fileLinks: FileLinks;
   onOpenFile: (path: string) => void;
+  onOpenPiRun: (runId: string, session: string | null) => void;
   showTimestamps: boolean;
   /** Set only on your latest message. */
   onEdit?: (text: string) => void;
@@ -462,7 +472,7 @@ const MessageItem = memo(function MessageItem({
   }
 
   if (entry.kind === "pi_run" && entry.piRunId) {
-    return <PiRunCard runId={entry.piRunId} />;
+    return <PiRunCard runId={entry.piRunId} onOpenSession={onOpenPiRun} />;
   }
 
   if (entry.kind === "channel_send" && entry.channelSend) {

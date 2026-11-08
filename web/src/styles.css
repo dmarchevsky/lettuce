@@ -3587,6 +3587,7 @@ p.warning code,
 .field textarea,
 .field-trigger,
 .sidebar select,
+.pi-run-select,
 .limit-edit > input {
   background: var(--surface-2);
   color: var(--text);
@@ -3604,6 +3605,7 @@ p.warning code,
 .field select,
 .field-trigger,
 .sidebar select,
+.pi-run-select,
 .limit-edit > input {
   height: var(--control-h);
   padding-block: 0;
@@ -3615,7 +3617,8 @@ p.warning code,
    sheet instead of the native popup, and must not look like a new species. */
 .field select,
 .field-trigger,
-.sidebar select {
+.sidebar select,
+.pi-run-select {
   appearance: none;
   padding-right: 32px;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23939cad' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
@@ -4660,17 +4663,20 @@ textarea.mono {
   padding: 12px 16px;
   min-width: 0;
 }
-/* The pi viewer reuses the conversation's entry classes as native <details>
-   rows: hide the browser marker, make the row read as a control, and turn
-   the chevron when open (chat swaps icons in state instead). */
-.codex-run summary.tool-head {
+/* The pi session viewer reuses the conversation's entry classes as native
+   `<details>` rows: hide the browser marker, make the row read as a control, and
+   turn the chevron when open (chat swaps icons in state instead). */
+.codex-run summary.tool-head,
+.pi-session summary.tool-head {
   list-style: none;
   cursor: pointer;
 }
-.codex-run summary.tool-head::-webkit-details-marker {
+.codex-run summary.tool-head::-webkit-details-marker,
+.pi-session summary.tool-head::-webkit-details-marker {
   display: none;
 }
-.codex-run details[open] > summary .chevron {
+.codex-run details[open] > summary .chevron,
+.pi-session details[open] > summary .chevron {
   transform: rotate(90deg);
 }
 .codex-step {
@@ -5015,6 +5021,78 @@ textarea.mono {
 }
 
 /* ── Remote-pi run surfaces ──────────────────────────────────────────────── */
+/* The session panel: one pi session's runs in one transcript, borrowing the
+   conversation's own rows — `.messages`, the `.entry` rails, the tool `.rail` —
+   so a worker's thread reads as a thread rather than a new species of screen.
+   The only thing that is new is the surface: the same rails on `--surface`
+   against Chat's `--bg`, which is what says "this is the worker's, not yours". */
+.pi-session {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+}
+.pi-session .messages {
+  /* The pane can be wide; a transcript line is not the pane's width. Chat gets
+     its measure from the columns beside it, so the cap only appears here. */
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+  -webkit-overflow-scrolling: touch;
+}
+/* The line that opens one run's segment inside the one transcript. It wraps, so
+   on a phone the prompt and the counters go under the run's name rather than into
+   a crushed column. */
+.pi-run-boundary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+}
+.pi-run-boundary strong {
+  color: var(--text);
+}
+.pi-run-boundary .what {
+  min-width: 0;
+}
+.pi-run-boundary .spacer {
+  flex: 1;
+}
+.pi-run-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--entry-gap);
+  min-width: 0;
+}
+/* The scroll target at the end of each run's segment: invisible, and the reason
+   "go to run 2" can mean the last thing run 2 said rather than its first. */
+.pi-run-end {
+  height: 1px;
+  flex: none;
+}
+.pi-facts {
+  min-width: 0;
+}
+/* The run dropdown is a bar control, not a form field: it takes the shared select
+   language (it joins those rules in the form section) and a width the bar can hold
+   beside the session's facts. */
+.pi-run-select {
+  max-width: 52ch;
+  min-width: 0;
+}
+@media (max-width: 899px), (pointer: coarse) {
+  .pi-run-select {
+    flex: 1;
+    min-width: 0;
+    max-width: none;
+  }
+}
+
 /* The in-transcript card for one run (PiRunCard): status, the step in flight,
    the last thing pi said, live counters, and the stop buttons. */
 .pi-card {

@@ -1,6 +1,6 @@
 ---
 name: lettuce-ui-conventions
-description: 'lettuce UI conventions that are ours: pin/archive lists live in the BFF; a viewport-fixed AgentMenu; the desktop rail: AGENTS face+name rows up top (its head-row pin collapses the main rail to a 56px glyph strip; the Settings rail never collapses), panes above a foot cell (⚙ Settings / ☰ Conversations); ⋯ menus wear the rail row scale at the mouse, fingertip under coarse pointers; the drawer is a pinned column or a peek opened from the band''s agent name, its head pin sharing the rail pin (.col-pin); a phone bar of six equal slots (Chat, Files, Tasks, Tools, Settings, More) under a header carrying the agent''s face (.where-avatar); the band''s status light opens the responding list; a non-Chat pane''s corner .pane-close; both nav surfaces stay mounted; the settings split (Agent, Tools, Settings); no native checkbox. Read before touching NavRail, Sidebar, BottomBar, AgentMenu, the Agent/Tools/Settings tabs, settings-sections.ts or tabs.ts.'
+description: 'lettuce UI conventions that are ours: pin/archive lists live in the BFF; a viewport-fixed AgentMenu; the desktop rail: AGENTS face+name rows up top (its head pin folds the rail to a 56px glyph strip; the Settings rail never folds), panes above a foot cell (⚙ Settings / ☰ Conversations); ⋯ menus wear the rail row scale at the mouse, fingertip under coarse pointers; the drawer is a pinned column or a peek opened from the band''s agent name, its head pin sharing the rail pin (.col-pin); a phone bar of six equal slots (Chat, Files, Tasks, Tools, Settings, More) under a header carrying the agent''s face; the band''s status light opens the responding list; a non-Chat pane''s corner .pane-close; a one-thread viewer borrows the pane (.pi-session) and closes back to its origin; both nav surfaces stay mounted; the settings split (Agent, Tools, Settings); no native checkbox. Read before touching NavRail, Sidebar, BottomBar, AgentMenu, the Agent/Tools/Settings tabs, settings-sections.ts or tabs.ts.'
 ---
 
 # Agent list and sidebar UI conventions
@@ -58,7 +58,17 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   clear of it — an X over a chip is a control nobody can press, and `ui-check` proves the corner is
   clear at both widths. The open pane also owns the phone's **Back** at the BackStack's floor rank
   (`useBackToClose` in `App`): Back steps a secondary pane back to Chat rather than leaving the
-  app, and any sheet or menu opened over the pane closes first. **An avatar answers
+  app, and any sheet or menu opened over the pane closes first. A full-screen **viewer of one
+  thread** borrows a pane instead of floating over the app: `PiSessionPanel` renders in the open
+  pane's place with a `.pane-bar`, keeps `.closable` and Back while it is up, and closing it restores
+  the pane it opened from — a conversation keeps its draft and scroll, so nothing needed a
+  `from`-origin memory. It is opened by a callback threaded to its entry points (`onOpenRun`,
+  `onOpenPiRun`), never by an `<a href="/?tab=runs&run=…">`, which reloaded the page and lost where
+  you were; the `?run=` deep link still works because App resolves it on boot. Its transcript is the
+  conversation's own vocabulary on a tinted surface (`.pi-session` around `.messages`, the same
+  `.entry` rails), and where several captures make one thread, each segment opens with a wrap-friendly
+  `.pi-run-boundary` line and ends with an invisible `.pi-run-end` marker, because *go to run 2* means
+  what run 2 last said, not its prompt. **An avatar answers
   *who*, not *where*:** picking another agent keeps the pane you are on (Files stays Files, with
   their files), because being thrown to Chat made the avatars a place you dared not click while
   something else was open; on Chat it opens the panel, and the open agent's own avatar is the
@@ -125,7 +135,7 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   agents other than the open one come from `useAgentStats`, fetched when the switcher opens.
   ui-check reads the open agent from `.rail-agent.active[data-agent-id]`. **`.rail` is two
   components wearing one class name:** the nav column is `nav.rail`, while the transcript's
-  tool-rail (`MessageList`, `PiRunSheet`) is a different component that shares the bare `.rail` —
+  tool-rail (`MessageList`, `PiRunSteps`) is a different component that shares the bare `.rail` —
   a CSS edit naming `.rail` unscoped leaks across, in both directions (a tool-rail rule gave the
   nav a 2px border-left once; a nav rule reaches the entries the other way). So the entry rail is
   scoped `.entry .rail` and the nav's responsive rules are tagged `nav.rail`; `styles.css`

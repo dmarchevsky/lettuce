@@ -4,7 +4,6 @@ import { ago, fetchPiRuns, type PiRunSummary, STATUS_LABELS } from "../lib/pi.ts
 import { msSinceLastPiFrame, stalenessWatchdogMs, usePiLiveRuns } from "../lib/pi-live.ts";
 import { type AgentNames, type RunsListProps, scopedEmptyLabel } from "../lib/runs-scope.ts";
 import { formatEntryTimeFull } from "../lib/timestamps.ts";
-import { PiRunSheet } from "./PiRunSheet.tsx";
 
 /** The status chip's tone: finished reads as done; detached and failed warn. */
 const STATUS_TONES: Record<PiRunSummary["status"], string> = {
@@ -24,21 +23,20 @@ const STATUS_TONES: Record<PiRunSummary["status"], string> = {
  */
 export function PiRunsList({
   refreshKey,
-  initialRunId,
   agentId,
   agentName,
   agentNames,
   onOther,
+  onOpenRun,
 }: RunsListProps & {
-  /** Open this run's viewer on mount (the `?run=` deep link). */
-  initialRunId?: string | null;
   /** Names for the owner line a run shows only when every agent is listed. */
   agentNames: AgentNames;
+  /** Open one run's session in the pane — the row's whole verb. */
+  onOpenRun: (runId: string, session: string | null) => void;
 }) {
   const [runs, setRuns] = useState<PiRunSummary[]>([]);
   const [other, setOther] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [openRun, setOpenRun] = useState<string | null>(initialRunId ?? null);
   const liveFrames = usePiLiveRuns();
 
   const load = useCallback(async () => {
@@ -134,7 +132,7 @@ export function PiRunsList({
               <button
                 type="button"
                 className="row"
-                onClick={() => setOpenRun(run.runId)}
+                onClick={() => onOpenRun(run.runId, run.session)}
                 title={run.prompt}
               >
                 <span className="grow-text">
@@ -165,7 +163,6 @@ export function PiRunsList({
           ))}
         </ul>
       )}
-      {openRun ? <PiRunSheet runId={openRun} onClose={() => setOpenRun(null)} /> : null}
     </>
   );
 }
