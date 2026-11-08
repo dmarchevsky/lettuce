@@ -130,7 +130,7 @@ before exposing anything.
   subscription or pointed at any Anthropic-compatible endpoint.
 - **Remote Pi.** Dispatch a coding task to a [`pi`](https://github.com/earendil-works/pi)
   agent on another host over SSH — or to whatever that host calls the program, since the
-  command is configurable (`pi-bolt`, a full path, plus fixed flags) — iterate on the same
+  command is configurable (`pi-bolt`, an absolute path, plus fixed flags) — iterate on the same
   session, read the full transcript under Tasks, and give each agent its own working
   folder, command or host for it under Tools.
 - **Worker runs, per agent.** The Runs tab lists the Codex, Claude and remote-pi runs

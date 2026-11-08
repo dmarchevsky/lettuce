@@ -101,7 +101,9 @@ export function shq(value: string): string {
  * locally, keep matching.
  */
 export function shqWord(value: string): string {
-  return /^[\w@%+=:,./-]+$/.test(value) ? value : shq(value);
+  // A negated class rather than `^[…]+$`, whose `$` would also match before a
+  // trailing newline and let a word ending in one through unquoted.
+  return value !== "" && !/[^\w@%+=:,./-]/.test(value) ? value : shq(value);
 }
 
 /**
@@ -145,8 +147,9 @@ export function buildPiRemoteCommand(
     // The program and its fixed arguments, from the `command` setting: one line
     // typed by the operator, split into words and quoted here (see settings.ts).
     // Our flags come AFTER them on purpose: `--mode json` and `--approve` are the
-    // contract this runner parses and the reason a run never blocks on a prompt,
-    // so a mistyped argument cannot take them away.
+    // contract this runner parses and the reason a run never blocks on a prompt.
+    // They stay the last words because `parsePiCommand` refuses the ones it
+    // could clash with (`--`, `--mode`, `--approve`, `--session`, `--model`).
     ...piCommandWords(settings.command).map(shqWord),
     "--mode",
     "json",

@@ -714,6 +714,31 @@ test("a command that cannot be a command is refused where it is set", () => {
   expect(() => parsePiCommand('pi-bolt ""')).toThrow(/empty/);
 });
 
+test("the command may not use the flags the run appends after it", () => {
+  // `--mode text` ahead of ours, or `--` alone, and the runner is reading
+  // positional arguments instead of the json stream it was built for.
+  for (const bad of ["pi --mode text", "pi --", "pi --approve --session x", "pi --model m"]) {
+    expect(() => parsePiCommand(bad)).toThrow(/the run adds its own/);
+  }
+  expect(() => applyPiSettingsUpdate(BASE, { command: "pi --mode text" })).toThrow(
+    InvalidPiSettingsError,
+  );
+  // A word that merely starts with one is nobody else's flag.
+  expect(parsePiCommand("pi --model-name gpt")).toEqual(["pi", "--model-name", "gpt"]);
+});
+
+test("the tokenizer follows sh, not a plausible approximation of it", () => {
+  // Inside double quotes a backslash escapes only $ ` " \ ; anywhere else it is
+  // a backslash, and dropping it is how `--note "a\b"` loses a character.
+  expect(parsePiCommand('pi --note "a\\b"')).toEqual(["pi", "--note", "a\\b"]);
+  expect(parsePiCommand('pi --note "a\\"b"')).toEqual(["pi", "--note", 'a"b']);
+  expect(parsePiCommand('pi --note "a\\$b"')).toEqual(["pi", "--note", "a$b"]);
+  // A non-breaking space is part of a word: sh splits on space, tab and newline,
+  // and silently renaming the program from a paste is worse than an unknown
+  // command the check reports.
+  expect(parsePiCommand("pi-bolt x")).toEqual(["pi-bolt x"]);
+});
+
 test("the command round-trips through settings, and an unusable stored one is dropped", () => {
   const saved = parsePiSettings(JSON.stringify({ ...BASE, command: " pi-bolt --thinking high " }));
   expect(saved.command).toBe("pi-bolt --thinking high");
@@ -781,6 +806,14 @@ test("a check names the program the operator typed", () => {
       commandName: "pi-bolt",
     }).detail,
   ).toMatch(/`pi-bolt` is not on the PATH/);
+  expect(
+    classifyCheckOutput({
+      code: 0,
+      stdout: "lettuce: pi failed\nSyntaxError: bad\nlettuce: node v20.19.2",
+      stderr: "",
+      commandName: "pi-bolt",
+    }).detail,
+  ).toMatch(/^pi-bolt is installed but cannot run/);
   expect(
     classifyCheckOutput({
       code: 0,

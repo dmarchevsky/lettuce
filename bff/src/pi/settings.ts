@@ -42,15 +42,23 @@ export const DEFAULT_PI_COMMAND = "pi";
  *
  * The field is one line on purpose: "use `pi-bolt`, and always with
  * `--thinking high`" is one thought, and two fields would leave the operator
- * wondering which of them the quoting belongs in. So we do the quoting job the
- * remote shell would: split on whitespace, honour `'…'` and `"…"` and backslash
- * escapes, and hand back whole words. Every word is then single-quoted on the way
- * out (see `runner.ts`), so a metacharacter typed here stays a literal — this
- * field adds no shell surface beyond what Workdir and PATH prefix already are.
+ * wondering which of them the quoting belongs in. So we do the splitting job the
+ * remote shell would: split on the blanks sh splits on (space, tab, newline —
+ * nothing else, so a pasted non-breaking space is part of a word here too),
+ * honour `'…'` (literal, backslash included), `"…"` (a backslash escapes only
+ * `$ \` ` ` and `"`, as sh does) and backslash escapes between words, and hand
+ * back whole words. Each word then goes to the remote quoted when it needs it
+ * (`shqWord` in `runner.ts`), so a metacharacter typed here stays a literal —
+ * this field adds no shell surface beyond what Workdir and PATH prefix already
+ * are. Nothing is expanded remotely: a path must be absolute, since `~` and `$`
+ * arrive as literal characters.
  *
  * Refuses what cannot be a command: an unclosed quote, a trailing backslash, a
  * control character (a newline here would tear the remote compound command
- * apart), and an empty word, which the remote would try to exec.
+ * apart), an empty word, which the remote would try to exec, and the flags the
+ * runner appends after these words — `--mode json` and `--approve` are how a run
+ * stays parseable and never blocks on a prompt, and `--` alone would turn them
+ * into positional arguments.
  */
 export function parsePiCommand(value: string): string[] {
   const text = value.trim();
@@ -81,7 +89,10 @@ export function parsePiCommand(value: string): string[] {
     if (quote === '"') {
       if (ch === '"') {
         quote = null;
-      } else if (ch === "\\" && i < text.length) {
+      } else if (ch === "\\" && i < text.length && '"$\\`'.includes(text[i]!)) {
+        // The sh rule inside double quotes: a backslash escapes only these four.
+        // Dropping it before anything else is how `--note "a\b"` loses a character
+        // the shell would have kept.
         word += text[i];
         i += 1;
       } else word += ch;
@@ -100,7 +111,7 @@ export function parsePiCommand(value: string): string[] {
       word += text[i];
       i += 1;
       started = true;
-    } else if (/\s/.test(ch)) {
+    } else if (ch === " " || ch === "\t" || ch === "\n") {
       if (started) {
         words.push(word);
         word = "";
@@ -116,8 +127,19 @@ export function parsePiCommand(value: string): string[] {
   if (words.some((w) => w === "")) {
     throw new InvalidPiSettingsError("`command` must not contain an empty word");
   }
+  const ours = words.find((w) => PI_COMMAND_RESERVED.includes(w));
+  if (ours) {
+    throw new InvalidPiSettingsError(
+      `\`command\` must not use ${ours} — the run adds its own ${
+        ours === "--" ? "arguments" : "flag"
+      } after yours`,
+    );
+  }
   return words;
 }
+
+/** The words the runner appends itself, and so the ones this field may not use. */
+const PI_COMMAND_RESERVED = ["--", "--mode", "--approve", "--session", "--model"];
 
 /** The words to run: the configured command, or `pi` when nothing is configured. */
 export function piCommandWords(command: string | null | undefined): string[] {
@@ -151,8 +173,8 @@ export interface PiSettings {
    * The program to run on the remote host with any fixed arguments, as one line:
    * `pi-bolt`, `/opt/pi/bin/pi-bolt --thinking high`. Empty means `pi`. We split
    * and quote it ourselves (`parsePiCommand`), and our own flags come after
-   * whatever is typed here, so the json stream a run parses cannot be undone by
-   * a typo in this field.
+   * whatever is typed here, so the json stream a run parses survives a typo in
+   * this field: the flags that could clash with ours are refused at save time.
    */
   command: string;
   /** Absolute directory pi runs in on the remote host. */

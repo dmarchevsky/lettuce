@@ -420,7 +420,8 @@ export function PiSection() {
           />
           <span className="muted small">
             The program to run on the remote host, with any fixed arguments — for example
-            <code>pi-bolt --thinking high</code>. Empty runs <code>pi</code>.
+            <code>pi-bolt --thinking high</code>. A path must be absolute; empty runs
+            <code>pi</code>.
           </span>
         </label>
 

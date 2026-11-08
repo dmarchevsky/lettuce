@@ -28,6 +28,7 @@ import {
   piConfigured,
   toPublicPiSettings,
 } from "./service.ts";
+import { parsePiCommand } from "./settings.ts";
 import { parsePiRun, summarizePiRun } from "./transcript.ts";
 
 /** What a handler may borrow from the boot module. */
@@ -181,8 +182,14 @@ export function registerPiRoutes<Env extends RouteEnv>(app: Hono<Env>, deps: PiR
     const body = await c.req.json().catch(() => null);
     try {
       const { draft, agentId } = piCheckBody(body);
+      if (typeof draft.command === "string") {
+        // A form typo is a 400 with the reason, not a 502 about a probe that never
+        // ran: the command is the operator's own value and is checkable right here.
+        parsePiCommand(draft.command);
+      }
       return c.json({ check: await piService.checkHost(draft as never, agentId) });
     } catch (error) {
+      if (error instanceof InvalidPiSettingsError) return c.text(error.message, 400);
       return c.text(errorMessage(error), 502);
     }
   });

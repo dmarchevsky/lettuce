@@ -23,7 +23,7 @@
 
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { isAgentId } from "../agents/id-list.ts";
-import { normalizePathPrepend, type PiSettings } from "./settings.ts";
+import { normalizePathPrepend, type PiSettings, parsePiCommand } from "./settings.ts";
 
 export interface PiAgentSettings {
   /** "global" inherits everything; "own" fills the fields below over it. */
@@ -155,6 +155,17 @@ export function assertEffectiveUsable(effective: PiSettings & { source: string }
   if (!effective.privateKey) {
     throw new InvalidPiAgentSettingsError(
       "there is no deploy key yet — set one up in Settings → Remote Pi first",
+    );
+  }
+  // The same validation the global record gets at save time: an override that
+  // cannot be tokenized would otherwise sit here until an agent's run threw.
+  try {
+    parsePiCommand(effective.command);
+  } catch (error) {
+    throw new InvalidPiAgentSettingsError(
+      error instanceof Error
+        ? error.message.replace("`command`", "Command")
+        : "Command is unusable",
     );
   }
 }

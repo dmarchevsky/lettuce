@@ -385,7 +385,10 @@ function PiPane({
     command: own && form.command ? form.command : global.command,
     workdir: own && form.workdir ? form.workdir : global.workdir,
   };
-  const stale = check !== null && check.target !== `${target.user}@${target.host}:${target.port}`;
+  // Like Settings → Remote Pi: editing any field the probe used (command, PATH,
+  // workdir) makes the last answer about another setup, not this one.
+  const stale =
+    check !== null && (dirty || check.target !== `${target.user}@${target.host}:${target.port}`);
   const set = (patch: Partial<PiAgentOverride>) => setForm({ ...form, ...patch });
 
   const save = async () => {

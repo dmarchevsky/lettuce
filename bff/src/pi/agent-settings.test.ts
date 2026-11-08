@@ -137,6 +137,14 @@ describe("effectivePiSettings", () => {
     expect(() => assertEffectiveUsable({ ...GLOBAL, privateKey: null, source: "agent" })).toThrow(
       /deploy key/,
     );
+    // A command the runner could not tokenize is refused here, at save, rather
+    // than thrown back from an agent's turn.
+    expect(() =>
+      assertEffectiveUsable({ ...GLOBAL, command: "pi-bolt 'oops", source: "agent" }),
+    ).toThrow(/Command/);
+    expect(() =>
+      assertEffectiveUsable({ ...GLOBAL, command: "pi --mode text", source: "agent" }),
+    ).toThrow(/the run adds its own/);
   });
 });
 
