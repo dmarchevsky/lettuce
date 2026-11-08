@@ -46,6 +46,7 @@ import {
   InvalidPiSettingsError,
   type PiSettings,
   parsePiSettings,
+  piCommandWords,
   piConfigured,
   renderPiSettings,
 } from "./settings.ts";
@@ -434,6 +435,7 @@ export class PiService {
       user: (draft.user ?? stored.user).trim(),
       port: Number.isFinite(Number(draft.port)) ? Number(draft.port) : stored.port,
       pathPrepend: draft.pathPrepend ?? stored.pathPrepend,
+      command: typeof draft.command === "string" ? draft.command : stored.command,
       workdir: draft.workdir ?? stored.workdir,
     };
     const key = checkTargetKey(settings);
@@ -500,7 +502,12 @@ export class PiService {
     } finally {
       clearTimeout(killer);
     }
-    const verdict = classifyCheckOutput({ code, stdout, stderr });
+    const verdict = classifyCheckOutput({
+      code,
+      stdout,
+      stderr,
+      commandName: piCommandWords(settings.command)[0],
+    });
     return finish({
       state: verdict.state,
       ok: verdict.state === "ready",

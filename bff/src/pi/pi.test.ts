@@ -32,10 +32,14 @@ import {
 } from "./service.ts";
 import {
   applyPiSettingsUpdate,
+  DEFAULT_PI_COMMAND,
   DEFAULT_PI_SETTINGS,
+  InvalidPiSettingsError,
   normalizePathPrepend,
   type PiSettings,
+  parsePiCommand,
   parsePiSettings,
+  piCommandWords,
   piConfigured,
   toPublicPiSettings,
 } from "./settings.ts";
@@ -682,6 +686,109 @@ test("the probe asks about workdir, PATH and pi in one ssh", () => {
   const plain = buildProbeRemoteCommand({ workdir: "", pathPrepend: "" });
   expect(plain).not.toContain("env PATH=");
   expect(plain).toContain("/bin/sh -c");
+});
+
+// ── the configured command ───────────────────────────────────────────────────
+
+test("the command field splits into words the way the remote shell would", () => {
+  expect(parsePiCommand("pi")).toEqual(["pi"]);
+  expect(parsePiCommand("  pi-bolt   --thinking high ")).toEqual(["pi-bolt", "--thinking", "high"]);
+  expect(parsePiCommand("/opt/pi/bin/pi-bolt")).toEqual(["/opt/pi/bin/pi-bolt"]);
+  expect(parsePiCommand(`pi-bolt --note "a b"`)).toEqual(["pi-bolt", "--note", "a b"]);
+  expect(parsePiCommand(`pi-bolt --note 'a b'`)).toEqual(["pi-bolt", "--note", "a b"]);
+  // An apostrophe inside a single-quoted word is what sh would have to refuse;
+  // here it is just a character of the word.
+  expect(parsePiCommand(`sh -c 'it'\\''s'`)).toEqual(["sh", "-c", "it's"]);
+  // Empty is "use the default", not an empty command.
+  expect(parsePiCommand("")).toEqual([]);
+  expect(piCommandWords("")).toEqual([DEFAULT_PI_COMMAND]);
+  expect(piCommandWords(null)).toEqual([DEFAULT_PI_COMMAND]);
+  expect(piCommandWords("pi-bolt --x")).toEqual(["pi-bolt", "--x"]);
+});
+
+test("a command that cannot be a command is refused where it is set", () => {
+  expect(() => parsePiCommand(`pi-bolt "unclosed`)).toThrow(InvalidPiSettingsError);
+  expect(() => parsePiCommand("pi-bolt trail\\")).toThrow(/backslash/);
+  // A newline here would tear the remote compound command apart.
+  expect(() => parsePiCommand("pi-bolt\nrm -rf /")).toThrow(/control/);
+  expect(() => parsePiCommand('pi-bolt ""')).toThrow(/empty/);
+});
+
+test("the command round-trips through settings, and an unusable stored one is dropped", () => {
+  const saved = parsePiSettings(JSON.stringify({ ...BASE, command: " pi-bolt --thinking high " }));
+  expect(saved.command).toBe("pi-bolt --thinking high");
+  // A record from before the field existed still runs pi.
+  const before = parsePiSettings(JSON.stringify({ ...BASE, command: undefined }));
+  expect(before.command).toBe(DEFAULT_PI_COMMAND);
+  // A hand-edited value nobody can see in the UI must not break every run.
+  expect(parsePiSettings(JSON.stringify({ ...BASE, command: 'pi "oops' })).command).toBe(
+    DEFAULT_PI_COMMAND,
+  );
+  expect(applyPiSettingsUpdate(BASE, { command: "pi-bolt" }).command).toBe("pi-bolt");
+  expect(applyPiSettingsUpdate({ ...BASE, command: "pi-bolt" }, { command: "" }).command).toBe(
+    DEFAULT_PI_COMMAND,
+  );
+  expect(() => applyPiSettingsUpdate(BASE, { command: "pi-bolt 'oops" })).toThrow(
+    InvalidPiSettingsError,
+  );
+});
+
+test("the run executes the configured program, and our flags come last", () => {
+  const cmd = buildPiRemoteCommand(
+    { ...BASE, command: "pi-bolt --thinking high" },
+    { session: "00000000-0000-4000-8000-000000000000", model: "m" },
+  );
+  expect(cmd).toContain("exec pi-bolt --thinking high --mode json --approve");
+  // Our flags are the last words, whatever the operator typed before them.
+  expect(cmd.indexOf("--approve")).toBeLessThan(cmd.indexOf("--session"));
+  expect(cmd.indexOf("--session")).toBeLessThan(cmd.indexOf("--model"));
+  // The default shape is unchanged, fixtures and all.
+  expect(buildPiRemoteCommand(BASE, {})).toContain("exec pi --mode json --approve");
+});
+
+test("an argument with a space survives the two shells as one argument", () => {
+  // The whole point of tokenizing here instead of passing the line through: the
+  // remote must see the words, not re-split them. printf stands in for pi and
+  // prints one bracket per argument it actually received.
+  const cmd = buildPiRemoteCommand(
+    { ...BASE, workdir: "/tmp", pathPrepend: "", command: "printf '[%s]' --tag 'a b'" },
+    {},
+  );
+  const r = Bun.spawnSync(["sh", "-c", cmd]);
+  expect(r.stdout.toString()).toBe("[--tag][a b][--mode][json][--approve]");
+});
+
+test("the probe asks about the configured command, not the one we assumed", () => {
+  const probe = buildProbeRemoteCommand({
+    workdir: "",
+    pathPrepend: "",
+    command: "pi-bolt --thinking high",
+  });
+  expect(probe).toContain("command -v pi-bolt");
+  expect(probe).toContain("pi-bolt --thinking high --version");
+  // The markers are protocol between the probe and classifyCheckOutput; the
+  // operator sees the command's own name in the detail instead.
+  expect(probe).toContain("lettuce: pi not on PATH");
+  expect(buildProbeRemoteCommand({ workdir: "", pathPrepend: "" })).toContain("command -v pi");
+});
+
+test("a check names the program the operator typed", () => {
+  expect(
+    classifyCheckOutput({
+      code: 0,
+      stdout: "lettuce: pi not on PATH",
+      stderr: "",
+      commandName: "pi-bolt",
+    }).detail,
+  ).toMatch(/`pi-bolt` is not on the PATH/);
+  expect(
+    classifyCheckOutput({
+      code: 0,
+      stdout: "lettuce: pi 1.4.2",
+      stderr: "",
+      commandName: "pi-bolt",
+    }).detail,
+  ).toBe("pi-bolt v1.4.2");
 });
 
 test("checks persist per target and a damaged record is no record", () => {

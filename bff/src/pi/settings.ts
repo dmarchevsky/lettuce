@@ -34,6 +34,97 @@ export function normalizePathPrepend(value: string): string {
     .join(":");
 }
 
+/** What runs when `command` is empty — the program this integration was built for. */
+export const DEFAULT_PI_COMMAND = "pi";
+
+/**
+ * Split the `command` field into the words of a remote command.
+ *
+ * The field is one line on purpose: "use `pi-bolt`, and always with
+ * `--thinking high`" is one thought, and two fields would leave the operator
+ * wondering which of them the quoting belongs in. So we do the quoting job the
+ * remote shell would: split on whitespace, honour `'…'` and `"…"` and backslash
+ * escapes, and hand back whole words. Every word is then single-quoted on the way
+ * out (see `runner.ts`), so a metacharacter typed here stays a literal — this
+ * field adds no shell surface beyond what Workdir and PATH prefix already are.
+ *
+ * Refuses what cannot be a command: an unclosed quote, a trailing backslash, a
+ * control character (a newline here would tear the remote compound command
+ * apart), and an empty word, which the remote would try to exec.
+ */
+export function parsePiCommand(value: string): string[] {
+  const text = value.trim();
+  if (!text) return [];
+  for (const ch of text) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (code < 32 || code === 127) {
+      throw new InvalidPiSettingsError("`command` must not contain control characters");
+    }
+  }
+  const words: string[] = [];
+  let word = "";
+  let started = false;
+  let quote: "'" | '"' | null = null;
+  let i = 0;
+  // A backslash always consumes the character after it, which is why this walks
+  // by index rather than with for..of.
+  while (i < text.length) {
+    const ch = text[i]!;
+    i += 1;
+    if (quote === "'") {
+      // Inside single quotes a backslash is a backslash — exactly the sh rule,
+      // which is the whole reason the words are quoted on the way out.
+      if (ch === "'") quote = null;
+      else word += ch;
+      continue;
+    }
+    if (quote === '"') {
+      if (ch === '"') {
+        quote = null;
+      } else if (ch === "\\" && i < text.length) {
+        word += text[i];
+        i += 1;
+      } else word += ch;
+      continue;
+    }
+    if (ch === "'") {
+      quote = "'";
+      started = true;
+    } else if (ch === '"') {
+      quote = '"';
+      started = true;
+    } else if (ch === "\\") {
+      if (i >= text.length) {
+        throw new InvalidPiSettingsError("`command` ends with a backslash");
+      }
+      word += text[i];
+      i += 1;
+      started = true;
+    } else if (/\s/.test(ch)) {
+      if (started) {
+        words.push(word);
+        word = "";
+        started = false;
+      }
+    } else {
+      word += ch;
+      started = true;
+    }
+  }
+  if (quote) throw new InvalidPiSettingsError("`command` has an unclosed quote");
+  if (started) words.push(word);
+  if (words.some((w) => w === "")) {
+    throw new InvalidPiSettingsError("`command` must not contain an empty word");
+  }
+  return words;
+}
+
+/** The words to run: the configured command, or `pi` when nothing is configured. */
+export function piCommandWords(command: string | null | undefined): string[] {
+  const words = command ? parsePiCommand(command) : [];
+  return words.length ? words : [DEFAULT_PI_COMMAND];
+}
+
 export interface PiSettings {
   /** Whether the pi tools exist at all (the `pi` profile token must also be on). */
   enabled: boolean;
@@ -56,6 +147,14 @@ export interface PiSettings {
   publicKey: string | null;
   /** Prepended to PATH in every remote command, e.g. `/opt/node/bin:/opt/pi/bin`. */
   pathPrepend: string;
+  /**
+   * The program to run on the remote host with any fixed arguments, as one line:
+   * `pi-bolt`, `/opt/pi/bin/pi-bolt --thinking high`. Empty means `pi`. We split
+   * and quote it ourselves (`parsePiCommand`), and our own flags come after
+   * whatever is typed here, so the json stream a run parses cannot be undone by
+   * a typo in this field.
+   */
+  command: string;
   /** Absolute directory pi runs in on the remote host. */
   workdir: string;
   /** Optional pi model id; null lets the remote pi use its own default. */
@@ -77,6 +176,7 @@ export const DEFAULT_PI_SETTINGS: PiSettings = {
   keySource: "generated",
   publicKey: null,
   pathPrepend: "",
+  command: DEFAULT_PI_COMMAND,
   workdir: "",
   model: null,
   maxEvents: 200_000,
@@ -110,6 +210,10 @@ export function parsePiSettings(text: string | null): PiSettings {
     keySource: r.keySource === "pasted" ? "pasted" : "generated",
     publicKey: typeof r.publicKey === "string" && r.publicKey ? r.publicKey : null,
     pathPrepend: typeof r.pathPrepend === "string" ? normalizePathPrepend(r.pathPrepend) : "",
+    // A record from before the field exists keeps working (empty runs `pi`), and
+    // a hand-edited value that cannot be tokenized is dropped rather than making
+    // every later run fail on a file nobody can see in the UI.
+    command: commandOrFallback(r.command),
     workdir: typeof r.workdir === "string" ? r.workdir : "",
     model: typeof r.model === "string" && r.model ? r.model : null,
     // Absent means "stored before budgets existed": ship armed — the 200k
@@ -162,6 +266,14 @@ export function applyPiSettingsUpdate(current: PiSettings, body: unknown): PiSet
       throw new InvalidPiSettingsError("`pathPrepend` must be a string");
     next.pathPrepend = normalizePathPrepend(r.pathPrepend);
   }
+  if ("command" in r) {
+    if (typeof r.command !== "string")
+      throw new InvalidPiSettingsError("`command` must be a string");
+    // Empty is the operator asking for the default back, not an empty command.
+    const command = r.command.trim();
+    parsePiCommand(command);
+    next.command = command || DEFAULT_PI_COMMAND;
+  }
   if ("workdir" in r) {
     if (typeof r.workdir !== "string")
       throw new InvalidPiSettingsError("`workdir` must be a string");
@@ -209,6 +321,19 @@ export function applyPiSettingsUpdate(current: PiSettings, body: unknown): PiSet
     }
   }
   return next;
+}
+
+/** A stored `command` is either usable or absent — never a run that cannot start. */
+function commandOrFallback(value: unknown): string {
+  if (typeof value !== "string") return DEFAULT_PI_COMMAND;
+  const command = value.trim();
+  if (!command) return DEFAULT_PI_COMMAND;
+  try {
+    parsePiCommand(command);
+  } catch {
+    return DEFAULT_PI_COMMAND;
+  }
+  return command;
 }
 
 /** Whether a saved settings blob is complete enough to dispatch runs with. */

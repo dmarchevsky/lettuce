@@ -64,7 +64,7 @@ function piDraftFromBody(body: unknown): Partial<Record<string, unknown>> {
   if (!body || typeof body !== "object") return {};
   const r = body as Record<string, unknown>;
   const draft: Partial<Record<string, unknown>> = {};
-  for (const field of ["host", "user", "pathPrepend", "workdir"] as const) {
+  for (const field of ["host", "user", "pathPrepend", "command", "workdir"] as const) {
     if (typeof r[field] === "string") draft[field] = r[field];
   }
   if (r.port !== undefined) draft.port = r.port;
@@ -147,7 +147,10 @@ export function registerPiRoutes<Env extends RouteEnv>(app: Hono<Env>, deps: PiR
     const body = await c.req.json().catch(() => null);
     const override = parsePiAgentSettings(body);
     if (!override) {
-      return c.text("Body must be { mode, host, port, user, pathPrepend, workdir, model }", 400);
+      return c.text(
+        "Body must be { mode, host, port, user, pathPrepend, command, workdir, model }",
+        400,
+      );
     }
     try {
       assertEffectiveUsable(await effectivePiSettings(await piService.load(), override));

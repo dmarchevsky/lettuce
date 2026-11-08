@@ -34,6 +34,8 @@ export interface PiAgentSettings {
   port: number | null;
   user: string;
   pathPrepend: string;
+  /** "" inherits — one agent may well run a different pi build than another. */
+  command: string;
   workdir: string;
   /** null inherits (and "" means "use the remote pi's own default"). */
   model: string | null;
@@ -45,6 +47,7 @@ export const DEFAULT_PI_AGENT_SETTINGS: PiAgentSettings = Object.freeze({
   port: null,
   user: "",
   pathPrepend: "",
+  command: "",
   workdir: "",
   model: null,
 });
@@ -65,8 +68,16 @@ export function parsePiAgentSettings(value: unknown): PiAgentSettings | null {
   const prepend = text("pathPrepend");
   // A typed PATH prefix loses its trailing slashes here too — see settings.ts.
   const pathPrepend = prepend === null ? null : normalizePathPrepend(prepend);
+  const command = text("command");
   const workdir = text("workdir");
-  if (host === null || user === null || pathPrepend === null || workdir === null) return null;
+  if (
+    host === null ||
+    user === null ||
+    pathPrepend === null ||
+    workdir === null ||
+    command === null
+  )
+    return null;
   const rawPort = r.port;
   let port: number | null = null;
   if (typeof rawPort === "number" && Number.isFinite(rawPort)) {
@@ -83,6 +94,7 @@ export function parsePiAgentSettings(value: unknown): PiAgentSettings | null {
     port,
     user,
     pathPrepend,
+    command,
     workdir,
     model: typeof rawModel === "string" ? rawModel.trim() : null,
   };
@@ -96,6 +108,7 @@ export function isDefaultPiAgentSettings(s: PiAgentSettings): boolean {
     s.port === null &&
     s.user === "" &&
     s.pathPrepend === "" &&
+    s.command === "" &&
     s.workdir === "" &&
     s.model === null
   );
@@ -119,6 +132,7 @@ export function effectivePiSettings(
     port: override.port ?? global.port,
     user: override.user || global.user,
     pathPrepend: override.pathPrepend || global.pathPrepend,
+    command: override.command || global.command,
     workdir: override.workdir || global.workdir,
     model: override.model !== null ? override.model : global.model,
     source: "agent" as const,
