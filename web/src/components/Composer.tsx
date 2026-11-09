@@ -15,6 +15,8 @@ import {
 } from "../lib/input-history.ts";
 import { enterSends } from "../lib/input-mode.ts";
 import {
+  activeFilterCount,
+  type FilterDetail,
   type FilterGroup,
   pendingCompactStartedAt,
   type TranscriptEntry,
@@ -81,7 +83,10 @@ interface Props {
   /** Live turn state behind the working line; see `WorkingLine.tsx`. */
   turn: TurnSnapshot;
   filters: ReadonlySet<FilterGroup>;
+  /** The detail switches, as the list of what is OFF (empty = all shown). */
+  hiddenDetails: ReadonlySet<FilterDetail>;
   onToggleFilter: (group: FilterGroup) => void;
+  onToggleDetail: (detail: FilterDetail) => void;
   onClearFilters: () => void;
   /** Transcript timestamps; the toggle lives in the filter sheet. */
   showTimestamps: boolean;
@@ -146,7 +151,9 @@ export function Composer({
   stopping,
   turn,
   filters,
+  hiddenDetails,
   onToggleFilter,
+  onToggleDetail,
   onClearFilters,
   showTimestamps,
   onShowTimestamps,
@@ -170,6 +177,8 @@ export function Composer({
 }: Props) {
   const [value, setValue] = useState(() => (draftKey ? readDraft(draftKey) : ""));
   const [sheet, setSheet] = useState<OpenSheet>(null);
+  /** How many switches are off, groups and details together — what the badge counts. */
+  const filterCount = activeFilterCount(filters, hiddenDetails);
   /** One string for the JSON toggle's tooltip and its accessible name, so the
    * two cannot drift into "is required" / "required". */
   const structuredLabel = structuredEnabled
@@ -753,17 +762,15 @@ export function Composer({
 
             <button
               type="button"
-              className={`icon-button flat${filters.size > 0 ? " on" : ""}`}
+              className={`icon-button flat${filterCount > 0 ? " on" : ""}`}
               onClick={() => setSheet("filters")}
-              title={
-                filters.size > 0 ? `Filters (${filters.size} active)` : "Filter the transcript"
-              }
+              title={filterCount > 0 ? `Filters (${filterCount} active)` : "Filter the transcript"}
               aria-label={
-                filters.size > 0 ? `Filters, ${filters.size} active` : "Filter the transcript"
+                filterCount > 0 ? `Filters, ${filterCount} active` : "Filter the transcript"
               }
             >
               <Icon name="filter" />
-              {filters.size > 0 ? <span className="badge">{filters.size}</span> : null}
+              {filterCount > 0 ? <span className="badge">{filterCount}</span> : null}
             </button>
 
             {/* Icon only: the shield's colour carries the mode, ordered by how
@@ -862,6 +869,8 @@ export function Composer({
         <FilterSheet
           active={filters}
           onToggle={onToggleFilter}
+          hidden={hiddenDetails}
+          onToggleDetail={onToggleDetail}
           onClear={onClearFilters}
           showTimestamps={showTimestamps}
           onShowTimestamps={onShowTimestamps}
