@@ -181,6 +181,11 @@ async function avatarSheetChecks(page: Page, label: string): Promise<void> {
   await field.locator('button:has-text("Choose…")').click();
   const sheet = page.locator('.sheet-panel[aria-label="Avatar"]');
   await sheet.waitFor({ state: "visible", timeout: 5_000 });
+  // The sheet opens on whichever tab the agent's saved face lives on, so a run
+  // against a stack where somebody already uploaded one must not be fooled into
+  // thinking the glyph grid is missing.
+  await sheet.locator('.avatar-tab:text-is("Glyph")').click();
+  await page.waitForTimeout(200);
   const tiles = await sheet.locator(".avatar-glyph").count();
   check(`${label}: the grid offers the whole library`, tiles >= 144, { tiles });
   check(
@@ -563,7 +568,7 @@ try {
         (await page.locator(".topbar .where-avatar").count()) === 1,
     );
     check(
-      "the header's agent face is fingertip-sized and carries the open agent's initial",
+      "the header's agent face is fingertip-sized and carries a face",
       await page.evaluate(() => {
         const btn = document.querySelector(".topbar .where-avatar");
         const face = document.querySelector(".where-avatar-face");
@@ -574,7 +579,10 @@ try {
         // perfectly good face — the check is about the tap target and about the corner
         // never being empty, not about the glyph fitting in a BMP slot.
         const text = Array.from((face.textContent ?? "").trim());
-        return r.width >= 44 && r.height >= 44 && text.length === 1;
+        // An uploaded face carries no text at all, and fills the corner just as well;
+        // the corner being empty is the failure, not the kind of face in it.
+        const picture = face.querySelector("img.agent-avatar-img") !== null;
+        return r.width >= 44 && r.height >= 44 && (text.length === 1 || picture);
       }),
     );
     check(
@@ -1786,7 +1794,13 @@ try {
         const words = document.querySelector(".topbar .where .where-words .where-agent");
         if (!face || !words) return false;
         const r = face.getBoundingClientRect();
-        return Math.round(r.width) === 22 && (face.textContent ?? "").trim().length > 0;
+        // Same rule as the phone's corner: a face may be a letter, a glyph or an
+        // uploaded picture, and a picture carries no text at all. What must never
+        // happen is an empty 22px circle beside the name.
+        const picture = face.querySelector("img.agent-avatar-img") !== null;
+        return (
+          Math.round(r.width) === 22 && (picture || (face.textContent ?? "").trim().length > 0)
+        );
       }),
     );
     check(
