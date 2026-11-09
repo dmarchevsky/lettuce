@@ -2509,10 +2509,12 @@ try {
         boxes: await page.locator(".tool-chips button[aria-pressed]").count(),
       },
     );
-    check(
-      "the tools pane loads access from the BFF",
-      (await page.locator('.pane label:has-text("Google") select').count()) === 1,
-    );
+    if (featureOn(toolsFeatures, "google")) {
+      check(
+        "the tools pane loads access from the BFF",
+        (await page.locator('.pane label:has-text("Google") select').count()) === 1,
+      );
+    }
     if (featureOn(toolsFeatures, "pi")) {
       await page.locator('.tool-chips button:text-is("Remote Pi")').click();
       await page.locator('.pane label:has-text("Where this agent runs pi work") select').waitFor({
@@ -2766,29 +2768,32 @@ try {
       );
     }
 
-    // Google loads its status from the BFF (GET /api/google). Under dev bypass
-    // the form must also say it is locked, not just grey its inputs out.
-    await openSection("Google Workspace");
-    const googleText = await page.locator(".settings-pane").innerText();
-    check(
-      "google section loads its status",
-      (await page.locator('.menu-row:has-text("Allow agents to use Google")').count()) === 1,
-      googleText,
-    );
-    const googleLocked = await page.locator('label:has-text("Gmail") select').isDisabled();
-    check(
-      "a locked google section says why",
-      !googleLocked || googleText.includes("Read-only here"),
-      googleText,
-    );
-    // Every service has a level row; Contacts is one of them (workspace-mcp's
-    // People API), so its select must render with its two levels.
-    check(
-      "google lists a Contacts level row",
-      (await page.locator('label:has-text("Contacts") select').count()) === 1 &&
-        (await page.locator('label:has-text("Contacts") select option').count()) === 3,
-      googleText,
-    );
+    // Google loads its status from the BFF (GET /api/google) — but only when
+    // the compose token is on: with `google` off, the section is not in the
+    // rail at all, exactly like the Telegram block above.
+    if (featureOn(desktopFeatures, "google")) {
+      await openSection("Google Workspace");
+      const googleText = await page.locator(".settings-pane").innerText();
+      check(
+        "google section loads its status",
+        (await page.locator('.menu-row:has-text("Allow agents to use Google")').count()) === 1,
+        googleText,
+      );
+      const googleLocked = await page.locator('label:has-text("Gmail") select').isDisabled();
+      check(
+        "a locked google section says why",
+        !googleLocked || googleText.includes("Read-only here"),
+        googleText,
+      );
+      // Every service has a level row; Contacts is one of them (workspace-mcp's
+      // People API), so its select must render with its two levels.
+      check(
+        "google lists a Contacts level row",
+        (await page.locator('label:has-text("Contacts") select').count()) === 1 &&
+          (await page.locator('label:has-text("Contacts") select option').count()) === 3,
+        googleText,
+      );
+    }
 
     // The release tag the BFF bakes in (VERSION → /api/status → About). Assert
     // the shape, not a literal: the value is whatever the running image carries,
