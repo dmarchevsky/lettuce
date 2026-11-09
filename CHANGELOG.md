@@ -5,6 +5,12 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.38.0-letta_0.34.38] - 2026-11-09
+
+### Changed
+- **The folded rail is led by the faces.** Unpin the rail to its glyph strip and each agent's face grows to 28px while the pane icons drop to 24px — before, the Chat and Files marks wore bigger than the agents themselves.
+- **A pinned agent wears a pushpin.** The rail now draws the same gold pushpin the switcher's rows use at the face's top-right corner, in place of the tiny gold dot, and keeps it crisp on every tint.
+
 ## [v0.37.1-letta_0.34.38] - 2026-11-08
 
 ### Fixed
