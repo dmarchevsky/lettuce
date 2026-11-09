@@ -5080,6 +5080,200 @@ textarea.mono {
   font-size: 17px;
 }
 
+/* ── The avatar sheet ────────────────────────────────────────────────────── */
+/* One sheet for the whole face (`AvatarSheet`), where the tint row used to sit in
+   the form next to a glyph-only sheet. Everything below is that sheet's own body:
+   the preview row and the tile grid are the rules above and are unchanged. */
+
+/* An uploaded face, drawn over the agent's colour so its alpha reads as that
+   colour and not as a white box. `inherit` is the whole trick: every surface sets
+   its own size and radius on the wrapper, so the picture simply fills it. */
+.agent-avatar-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
+/* The 22px twin of the preview: what a conversation header will actually show,
+   which is the only way to judge a photo before committing to it. */
+.avatar-preview-tiny {
+  width: 22px;
+  height: 22px;
+  font-size: 11px;
+}
+
+/* The colour is above the tabs and applies to both: a glyph sits on it and an
+   image's transparency shows it. Sixteen swatches and Auto do not share one line
+   at 390px, so they wrap into two rows — the same decision the old inline picker
+   made with three. */
+.avatar-colour {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+.avatar-colour .avatar-tints {
+  flex-wrap: wrap;
+}
+.avatar-tint.custom {
+  appearance: none;
+  -webkit-appearance: none;
+  background: none;
+  padding: 0;
+}
+.avatar-tint.custom::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+.avatar-tint.custom::-webkit-color-swatch {
+  border: none;
+  border-radius: var(--radius-round);
+}
+
+/* Two choices, so two equal halves rather than a tab strip with an underline. */
+.avatar-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 12px 0;
+}
+.avatar-tab {
+  flex: 1;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.avatar-tab.sel {
+  background: var(--surface);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* Category chips, so the library can be browsed by heading or jumped to. Not
+   `.pill`: that is a word of status, and it is `nowrap` by design. */
+.avatar-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.avatar-chip {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.avatar-chip.sel {
+  border-color: var(--accent);
+  background: var(--surface-2);
+  color: var(--text);
+}
+.avatar-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.avatar-filter input {
+  flex: 1;
+}
+
+/* A section heading inside the grid. Uppercase and small on purpose: 144 tiles
+   need headings that do not compete with the sheet title. */
+.avatar-cat {
+  margin: 14px 0 6px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* The upload target is the whole strip, not a button beside a filename: a phone
+   has no file drop, and a tap anywhere in it is the same action. */
+.avatar-image-drop {
+  display: block;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 18px 12px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.avatar-lib {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+.avatar-lib-item {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: none;
+  background: none;
+}
+.avatar-lib-face {
+  display: block;
+  width: 44px;
+  height: 44px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-round);
+}
+.avatar-lib-item.sel .avatar-lib-face {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* The count of agents wearing it, so deleting one says what it costs before it is
+   deleted rather than after. */
+.avatar-lib-used {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 16px;
+}
+/* Deleting a shared face is the one destructive thing in this sheet, so it is two
+   taps and not a nested confirm sheet. */
+.avatar-lib-del {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: var(--radius-round);
+  background: var(--danger);
+  color: var(--on-accent);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+.avatar-lib-item.pending .avatar-lib-del {
+  width: auto;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
 /* ── Remote-pi run surfaces ──────────────────────────────────────────────── */
 /* The session panel: one pi session's runs in one transcript, borrowing the
    conversation's own rows — `.messages`, the `.entry` rails, the tool `.rail` —

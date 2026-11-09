@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { AVATAR_TINTS, type AvatarPref } from "../lib/agent-tint.ts";
+import type { AvatarPref } from "../lib/agent-tint.ts";
 import { errorMessage } from "../lib/errors.ts";
 import type { AgentDraft, AgentsApi } from "../state/use-agents.ts";
 import { useModels } from "../state/use-models.ts";
 import type { SessionApi } from "../state/use-session.ts";
 import { AgentAvatar } from "./AgentAvatar.tsx";
 import { ModelField } from "./AgentEditor.tsx";
-import { AvatarGlyphSheet } from "./AvatarGlyphSheet.tsx";
+import { AvatarSheet } from "./AvatarSheet.tsx";
 import { DeleteAgentSheet } from "./DeleteAgentSheet.tsx";
 import { toast } from "./Toast.tsx";
 
@@ -34,7 +34,7 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
   /** The avatar choice, staged like every other field here: Save commits it. */
   const [avatar, setAvatar] = useState<AvatarPref>({});
   const [avatarSaved, setAvatarSaved] = useState<AvatarPref>({});
-  const [choosingGlyph, setChoosingGlyph] = useState(false);
+  const [choosingAvatar, setChoosingAvatar] = useState(false);
   const [deleting, setDeleting] = useState(false);
   /** Only a failed load — a save result is a toast, it does not live on the page. */
   const [status, setStatus] = useState<string | null>(null);
@@ -52,7 +52,7 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
     setBusy(true);
     setDraft(null);
     setDeleting(false);
-    setChoosingGlyph(false);
+    setChoosingAvatar(false);
     setStatus(null);
     void (async () => {
       try {
@@ -89,7 +89,8 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
     draft.modelHandle !== saved.modelHandle;
   const avatarDirty =
     (avatar.tint ?? null) !== (avatarSaved.tint ?? null) ||
-    (avatar.glyph ?? null) !== (avatarSaved.glyph ?? null);
+    (avatar.glyph ?? null) !== (avatarSaved.glyph ?? null) ||
+    (avatar.image ?? null) !== (avatarSaved.image ?? null);
   const dirty = agentFieldsDirty || avatarDirty;
 
   /** The model sheet stages a pick instead of applying it, so say that out loud. */
@@ -120,6 +121,7 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
         await agents.setAvatar(agentId, {
           tint: avatar.tint ?? null,
           glyph: avatar.glyph ?? null,
+          image: avatar.image ?? null,
         });
       }
       setSaved(draft);
@@ -163,39 +165,18 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
           <button
             type="button"
             className="button ghost compact"
-            onClick={() => setChoosingGlyph(true)}
+            onClick={() => setChoosingAvatar(true)}
           >
             Choose…
           </button>
-          <span className="avatar-tints">
-            <button
-              type="button"
-              className={`avatar-tint auto${avatar.tint === undefined ? " sel" : ""}`}
-              title="The colour this agent's id hashes to"
-              onClick={() => setAvatar({ ...avatar, tint: undefined })}
-            >
-              Auto
-            </button>
-            {AVATAR_TINTS.map((tint) => (
-              <button
-                key={tint}
-                type="button"
-                className={`avatar-tint${avatar.tint === tint ? " sel" : ""}`}
-                style={{ background: tint }}
-                aria-label={`Tint ${tint}`}
-                aria-pressed={avatar.tint === tint}
-                onClick={() => setAvatar({ ...avatar, tint })}
-              />
-            ))}
-          </span>
         </div>
-        {/* Both halves are otherwise invisible: the glyph is staged by a sheet,
-            and Reset is the only way back to the derived face. */}
+        {/* The button is the only way into the choice now, so it has to say what is
+            behind it — and that the commit is Save, not the sheet's Done. */}
         <span className="small">
-          The glyph comes from a sheet, as the model does, and Save commits both. Reset takes back
-          the letter and colour this agent gets on its own.
+          One sheet for the glyph, an image and the colour, as the model field does; Save commits
+          it. Reset takes back the letter and colour this agent gets on its own.
         </span>
-        {avatar.tint !== undefined || avatar.glyph !== undefined ? (
+        {avatar.tint !== undefined || avatar.glyph !== undefined || avatar.image !== undefined ? (
           <button type="button" className="button ghost compact" onClick={() => setAvatar({})}>
             Reset to default
           </button>
@@ -252,14 +233,16 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
           onClose={() => setDeleting(false)}
         />
       ) : null}
-      {choosingGlyph ? (
-        <AvatarGlyphSheet
+      {choosingAvatar ? (
+        <AvatarSheet
           agentId={agentId}
           name={draft.name}
-          tint={avatar.tint}
-          glyph={avatar.glyph}
-          onPick={(glyph) => setAvatar({ ...avatar, glyph: glyph ?? undefined })}
-          onClose={() => setChoosingGlyph(false)}
+          pref={avatar}
+          onPick={setAvatar}
+          onClose={() => setChoosingAvatar(false)}
+          // Deleting a shared face cleared it off every agent wearing it, which is
+          // a change to this agent's pref that only the BFF knows about.
+          onLibraryChanged={() => void agents.refreshAvatars()}
         />
       ) : null}
     </div>
