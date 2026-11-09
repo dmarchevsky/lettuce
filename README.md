@@ -71,6 +71,10 @@ before exposing anything.
   tool needs approval — with per-device preferences and a test button.
 - **Reconnects and replays.** Come back after an hour away and the transcript
   is intact, including failures that would otherwise have been lost.
+- **Filter what the transcript shows.** The composer's funnel hides a whole kind
+  of message — you, the agent, tools, tasks, system — and behind **Details** the
+  narrower cuts: thinking, the steps folded inside a run, and what the agent
+  posted to a channel. The choice is remembered on the device.
 - **Image attachments.** Attach from the camera roll, paste a screenshot or
   drag files onto the composer; a vision-capable model actually sees them.
 - **Context gauge** showing how full the window is, including what the prompt

@@ -72,7 +72,9 @@ Loaded from `AGENTS.md`. Several of these are behavioural, not typed, so `bun ru
   the same turn** as narration (turn boundaries: your message, a task notification, an injected
   reminder, a notice) and folds a turn's work into one run headed by its latest narration line;
   only the turn's last text is an answer. Live, the newest text is an answer until a step
-  follows it.
+  follows it. A run emptied of steps is not a run: what is left is narration alone, so it renders
+  as those messages rather than a fold headed "0 steps" — which is also what the Filter sheet's
+  detail switches (`thinking`, `tool_runs`) leave behind when they hide a turn's whole run.
 - **Provider errors reach the transcript as JSON.** `local-provider-errors.ts`
   `localProviderErrorDetail` joins the error message with `JSON.stringify()` of whichever of
   `responseBody`, `data`, `body`, `detail`, `code` the failure had, and the terminal `loop_error`
