@@ -187,7 +187,8 @@ export function AgentToolsSection({ agents, features, onOpenGlobalSettings }: Pr
         <button type="button" className="link inline" onClick={() => onOpenGlobalSettings()}>
           Settings
         </button>
-        , and applies from the next turn. Which tools it is offered, not what its shell can reach.
+        , and applies from the next turn. It decides which tools the agent is offered, not what its
+        shell can reach.
       </p>
       {status ? (
         <p className="warning small" role="alert">
