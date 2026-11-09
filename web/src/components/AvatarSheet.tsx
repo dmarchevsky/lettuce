@@ -240,6 +240,7 @@ export function AvatarSheet({
             className="avatar-tint custom"
             value={pref.tint ?? tintFor(agentId)}
             aria-label="Custom colour"
+            title="Any colour off the palette"
             onChange={(event) => setTint(event.target.value)}
           />
         </span>
