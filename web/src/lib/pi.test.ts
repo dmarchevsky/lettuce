@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { type PiRunSummary, piRunNumber, piRunOptions } from "./pi.ts";
+import { type PiRunSummary, piRunNumber, piRunOptions, piRunWave } from "./pi.ts";
 
 function run(runId: string, prompt: string, status: PiRunSummary["status"] = "completed") {
   return {
@@ -43,4 +43,27 @@ test("the number a run is called is the same in the dropdown and on its own line
   // A run the listing does not carry (swept, or a deep link to another session)
   // still gets a number rather than `NaN` leaking into the boundary line.
   expect(piRunNumber(runs, "zz")).toBe(3);
+});
+
+const six = ["r1", "r2", "r3", "r4", "r5", "r6"].map((id) => run(id, `p ${id}`));
+
+test("piRunWave loads a window around the focus, nearest first", () => {
+  expect(piRunWave(six, "r6", () => false, 2)).toEqual(["r5", "r4"]);
+  expect(piRunWave(six, "r3", () => false, 2)).toEqual(["r4", "r2", "r5", "r1"]);
+});
+
+test("piRunWave never reaches past the window, however long the session", () => {
+  // The regression this bounds: a wave sized by count and re-derived after each
+  // arrival walked the whole session outward, reading every capture in turn.
+  expect(piRunWave(six, "r6", () => false, 3)).toEqual(["r5", "r4", "r3"]);
+});
+
+test("piRunWave skips what is loaded without shrinking the window", () => {
+  expect(piRunWave(six, "r6", (id) => id === "r5", 2)).toEqual(["r4"]);
+  expect(piRunWave(six, "r6", () => true, 3)).toEqual([]);
+});
+
+test("piRunWave loads nothing for a one-run session or an unknown focus", () => {
+  expect(piRunWave([run("only", "p")], "only", () => false, 3)).toEqual([]);
+  expect(piRunWave(six, "nope", () => false, 3)).toEqual([]);
 });
