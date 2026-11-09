@@ -10,8 +10,8 @@ interface Props {
   backgroundProcesses: BackgroundProcessSummary[];
   /** Profile-gated features: a list hides when its worker token is off. */
   features?: FeatureFlags;
-  /** `?run=` deep link: open this pi run's viewer when the tab mounts. */
-  initialRunId?: string | null;
+  /** Open this pi run's session in the pane (the row's verb). */
+  onOpenRun: (runId: string, session: string | null) => void;
   /** The open agent — whose runs the pane shows until `show all` says otherwise. */
   agentId: string | null;
   /** Its display name, for the one place the pane says it out loud. */
@@ -40,7 +40,7 @@ interface Props {
 export function RunsTab({
   backgroundProcesses,
   features,
-  initialRunId,
+  onOpenRun,
   agentId,
   agentName,
   agents,
@@ -116,7 +116,7 @@ export function RunsTab({
       {featureEnabled(features, "pi") ? (
         <PiRunsList
           refreshKey={refreshKey}
-          initialRunId={initialRunId}
+          onOpenRun={onOpenRun}
           agentId={scope}
           agentName={agentName}
           agentNames={agentNames}

@@ -24,6 +24,7 @@ import {
 import {
   InvalidPiSettingsError,
   isPiRunId,
+  isPiSessionId,
   type PiService,
   piConfigured,
   toPublicPiSettings,
@@ -238,6 +239,19 @@ export function registerPiRoutes<Env extends RouteEnv>(app: Hono<Env>, deps: PiR
     if (agent === null) return c.text("Not an agent id", 400);
     const { runs, other } = await piService.listRuns(limit, agent.agentId);
     return c.json({ runs: runs.map(summarizePiRun), other });
+  });
+
+  /**
+   * Every run on one pi session, oldest first — the session viewer's spine.
+   * A pi session is a file on one host, so these runs are the whole history of
+   * what lettuce asked of that conversation: one per `pi_run`/`pi_send`.
+   */
+  app.get("/api/pi/session/:session/runs", async (c) => {
+    if (!piEnabled) return c.text("Remote pi worker is off: COMPOSE_PROFILES", 404);
+    const session = c.req.param("session");
+    if (!isPiSessionId(session)) return c.text("Not a pi session id", 400);
+    const { runs, capped } = await piService.listSessionRuns(session);
+    return c.json({ session, runs: runs.map(summarizePiRun), capped });
   });
 
   app.get("/api/pi/runs/:runId", async (c) => {

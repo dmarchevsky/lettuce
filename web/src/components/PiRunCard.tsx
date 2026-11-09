@@ -29,7 +29,14 @@ const TONES: Record<PiRunFacts["state"], string> = {
  * bought: an agent no longer needs to relay pi_status for a human to follow
  * the work.
  */
-export function PiRunCard({ runId }: { runId: string }) {
+export function PiRunCard({
+  runId,
+  onOpenSession,
+}: {
+  runId: string;
+  /** Open the session this run belongs to, in the pane. Null session = just this run. */
+  onOpenSession?: (runId: string, session: string | null) => void;
+}) {
   const [facts, setFacts] = useState<PiRunFacts | null>(null);
   const [files, setFiles] = useState<PiRunFile[]>([]);
   const [gone, setGone] = useState(false);
@@ -191,9 +198,21 @@ export function PiRunCard({ runId }: { runId: string }) {
           {facts.lastEventAt ? ` · ${ago(facts.lastEventAt)}` : ""}
         </span>
         <span className="pi-card-actions">
-          <a className="link" href={`/?tab=runs&run=${encodeURIComponent(runId)}`}>
-            View run
-          </a>
+          {onOpenSession ? (
+            // In-app since the viewer became a pane: the old link reloaded the
+            // page onto the Runs tab and lost the conversation you were reading.
+            <button
+              type="button"
+              className="link"
+              onClick={() => onOpenSession(runId, facts.session)}
+            >
+              View session
+            </button>
+          ) : (
+            <a className="link" href={`/?tab=runs&run=${encodeURIComponent(runId)}`}>
+              View run
+            </a>
+          )}
           {running ? (
             <>
               <button

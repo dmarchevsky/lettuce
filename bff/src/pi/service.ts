@@ -35,6 +35,7 @@ import {
   buildSshArgs,
   DirPiRunStore,
   isPiSessionId,
+  PI_SESSION_RUN_CAP,
   type PiKeyFiles,
   type PiRunMeta,
   PiRunner,
@@ -174,10 +175,6 @@ const PI_QUIET_MS = 60_000;
  * anything younger than the age floor. */
 const PI_RUN_KEEP = 300;
 const PI_RUN_MAX_AGE_MS = 14 * 24 * 3_600_000;
-/** `pi_wait` bounds: long enough to replace a sleep-poll loop, short enough to never wedge a turn. */
-const PI_WAIT_DEFAULT_S = 60;
-const PI_WAIT_MAX_S = 120;
-
 /** How long a check waits for ssh before calling the host unreachable. */
 const PI_CHECK_TIMEOUT_MS = 15_000;
 
@@ -551,6 +548,20 @@ export class PiService {
   async getRun(runId: string): Promise<PiRunMeta | null> {
     return this.store.read(runId);
   }
+  /**
+   * Every run on one pi session, oldest first — what the session viewer opens
+   * with. A pi session is a file on one host, so these runs are the whole history
+   * of what lettuce asked of that conversation, in the order it was asked.
+   */
+  /**
+   * Every run of one pi session, oldest first — and whether that is all of them.
+   * A session a long-lived agent keeps reusing can outlive the listing window, and
+   * a viewer that shows a window has to say so rather than look like the history.
+   */
+  async listSessionRuns(session: string): Promise<{ runs: PiRunMeta[]; capped: boolean }> {
+    const runs = await this.store.listBySession(session);
+    return { runs, capped: runs.length >= PI_SESSION_RUN_CAP };
+  }
 
   // ── tools ──────────────────────────────────────────────────────────────────
 
@@ -597,7 +608,7 @@ export class PiService {
       // say so here, because a queueing send otherwise reads exactly like the
       // wedged runs prod's olla agent misdiagnosed.
       if (origin?.state === "running") {
-        sessionNote += ` (note: run ${origin.runId} is still live on this session — pi_wait it first)`;
+        sessionNote += ` (note: run ${origin.runId} is still live on this session, so this send queues behind it on the remote — when a run settles you are told here, and that is when to send)`;
       }
     }
     const model = typeof args.model === "string" && args.model.trim() ? args.model.trim() : null;
@@ -631,14 +642,17 @@ export class PiService {
       const agentId = observed.session ? piAgentId(observed.session) : null;
       return {
         // Naming the host is what makes per-agent hosts usable: the model can
-        // say where a task went instead of guessing.
+        // say where a task went instead of guessing. The contract sentence is the
+        // whole point of the return: there is nothing to wait for, so the turn
+        // should end and the result should arrive on its own.
         text:
           `Started remote-pi ${kind} ${observed.runId} on ${observed.target} (workdir ${settings.workdir})` +
           (observed.session
             ? ` on session ${observed.session} (agent ${agentId})`
             : " — session id not yet visible") +
-          `${sessionNote}. You will be told in this conversation when it finishes — do not poll. ` +
-          `Read progress with pi_status {run:"${observed.runId}"} only if asked; pi_wait it only when this turn must hold until then.`,
+          `${sessionNote}. Background work: end your turn now — there is nothing to wait for and nothing to poll. ` +
+          `When it settles, its verdict, its last message and the files it touched arrive in this conversation and you continue there. ` +
+          `pi_status {run:"${observed.runId}"} answers "how far along" if the human asks, and pi_send queues behind a run that is still live on the session.`,
         isError: false,
       };
     } catch (error) {
@@ -669,6 +683,12 @@ export class PiService {
         ` — ${meta.prompt.split("\n")[0]?.slice(0, 120) ?? ""}`,
     ];
     if (meta.error) lines.push(`error: ${meta.error}`);
+    if (meta.state === "detached")
+      lines.push(
+        "Lettuce stopped capturing this run — it was stopped, its ssh died, or the BFF restarted — so what the remote did after that is unknown. Check pi_status {run} before repeating any of this work, and never start a duplicate of it.",
+      );
+    // The answer is the point of the report: the woken turn should need no
+    // follow-up call to say what the run said.
     const tail = await this.store.readEventsTail(meta.runId, 262_144);
     const answer = tail ? lastAssistantText(tail) : null;
     if (answer) lines.push(`last said: ${answer.split("\n").join(" ").slice(0, 300)}`);
@@ -680,7 +700,10 @@ export class PiService {
         `files the run touched in the workdir: ${manifest} — read one into your workspace with pi_fetch {run, path, save:"name"}`,
       );
     lines.push(
-      "The Runs tab has the transcript; pi_send continues the session. Do not poll for this run again.",
+      "There is nothing more to wait for here: do not poll for this run again. " +
+        (meta.session
+          ? `The session's transcript is the card in this conversation or the Runs tab; pi_send {session:"${meta.session}"} continues it.`
+          : "The transcript is the card in this conversation or the Runs tab."),
     );
     return `<task-notification>${lines.join("\n")}</task-notification>`;
   }
@@ -862,28 +885,28 @@ export class PiService {
     return this.statusBody(runId);
   };
 
-  /** pi_wait: block until the run settles or the timeout passes, then answer like pi_status. */
+  /**
+   * `pi_wait` is retired: a remote run reports itself back into the conversation
+   * that dispatched it when it settles, so a turn never has to hold itself open
+   * watching one. The name stays answering (old conversations and trained habits
+   * call it) but it never blocks — it returns the status it used to wait for,
+   * plus the instruction that made the wait unnecessary.
+   */
   readonly piWait: ToolHandler = async (args) => {
     const off = this.guard();
     if (off) return off;
     const runId = typeof args.run === "string" ? args.run.trim() : "";
     if (!runId) return { text: "`run` is a run id from a previous pi_run/pi_send", isError: true };
-    const raw = Number(args.timeout_seconds ?? PI_WAIT_DEFAULT_S);
-    const seconds = Number.isFinite(raw)
-      ? Math.min(PI_WAIT_MAX_S, Math.max(5, raw))
-      : PI_WAIT_DEFAULT_S;
     const first = await this.store.read(runId);
     if (!first) return { text: `No remote-pi run ${runId}`, isError: true };
-    const deadline = this.nowMs() + seconds * 1_000;
-    let meta = first;
-    while (meta.state === "running" && this.nowMs() < deadline) {
-      await this.runner.wait(runId, Math.max(500, deadline - this.nowMs()));
-      meta = (await this.store.read(runId)) ?? meta;
-    }
     const body = await this.statusBody(runId);
-    if (meta.state === "running")
-      return { text: `${body.text}\nstill running after ${Math.round(seconds)}s`, isError: false };
-    return body;
+    return {
+      text:
+        `pi_wait returned immediately: waiting is retired. A remote-pi run delivers its verdict, its last ` +
+        `message and its files back into this conversation when it settles, so end your turn and let that ` +
+        `happen — do not call pi_wait or pi_status in a loop.\n${body.text}`,
+      isError: false,
+    };
   };
 
   /** pi_stop: stop the local capture of a run (detach), or with `force`, kill the remote pi too. */
@@ -1195,6 +1218,10 @@ export class PiService {
       ["pi_run", this.piRun],
       ["pi_send", this.piSend],
       ["pi_status", this.piStatus],
+      // Registered on the handler map but NOT in PI_TOOL_SPECS: `pi_wait` is
+      // retired, so the mod never offers it and no model can be tempted by it;
+      // but a direct call (an agent's own curl, an old link) still gets the
+      // guidance instead of a 404.
       ["pi_wait", this.piWait],
       ["pi_stop", this.piStop],
       ["pi_fetch", this.piFetch],
@@ -1308,19 +1335,6 @@ const STATUS_PARAMETERS = {
   additionalProperties: false,
 };
 
-const WAIT_PARAMETERS = {
-  type: "object",
-  properties: {
-    run: { type: "string", description: "The run id from pi_run/pi_send's answer." },
-    timeout_seconds: {
-      type: "number",
-      description: `How long to block, 5-${PI_WAIT_MAX_S} seconds (default ${PI_WAIT_DEFAULT_S}).`,
-    },
-  },
-  required: ["run"],
-  additionalProperties: false,
-};
-
 const STOP_PARAMETERS = {
   type: "object",
   properties: {
@@ -1374,16 +1388,20 @@ export const PI_TOOL_SPECS: readonly ToolSpec[] = [
       "Dispatch a task to the remote pi coding agent over SSH and start it now. " +
       "It starts in the working folder configured for this agent, on the host configured for it " +
       "(one agent may point at a different folder or machine than another). " +
-      "Returns a run id and a pi session id immediately; the run continues in the background. " +
-      "Wait with pi_wait, read progress with pi_status, continue the conversation with pi_send.",
+      "Returns a run id and a pi session id immediately, then the run continues on its own: " +
+      "background work, so END YOUR TURN — there is nothing to wait for and nothing to poll. " +
+      "When it settles, its verdict, its last message and the files it touched arrive in this " +
+      "conversation and you continue from there. pi_status answers 'how far along' when a human " +
+      "asks; pi_send continues the session once this run has been reported.",
     parameters: RUN_PARAMETERS,
     approval: "ask",
   },
   {
     name: "pi_send",
     description:
-      "Send a follow-up to an existing remote pi session (from pi_run). Same background semantics as pi_run. " +
-      "If the answer says a run is still live on that session, pi_wait it first — a second send queues behind it on the remote.",
+      "Send a follow-up to an existing remote pi session (from pi_run). Same background semantics as pi_run: " +
+      "end your turn, and the answer arrives here when the run settles. " +
+      "Send only when the session is idle — while a run is live on it, a second send queues behind it on the remote.",
     parameters: SEND_PARAMETERS,
     approval: "ask",
   },
@@ -1393,14 +1411,6 @@ export const PI_TOOL_SPECS: readonly ToolSpec[] = [
       "State of a remote-pi run: running/completed/detached/failed/cancelled, its session id, event progress, " +
       "and while running what it is doing now (current tool, last assistant text).",
     parameters: STATUS_PARAMETERS,
-    approval: "auto",
-  },
-  {
-    name: "pi_wait",
-    description:
-      "Block until a remote-pi run settles (completed/failed/cancelled/detached) or the timeout passes, " +
-      "then answer with pi_status's report. Use this instead of sleep-and-poll loops.",
-    parameters: WAIT_PARAMETERS,
     approval: "auto",
   },
   {

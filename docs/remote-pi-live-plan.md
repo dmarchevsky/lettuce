@@ -1,5 +1,10 @@
 # Remote Pi live — trustworthy progress, then a live UI
 
+> **Partly superseded.** `pi_wait` was later retired: every terminal state now reports itself into
+> the dispatching conversation, so a blocking wait only held turns open and filled transcripts with
+> poll loops. What replaced it is in the CHANGELOG and `bff/src/pi/service.ts`; the progress truth,
+> the push, and the live UI below all still stand.
+
 Plan for the branch `feat/pi-live`. Written from the prod post-mortem of agent **olla**,
 conversation `local-conv-120` (2026-10-08/09), where a healthy 18 MB run streamed for 26
 minutes while `pi_status` reported `events 0` — the agent concluded the integration was
@@ -53,7 +58,9 @@ A3. **A real `pi_status`** (`service.ts`). When `state === "running"`:
       (warn) when the capture file's mtime is > 60 s stale while the ssh child is alive;
     - keep the existing plain-text shape; it is tool output, not JSON.
 
-A4. **`pi_wait {run, timeout_seconds}`** (new tool, cap 120 s, default 60). Resolves when the
+A4. **`pi_wait {run, timeout_seconds}`** (new tool, cap 120 s, default 60) — **retired later: see
+    the note at the top.** The handler stays as a non-blocking stub so old conversations get an
+    honest answer if a call still reaches the BFF. Original intent: it resolved when the
     run reaches a terminal state, returning the `pi_status` body; on timeout, returns the
     current status with a `still running` line. Implementation: an in-process wait map keyed
     by runId that the runner's exit hook drains; also resolves on `force` kill. This is the

@@ -280,6 +280,72 @@ export async function fetchPiRun(runId: string): Promise<{ run: PiRun; capturing
   return (await response.json()) as { run: PiRun; capturing: boolean };
 }
 
+/**
+ * Every run on one pi session, oldest first — what the session panel opens with.
+ * A session is one pi conversation on one host, so its runs are the whole history
+ * of what the agent asked of it: one `pi_run`/`pi_send` each.
+ */
+export async function fetchPiSessionRuns(
+  session: string,
+): Promise<{ runs: PiRunSummary[]; capped: boolean }> {
+  const response = await ok(await fetch(`/api/pi/session/${encodeURIComponent(session)}/runs`));
+  const body = (await response.json()) as { runs: PiRunSummary[]; capped?: boolean };
+  // `capped` is the store saying it dropped older runs to keep the listing a
+  // bounded read; an older BFF that omits it simply means "not truncated".
+  return { runs: body.runs, capped: body.capped ?? false };
+}
+
+/**
+ * The session panel's run dropdown, newest first: a session can hold dozens of
+ * runs, so the choice is a line per run rather than a list to scroll. The label
+ * carries the status and the prompt because that is what tells two runs apart.
+ */
+export function piRunOptions(runs: readonly PiRunSummary[]): { runId: string; label: string }[] {
+  return runs
+    .map((run, index) => ({
+      runId: run.runId,
+      label: `Run ${index + 1} · ${STATUS_LABELS[run.status]} · ${oneLine(run.prompt) || "(no prompt recorded)"}`,
+    }))
+    .reverse();
+}
+
+/** The same index the dropdown and the run's own boundary line agree on. */
+/**
+ * Which runs of a session to read next: the `nearby` positions closest to the
+ * focused run, nearest first, skipping any already loaded or already asked for.
+ *
+ * The bound is a **window around the focus**, not a count per wave, and that is the
+ * whole point. Each read is one run's capture tail (megabytes), so a sixty-run
+ * session must not mean sixty reads at open — and a wave sized by count, re-derived
+ * after each arrival, walks outward one run at a time until it has read everything.
+ * Anything outside the window is one dropdown choice away and reads on demand.
+ */
+export function piRunWave(
+  runs: readonly PiRunSummary[],
+  focusRunId: string,
+  loaded: (runId: string) => boolean,
+  nearby = 3,
+): string[] {
+  const focusIndex = runs.findIndex((run) => run.runId === focusRunId);
+  if (focusIndex < 0 || runs.length < 2) return [];
+  const wave: string[] = [];
+  for (let step = 1; step <= nearby; step++) {
+    for (const candidate of [runs[focusIndex + step], runs[focusIndex - step]]) {
+      if (candidate && !loaded(candidate.runId)) wave.push(candidate.runId);
+    }
+  }
+  return wave;
+}
+
+export function piRunNumber(runs: readonly PiRunSummary[], runId: string): number {
+  const at = runs.findIndex((run) => run.runId === runId);
+  return at < 0 ? runs.length : at + 1;
+}
+
+function oneLine(text: string): string {
+  return (text || "").split("\n")[0]?.trim().slice(0, 80) ?? "";
+}
+
 export const STATUS_LABELS: Record<PiRunStatus, string> = {
   running: "Running",
   completed: "Finished",

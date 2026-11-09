@@ -13,6 +13,7 @@ import { MessageList } from "./components/MessageList.tsx";
 import { ModelPicker } from "./components/ModelPicker.tsx";
 import { NavRail } from "./components/NavRail.tsx";
 import { PiRunsChip, usePiActiveRuns } from "./components/PiRunsChip.tsx";
+import { PiSessionPanel } from "./components/PiSessionPanel.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { SignInScreen } from "./components/SignInScreen.tsx";
 import { Switcher } from "./components/Switcher.tsx";
@@ -227,6 +228,37 @@ function Workspace({ status }: { status: Status }) {
     return "Chat";
   });
   /**
+   * The remote-pi session viewer, when one is open: the run to land on and its
+   * session (a caller that only has a run lets the panel look the session up).
+   *
+   * It is not a window over the app and it does not change the pane: it renders in
+   * the pane's place, so closing it is exactly the screen the reader came from — the
+   * conversation keeps its draft, the Runs list stays the Runs list (the chat's
+   * scroll does not survive the remount, as with any pane switch). That replaced a `Sheet` whose only way in from a conversation was a
+   * link that reloaded the whole page.
+   */
+  const [piView, setPiView] = useState<{ runId: string; session: string | null } | null>(null);
+
+  // Switching agents closes the viewer: it renders one agent's session, and a
+  // header wearing the new agent's face over the previous agent's transcript would
+  // be a lie about whose work you are reading.
+  const piViewAgent = useRef(agents.agentId);
+  useEffect(() => {
+    if (piViewAgent.current === agents.agentId) return;
+    piViewAgent.current = agents.agentId;
+    setPiView(null);
+  }, [agents.agentId]);
+  const openPiRun = useCallback((runId: string, session: string | null) => {
+    setPiView({ runId, session });
+  }, []);
+  const closePiRun = useCallback(() => setPiView(null), []);
+
+  // `?tab=runs&run=<id>` is a settle push's link, and every old one: the run's own
+  // card is long gone by the time it is clicked, so the deep link is the way in.
+  useEffect(() => {
+    if (runsLink.run) setPiView({ runId: runsLink.run, session: null });
+  }, [runsLink.run]);
+  /**
    * Which Settings section that pane shows. It has no default, so it resumes where
    * you left it — but only where this deployment can still configure it: a
    * remembered or deep-linked section behind a compose token that is off lands on
@@ -362,6 +394,9 @@ function Workspace({ status }: { status: Status }) {
     (next: Tab) => {
       // A borrow belongs to the rail and to Chat; changing pane ends it.
       setPreviewId(null);
+      // Choosing a pane is leaving the session viewer: it is the thing being read,
+      // not a window to be kept behind the next screen.
+      setPiView(null);
       if (next === "Chat") {
         // Pinned, Chat has nothing to do (the panel is already there). Unpinned and
         // already on Chat, Chat is a toggle: pressing it while the peek is open puts
@@ -384,9 +419,16 @@ function Workspace({ status }: { status: Status }) {
    * the corner X or a bar slot closes the pane on screen and the entry retires
    * the same way every other overlay's does.
    */
-  useBackToClose(() => {
-    selectPane("Chat");
-  }, tab !== "Chat");
+  useBackToClose(
+    () => {
+      if (piView) {
+        closePiRun();
+        return;
+      }
+      selectPane("Chat");
+    },
+    tab !== "Chat" || piView !== null,
+  );
 
   /**
    * Escape closes the open pane, the same step Back takes.
@@ -398,7 +440,7 @@ function Workspace({ status }: { status: Status }) {
    * field entirely while any sheet is in the document.
    */
   useEffect(() => {
-    if (tab === "Chat") return;
+    if (tab === "Chat" && !piView) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       // The innermost surface owns the press. A sheet claims Escape in its own
@@ -406,11 +448,21 @@ function Workspace({ status }: { status: Status }) {
       // neither renders `.sheet` — so without naming them here one press would
       // answer twice: the menu closes AND the pane underneath it closes.
       if (document.querySelector(".sheet, .switcher, .agent-menu")) return;
+      // A native <select> being open owns the press itself: Escape is how you put a
+      // dropdown back down, and that should not close the pane holding it.
+      if ((event.target as HTMLElement | null)?.tagName === "SELECT") return;
+      // The session viewer is the innermost thing in the pane, so it takes the
+      // press and the pane underneath it stays: Escape from a run you opened from
+      // the Runs list returns the list, not Chat.
+      if (piView) {
+        closePiRun();
+        return;
+      }
       selectPane("Chat");
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [tab, selectPane]);
+  }, [tab, piView, closePiRun, selectPane]);
 
   /** The Settings column's ☰ at the foot: leave the pane and bring the conversation
    * drawer with you. It is a door, not a toggle — pressing it lands you on Chat with
@@ -627,11 +679,14 @@ function Workspace({ status }: { status: Status }) {
    * (which for Settings is simply the pane's name). A secondary pane used to leave
    * the title saying "Lettuce" over a screen of MCP servers — the band named nothing,
    * which is what the corner X now closes. */
-  const bandTitle = tab === "Chat" ? title : tab;
+  const bandTitle = piView ? "Remote pi session" : tab === "Chat" ? title : tab;
 
   const editAgent = (id: string) => {
     if (id !== agents.agentId) agents.selectAgent(id);
-    setTab("Agent");
+    // Through `selectPane`, not `setTab`: the pane chooser is what ends the
+    // session viewer, and an "Edit agent" that left a run transcript on screen
+    // would look like nothing had been pressed.
+    selectPane("Agent");
   };
 
   const toggleFilter = (group: FilterGroup) => {
@@ -810,7 +865,7 @@ function Workspace({ status }: { status: Status }) {
 
       {/* `.closable` is not decoration: it is how the pane's own bar knows to stand
           clear of the corner X (see `.main.closable .pane-bar`). */}
-      <div className={tab === "Chat" ? "main" : "main closable"}>
+      <div className={tab === "Chat" && !piView ? "main" : "main closable"}>
         {/* On desktop the top bar is hoisted into the grid's band above every
             column; the phone keeps it inside .main, exactly where it was. */}
         {wide ? null : topbar}
@@ -820,13 +875,13 @@ function Workspace({ status }: { status: Status }) {
             band used to carry this as a text button and it read as a seven-tab bar
             with the rail already beside it; a pane you can only leave by finding the
             right word in a list is a pane you feel stuck in. */}
-        {tab === "Chat" ? null : (
+        {tab === "Chat" && !piView ? null : (
           <button
             type="button"
             className="sheet-close pane-close"
-            onClick={() => selectPane("Chat")}
-            aria-label={`Close ${bandTitle} and back to Chat`}
-            title={`Close ${bandTitle} and back to Chat`}
+            onClick={piView ? closePiRun : () => selectPane("Chat")}
+            aria-label={`Close ${bandTitle}${piView ? "" : " and back to Chat"}`}
+            title={`Close ${bandTitle}${piView ? "" : " and back to Chat"}`}
           >
             <Icon name="close" />
           </button>
@@ -837,7 +892,9 @@ function Workspace({ status }: { status: Status }) {
             says its piece and gets out of the way instead of covering the
             transcript until someone notices the dismiss button. */}
 
-        {tab === "Chat" ? (
+        {piView ? (
+          <PiSessionPanel runId={piView.runId} session={piView.session} />
+        ) : tab === "Chat" ? (
           <>
             {conversation.error ? (
               <p className="warning small dismissible" role="alert">
@@ -861,6 +918,7 @@ function Workspace({ status }: { status: Status }) {
               session={session}
               cwd={conversation.cwd}
               onOpenFile={setOpenFile}
+              onOpenPiRun={openPiRun}
               showTimestamps={showTimestamps}
               onEditMessage={setPrefill}
               onAnswerQuestion={conversation.answerQuestions}
@@ -1013,7 +1071,7 @@ function Workspace({ status }: { status: Status }) {
           <RunsTab
             backgroundProcesses={conversation.backgroundProcesses}
             features={status.features}
-            initialRunId={runsLink.run}
+            onOpenRun={openPiRun}
             agentId={agents.agentId}
             agentName={agentName}
             agents={agents.agents}
