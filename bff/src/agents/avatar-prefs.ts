@@ -2,8 +2,8 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { isAgentId } from "./id-list.ts";
 
 /**
- * What the user picked for an agent's avatar — a tint and a glyph — kept by the
- * BFF rather than in the browser so a phone and a laptop agree.
+ * What the user picked for an agent's avatar — a tint, a glyph or an uploaded
+ * face — kept by the BFF rather than in the browser so a phone and a laptop agree.
  *
  * Ours, not upstream's: `agent_update` has no avatar field, and the one free-form
  * thing an agent record does carry (`tags`) is what `agents/ancestry.ts` reads
@@ -14,14 +14,27 @@ import { isAgentId } from "./id-list.ts";
  * Absent field means "not chosen" and falls through to the default the UI
  * derives from the agent id (`web/src/lib/agent-tint.ts`), so an entry is stored
  * only while it differs from that.
+ *
+ * `image` is not the bytes and not a path: it is the id of a face in the
+ * content-addressed library (`agents/avatar-library.ts`), so the pref file stays
+ * small and a face shared by five agents is stored once.
  */
 export interface AgentAvatarPref {
   tint?: string;
   glyph?: string;
+  image?: string;
 }
 
-/** A `#rrggbb` literal — the six palette colours are all six-digit. */
+/** A `#rrggbb` literal — the palette colours are all six-digit. */
 const TINT = /^#[0-9a-f]{6}$/i;
+
+/** A face id: the first 16 hex characters of the picture's sha256. */
+const IMAGE_ID = /^[0-9a-f]{16}$/;
+
+/** The one shape an `image` may have — also the library's traversal guard. */
+export function isAvatarImageId(value: unknown): value is string {
+  return typeof value === "string" && IMAGE_ID.test(value);
+}
 
 /**
  * Zero-width, bidi and BOM marks: invisible, and they make a grapheme count lie.
@@ -80,11 +93,19 @@ export function parseAvatarPref(value: unknown): AgentAvatarPref | null {
     if (record.glyph.trim() !== "" && glyph === null) return null;
     if (glyph !== null) pref.glyph = glyph;
   }
+  if (record.image !== undefined && record.image !== null) {
+    // Same rule as the glyph: an empty string clears the field, anything else
+    // that is not a face id is a typo.
+    if (typeof record.image !== "string") return null;
+    const id = record.image.trim();
+    if (id !== "" && !isAvatarImageId(id)) return null;
+    if (id !== "") pref.image = id;
+  }
   return pref;
 }
 
 export function isDefaultAvatarPref(pref: AgentAvatarPref): boolean {
-  return pref.tint === undefined && pref.glyph === undefined;
+  return pref.tint === undefined && pref.glyph === undefined && pref.image === undefined;
 }
 
 /** Only agents that chose something are stored; an unknown agent gets the default. */
@@ -126,7 +147,8 @@ export class AgentAvatarStore {
     const current = this.get(agentId);
     const same =
       (current.tint ?? null) === (pref.tint ?? null) &&
-      (current.glyph ?? null) === (pref.glyph ?? null);
+      (current.glyph ?? null) === (pref.glyph ?? null) &&
+      (current.image ?? null) === (pref.image ?? null);
     if (same) return false;
     if (isDefaultAvatarPref(pref)) this.entries.delete(agentId);
     else this.entries.set(agentId, { ...pref });
