@@ -93,16 +93,18 @@ export function AvatarSheet({
   const sections = glyphSections(query, category);
   const searching = query.trim() !== "";
 
-  /** A glyph pick: a face is a glyph or a picture, never both, and the colour stays. */
-  const pickGlyph = (glyph: string | undefined) => {
-    onPick({ tint: pref.tint, glyph });
-    onClose();
-  };
+  /**
+   * A glyph pick: a face is a glyph or a picture, never both, and the colour stays.
+   *
+   * It does **not** close the sheet. Picking a face is a comparison — this fox or
+   * that owl, against the tint in the row above — and closing on the first tap
+   * turns every comparison into open, tap, reopen, which is three gestures per
+   * candidate. The staged face is already live in the preview, so staying open
+   * shows the answer; `Done` is the one gesture that ends it.
+   */
+  const pickGlyph = (glyph: string | undefined) => onPick({ tint: pref.tint, glyph });
 
-  const pickTyped = () => {
-    onPick({ tint: pref.tint, glyph: typed.trim() || undefined });
-    onClose();
-  };
+  const pickTyped = () => onPick({ tint: pref.tint, glyph: typed.trim() || undefined });
 
   const setTint = (tint: string | undefined) => onPick({ ...pref, tint });
 
@@ -182,14 +184,7 @@ export function AvatarSheet({
       status={status}
       actions={
         <>
-          <button
-            type="button"
-            className="button ghost leading"
-            onClick={() => {
-              onPick({});
-              onClose();
-            }}
-          >
+          <button type="button" className="button ghost leading" onClick={() => onPick({})}>
             Default
           </button>
           <button type="button" className="button" onClick={onClose}>

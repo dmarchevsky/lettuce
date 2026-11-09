@@ -133,7 +133,7 @@ export function AgentEditor({ session, agents, onClose }: Props) {
           agentId={seed}
           name={seed}
           pref={avatar}
-          onPick={(next) => setDraft({ ...draft, avatar: next })}
+          onPick={(next) => setDraft((current) => ({ ...current, avatar: next }))}
           onClose={() => setChoosingAvatar(false)}
           note="Applied as soon as the agent is created. Pick no colour and it gets the one its new id hashes to."
         />
