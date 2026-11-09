@@ -66,7 +66,7 @@ export async function savePinnedAgent(agentId: string, pinned: boolean): Promise
  */
 export async function saveAgentAvatar(
   agentId: string,
-  pref: { tint?: string | null; glyph?: string | null },
+  pref: { tint?: string | null; glyph?: string | null; image?: string | null },
 ): Promise<Record<string, AvatarPref>> {
   const response = await fetch(`/api/agents/avatar/${encodeURIComponent(agentId)}`, {
     method: "PUT",
@@ -75,4 +75,59 @@ export async function saveAgentAvatar(
   });
   if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
   return ((await response.json()) as { avatars: Record<string, AvatarPref> }).avatars;
+}
+
+/** One uploaded face, and which agents are wearing it (`bff/src/agents/avatar-library.ts`). */
+export interface FaceEntry {
+  id: string;
+  bytes: number;
+  mtime: number;
+  usedBy: string[];
+}
+
+export interface FaceLibrary {
+  images: FaceEntry[];
+  /** The glyphs saved most recently, most recent first. */
+  recents: string[];
+}
+
+/**
+ * The whole face library in one call: the sheet lists it, so it would otherwise
+ * fetch the list and the recents separately for the same four tiles.
+ */
+export async function fetchFaceLibrary(): Promise<FaceLibrary> {
+  const response = await fetch("/api/avatars");
+  if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
+  return (await response.json()) as FaceLibrary;
+}
+
+/**
+ * Uploads one already-resized face (the caller did the resize — see
+ * `resizeToFace`), raw bytes rather than multipart, and answers with the fresh
+ * list so the strip redraws without a second round trip.
+ */
+export async function uploadFace(blob: Blob): Promise<FaceLibrary & { id: string }> {
+  const response = await fetch("/api/avatars", {
+    method: "POST",
+    headers: { "content-type": blob.type || "application/octet-stream" },
+    body: blob,
+  });
+  if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
+  return (await response.json()) as FaceLibrary & { id: string };
+}
+
+/**
+ * Deletes a face. The BFF also clears it from every agent that was wearing it and
+ * returns the refreshed avatar map with `cleared` naming them, so no surface is
+ * left pointing at bytes that are gone.
+ */
+export async function removeFace(
+  id: string,
+): Promise<FaceLibrary & { avatars: Record<string, AvatarPref>; cleared: string[] }> {
+  const response = await fetch(`/api/avatars/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
+  return (await response.json()) as FaceLibrary & {
+    avatars: Record<string, AvatarPref>;
+    cleared: string[];
+  };
 }
