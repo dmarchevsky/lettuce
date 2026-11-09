@@ -5,6 +5,14 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.40.0-letta_0.34.38] - 2026-11-09
+
+### Added
+- **The transcript filters down to what you came to read.** The composer's funnel keeps its five groups and gains a collapsed **Details** section: **Thinking** hides reasoning wherever it sits, on its own or inside a run; **Tool runs** hides the steps folded inside a run and leaves the question you still owe an answer; **Channel messages** hides what the agent posted to Telegram, since that is content, not step noise. Untick a group and its switches dim and ride along — tick the group back and they are exactly as you left them. The whole filter is remembered on the device, so a reload keeps a transcript as plain as you left it, and the funnel's badge counts the switches that are off.
+
+### Fixed
+- **A turn with nothing left to fold no longer draws an empty fold.** Hiding every step of a turn used to leave a line headed "0 steps"; what remains of such a turn is the agent's own text, and it reads as messages now.
+
 ## [v0.39.0-letta_0.34.38] - 2026-11-09
 
 ### Added
