@@ -5,6 +5,11 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.37.1-letta_0.34.38] - 2026-11-08
+
+### Fixed
+- **Sending to an idle chat no longer flickers a queue.** The Steer pill and queue chip that flashed for a moment under a fresh message are gone: the strip now appears only when a queue really waits behind a running turn, and a message moving into it swaps places with its bubble in one paint.
+
 ## [v0.37.0-letta_0.34.38] - 2026-11-08
 
 ### Changed
