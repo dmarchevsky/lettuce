@@ -270,23 +270,27 @@ export function PiSessionPanel({ runId, session }: Props) {
     facts.push(
       capped ? `${runs.length}+ runs` : `${runs.length} run${runs.length === 1 ? "" : "s"}`,
     );
-    const usage = bodies[focus]?.usage;
-    if (usage) {
-      facts.push(
-        `${usage.inputTokens.toLocaleString()} in · ${usage.outputTokens.toLocaleString()} out`,
-      );
-    }
   }
+  const usage = bodies[focus]?.usage;
   const options = piRunOptions(runs);
 
   return (
     <>
-      <div className="pane-bar wrap">
+      <div className="pane-bar wrap pi-session-bar">
         <span className={`tag${TONES[focused?.status ?? "running"]}`}>
           {STATUS_LABELS[focused?.status ?? "running"]}
         </span>
         <strong>{sessionId ? `session ${sessionId.slice(0, 8)}` : "Remote pi run"}</strong>
-        <span className="pi-facts muted small">{facts.join(" · ")}</span>
+        <span className="pi-facts muted small">
+          {facts.join(" · ")}
+          {/* The token counts are the first thing to go on a narrow bar: where you
+              are (host, how many runs) outranks what the run cost. */}
+          {usage ? (
+            <span className="pi-usage">
+              {` · ${usage.inputTokens.toLocaleString()} in · ${usage.outputTokens.toLocaleString()} out`}
+            </span>
+          ) : null}
+        </span>
         <span className="spacer" />
         {options.length > 1 ? (
           <select

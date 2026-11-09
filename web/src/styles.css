@@ -5127,8 +5127,14 @@ textarea.mono {
   min-width: 0;
 }
 @media (max-width: 899px), (pointer: coarse) {
+  /* On a phone the bar is two rows, not three: the identity line, then the run
+     selector across its own row with room to read a whole label. The token
+     counts drop out — the host and the run count say where you are. */
+  .pi-session-bar .pi-usage {
+    display: none;
+  }
   .pi-run-select {
-    flex: 1;
+    flex: 1 1 100%;
     min-width: 0;
     max-width: none;
   }
