@@ -3687,17 +3687,22 @@ try {
     const page = await open(browser, DESKTOP);
     await page.goto(`${ORIGIN}/?settings=google`, { waitUntil: "networkidle" });
     await page.locator(".settings-pane").waitFor({ timeout: 10_000 });
-    check(
-      "?settings=google opens Settings on Google Workspace",
-      (await page.locator(".settings-content-title").innerText()) === "Google Workspace",
-    );
-    // The link does not only open the pane, it opens it on that section — which on
-    // desktop means the rail cell carrying it, since the rail is the section list.
-    check(
-      "and the rail marks the section the link named",
-      (await page.locator("nav.rail.rail-settings .rail-section.active").innerText()).trim() ===
-        "Google Workspace",
-    );
+    // With the google token off the section does not exist, so the link can only
+    // open Settings itself — the param contract holds either way.
+    const linkFeatures = await readFeatures(page);
+    if (featureOn(linkFeatures, "google")) {
+      check(
+        "?settings=google opens Settings on Google Workspace",
+        (await page.locator(".settings-content-title").innerText()) === "Google Workspace",
+      );
+      // The link does not only open the pane, it opens it on that section — which on
+      // desktop means the rail cell carrying it, since the rail is the section list.
+      check(
+        "and the rail marks the section the link named",
+        (await page.locator("nav.rail.rail-settings .rail-section.active").innerText()).trim() ===
+          "Google Workspace",
+      );
+    }
     check("the param is stripped", !page.url().includes("settings="), page.url());
     await page.close();
   }
