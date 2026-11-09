@@ -371,6 +371,9 @@ export class AvatarRecentGlyphs {
   /** Record a glyph that was just saved: to the front, deduped, capped. */
   push(glyph: string | undefined): string[] {
     if (!glyph) return this.list();
+    // Already first means nothing moved, and a save that changes only the tint
+    // should not rewrite the file.
+    if (this.glyphs[0] === glyph) return this.list();
     return this.set([glyph, ...this.glyphs]);
   }
 
