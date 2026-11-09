@@ -9,6 +9,8 @@ import {
 } from "../state/use-agents.ts";
 import { type ModelsApi, useModels } from "../state/use-models.ts";
 import type { SessionApi } from "../state/use-session.ts";
+import { AgentAvatar } from "./AgentAvatar.tsx";
+import { AvatarSheet } from "./AvatarSheet.tsx";
 import { Icon } from "./Icon.tsx";
 import { ModelChoices } from "./ModelPicker.tsx";
 import { Sheet } from "./Sheet.tsx";
@@ -20,18 +22,28 @@ interface Props {
   onClose: () => void;
 }
 
-const EMPTY: AgentDraft = { name: "", system: "", modelHandle: null };
+const EMPTY: AgentDraft = { name: "", system: "", modelHandle: null, avatar: {} };
 
 /**
  * New agent. Editing an existing one is the Agent tab's General section
  * (`AgentGeneralSection`), next to the agent's other settings.
+ *
+ * The face is offered here too, because an agent being named deserves its face when
+ * it is made — but there is no agent to write it to yet, so it is staged in the
+ * draft the way the name is and applied by `createAgent` once the id exists.
  */
 export function AgentEditor({ session, agents, onClose }: Props) {
   const models = useModels(session);
   const [draft, setDraft] = useState<AgentDraft>(EMPTY);
   const [preset, setPreset] = useState<AgentPreset>("memo");
+  const [choosingAvatar, setChoosingAvatar] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // The preview has no id to hash a colour from yet, so it is seeded from the name;
+  // the sheet's note says which part of it is a promise and which is a guess.
+  const seed = draft.name.trim() || "new-agent";
+  const avatar = draft.avatar ?? {};
 
   const create = async () => {
     setBusy(true);
@@ -93,6 +105,39 @@ export function AgentEditor({ session, agents, onClose }: Props) {
         emptyLabel="Preset default"
         onChange={(modelHandle) => setDraft({ ...draft, modelHandle })}
       />
+
+      <div className="field">
+        Avatar
+        <div className="avatar-row">
+          <AgentAvatar
+            agentId={seed}
+            name={seed}
+            pref={avatar}
+            className="agent-avatar avatar-preview"
+          />
+          <button
+            type="button"
+            className="button ghost compact"
+            onClick={() => setChoosingAvatar(true)}
+          >
+            Choose…
+          </button>
+        </div>
+        <span className="small">Optional — the same sheet an agent's own tab opens.</span>
+      </div>
+
+      {/* A sheet over a sheet: `Sheet` gives Back and Escape to the innermost one,
+          so closing the picker leaves this draft exactly as it was. */}
+      {choosingAvatar ? (
+        <AvatarSheet
+          agentId={seed}
+          name={seed}
+          pref={avatar}
+          onPick={(next) => setDraft({ ...draft, avatar: next })}
+          onClose={() => setChoosingAvatar(false)}
+          note="Applied as soon as the agent is created. Pick no colour and it gets the one its new id hashes to."
+        />
+      ) : null}
     </Sheet>
   );
 }

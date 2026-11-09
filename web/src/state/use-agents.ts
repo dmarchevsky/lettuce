@@ -56,6 +56,12 @@ export interface AgentDraft {
   name: string;
   system: string;
   modelHandle: string | null;
+  /**
+   * A face staged before the agent exists (the New agent sheet). It is not part of
+   * the agent record — it is the BFF's pref, written for the new id right after
+   * creation — which is why it is optional and why `updateAgent` ignores it.
+   */
+  avatar?: AvatarPref;
 }
 
 export interface ConversationSummary {
@@ -144,7 +150,8 @@ export interface AgentsApi {
   refreshAgents: () => Promise<void>;
   refreshConversations: (agentId: string) => Promise<void>;
   retrieveAgent: (agentId: string) => Promise<AgentDetail>;
-  createAgent: (preset: AgentPreset, draft: AgentDraft) => Promise<void>;
+  /** Creates the agent and returns its id, so a staged face can be applied to it. */
+  createAgent: (preset: AgentPreset, draft: AgentDraft) => Promise<string>;
   updateAgent: (agentId: string, draft: AgentDraft) => Promise<void>;
   deleteAgent: (agentId: string) => Promise<void>;
   /** Agent ids pinned to the top of every agent list; `agents` is already in that order. */
@@ -161,8 +168,14 @@ export interface AgentsApi {
   /** Writes one agent's choice; an empty pref resets it to the derived default. */
   setAvatar: (
     agentId: string,
-    pref: { tint?: string | null; glyph?: string | null },
+    pref: { tint?: string | null; glyph?: string | null; image?: string | null },
   ) => Promise<void>;
+  /**
+   * Refetches the avatar prefs (and pins/archive) after the library changed out of
+   * band: deleting a shared face cleared it off every agent wearing it, and only
+   * the BFF knows which those were.
+   */
+  refreshAvatars: () => Promise<void>;
   createConversation: () => Promise<void>;
   renameConversation: (conversationId: string, summary: string) => Promise<void>;
   /** Name an untitled conversation after the first thing the user said. */
@@ -431,8 +444,17 @@ export function useAgents(session: SessionApi): AgentsApi {
       // `refreshConversations` (run when the agent changes) keeps this
       // selection, since the new conversation is in the list it fetches.
       setConversationId(firstConversation);
+
+      // A face picked before the agent existed is applied last and is not fatal:
+      // "created, but its face did not stick" beats "nothing happened", and the fix
+      // is one `Choose…` on the new agent's own tab.
+      const staged = draft.avatar ?? {};
+      if (staged.tint !== undefined || staged.glyph !== undefined || staged.image !== undefined) {
+        await setAvatar(created, staged);
+      }
+      return created;
     },
-    [request, refreshAgents],
+    [request, refreshAgents, setAvatar],
   );
 
   const updateAgent = useCallback(
@@ -544,6 +566,7 @@ export function useAgents(session: SessionApi): AgentsApi {
     setAgentArchived,
     avatars: avatarPrefs,
     setAvatar,
+    refreshAvatars: loadFlags,
     createConversation,
     renameConversation,
     autoTitleConversation,
