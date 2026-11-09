@@ -25,10 +25,17 @@ import { appendToDraft, draftKey, readDraft } from "./lib/draft.ts";
 import { friendlyServerError } from "./lib/errors.ts";
 import { applyFavicon } from "./lib/favicon.ts";
 import { type FeatureFlags, featureEnabled } from "./lib/features.ts";
+import { type Filters, readFilters, writeFilters } from "./lib/filters.ts";
 import { markFreshConversation } from "./lib/fresh-conversations.ts";
 import { userHistory } from "./lib/input-history.ts";
 import { deriveLinkStatus } from "./lib/link-status.ts";
-import { type FilterGroup, filterEntries, toggleShown } from "./lib/messages.ts";
+import {
+  type FilterDetail,
+  type FilterGroup,
+  filterEntries,
+  toggleDetail,
+  toggleShown,
+} from "./lib/messages.ts";
 import { readRunsDeepLink } from "./lib/pi.ts";
 import {
   type Component,
@@ -587,7 +594,12 @@ function Workspace({ status }: { status: Status }) {
   const [showModels, setShowModels] = useState(false);
   /** The New agent sheet. Editing an agent is the Agent tab's General section. */
   const [creatingAgent, setCreatingAgent] = useState(false);
-  const [filters, setFilters] = useState<Set<FilterGroup>>(new Set());
+  /**
+   * Both halves of the transcript filter in one value: the groups shown and the
+   * detail switches off. They share a key, a Reset, and the badge, so they change
+   * together (see `lib/filters.ts`).
+   */
+  const [filters, setFilters] = useState<Filters>(() => readFilters());
   const [showTimestamps, setShowTimestamps] = useState(() => readShowTimestamps());
   /** Text an "Edit" put on its way to the composer; cleared once it lands. */
   const [prefill, setPrefill] = useState<string | null>(null);
@@ -662,7 +674,7 @@ function Workspace({ status }: { status: Status }) {
     : null;
 
   const visibleEntries = useMemo(
-    () => filterEntries(conversation.entries, filters),
+    () => filterEntries(conversation.entries, filters.groups, filters.hidden),
     [conversation.entries, filters],
   );
 
@@ -689,8 +701,19 @@ function Workspace({ status }: { status: Status }) {
     selectPane("Agent");
   };
 
+  /** Remembered on the device, then shown — the timestamps toggle's shape. */
+  const applyFilters = useCallback((next: Filters) => {
+    writeFilters(next);
+    setFilters(next);
+  }, []);
+
   const toggleFilter = (group: FilterGroup) => {
-    setFilters((current) => toggleShown(current, group));
+    applyFilters({ groups: toggleShown(filters.groups, group), hidden: filters.hidden });
+  };
+
+  /** A switch inside a group. Its value is independent of the group's own. */
+  const toggleDetailShown = (detail: FilterDetail) => {
+    applyFilters({ groups: filters.groups, hidden: toggleDetail(filters.hidden, detail) });
   };
 
   // SIGNIN=none mints a session for whoever reaches the socket, which is only
@@ -1032,9 +1055,11 @@ function Workspace({ status }: { status: Status }) {
                 usage: conversation.turnUsage,
                 liveSubagents: conversation.liveSubagents,
               }}
-              filters={filters}
+              filters={filters.groups}
+              hiddenDetails={filters.hidden}
               onToggleFilter={toggleFilter}
-              onClearFilters={() => setFilters(new Set())}
+              onToggleDetail={toggleDetailShown}
+              onClearFilters={() => applyFilters({ groups: new Set(), hidden: new Set() })}
               showTimestamps={showTimestamps}
               onShowTimestamps={onShowTimestamps}
               permissionMode={conversation.permissionMode}
