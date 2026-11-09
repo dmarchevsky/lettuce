@@ -119,7 +119,8 @@ export interface TranscriptEntry {
   subagentId?: string;
 }
 
-const FILTER_GROUPS: Record<EntryKind, FilterGroup> = {
+/** Which group each kind of entry belongs to — the taxonomy the sheet is built on. */
+export const FILTER_GROUPS: Record<EntryKind, FilterGroup> = {
   user: "user",
   assistant: "agent",
   reasoning: "agent",

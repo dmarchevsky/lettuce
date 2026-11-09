@@ -5,8 +5,12 @@ import {
   addLocalUserMessage,
   applyStreamDelta,
   createStreamIndex,
+  DETAIL_PARENT,
   detailEnabled,
+  detailOfKind,
   detailsSummary,
+  type EntryKind,
+  FILTER_GROUPS,
   FILTER_ORDER,
   type FilterDetail,
   type FilterGroup,
@@ -439,8 +443,55 @@ describe("detail switches (the Filter sheet's Details section)", () => {
   test("Tool runs hides the calls and their returns but keeps the Telegram card", () => {
     const shown = ids(new Set<FilterDetail>(["tool_runs"]));
     expect(shown).not.toContain("c");
-    expect(shown).not.toContain("r");
+    expect(shown).not.toContain("return:tc-1");
+    expect(shown).not.toContain("mc");
+    expect(shown).not.toContain("return:tc-2");
     expect(shown).toContain("channel-send:tc-2");
+  });
+
+  test("every kind is reached by the switch the sheet says, in the group it nests under", () => {
+    // The table is the claim, so changing one cell has to be a decision: a kind
+    // listed here is hidden by that switch, and its group must be the one the
+    // switch nests under, or `detailEnabled` says something false.
+    const reached: Partial<Record<EntryKind, FilterDetail>> = {
+      reasoning: "thinking",
+      tool_call: "tool_runs",
+      tool_return: "tool_runs",
+      approval_request: "tool_runs",
+      approval_response: "tool_runs",
+      channel_send: "channel",
+    };
+    const every: EntryKind[] = [
+      "user",
+      "assistant",
+      "reasoning",
+      "tool_call",
+      "tool_return",
+      "system",
+      "task",
+      "approval_request",
+      "approval_response",
+      "event",
+      "notice",
+      "question",
+      "pi_run",
+      "channel_send",
+    ];
+    for (const kind of every) {
+      expect(detailOfKind(kind)).toBe(reached[kind] ?? null);
+      const detail = detailOfKind(kind);
+      if (detail) expect(FILTER_GROUPS[kind]).toBe(DETAIL_PARENT[detail]);
+    }
+  });
+
+  test("a question and a remote-pi card answer to no switch: both must stay", () => {
+    // Hiding the step a turn is waiting on would hide the reason to come back.
+    const waiting: TranscriptEntry[] = [
+      { id: "q", kind: "question", date: "d", seenAt: 1, text: "Which one?" },
+      { id: "p", kind: "pi_run", date: "d", seenAt: 2, text: "run 1" },
+    ];
+    const allOff = new Set<FilterDetail>(["thinking", "tool_runs", "channel"]);
+    expect(filterEntries(waiting, new Set(), allOff).map((e) => e.id)).toEqual(["q", "p"]);
   });
 
   test("Channel messages hides the promoted card, not the call behind it", () => {
