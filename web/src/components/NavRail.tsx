@@ -175,7 +175,7 @@ export function NavRail({
       onOpenPanel();
       return;
     }
-    // Another agent answers "who", not "where". Switching while you are looking at
+    // One agent answers "who", not "where". Switching while you are looking at
     // Files stays on Files, with the new agent's files: being thrown to Chat made the
     // avatars a place you dared not click while something else was open.
     agents.selectAgent(agent.id);
@@ -294,7 +294,15 @@ export function NavRail({
               setMenu({ agent, anchor: event.currentTarget.getBoundingClientRect() });
             }}
           >
-            <AgentAvatar agentId={agent.id} name={agent.name} pref={agents.avatars[agent.id]} />
+            <AgentAvatar agentId={agent.id} name={agent.name} pref={agents.avatars[agent.id]}>
+              {/* Pinned is a gold pushpin on the face — the same glyph the
+                  switcher's rows already mark with, where a dot never fitted. */}
+              {agents.pinned.has(agent.id) ? (
+                <span className="agent-pin">
+                  <Icon name="pin" />
+                </span>
+              ) : null}
+            </AgentAvatar>
             <span className="rail-agent-name">{agent.name}</span>
           </button>
         ))}

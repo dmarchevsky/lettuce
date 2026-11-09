@@ -282,7 +282,7 @@ pre {
 }
 .rail-agent .agent-avatar {
   /* Small because it shares the row with its name now: the face is a mark, the
-     word says who. The responding dot and the pinned notch hang off it. */
+     word says who. The responding dot and the pushpin hang off it. */
   position: relative;
   width: 22px;
   height: 22px;
@@ -341,18 +341,26 @@ pre {
 .rail-agent.responding .rail-agent-name {
   color: var(--ok);
 }
-/* Pinned is a gold notch, not the accent: the accent ring already means "this is
-   the agent you are talking to", and the two must be readable at once. */
-.rail-agent.pinned .agent-avatar::before {
-  content: "";
+/* Pinned is a gold pushpin, not the accent: the ring and the left bar already
+   mean "this is the agent you are talking to", and the two must be readable at
+   once. The glyph is the switcher's own pin — the mark its rows wear before a
+   pinned name — and the surface halo keeps it crisp on every tint, the way the
+   responding dot's ring does at the other corner. */
+.rail-agent .agent-avatar .agent-pin {
   position: absolute;
-  top: -2px;
-  right: -2px;
-  width: 6px;
-  height: 6px;
-  background: var(--warn);
-  border: 2px solid var(--surface);
+  top: -4px;
+  right: -5px;
+  width: 13px;
+  height: 13px;
+  padding: 2px;
+  color: var(--warn);
+  background: var(--surface);
   border-radius: var(--radius-round);
+}
+.rail-agent .agent-avatar .agent-pin .icon {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 /* The cells that are not agents: New-agent at the end of the list, and the two foot
    cells under it — `.rail-door` is Settings' door in the main rail, `.rail-all` the
