@@ -3094,14 +3094,6 @@ p.warning code,
   .rail {
     display: none;
   }
-  /* The conversation list stops where the bar starts. The bar is how the list is
-     opened AND how it is closed (Chat again), and a bar painted over is a bar you
-     cannot press; shortening the list's box instead of re-stacking it also leaves
-     every sheet and ⋯ opened from inside the list free to cover the bar, which a
-     full interruption should. */
-  .switcher {
-    inset: 0 0 calc(var(--bar-h) + env(safe-area-inset-bottom));
-  }
 
   .bubble {
     max-width: 92%;
@@ -4192,6 +4184,17 @@ textarea.mono {
   background: var(--bg);
   display: flex;
   justify-content: center;
+}
+/* On a phone the list STOPS where the bar starts rather than being painted over by
+   it: the bar is how the list opens and how it closes (Chat again), and a bar you
+   cannot press is not a bar. Shortening the box — instead of re-stacking it — also
+   leaves every sheet and ⋯ opened from inside the list free to cover the bar, which
+   a full interruption should. It sits here, after the rule above, because they are
+   the same specificity and this one has to win. */
+@media (max-width: 899px) {
+  .switcher {
+    inset: 0 0 calc(var(--bar-h) + env(safe-area-inset-bottom));
+  }
 }
 .switcher-panel {
   flex: 1;

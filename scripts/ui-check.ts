@@ -1952,46 +1952,35 @@ try {
 
     // The same verbs are on screen now, not only under the right button: resting on a
     // row reveals its ⋯ at the right end, and the ⋯ opens that same menu. The row is
-    // `.rail-agent-row` because a button cannot contain a button.
-    const agentRow = page.locator(".rail .rail-agent-row").first();
-    const rowMore = agentRow.locator(".rail-agent-more");
-    const restOpacity = await rowMore.evaluate((el) => getComputedStyle(el).opacity);
-    await agentRow.hover();
+    // `.rail-agent-row` because a button cannot contain a button. The pointer is
+    // measured away from the rail first — the right-click above left it on the row, and
+    // "quiet at rest" read as 1 until the pointer actually left.
+    const railRow = page.locator(".rail .rail-agent-row").first();
+    const railMore = railRow.locator(".rail-agent-more");
+    // Away from the rail AND off the row: the ⋯ stays lit for a focused row too, and
+    // the right-click above left focus on one.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.mouse.move(4, 4);
     await page.waitForTimeout(250);
-    const hoverOpacity = await rowMore.evaluate((el) => getComputedStyle(el).opacity);
+    const restOpacity = await railMore.evaluate((el) => getComputedStyle(el).opacity);
+    await railRow.hover();
+    await page.waitForTimeout(250);
+    const hoverOpacity = await railMore.evaluate((el) => getComputedStyle(el).opacity);
     check(
       "an agent row keeps its ⋯ quiet at rest and reveals it on hover",
       Number(restOpacity) === 0 && Number(hoverOpacity) === 1,
       { restOpacity, hoverOpacity },
     );
-    await rowMore.click();
-    await page.waitForTimeout(300);
+    await railMore.click();
+    await page.waitForTimeout(250);
     check("the row's ⋯ opens the agent menu", (await page.locator(".agent-menu").count()) === 1);
     await shot(page, "desktop-rail-agent-more");
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(300);
-
-    // Those verbs are on screen now, not only under the right button: a hover on the
-    // row reveals a ⋯ at its right end, which opens the same menu. The row is a
-    // wrapper (`.rail-agent-row`) because a button cannot hold a button.
-    const railRow = page.locator(".rail .rail-agent-row").first();
-    const railMore = railRow.locator(".rail-agent-more");
-    check(
-      "the row's ⋯ is quiet at rest",
-      (await railMore.evaluate((el) => getComputedStyle(el).opacity)) === "0",
-    );
-    await railRow.hover();
     await page.waitForTimeout(250);
-    check(
-      "hovering the row reveals its ⋯",
-      Number(await railMore.evaluate((el) => getComputedStyle(el).opacity)) > 0.5,
-    );
-    await railMore.click();
-    await page.waitForTimeout(250);
-    check("and the ⋯ opens the agent menu", (await page.locator(".agent-menu").count()) === 1);
-    await shot(page, "desktop-rail-agent-more");
-    await page.keyboard.press("Escape");
-    await page.waitForTimeout(250);
+    // The pointer leaves the rail: a row left hovered keeps its ⋯ lit, and the next
+    // section clicks inside a sheet whose corner is under this column.
+    await page.mouse.move(4, 4);
+    await page.waitForTimeout(200);
     check(
       "desktop ⋯ menus wear the rail row scale (30px rows)",
       Math.round(deskRow?.height ?? 0) === 30,
