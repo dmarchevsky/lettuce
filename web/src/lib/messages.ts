@@ -36,6 +36,13 @@ export type EntryKind =
 /** The filter groups offered in the UI. */
 export type FilterGroup = "user" | "agent" | "tools" | "tasks" | "system";
 
+/**
+ * A switch *inside* a group — the finer cut behind the Filter sheet's Details
+ * section. Each one carves a piece out of exactly one group (see `DETAIL_PARENT`)
+ * and so means nothing while that group is off.
+ */
+export type FilterDetail = "thinking" | "tool_runs" | "channel";
+
 export interface TranscriptEntry {
   id: string;
   kind: EntryKind;
@@ -112,7 +119,8 @@ export interface TranscriptEntry {
   subagentId?: string;
 }
 
-const FILTER_GROUPS: Record<EntryKind, FilterGroup> = {
+/** Which group each kind of entry belongs to — the taxonomy the sheet is built on. */
+export const FILTER_GROUPS: Record<EntryKind, FilterGroup> = {
   user: "user",
   assistant: "agent",
   reasoning: "agent",
@@ -132,7 +140,7 @@ const FILTER_GROUPS: Record<EntryKind, FilterGroup> = {
   pi_run: "tools",
   // A message the agent sent on Telegram/Slack. With the Tools switch off you
   // have asked not to see tool activity, and this is tool activity — but unlike
-  // a run card it is content, so it hides only alongside the calls it reports.
+  // a run card it is content, so it also has its own switch (`channel`).
   channel_send: "tools",
 };
 
@@ -143,6 +151,51 @@ export const FILTER_LABELS: Record<FilterGroup, string> = {
   tasks: "Tasks",
   system: "System",
 };
+
+/** The detail switches, in the order the Details section lists them. */
+export const DETAIL_ORDER: readonly FilterDetail[] = ["thinking", "tool_runs", "channel"];
+
+export const DETAIL_LABELS: Record<FilterDetail, string> = {
+  thinking: "Thinking",
+  tool_runs: "Tool runs",
+  channel: "Channel messages",
+};
+
+/** The line under each switch's title: what exactly it takes away. */
+export const DETAIL_DESCRIPTIONS: Record<FilterDetail, string> = {
+  thinking: "Reasoning, on its own and inside a run",
+  tool_runs: "The steps folded inside a run",
+  channel: "What the agent posted to Telegram",
+};
+
+/** The group a switch nests under, so its row can ride along with it. */
+export const DETAIL_PARENT: Record<FilterDetail, FilterGroup> = {
+  thinking: "agent",
+  tool_runs: "tools",
+  channel: "tools",
+};
+
+/** What a switch hides, per entry kind — `null` for what no switch reaches.
+ *
+ * `question` and `pi_run` answer to nothing here on purpose: a question has to be
+ * seen to be answered and a run card is live, so neither may hide behind the
+ * "Tool runs" fold alongside a finished step.
+ */
+export function detailOfKind(kind: EntryKind): FilterDetail | null {
+  switch (kind) {
+    case "reasoning":
+      return "thinking";
+    case "tool_call":
+    case "tool_return":
+    case "approval_request":
+    case "approval_response":
+      return "tool_runs";
+    case "channel_send":
+      return "channel";
+    default:
+      return null;
+  }
+}
 
 /** One image attached to a message, rendered from a `data:` URL. */
 export interface TranscriptImage {
@@ -672,12 +725,95 @@ export function toggleShown(
   return shown.size === FILTER_ORDER.length ? new Set() : shown;
 }
 
+/** Nothing switched off inside a group — every detail on screen. */
+export const NO_DETAILS: ReadonlySet<FilterDetail> = new Set<FilterDetail>();
+
+/**
+ * Whether a detail switch may be used: its parent group is on screen.
+ *
+ * A switch under a hidden group is disabled rather than reset — see `toggleDetail`.
+ */
+export function detailEnabled(active: ReadonlySet<FilterGroup>, detail: FilterDetail): boolean {
+  return isShown(active, DETAIL_PARENT[detail]);
+}
+
+/** Whether an entry survives the detail switches, once its group is shown. */
+function detailShown(hidden: ReadonlySet<FilterDetail>, kind: EntryKind): boolean {
+  const detail = detailOfKind(kind);
+  return detail === null || !hidden.has(detail);
+}
+
+/**
+ * Tick or untick one detail switch (ticked = shown, the sheet's one rule).
+ *
+ * Unlike a group, every detail of a group may be unticked: what is left is the
+ * group's rest (a question, a live run card), not nothing. And a switch under a
+ * hidden group keeps its own tick — hiding Tools wholesale then showing it again
+ * restores the details as they were, which is why the set is never touched by a
+ * group toggle.
+ */
+export function toggleDetail(
+  hidden: ReadonlySet<FilterDetail>,
+  detail: FilterDetail,
+): Set<FilterDetail> {
+  const next = new Set(hidden);
+  if (next.has(detail)) next.delete(detail);
+  else next.add(detail);
+  return next;
+}
+
+/**
+ * How many switches are off, groups and details together (the composer's badge).
+ *
+ * A detail under a hidden group does not count twice: the group is already off.
+ */
+export function activeFilterCount(
+  active: ReadonlySet<FilterGroup>,
+  hidden: ReadonlySet<FilterDetail> = NO_DETAILS,
+): number {
+  const groups = FILTER_ORDER.filter((group) => !isShown(active, group)).length;
+  const details = DETAIL_ORDER.filter(
+    (detail) => hidden.has(detail) && isShown(active, DETAIL_PARENT[detail]),
+  ).length;
+  return groups + details;
+}
+
+/**
+ * The Details section's summary line: what is hidden, named, or "All shown".
+ *
+ * A collapsed section must not hide a fact you needed, so the header says what is
+ * behind it — the rule the Model sheet's Toolset section follows. A hidden group
+ * is named once rather than as each of the details it takes with it.
+ */
+export function detailsSummary(
+  active: ReadonlySet<FilterGroup>,
+  hidden: ReadonlySet<FilterDetail> = NO_DETAILS,
+): string {
+  const off = FILTER_ORDER.filter((group) => !isShown(active, group)).map(
+    (group) => FILTER_LABELS[group],
+  );
+  for (const detail of DETAIL_ORDER) {
+    if (hidden.has(detail) && isShown(active, DETAIL_PARENT[detail])) {
+      off.push(DETAIL_LABELS[detail]);
+    }
+  }
+  return off.length === 0 ? "All shown" : `${off.join(", ")} hidden`;
+}
+
+/**
+ * The transcript a filter leaves: whole groups first, then what a detail switch
+ * reaches inside the groups still shown. `active` empty means every group and
+ * `hidden` empty every detail, so the default call returns the array untouched.
+ */
 export function filterEntries(
   entries: TranscriptEntry[],
   active: ReadonlySet<FilterGroup>,
+  hidden: ReadonlySet<FilterDetail> = NO_DETAILS,
 ): TranscriptEntry[] {
-  if (active.size === 0) return entries;
-  return entries.filter((entry) => active.has(FILTER_GROUPS[entry.kind]));
+  if (active.size === 0 && hidden.size === 0) return entries;
+  return entries.filter(
+    (entry) => isShown(active, FILTER_GROUPS[entry.kind]) && detailShown(hidden, entry.kind),
+  );
 }
 
 /** One row of the rendered transcript: a message, a notice, or a run of steps. */
@@ -862,7 +998,15 @@ export function groupTranscript(entries: readonly TranscriptEntry[]): Transcript
     counts.set(label, (counts.get(label) ?? 0) + 1);
     run.counts = [...counts];
   }
-  return items;
+  // A run with no steps is not a run. The filter can empty one out (hide the
+  // steps and a turn's narration is all that is left of it), and a fold headed
+  // "0 steps" is a box around nothing — so what is left reads as the agent's
+  // own lines, which is what a step-less run always was.
+  return items.flatMap((item) =>
+    item.kind === "steps" && item.steps === 0
+      ? item.entries.map((entry) => ({ kind: "message", entry }) as TranscriptItem)
+      : [item],
+  );
 }
 
 /** Text plus images carried by one Letta `content` field. */

@@ -1105,6 +1105,31 @@ try {
       groupStates.length === 5 && groupStates.every((state) => state === "true"),
       groupStates,
     );
+    // The finer cuts, behind one disclosure: three switches, collapsed on every
+    // open like the Model sheet's Toolset, and a header naming what is hidden.
+    const details = page.locator(".sheet-panel .menu-collapsible");
+    check("the filter sheet has a Details section", (await details.count()) === 1);
+    check("Details starts collapsed", (await details.getAttribute("open")) === null);
+    await details.locator("summary").click();
+    const detailNames = await details.locator(".menu-row-title").allInnerTexts();
+    check(
+      "three detail switches incl. Thinking",
+      detailNames.length === 3 && detailNames.some((n) => n.includes("Thinking")),
+      detailNames,
+    );
+    await details.locator(".menu-row", { hasText: "Thinking" }).click();
+    check(
+      "the Details header names what is hidden",
+      (await details.locator(".menu-section-value").innerText()).includes("Thinking"),
+    );
+    const detailsOverflow = await overflow(page);
+    check(
+      "the open Details section does not overflow the phone",
+      detailsOverflow.clipped.length === 0,
+      detailsOverflow.clipped,
+    );
+    // Back to everything shown, so the transcript checks below read the default.
+    await details.locator(".menu-row", { hasText: "Thinking" }).click();
     // Timestamps: on by default, and the filter-sheet toggle hides them.
     const timestampToggle = page.locator(".sheet-panel .menu-row", { hasText: "Timestamps" });
     const toggleInput = {

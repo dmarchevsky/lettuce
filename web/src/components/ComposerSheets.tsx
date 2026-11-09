@@ -1,6 +1,20 @@
-import { FILTER_LABELS, FILTER_ORDER, type FilterGroup, isShown } from "../lib/messages.ts";
+import {
+  activeFilterCount,
+  DETAIL_DESCRIPTIONS,
+  DETAIL_LABELS,
+  DETAIL_ORDER,
+  DETAIL_PARENT,
+  detailEnabled,
+  detailsSummary,
+  FILTER_LABELS,
+  FILTER_ORDER,
+  type FilterDetail,
+  type FilterGroup,
+  isShown,
+} from "../lib/messages.ts";
 import { parseResponseFormat } from "../lib/structured-output.ts";
 import { PERMISSION_MODES, type PermissionMode } from "../lib/workspace.ts";
+import { Icon } from "./Icon.tsx";
 import { MenuRow } from "./MenuRow.tsx";
 import { Sheet } from "./Sheet.tsx";
 
@@ -14,6 +28,8 @@ import { Sheet } from "./Sheet.tsx";
 export function FilterSheet({
   active,
   onToggle,
+  hidden,
+  onToggleDetail,
   onClear,
   showTimestamps,
   onShowTimestamps,
@@ -21,6 +37,8 @@ export function FilterSheet({
 }: {
   active: ReadonlySet<FilterGroup>;
   onToggle: (group: FilterGroup) => void;
+  hidden: ReadonlySet<FilterDetail>;
+  onToggleDetail: (detail: FilterDetail) => void;
   onClear: () => void;
   showTimestamps: boolean;
   onShowTimestamps: (show: boolean) => void;
@@ -34,7 +52,7 @@ export function FilterSheet({
         <button
           type="button"
           className="sheet-head-text"
-          disabled={active.size === 0}
+          disabled={activeFilterCount(active, hidden) === 0}
           onClick={onClear}
         >
           Reset
@@ -59,6 +77,40 @@ export function FilterSheet({
           );
         })}
       </ul>
+
+      {/* The finer cuts, behind one disclosure so the five rows a reader uses stay
+          the sheet's whole first screen. Collapsed on every open like the Model
+          sheet's Toolset, and its header names what is hidden, so nothing needed
+          is behind a fold. */}
+      <details className="menu-collapsible">
+        <summary>
+          <span className="menu-section">Details</span>
+          <span className="menu-section-value">{detailsSummary(active, hidden)}</span>
+          <Icon name="chevron-right" className="menu-collapsible-mark" />
+        </summary>
+        <ul className="menu-list">
+          {DETAIL_ORDER.map((detail) => {
+            // A switch whose whole group is hidden rides with it: disabled, and
+            // still showing its own tick, so showing the group back restores it.
+            const reachable = detailEnabled(active, detail);
+            return (
+              <MenuRow
+                key={detail}
+                title={DETAIL_LABELS[detail]}
+                description={
+                  reachable
+                    ? DETAIL_DESCRIPTIONS[detail]
+                    : `Hidden with ${FILTER_LABELS[DETAIL_PARENT[detail]]}`
+                }
+                mark="checkbox"
+                selected={!hidden.has(detail)}
+                disabled={!reachable}
+                onClick={() => onToggleDetail(detail)}
+              />
+            );
+          })}
+        </ul>
+      </details>
 
       <p className="menu-section">Display</p>
       <ul className="menu-list">
