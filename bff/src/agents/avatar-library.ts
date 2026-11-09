@@ -228,8 +228,11 @@ export class AvatarImageLibrary {
       return { status: 415, error: "Could not read the image dimensions" };
     }
     if (size.width > MAX_AVATAR_IMAGE_DIMENSION || size.height > MAX_AVATAR_IMAGE_DIMENSION) {
+      // 413, not 415: the type is perfectly acceptable, this particular picture is
+      // too big — a client deciding "offer a smaller file" versus "offer a
+      // different format" reads it off this code, not off the sentence.
       return {
-        status: 415,
+        status: 413,
         error: `An image must be ${MAX_AVATAR_IMAGE_DIMENSION}px or smaller (this one is ${size.width}x${size.height})`,
       };
     }

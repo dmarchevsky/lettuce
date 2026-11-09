@@ -85,6 +85,30 @@ test("a literal route is registered before the parameterised route that would sw
   }
 });
 
+/**
+ * The same ordering fact now holds a performance claim. `app.use("*")` below
+ * every route rewrites `cache-control` on anything it wraps — `no-store` for a
+ * path that is not under `/assets/` — and Hono only runs middleware registered
+ * before the matched route. So the year of `immutable` that a face's hashed URL
+ * earns exists only while the route sits above it: drag it down with a refactor
+ * and every face refetches on every open, with every test still green.
+ */
+test("the face route sits above the static cache policy that would swallow its header", () => {
+  const route = source.indexOf('app.get("/api/avatars/:id"');
+  // Anchored on the sentence only the cache policy writes, because there are three
+  // `app.use("*")` middlewares in this file and only one of them rewrites cache
+  // headers. Read backwards from it to the middleware that owns the line.
+  const policyLine = source.indexOf("must-revalidate");
+  const staticPolicy = source.lastIndexOf('app.use("*", async (c, next)', policyLine);
+  expect(route, 'index.ts no longer registers app.get("/api/avatars/:id")').toBeGreaterThan(0);
+  expect(
+    policyLine,
+    "index.ts no longer has the static cache policy that answers no-store",
+  ).toBeGreaterThan(0);
+  expect(staticPolicy).toBeGreaterThan(0);
+  expect(route).toBeLessThan(staticPolicy);
+});
+
 test("no route family is mounted above the session gates", () => {
   const gateAt = Math.min(...GATES.map((gate) => source.indexOf(gate.marker)));
   expect(gateAt).toBeGreaterThan(0);

@@ -225,9 +225,13 @@ describe("AvatarImageLibrary", () => {
   test("a header claiming 4096px is refused before anything is written", () => {
     const dir = dirIn();
     const lib = new AvatarImageLibrary(dir);
-    expect(lib.put(pngHeader(4096, 4096))).toMatchObject({ status: 415 });
-    expect(lib.put(jpeg(513, 40))).toMatchObject({ status: 415 });
-    expect(lib.put(webp(40, 513))).toMatchObject({ status: 415 });
+    const tooBig = lib.put(pngHeader(4096, 4096));
+    // 413, not 415: the type is fine and the size is not, and the sentence has to say
+    // what to do about it rather than merely no.
+    expect(tooBig).toMatchObject({ status: 413 });
+    expect("id" in tooBig ? tooBig.id : tooBig.error).toContain("512px or smaller");
+    expect(lib.put(jpeg(513, 40))).toMatchObject({ status: 413 });
+    expect(lib.put(webp(40, 513))).toMatchObject({ status: 413 });
     expect(lib.put(png(512, 512))).toHaveProperty("id");
     expect(readdirSync(dir)).toHaveLength(1);
   });

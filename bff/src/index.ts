@@ -1326,6 +1326,14 @@ app.put("/api/agents/avatar/:agentId", async (c) => {
       400,
     );
   }
+  // A pref may not name a face the library does not hold: an agent pointing at
+  // missing bytes has no face at all — the picture is blank and the letter is gone
+  // behind it. The obvious way to get there is another tab deleting the face
+  // between this screen loading and saving, which is why the check is here and not
+  // only in the UI that lists the faces.
+  if (pref.image && !avatarImages.get(pref.image)) {
+    return c.text("That face is no longer in the library", 409);
+  }
   agentAvatars.set(agentId, pref);
   avatarRecents.push(pref.glyph);
   return c.json({ avatars: agentAvatars.all(), recents: avatarRecents.list() });
@@ -1372,7 +1380,10 @@ app.get("/api/avatars/:id", (c) => {
   return hardenedResponse(hardened, image.bytes, {
     "content-type": image.contentType,
     "content-length": String(image.bytes.byteLength),
-    "cache-control": "public, max-age=31536000, immutable",
+    // `private`, not `public` like the hashed static bundle below: this route
+    // answers only to a session cookie, and a CDN in front of the app would
+    // happily serve a face from its cache to whoever held the URL.
+    "cache-control": "private, max-age=31536000, immutable",
   });
 });
 

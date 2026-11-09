@@ -39,6 +39,23 @@ describe("parseAvatarPref", () => {
     expect(parseAvatarPref({ tint: "#7aa2f7", glyph: "  " })).toEqual({ tint: "#7aa2f7" });
   });
 
+  test("a stored glyph comes back exactly as it was picked", () => {
+    // The emoji presentation selector is not decoration: ☠ without it is the
+    // text-presentation codepoint, and a stored glyph that differs from the tile
+    // is a picker that cannot show which face the agent is already wearing.
+    for (const glyph of ["☠️", "✉️", "⚙️", "🛠️", "❄️", "🧠", "🦊", "ab"]) {
+      expect(normalizeGlyph(glyph)).toBe(glyph);
+    }
+  });
+
+  test("the count still ignores modifiers, which is why they are stripped to count", () => {
+    // 🛠️ is three codepoints and one grapheme; the cap is about graphemes.
+    expect(normalizeGlyph("🛠️")).toBe("🛠️");
+    expect(normalizeGlyph("🛠️✍️")).toBe("🛠️✍️");
+    expect(normalizeGlyph("🛠️✍️☠️")).toBeNull();
+    expect(normalizeGlyph("\uFE0F")).toBeNull();
+  });
+
   test("one bad field rejects the whole body rather than storing half of it", () => {
     expect(parseAvatarPref({ tint: "#7aa2f7", glyph: "too many graphemes" })).toBeNull();
   });
@@ -46,10 +63,19 @@ describe("parseAvatarPref", () => {
   test("an image is a face id and nothing else", () => {
     const id = "0123456789abcdef";
     expect(parseAvatarPref({ image: id })).toEqual({ image: id });
-    expect(parseAvatarPref({ tint: "#7aa2f7", glyph: "🦊", image: id })).toEqual({
+    expect(parseAvatarPref({ tint: "#7aa2f7", image: id })).toEqual({
       tint: "#7aa2f7",
-      glyph: "🦊",
       image: id,
+    });
+  });
+
+  test("a glyph and a face together is refused, not stored", () => {
+    // The sheet cannot stage both, but a pref that carried both would mean an
+    // agent flipping back to a hidden glyph the day its uploaded face was
+    // deleted — while the UI told the operator it was back to a letter.
+    expect(parseAvatarPref({ glyph: "🦊", image: "0123456789abcdef" })).toBeNull();
+    expect(parseAvatarPref({ glyph: "", image: "0123456789abcdef" })).toEqual({
+      image: "0123456789abcdef",
     });
   });
 
@@ -80,12 +106,15 @@ describe("normalizeGlyph", () => {
     expect(normalizeGlyph("🦊")).toBe("🦊");
   });
 
-  test("a variation selector is not a second grapheme", () => {
-    expect(normalizeGlyph("🛠️")).toBe("🛠");
+  test("a variation selector is not a second grapheme, and is kept anyway", () => {
+    // The count ignores U+FE0F; the value does not. Returning the stripped "🛠" would
+    // hand back the text-presentation codepoint and a pref that no longer equals the
+    // tile it came from.
+    expect(normalizeGlyph("🛠️")).toBe("🛠️");
   });
 
-  test("a skin-tone modifier is folded into its base emoji", () => {
-    expect(normalizeGlyph("👍🏽")).toBe("👍");
+  test("a skin-tone modifier is one grapheme with its base emoji, and is kept", () => {
+    expect(normalizeGlyph("👍🏽")).toBe("👍🏽");
   });
 
   test("a ZWJ sequence counts as the one glyph it renders as", () => {

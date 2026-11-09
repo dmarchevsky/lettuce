@@ -43,7 +43,12 @@ export function isAvatarImageId(value: unknown): value is string {
  */
 const INVISIBLE = /[\u200B\u200C\u200E\u200F\u202A-\u202E\u2060\u2061-\u2064\u2066-\u2069\uFEFF]/;
 
-/** Emoji presentation and skin-tone modifiers, stripped before counting. */
+/** Emoji presentation and skin-tone modifiers, stripped **only to count**.
+ * They are never stripped from what is stored: U+FE0F is what says "draw this as
+ * an emoji", so saving ☠️ as ☠ hands back the text-presentation codepoint — a
+ * different-looking mark in many fonts — and the tile in the picker no longer
+ * equals the stored glyph, so an agent's own face stops being highlighted when the
+ * sheet reopens. 26 of the library's 144 glyphs carry one. */
 const EMOJI_MODIFIERS = /[\uFE0E\uFE0F]|[\u{1F3FB}-\u{1F3FF}]/gu;
 
 const segmenter: Intl.Segmenter | null =
@@ -59,18 +64,19 @@ function graphemes(value: string): string[] {
 }
 
 /**
- * The glyph as stored, or null when it is not a glyph at all. One to two
- * graphemes so a pasted sentence cannot blow out a 22px circle; modifiers are
- * stripped so 🛠️ is one grapheme, not three. A plain two-letter monogram is
- * accepted on purpose — it is what a two-grapheme cap looks like when someone
- * types instead of picking.
+ * The glyph as stored, or null when it is not a glyph at all. One to two graphemes
+ * so a pasted sentence cannot blow out a 22px circle; the emoji modifiers are
+ * removed for that count and not for the value, so 🛠️ counts as one grapheme and
+ * comes back as the same 🛠️ that was sent. A plain two-letter monogram is accepted
+ * on purpose — it is what a two-grapheme cap looks like when someone types instead
+ * of picking.
  */
 export function normalizeGlyph(raw: string): string | null {
   if (INVISIBLE.test(raw) || /\p{Cc}/u.test(raw)) return null;
-  const stripped = raw.replace(EMOJI_MODIFIERS, "").trim();
-  if (stripped === "") return null;
-  const parts = graphemes(stripped);
-  return parts.length >= 1 && parts.length <= 2 ? parts.join("") : null;
+  const kept = raw.trim();
+  if (kept === "") return null;
+  const parts = graphemes(kept.replace(EMOJI_MODIFIERS, ""));
+  return parts.length >= 1 && parts.length <= 2 ? kept : null;
 }
 
 /**
@@ -101,6 +107,11 @@ export function parseAvatarPref(value: unknown): AgentAvatarPref | null {
     if (id !== "" && !isAvatarImageId(id)) return null;
     if (id !== "") pref.image = id;
   }
+  // A face is a glyph or a picture, never both — and that has to be true of what
+  // is *stored*, not only of what the sheet can stage, because deleting the
+  // uploaded face would otherwise resurrect the hidden glyph under an agent whose
+  // UI says it is back to its letter.
+  if (pref.glyph !== undefined && pref.image !== undefined) return null;
   return pref;
 }
 
