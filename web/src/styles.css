@@ -282,7 +282,7 @@ pre {
 }
 .rail-agent .agent-avatar {
   /* Small because it shares the row with its name now: the face is a mark, the
-     word says who. The responding dot and the pinned notch hang off it. */
+     word says who. The responding dot and the pushpin hang off it. */
   position: relative;
   width: 22px;
   height: 22px;
@@ -341,18 +341,26 @@ pre {
 .rail-agent.responding .rail-agent-name {
   color: var(--ok);
 }
-/* Pinned is a gold notch, not the accent: the accent ring already means "this is
-   the agent you are talking to", and the two must be readable at once. */
-.rail-agent.pinned .agent-avatar::before {
-  content: "";
+/* Pinned is a gold pushpin, in the accent's place and not the accent: the ring
+   and the left bar already mean "this is the agent you are talking to", and the
+   two must be readable at once. The glyph is the switcher's own pin — the mark
+   its rows wear before a pinned name — and the surface halo keeps it crisp on
+   every tint, the way the responding dot's ring does at the other corner. */
+.rail-agent .agent-avatar .agent-pin {
   position: absolute;
-  top: -2px;
-  right: -2px;
-  width: 6px;
-  height: 6px;
-  background: var(--warn);
-  border: 2px solid var(--surface);
+  top: -4px;
+  right: -5px;
+  width: 13px;
+  height: 13px;
+  padding: 2px;
+  color: var(--warn);
+  background: var(--surface);
   border-radius: var(--radius-round);
+}
+.rail-agent .agent-avatar .agent-pin .icon {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 /* The cells that are not agents: New-agent at the end of the list, and the two foot
    cells under it — `.rail-door` is Settings' door in the main rail, `.rail-all` the
@@ -517,21 +525,32 @@ pre {
 .rail-collapsed .rail-foot-word {
   display: none;
 }
-/* Nothing competes with the glyphs once the words go, so they grow into the
-   strip: 28px marks in a 36px row (the row grows only while folded), where
-   the expanded rail can afford 16px in 30px only because the words carry the
-   meaning. The operator picked 28/36 from a mockup sheet. */
+/* Nothing competes with the words once they go, so the strip grows into its
+   marks — but the FACES lead them: 28px faces in a 36px row (the row grows only
+   while folded), and the pane glyphs settle at 24px, above the expanded rail's
+   16px yet clearly under the faces. The old strip had it inverted: 22px faces
+   behind 28px glyphs, so "where" outranked "who". The operator picked
+   28 / 24 / 36 from a mockup sheet. */
 /* Scoped to the nav itself: `.app` also wears this class, and `--rail-row` is
    read outside the rail too (the ⋯ menus size themselves by it) — redefining it
    app-wide would resize every menu the moment the rail folds. */
 nav.rail.rail-collapsed {
   --rail-row: 36px;
 }
+.rail-collapsed .rail-agent .agent-avatar {
+  width: 28px;
+  height: 28px;
+  font-size: 12.5px;
+}
+.rail-collapsed .rail-agent .agent-avatar .agent-pin {
+  width: 15px;
+  height: 15px;
+}
 .rail-collapsed .rail-item .icon,
 .rail-collapsed .rail-new .icon,
 .rail-collapsed .rail-door .icon {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
 }
 /* The phone's bar, under the composer: six equal slots — the Chat pane, the
    secondary panes that earn one, Settings, and More. Identity is not its
