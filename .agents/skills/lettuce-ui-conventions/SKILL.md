@@ -1,6 +1,6 @@
 ---
 name: lettuce-ui-conventions
-description: 'lettuce UI conventions that are ours: pin/archive lists live in the BFF; a viewport-fixed AgentMenu; the desktop rail: AGENTS face+name rows up top (its head pin folds the rail to a 56px glyph strip; the Settings rail never folds), panes above a foot cell (⚙ Settings / ☰ Conversations); ⋯ menus wear the rail row scale at the mouse, fingertip under coarse pointers; the drawer is a pinned column or a peek opened from the band''s agent name, its head pin sharing the rail pin (.col-pin); a phone bar of six equal slots (Chat, Files, Tasks, Tools, Settings, More) under a header carrying the agent''s face; the band''s status light opens the responding list; a non-Chat pane''s corner .pane-close; a one-thread viewer borrows the pane (.pi-session) and closes back to its origin; both nav surfaces stay mounted; the settings split (Agent, Tools, Settings); no native checkbox. Read before touching NavRail, Sidebar, BottomBar, AgentMenu, the Agent/Tools/Settings tabs, settings-sections.ts or tabs.ts.'
+description: 'lettuce UI conventions that are ours: pin/archive lists live in the BFF; a viewport-fixed AgentMenu; the desktop rail: AGENTS rows up top (its pin folds it to a 56px strip; the Settings rail never folds), panes above a foot cell (⚙ Settings / ☰ Conversations); ⋯ menus wear the rail scale at the mouse, fingertip under coarse pointers; the drawer is a pinned column or a peek from the band''s agent name (pin shared with the rail); a phone bar of six equal slots under a header carrying the agent''s face; the band''s status light opens the responding list; a non-Chat pane''s corner .pane-close; a one-thread viewer borrows the pane and closes back to its origin; both nav surfaces stay mounted; the settings split (Agent, Tools, Settings); no native checkbox; an agent's face is one AvatarSheet (stages only) and one AgentAvatar (picture → glyph → letter), stored in the BFF. Read before touching NavRail, Sidebar, BottomBar, AvatarSheet, AgentAvatar, the Agent/Tools/Settings tabs, settings-sections.ts or tabs.ts.'
 ---
 
 # Agent list and sidebar UI conventions
@@ -25,6 +25,20 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   and only the phone switcher brings them back behind "archived agents (N)" — on desktop an
   archived agent has no way back yet (that entry retired with the all-in-one panel list; tracked as
   its own follow-up flow).
+- **An agent's face is one sheet and one component.** The choice (tint, glyph, or an uploaded
+  picture — never two of them, and the BFF refuses a pref that carries both) lives on `bff-data` next
+  to the pin lists, so every device agrees on it; **every** surface renders it through `AgentAvatar`
+  (rail 34px, switcher 32, band/header 22, picker preview 40), which resolves picture → glyph →
+  letter of the name and keeps the letter behind a picture as what to draw when the picture cannot be
+  fetched — an empty disc on the rail reads as a broken app, a plain letter does not.
+  `AvatarSheet` **stages** whatever it picks into the caller's draft and writes nothing until that
+  caller saves, which is how the same sheet serves `Agent → General` and nests inside the New agent
+  form. The 144-glyph library is `web/src/lib/avatar-glyphs.ts` (nothing newer than Emoji 13, or an
+  older iPhone draws tofu in a 22px circle); the shared picture library is
+  `bff/src/agents/avatar-library.ts`, content-addressed so the same upload lands on one URL that can
+  be cached forever, and the **browser** does the resize to a 128px webp because the BFF has no
+  rasteriser and webp is what keeps a cut-out's transparency reading as the agent's colour instead of
+  a white box.
 - **Navigation is two surfaces, one per width, and `web/src/lib/tabs.ts` is the pane list they
   share.** Desktop gets a `--rail-w` (184px) **rail** (`NavRail`): an `AGENTS` group up top — its
   head row carries the group word and, in the right corner, the **collapse pin** — then one
