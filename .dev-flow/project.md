@@ -87,10 +87,21 @@ pays for with a merge and a full CI re-run. Local-only commits on `main`
 setup = cp -n "$(git rev-parse --git-common-dir)/../docker/.env" docker/.env && bun install
 test = bun run verify
 run = docker compose -f docker/compose.yml up -d
-dev = bun run build:bff && docker compose -f docker/compose.yml up -d
-health = curl -fsS http://127.0.0.1:${BFF_PORT:-8090}/readyz
+dev = bun run build:bff && BFF_PORT=${DEV_FLOW_PORT:-8090} COMPOSE_PROJECT_NAME=lettuce$DEV_FLOW_SUFFIX docker compose -f docker/compose.yml up -d
+health = curl -fsS http://127.0.0.1:${DEV_FLOW_PORT:-${BFF_PORT:-8090}}/readyz
 healthWait = 60
+port = 8090
+parallelDev = no
+servedBuild = COMPOSE_PROJECT_NAME=lettuce$DEV_FLOW_SUFFIX docker compose -f docker/compose.yml exec -T bff cat BUILD_INFO
 ```
+
+**One stack per machine: `parallelDev = no`.** Two lettuce instances cannot run side by side here. Both
+would mount the same `$LETTA_STATE_DIR`, and `build:bff` tags its images by `VERSION`, so a second build
+retags the image the first instance runs. So when `flow verify` finds the stack deployed by another live
+flow, it offers only **replace** or **wait** — put both to the operator with the holder it names (slug,
+stage, commit) and never pick for them. `servedBuild` reads the `sha=` line the image bakes into
+`BUILD_INFO`; verify refuses when it is not the worktree's HEAD, which is the "still serving the previous
+bundle" failure `deploy-check` exists for, caught before the operator is asked.
 
 `bun run verify` is the whole offline half (worktree, version pins, prod-info, release hygiene, docs,
 lint, typecheck, tests, build), so no separate `build` key. The commands assume `bun` on PATH, which the
@@ -107,16 +118,16 @@ the worktree, or the state-dir default lands inside `.dev-flow/<slug>/`. It read
 relative `../../` breaks the moment `worktreeDir` changes depth. A failed `setup` fails `flow approve`
 and runs again on the next one; a `--docs` flow skips it.
 
-`flow verify` runs `dev` itself — `build:bff`, then `up -d` — and its `dev ran (…)` line is the record of
-that deploy; do not run the step by hand first, and do not write "no container was rebuilt" into a PR
-whose verify printed it. **That deploy is the one the operator clicks.** The gate deploys before it
-reports, so "keep the app running when you ask Verified?" means leave *this* deploy up while the
-operator reviews — it is not an instruction to hand-run `build:bff` + `up -d` earlier in implement. The
-`flow verify --confirmed` that records the answer runs `dev` again: that re-run is a **re-check** of the
-same stack (the image build is cached and compose converges where nothing changed; `health` proves it
-still serves this build), not a
-second deploy to narrate. The local stack is one per machine and shared, so that `up -d` replaced
-whatever another session was testing — say so out loud. `health` is a single `/readyz` probe; dev-flow
+**Verify is two steps, and the first one is the deploy.** `flow verify` (no `--confirmed`) rebases the
+branch onto `origin/main` when it is behind, then runs `dev` itself — `build:bff`, then `up -d` — proves
+`health` and `servedBuild`, and returns `deployed for review`. Its `dev ran (…)` line is the record of that
+deploy; do not run the step by hand first, and do not write "no container was rebuilt" into a PR whose
+verify printed it. **That deploy is the one the operator clicks**: sign in, look at the change, then ask
+Verified? in chat and record it with `flow verify --confirmed`. That second run re-checks the same stack
+(the image build is cached and compose converges where nothing changed), and it refuses if `origin/main`
+moved since — run `flow verify` again rather than asking over a tree that is no longer what ships. A
+rebase that stops on conflicts is aborted and handed back: resolve it in the worktree, then re-run. When
+the operator asks you to "deploy this branch", `flow verify` is that command. `health` is a single `/readyz` probe; dev-flow
 retries it within `healthWait`.
 
 A look at the running stack never mutates operator state on its own. Move nothing under
@@ -163,9 +174,9 @@ never-run.
 - [ ] the stack was **proven** up before Verified? was asked (`docker ps` all running, `health` green, and
       signed in with `.pi/local-secrets/test-password.md` where `SIGNIN=password`), and no other session
       recreated a service mid-pass — if it did, pause and tell the operator instead of asking
-- [ ] `origin/main` has not moved since the branch point — if a parallel flow landed, merge `main` in and
-      re-run the checks **before** any review: a review judges the branch against the skills it branched
-      from, and a branch a day old is graded against rules the other flow already replaced
+- [ ] the branch is on current `origin/main` before any review — `flow verify` rebases it for the deploy, but
+      a `/flow-review` run earlier in implement judges the branch against the skills it branched from: if a
+      parallel flow landed since, rebase first (`git rebase origin/main` in the worktree) and re-run the checks
 
 ## pre-release
 
