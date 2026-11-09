@@ -164,7 +164,12 @@ export function PiSessionPanel({ runId, session }: Props) {
   );
   useEffect(() => {
     if (!focusedLoaded) return;
-    const wave = piRunWave(runs, focus, (id) => Boolean(seen.current[id]) || asked.current.has(id), NEARBY);
+    const wave = piRunWave(
+      runs,
+      focus,
+      (id) => Boolean(seen.current[id]) || asked.current.has(id),
+      NEARBY,
+    );
     if (wave.length === 0) return;
     for (const id of wave) asked.current.add(id);
     const fill = async () => {
@@ -185,10 +190,7 @@ export function PiSessionPanel({ runId, session }: Props) {
     (run: PiRunSummary): PiRunSummary["status"] => liveFrames[run.runId]?.state ?? run.status,
     [liveFrames],
   );
-  const isLive = useCallback(
-    (run: PiRunSummary) => statusOf(run) === "running",
-    [statusOf],
-  );
+  const isLive = useCallback((run: PiRunSummary) => statusOf(run) === "running", [statusOf]);
   const running = runs.some(isLive);
   const liveSignal = runs
     .map((run) => `${run.runId}:${liveFrames[run.runId]?.eventCount ?? 0}`)
@@ -347,7 +349,9 @@ export function PiSessionPanel({ runId, session }: Props) {
                   </strong>
                   <span className="what one-line">{oneLine(run.prompt)}</span>
                   <span className="spacer" />
-                  <span className={`tag${TONES[statusOf(run)]}`}>{STATUS_LABELS[statusOf(run)]}</span>
+                  <span className={`tag${TONES[statusOf(run)]}`}>
+                    {STATUS_LABELS[statusOf(run)]}
+                  </span>
                   <span title={run.startedAt ? formatEntryTimeFull(run.startedAt) : undefined}>
                     {run.startedAt ? formatEntryTime(run.startedAt) : ""}
                     {` · ${(frame?.eventCount ?? run.eventCount).toLocaleString()} events`}
