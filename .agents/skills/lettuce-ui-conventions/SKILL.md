@@ -1,6 +1,6 @@
 ---
 name: lettuce-ui-conventions
-description: 'lettuce UI conventions that are ours: pin/archive lists live in the BFF; a viewport-fixed AgentMenu; the desktop rail: AGENTS rows up top (its pin folds it to a 56px strip; the Settings rail never folds), panes above a foot cell (⚙ Settings / ☰ Conversations); ⋯ menus wear the rail scale at the mouse, fingertip under coarse pointers; the drawer is a pinned column or a peek from the band''s agent name (pin shared with the rail); a phone bar of six equal slots under a header carrying the agent''s face; the band''s status light opens the responding list; a non-Chat pane''s corner .pane-close; a one-thread viewer borrows the pane and closes back to its origin; both nav surfaces stay mounted; the settings split (Agent, Tools, Settings); no native checkbox; an agent's face is one AvatarSheet (stages only) and one AgentAvatar (picture → glyph → letter), stored in the BFF. Read before touching NavRail, Sidebar, BottomBar, AvatarSheet, AgentAvatar, the Agent/Tools/Settings tabs, settings-sections.ts or tabs.ts.'
+description: 'lettuce UI conventions that are ours: pin/archive lists live in the BFF; a viewport-fixed AgentMenu, also opened by a hover ⋯ on a rail agent row (.rail-agent-row, hidden folded); the desktop rail: AGENTS rows up top (its pin folds it to a 56px strip; the Settings rail never folds), panes above a foot cell (⚙ Settings / ☰ Conversations); the drawer is a pinned column or a peek from the band''s agent name; a phone bar of equal slots (Chat, Files, Tasks, Runs where a worker runs, Settings, More) under a header with the agent''s face, where Chat opens and closes the switcher and the bar outlives it; the band''s light opens the responding list; a non-Chat pane''s corner .pane-close; a viewer borrows the pane; the settings split (Agent, with Tools as its chip, and Settings); no native checkbox; a face is one AvatarSheet and one AgentAvatar. Read before touching NavRail, Sidebar, BottomBar, AvatarSheet, AgentAvatar, AgentToolsSection, settings-sections.ts or tabs.ts.'
 ---
 
 # Agent list and sidebar UI conventions
@@ -42,8 +42,11 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
 - **Navigation is two surfaces, one per width, and `web/src/lib/tabs.ts` is the pane list they
   share.** Desktop gets a `--rail-w` (184px) **rail** (`NavRail`): an `AGENTS` group up top — its
   head row carries the group word and, in the right corner, the **collapse pin** — then one
-  **face+name row per agent** (face at 22px, the name taking the room), then `＋ New agent`;
-  the panes (Chat, Files, Tasks, Tools, Agent) ride above the foot, because "who" is the first
+  **face+name row per agent** (face at 22px, the name taking the room), then `＋ New agent`. Each
+  agent row is a `.rail-agent-row` wrapping the row button and a `.rail-agent-more` — a button cannot
+  hold a button — quiet until the row is hovered or focused, opening the same `AgentMenu` a right-click
+  does; the folded 56px strip has no room for it, so it hides there and right-click remains;
+  the panes (Chat, Files, Tasks, Runs, Agent) ride above the foot, because "who" is the first
   question and the steady things live nearest the bottom. **Every slot is one row**
   (`--rail-row`, 30px, glyph then word, left-aligned). The rail used to be a 56px strip of icon-only
   squares whose agent names lived in a *second* copy of the same list inside the panel, and that pair
@@ -128,9 +131,16 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   runs, and once a list is up the next replaces it at once — the 120ms prices an *opening*, not a
   change of mind, and a panel that blinks back to your own list mid-move is the bug.
   Below 900px both are `display: none` and the
-  **bottom bar** (`BottomBar`) is the navigation: six equal slots — Chat, Files,
-  Tasks, Tools, Settings, then More holding Agent and Runs — and no avatar, because
-  a letter in a bar never said which agent it meant. The open agent's **face** is in
+  **bottom bar** (`BottomBar`) is the navigation: equal slots — Chat, Files,
+  Tasks, Runs where a coding worker is deployed (the running count rides the slot),
+  Settings, then More holding the agent's own pane alone — and no avatar, because
+  a letter in a bar never said which agent it meant. Without a worker the bar is five
+  slots, not six padded with a filler verb. **Chat is also the phone's way to the
+  conversation list**: there is no drawer at that width, so the switcher IS the list,
+  one Chat press opens it and the next puts it away — which is why `.bottombar` is
+  z-indexed above the switcher (41 over 40) and `.switcher` leaves it `--bar-h` of
+  room at the foot. A `.sheet` still covers the bar (45): a sheet is a full
+  interruption, the list is not. The open agent's **face** is in
   the header's left corner (`.where-avatar`, hidden from 900px, rendered by `AgentAvatar`, plus
   the responding dot) and opens the same switcher the agent-name button beside it
   does. Identity lives in the header; the bar is panes and nothing else.
@@ -156,9 +166,10 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   comments both leaks at their rules.
 - **Settings are split by scope, and the split is the UI's only statement of it.** The **Agent** tab
   (`web/src/tabs/AgentTab.tsx`) holds what belongs to the selected agent: General (name, model, base
-  system prompt, delete), Secrets, Reflection, and the Skills it sees. The **Tools** tab
-  (`web/src/tabs/ToolsTab.tsx`) holds which shared tool families that agent is offered and what each
-  one points at *for it*. **Settings** (`web/src/tabs/SettingsTab.tsx`) is a **pane**, not a modal: it
+  system prompt, delete), its **Tools** chip (`web/src/components/AgentToolsSection.tsx`, which
+  shared tool families that agent is offered and what each one points at *for it*), Secrets,
+  Reflection, and the Skills it sees. Tools is a chip and not a pane for the rule below: its record is
+  keyed by `agent_id`. **Settings** (`web/src/tabs/SettingsTab.tsx`) is a **pane**, not a modal: it
   used to be a full-screen dialog over the pane you were reading, which put a second navigation system
   on top of the first (the rail kept showing panes you could not reach while Settings carried its own
   list of sections beside them). Now `tab === "Settings"`: the rail's foot cell (`.rail-settings-cell`)
@@ -187,8 +198,8 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   Settings glyph: the door is a row of the rail, because a pane belongs in the column that names the
   panes, and a status you must press a button (and navigate somewhere) to read is not one you can
   watch.
-- **The Tools tab is chips-with-a-box, not a form.** Each family (Google, Codex, Claude, Remote Pi)
-  is a `.chip-pair`: a small box button that allows or blocks the family, then a chip that opens its
+- **The Agent tab's Tools section is chips-with-a-box, not a form.** Each family (Google, Codex,
+  Claude, Remote Pi) is a `.chip-pair`: a small box button that allows or blocks the family, then a chip that opens its
   pane. The box writes the access record immediately — a toggle has no other fields to wait for —
   while a pane with several fields (Remote Pi's own host/workdir) has its own **Save**. Both halves
   of the pair are `<button>`s: nothing in the app uses `<input type="checkbox">` (the platform box
@@ -196,8 +207,9 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   `aria-pressed` with `.menu-row-box.on` for a menu row, `role="checkbox"` + `aria-checked` with
   `.chip-check.on` for a chip box, which is what `ui-check` counts (`input[type=checkbox]` must be
   0 anywhere in the DOM). The Agent tab's chip list is exactly
-  `General/Secrets/Reflection/Skills` since Tools moved out, and `GlobalSettings`'s
-  `SHARED_NOTE` has to name **both** per-agent tabs. Inside a settings section body
+  `General/Tools/Secrets/Reflection/Skills/Memory`, and the family row under it carries a
+  `Tool families` group word because two identical chip bars stacked read as one level (the warning
+  `.section-tabs` carries about itself). Inside a settings section body
   `.section-note` is a **heading** (12px bold, like "Change password") and the prose that
   explains the rows is `.section-copy` — their inset and size, with the banner's code chip —
   so a section is rows, one statement, one provenance line; a `p.warning` that also carries a
