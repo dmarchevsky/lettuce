@@ -1025,7 +1025,7 @@ function Workspace({ status }: { status: Status }) {
               stopping={conversation.stopping}
               turn={{
                 entries: conversation.entries,
-                queue: conversation.queue,
+                queue: conversation.queueShown,
                 cwd: conversation.cwd,
                 turnStartedAt: conversation.turnStartedAt,
                 lastActivityAt: conversation.lastActivityAt,

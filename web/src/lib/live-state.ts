@@ -22,6 +22,9 @@ export const STALL_PROBE_GRACE_MS = 15_000;
  */
 export const QUEUE_REVEAL_GRACE_MS = 400;
 
+/** The hidden strip's items: one frozen empty, so hiding never re-renders. */
+export const QUEUE_HIDDEN: readonly { paused: boolean; id: string }[] = [];
+
 /**
  * The force-send seam. Esc aborts a turn and its replacement is sent behind the
  * abort, and through that gap the app-server's own frames say "not processing"
@@ -59,20 +62,33 @@ export function indicatorStaysOn(queue: readonly { paused: boolean }[]): boolean
  * be reachable — and pausing always happens long after the client learned of
  * the items, so that branch can never serve a flash.
  *
- * The decision is pure because the race it settles is frame timing, not
- * layout: the caller keeps `sinceMs` from the raw queue going non-empty and
- * runs the timer, exactly as it runs the force-send seam.
+ * `revealed` is what the strip currently shows, `sinceMs` when the raw queue
+ * went non-empty, `nowMs` the same clock (`performance.now`). The decision is
+ * pure because the race it settles is frame timing, not layout: the caller
+ * keeps the clock and the timer, exactly as it runs the force-send seam.
  */
 export function queueRevealDecision(
   queue: readonly { paused: boolean }[],
-  shown: boolean,
+  revealed: boolean,
   sinceMs: number | null,
   nowMs: number,
 ): "hide" | "show" | "arm" | "keep" {
-  if (queue.length === 0) return shown ? "hide" : "keep";
+  if (queue.length === 0) return revealed ? "hide" : "keep";
   if (queue.some((item) => item.paused)) return "show";
-  if (shown) return "keep";
+  if (revealed) return "keep";
   return sinceMs !== null && nowMs - sinceMs >= QUEUE_REVEAL_GRACE_MS ? "show" : "arm";
+}
+
+/**
+ * Whether a revealed strip's items are stale: the queue mutated while shown
+ * (a second send, an edit, a delete), and the chips must be rewritten to the
+ * live list rather than frozen at reveal time.
+ */
+export function queueShownIsStale(
+  queue: readonly { id: string }[],
+  shown: readonly { id: string }[],
+): boolean {
+  return queue.length !== shown.length || queue.some((item, i) => shown[i]?.id !== item.id);
 }
 
 /**

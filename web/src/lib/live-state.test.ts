@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
   indicatorStaysOn,
+  QUEUE_HIDDEN,
   QUEUE_REVEAL_GRACE_MS,
   queueRevealDecision,
+  queueShownIsStale,
   seamAllowsFlip,
   stallProbeDue,
 } from "./live-state.ts";
@@ -68,7 +70,6 @@ describe("the queue strip's reveal grace", () => {
 
   test("an empty queue keeps the strip away", () => {
     expect(queueRevealDecision([], false, null, 5_000)).toBe("keep");
-    expect(queueRevealDecision([], true, null, 5_000)).toBe("hide");
   });
 
   test("a queue that just went non-empty waits out the grace", () => {
@@ -84,9 +85,22 @@ describe("the queue strip's reveal grace", () => {
 
   test("once shown it stays shown until the queue empties", () => {
     expect(queueRevealDecision([queued(false)], true, since, since + 1)).toBe("keep");
+    expect(queueRevealDecision([], true, null, since)).toBe("hide");
   });
 
   test("a paused item reveals at once: a parked queue is persistent state", () => {
     expect(queueRevealDecision([queued(true)], false, null, since)).toBe("show");
+  });
+
+  test("the hidden strip's items are one shared empty", () => {
+    expect(QUEUE_HIDDEN.length).toBe(0);
+  });
+
+  test("a shown strip notices the queue moving under it", () => {
+    const item = (id: string) => ({ id });
+    expect(queueShownIsStale([item("a")], [item("a")])).toBe(false);
+    expect(queueShownIsStale([item("a"), item("b")], [item("a")])).toBe(true);
+    expect(queueShownIsStale([item("b")], [item("a")])).toBe(true);
+    expect(queueShownIsStale([], [item("a")])).toBe(true);
   });
 });
