@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { prepareAskUserQuestionNotif } from "@letta-ai/letta-code/ask-user-question";
 import {
+  activeFilterCount,
   addLocalUserMessage,
   applyStreamDelta,
   createStreamIndex,
+  detailEnabled,
+  detailsSummary,
   FILTER_ORDER,
+  type FilterDetail,
   type FilterGroup,
   filterEntries,
   groupTranscript,
@@ -19,6 +23,7 @@ import {
   stripInjectedBlocks,
   type Transcript,
   type TranscriptEntry,
+  toggleDetail,
   toggleShown,
   transcriptFromHistory,
 } from "./messages.ts";
@@ -380,6 +385,136 @@ describe("filtering", () => {
     expect(filterEntries(entries, new Set<FilterGroup>(["system"])).map((e) => e.id)).toEqual([
       "s",
     ]);
+  });
+});
+
+describe("detail switches (the Filter sheet's Details section)", () => {
+  /** One turn with every kind a detail switch reaches: thinking, a tool call with
+   * its return, and a promoted Telegram card (hence `sortedEntries`, which is what
+   * promotes it — the filter must run after that, and does). */
+  const entries = sortedEntries(
+    streamed([
+      { type: "message", id: "u", date: "d", message_type: "user_message", content: "hi" },
+      { type: "message", id: "rs", date: "d", message_type: "reasoning_message", reasoning: "hm" },
+      {
+        type: "message",
+        id: "a",
+        date: "d",
+        message_type: "assistant_message",
+        content: "On it.",
+      },
+      toolCallFrame("c", "tc-1", "Bash", '{"command":"ls"}'),
+      toolReturnFrame("r", "tc-1", "success", "file.txt"),
+      toolCallFrame(
+        "mc",
+        "tc-2",
+        "MessageChannel",
+        '{"channel":"telegram","action":"send","message":"Done."}',
+      ),
+      toolReturnFrame("mr", "tc-2", "success", "Message sent to telegram (message_id: 1)"),
+    ]),
+  );
+  const ALL: ReadonlySet<FilterGroup> = new Set();
+  const ids = (hidden: ReadonlySet<FilterDetail>, groups: ReadonlySet<FilterGroup> = ALL) =>
+    filterEntries(entries, groups, hidden).map((e) => e.id);
+
+  test("nothing switched off leaves the whole turn on screen", () => {
+    expect(ids(new Set())).toEqual([
+      "u",
+      "rs",
+      "a",
+      "c",
+      "return:tc-1",
+      "mc",
+      "channel-send:tc-2",
+      "return:tc-2",
+    ]);
+  });
+
+  test("Thinking hides the reasoning and nothing else", () => {
+    expect(ids(new Set<FilterDetail>(["thinking"]))).not.toContain("rs");
+    expect(ids(new Set<FilterDetail>(["thinking"]))).toContain("a");
+  });
+
+  test("Tool runs hides the calls and their returns but keeps the Telegram card", () => {
+    const shown = ids(new Set<FilterDetail>(["tool_runs"]));
+    expect(shown).not.toContain("c");
+    expect(shown).not.toContain("r");
+    expect(shown).toContain("channel-send:tc-2");
+  });
+
+  test("Channel messages hides the promoted card, not the call behind it", () => {
+    const shown = ids(new Set<FilterDetail>(["channel"]));
+    expect(shown).not.toContain("channel-send:tc-2");
+    expect(shown).toContain("mc");
+  });
+
+  test("a hidden group wins over a detail's own tick, and the tick survives it", () => {
+    const hiddenThinking = new Set<FilterDetail>(["thinking"]);
+    // Tools off: its details are hidden along with it, whatever they say.
+    const toolsOff = filterEntries(entries, new Set<FilterGroup>(["user", "agent"]), new Set());
+    expect(toolsOff.map((e) => e.id)).toEqual(["u", "rs", "a"]);
+    // And the detail set was never touched by hiding the group.
+    expect(ids(hiddenThinking, new Set<FilterGroup>(["user", "agent"]))).toEqual(["u", "a"]);
+  });
+
+  test("with Thinking and Tool runs off, no run is left to fold anything into", () => {
+    const runOf = (hidden: FilterDetail[]) => {
+      const items = groupTranscript(filterEntries(entries, ALL, new Set(hidden)));
+      const run = items.find((i) => i.kind === "steps");
+      return run && run.kind === "steps" ? run.counts : null;
+    };
+    // A call and its return are two steps under one label, and the Telegram call
+    // is the last step before its card splits the run.
+    expect(runOf([])).toEqual([
+      ["Thinking", 1],
+      ["Bash", 2],
+      ["MessageChannel", 1],
+    ]);
+    expect(runOf(["thinking"])).toEqual([
+      ["Bash", 2],
+      ["MessageChannel", 1],
+    ]);
+    // Both off: the turn's narration is all that is left, and that is a message,
+    // not a fold headed "0 steps".
+    expect(runOf(["thinking", "tool_runs"])).toBeNull();
+    const items = groupTranscript(filterEntries(entries, ALL, new Set(["thinking", "tool_runs"])));
+    expect(items.map((i) => i.kind)).toEqual(["message", "message", "message"]);
+  });
+
+  test("toggleDetail flips one switch and leaves the others", () => {
+    const off = toggleDetail(new Set(), "thinking");
+    expect([...off]).toEqual(["thinking"]);
+    expect(toggleDetail(off, "thinking").size).toBe(0);
+    expect([...toggleDetail(off, "channel")]).toEqual(["thinking", "channel"]);
+  });
+
+  test("the badge counts what is off, groups and details together", () => {
+    expect(activeFilterCount(ALL, new Set())).toBe(0);
+    expect(activeFilterCount(ALL, new Set<FilterDetail>(["thinking"]))).toBe(1);
+    expect(activeFilterCount(new Set<FilterGroup>(["user", "tasks", "system"]), new Set())).toBe(2);
+    // A detail under a hidden group is already counted with the group, not again.
+    expect(activeFilterCount(new Set<FilterGroup>(["user"]), new Set(["channel"]))).toBe(4);
+  });
+
+  test("the Details header names what is hidden", () => {
+    expect(detailsSummary(ALL, new Set())).toBe("All shown");
+    expect(detailsSummary(ALL, new Set<FilterDetail>(["thinking"]))).toBe("Thinking hidden");
+    expect(detailsSummary(ALL, new Set<FilterDetail>(["thinking", "channel"]))).toBe(
+      "Thinking, Channel messages hidden",
+    );
+    // A whole group off is named once, not as each detail it took with it.
+    expect(detailsSummary(new Set<FilterGroup>(["user", "agent", "tasks"]), new Set())).toBe(
+      "Tools, System hidden",
+    );
+  });
+
+  test("a switch is only reachable while its group is on screen", () => {
+    const toolsOff = new Set<FilterGroup>(["user", "agent", "tasks", "system"]);
+    expect(detailEnabled(toolsOff, "tool_runs")).toBe(false);
+    expect(detailEnabled(toolsOff, "channel")).toBe(false);
+    expect(detailEnabled(toolsOff, "thinking")).toBe(true);
+    expect(detailEnabled(ALL, "tool_runs")).toBe(true);
   });
 });
 
@@ -1080,6 +1215,16 @@ describe("groupTranscript", () => {
     expect(live.at(-1)).toMatchObject({ kind: "message", entry: { id: text.id } });
     const later = groupTranscript([e("user"), e("reasoning"), text, e("tool_call")]);
     expect(later.map((i) => i.kind)).toEqual(["message", "steps"]);
+  });
+
+  test("a run with no steps left is not a run", () => {
+    // What hiding a turn's steps leaves behind: its narration line, and a card
+    // that stands outside the run by itself. A fold headed "0 steps" is a box
+    // around nothing, so what is left reads as the agent's own lines.
+    const narration = e("assistant", { text: "Putting this on Telegram:" });
+    const items = groupTranscript([e("user"), narration, e("channel_send")]);
+    expect(items.map((i) => i.kind)).toEqual(["message", "message", "message"]);
+    expect(items[1]).toMatchObject({ entry: { id: narration.id } });
   });
 
   test("a subagent's reply is still a counted step, never narration", () => {
