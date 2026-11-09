@@ -2228,14 +2228,19 @@ try {
       wideBefore >= 180 && folded <= 56 && folded > 40,
       { wideBefore, folded },
     );
-    // With the words gone the glyphs are the whole row — they grow into the strip.
+    // With the words gone the marks are the whole row — the FACES lead them:
+    // 28px faces over 24px pane glyphs in 36px rows (rail-avatar-scale).
     const glyph = (sel: string) =>
       page.evaluate((s) => getComputedStyle(document.querySelector(`${s} .icon`)!).width, sel);
     check(
-      "the folded rail wears larger glyphs (28px on 36px rows)",
-      (await glyph(".rail-panes .rail-item")) === "28px" &&
-        (await glyph(".rail-new")) === "28px" &&
-        (await glyph(".rail-door")) === "28px" &&
+      "the folded rail leads with 28px faces over 24px glyphs (36px rows)",
+      (await page.evaluate(
+        () =>
+          getComputedStyle(document.querySelector(".rail-agents .rail-agent .agent-avatar")!).width,
+      )) === "28px" &&
+        (await glyph(".rail-panes .rail-item")) === "24px" &&
+        (await glyph(".rail-new")) === "24px" &&
+        (await glyph(".rail-door")) === "24px" &&
         (await page.evaluate(
           () => getComputedStyle(document.querySelector(".rail-panes .rail-item")!).height,
         )) === "36px",
