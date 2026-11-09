@@ -60,10 +60,7 @@ function paneItems(runsEnabled: boolean): { tab: Tab; label: string; icon: IconN
     { tab: "Tasks", label: "Tasks", icon: "task" },
   ];
   if (runsEnabled) items.push({ tab: "Runs", label: "Runs", icon: "terminal" });
-  items.push(
-    { tab: "Tools", label: "Tools", icon: "model" },
-    { tab: "Agent", label: "Agent", icon: "shield" },
-  );
+  items.push({ tab: "Agent", label: "Agent", icon: "shield" });
   return items;
 }
 
@@ -71,8 +68,11 @@ function paneItems(runsEnabled: boolean): { tab: Tab; label: string; icon: IconN
  * The desktop rail: the agents up top — "who" before "where" — the panes fixed
  * above the foot cell, and Settings' door on the foot.
  *
- * One column answers "which agent" and "which pane", in one row height. The
- * AGENTS row doubles as the column's head: its right corner carries the pin that
+ * One column answers "which agent" and "which pane", in one row height. An agent
+ * row carries a ⋯ at its right end, revealed on hover, which opens the same menu
+ * a right-click does.
+ *
+ * The AGENTS row doubles as the column's head: its right corner carries the pin that
  * collapses the rail to an icon strip (the Settings rail never collapses — a
  * list of words needs a column that can hold one). Unpinned, words hide and
  * every row centers its glyph; `title` carries the word there. Chat is primary
@@ -257,54 +257,75 @@ export function NavRail({
           </button>
         </div>
         {visible.map((agent) => (
-          <button
-            key={agent.id}
-            type="button"
-            className={[
-              "rail-agent",
-              agent.id === agents.agentId ? "active" : "",
-              agents.pinned.has(agent.id) ? "pinned" : "",
-              activeAgentIds.has(agent.id) ? "responding" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            data-agent-id={agent.id}
-            // The face's own tint, one level up: the active row's left bar (see
-            // .rail-agent.active::before) is the agent's own color, and only
-            // resolveAvatar knows it — same call AgentAvatar is about to make.
-            style={
-              {
-                "--agent": resolveAvatar(agent.id, agent.name, agents.avatars[agent.id]).background,
-              } as CSSProperties
-            }
-            title={
-              agents.pinned.has(agent.id)
-                ? `${agent.name} (pinned) — conversations`
-                : `${agent.name} — conversations`
-            }
-            onClick={() => pick(agent)}
-            onPointerEnter={(event) => {
-              if (event.pointerType !== "mouse") return;
-              if (agent.id === agents.agentId) armOwn();
-              else armPreview(agent.id);
-            }}
-            onPointerLeave={leaveAvatar}
-            onContextMenu={(event) => {
-              event.preventDefault();
-              setMenu({ agent, anchor: event.currentTarget.getBoundingClientRect() });
-            }}
-          >
-            <AgentAvatar agentId={agent.id} name={agent.name} pref={agents.avatars[agent.id]}>
-              {/* Pinned is a gold pushpin on the face — the same glyph the
-                  switcher's rows already mark with, where a dot never fitted. */}
-              {agents.pinned.has(agent.id) ? (
-                <span className="agent-pin">
-                  <Icon name="pin" />
-                </span>
-              ) : null}
-            </AgentAvatar>
-            <span className="rail-agent-name">{agent.name}</span>
-          </button>
+          <div key={agent.id} className="rail-agent-row">
+            <button
+              type="button"
+              className={[
+                "rail-agent",
+                agent.id === agents.agentId ? "active" : "",
+                agents.pinned.has(agent.id) ? "pinned" : "",
+                activeAgentIds.has(agent.id) ? "responding" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              data-agent-id={agent.id}
+              // The face's own tint, one level up: the active row's left bar (see
+              // .rail-agent.active::before) is the agent's own color, and only
+              // resolveAvatar knows it — same call AgentAvatar is about to make.
+              style={
+                {
+                  "--agent": resolveAvatar(agent.id, agent.name, agents.avatars[agent.id])
+                    .background,
+                } as CSSProperties
+              }
+              title={
+                agents.pinned.has(agent.id)
+                  ? `${agent.name} (pinned) — conversations`
+                  : `${agent.name} — conversations`
+              }
+              onClick={() => pick(agent)}
+              onPointerEnter={(event) => {
+                if (event.pointerType !== "mouse") return;
+                if (agent.id === agents.agentId) armOwn();
+                else armPreview(agent.id);
+              }}
+              onPointerLeave={leaveAvatar}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                setMenu({ agent, anchor: event.currentTarget.getBoundingClientRect() });
+              }}
+            >
+              <AgentAvatar agentId={agent.id} name={agent.name} pref={agents.avatars[agent.id]}>
+                {/* Pinned is a gold pushpin on the face — the same glyph the
+                    switcher's rows already mark with, where a dot never fitted. */}
+                {agents.pinned.has(agent.id) ? (
+                  <span className="agent-pin">
+                    <Icon name="pin" />
+                  </span>
+                ) : null}
+              </AgentAvatar>
+              <span className="rail-agent-name">{agent.name}</span>
+            </button>
+            {/* The agent's verbs, which until now only a right-click knew about. It
+                  cannot live inside the row (a button cannot hold a button), so the row
+                  wears it as a sibling and the pair shares the row's hover. Folded, the
+                  56px strip has no room for a second glyph, so it hides there and
+                  right-click remains the verb. */}
+            <button
+              type="button"
+              className="rail-agent-more"
+              data-agent-more
+              aria-label={`More for ${agent.name}`}
+              aria-haspopup="menu"
+              aria-expanded={menu?.agent.id === agent.id}
+              onClick={(event) => {
+                const anchor = event.currentTarget.getBoundingClientRect();
+                setMenu((current) => (current?.agent.id === agent.id ? null : { agent, anchor }));
+              }}
+            >
+              <Icon name="more" />
+            </button>
+          </div>
         ))}
         <button
           type="button"

@@ -12,7 +12,7 @@ interface Props {
   onSelectPane: (tab: Tab) => void;
   onOpenSettings: () => void;
   runsEnabled: boolean;
-  /** Shown on the More row so a running worker is visible from the bar. */
+  /** Shown on the Runs slot so a running worker is visible from the bar. */
   runsRunning: number;
 }
 
@@ -20,13 +20,18 @@ interface Props {
  * The phone's navigation: one bar under the composer, replacing the top tab
  * strip that used to squeeze six labels onto 390px.
  *
- * Six equal slots — Chat, the secondary panes that earn one on their own, and
- * Settings, which graduated out of More so the shared configuration is one press
- * from anywhere. More keeps only what belongs to the agent: its own settings and,
- * where the deployment has them, the coding workers. The agent's avatar is not
- * here; it moved to the header's left corner (`where-avatar` in App), because a
- * letter the size of a full stop never told you which agent you were talking to,
- * and the bar's job is panes, not identity.
+ * Six equal slots — Chat, Files, Tasks, Runs where a coding worker is deployed,
+ * Settings, and More. `Runs` earns a slot of its own because a running worker is
+ * the one thing on this bar worth interrupting for; without a worker deployed the
+ * bar is five slots rather than padded out to six with a filler verb. More keeps
+ * only what belongs to the agent: its own settings — Tools is a chip inside that
+ * pane now, not a pane, because the record behind it is keyed by `agent_id`.
+ * Pressing Chat also opens the conversation list (the switcher), which is App's
+ * decision, not this bar's: the bar is panes and nothing else.
+ *
+ * The agent's avatar is not here; it moved to the header's left corner
+ * (`where-avatar` in App), because a letter the size of a full stop never told you
+ * which agent you were talking to.
  */
 export function BottomBar({
   agentName,
@@ -37,14 +42,16 @@ export function BottomBar({
   runsRunning,
 }: Props) {
   const [moreOpen, setMoreOpen] = useState(false);
-  // More holds the agent's own panes; Settings got a slot of its own, so a pane
-  // you are standing in must light its own slot, not this one.
-  const inMore = tab === "Agent" || tab === "Runs";
+  // More holds the agent's own pane; Settings and Runs both got slots, so a pane
+  // you are standing in lights its own slot, not this one.
+  const inMore = tab === "Agent";
 
-  const secondary: { tab: Tab; label: string; icon: IconName }[] = [
+  const secondary: { tab: Tab; label: string; icon: IconName; count?: number }[] = [
     { tab: "Files", label: "Files", icon: "folder" },
     { tab: "Tasks", label: "Tasks", icon: "task" },
-    { tab: "Tools", label: "Tools", icon: "model" },
+    ...(runsEnabled
+      ? [{ tab: "Runs" as const, label: "Runs", icon: "terminal" as IconName, count: runsRunning }]
+      : []),
   ];
 
   return (
@@ -70,6 +77,7 @@ export function BottomBar({
           >
             <Icon name={pane.icon} />
             {pane.label}
+            {pane.count && pane.count > 0 ? <span className="slot-count">{pane.count}</span> : null}
           </button>
         ))}
 
@@ -111,32 +119,11 @@ export function BottomBar({
                 <span className="menu-row-text">
                   <span className="menu-row-title">Agent</span>
                   <span className="menu-row-desc">
-                    {agentName ?? "No agent"} — model, secrets, reflection, skills
+                    {agentName ?? "No agent"} — model, secrets, tools, reflection, skills
                   </span>
                 </span>
               </button>
             </li>
-            {runsEnabled ? (
-              <li>
-                <button
-                  type="button"
-                  className={`menu-row${tab === "Runs" ? " selected" : ""}`}
-                  onClick={() => {
-                    setMoreOpen(false);
-                    onSelectPane("Runs");
-                  }}
-                >
-                  <Icon name="terminal" />
-                  <span className="menu-row-text">
-                    <span className="menu-row-title">Runs</span>
-                    <span className="menu-row-desc">Coding workers</span>
-                  </span>
-                  {runsRunning > 0 ? (
-                    <span className="menu-row-count">{runsRunning} running</span>
-                  ) : null}
-                </button>
-              </li>
-            ) : null}
           </ul>
         </Sheet>
       ) : null}

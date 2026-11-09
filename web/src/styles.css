@@ -32,6 +32,9 @@
   --menu-row-h: 36px;
   /* The desktop header band (grid row 1). */
   --topbar-h: 52px;
+  /* The phone's bar. It is a token because the conversation list has to leave
+     exactly this much room at the foot of the screen to keep the bar live. */
+  --bar-h: 68px;
   /* The rail is ONE column of rows: a pane, an agent, the New-agent verb, the foot
      verb and — while Settings is the pane — a section are all the same row: a glyph
      then a word, left-aligned, `--rail-row` tall. It used to be a column of squares
@@ -294,6 +297,66 @@ pre {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* An agent row is TWO controls — the row and its ⋯ — and a button cannot hold a
+   button, so the pair wears `.rail-agent-row`, which carries the hover the row
+   alone used to carry (hovering the glyph has to light the row it belongs to). */
+.rail-agent-row {
+  position: relative;
+  display: flex;
+  flex: none;
+}
+.rail-agent-row > .rail-agent {
+  flex: 1 1 auto;
+  min-width: 0;
+  /* Room for the glyph in the corner, so a long name ellipsizes before it slides
+     under the ⋯. The folded strip has no glyph, so it keeps its full width. */
+  padding-right: 34px;
+}
+.rail-agent-row:hover > .rail-agent {
+  background: var(--surface-2);
+}
+/* The agent's verbs, quiet until the pointer is on the row it belongs to (or the
+   keyboard reaches it). Same box as the column's other corner control, `.col-pin`. */
+.rail-agent-more {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--muted);
+  opacity: 0;
+  cursor: pointer;
+}
+.rail-agent-more .icon {
+  width: 15px;
+  height: 15px;
+  /* The three dots are three zero-length strokes; at the default weight they read
+     as specks, so give them real dots (the switcher's ⋯ does the same). */
+  stroke-width: 3.2;
+}
+.rail-agent-row:hover .rail-agent-more,
+.rail-agent-row:focus-within .rail-agent-more {
+  opacity: 1;
+}
+.rail-agent-more:hover {
+  color: var(--text);
+  background: var(--surface);
+}
+/* 56px is all face: the folded row has no room for a second glyph, so the verb
+   goes and right-click remains — which is also why the row's `title` carries the
+   name there. */
+nav.rail.rail-collapsed .rail-agent-more {
+  display: none;
+}
+nav.rail.rail-collapsed .rail-agent-row > .rail-agent {
+  padding-right: 0;
+}
 /* One language: a row background on hover, and for the selection the same left
    bar the selected conversation wears — in the agent's OWN tint, which App sets
    inline from the avatar's resolved colour. */
@@ -555,10 +618,15 @@ nav.rail.rail-collapsed {
 /* The phone's bar, under the composer: six equal slots — the Chat pane, the
    secondary panes that earn one, Settings, and More. Identity is not its
    business; the agent's face sits in the header's corner. */
+/* Above the conversation list (z-index 40) on purpose: the bar is how you open
+   that list and how you close it again, and a bar you cannot reach is not a bar.
+   A sheet is a different animal and covers it (see `.sheet`). */
 .bottombar {
   display: flex;
   align-items: stretch;
-  min-height: 68px;
+  position: relative;
+  z-index: 41;
+  min-height: var(--bar-h);
   border-top: 1px solid var(--border);
   background: var(--surface);
   padding-bottom: env(safe-area-inset-bottom);
@@ -588,6 +656,29 @@ nav.rail.rail-collapsed {
      room so no slot has to truncate a word. */
   width: 18px;
   height: 18px;
+}
+/* A slot's live count — the Runs slot's workers running now, the mark the More
+   row used to carry and which a bar slot earns only by being a pane worth
+   interrupting for. It sits on the glyph's shoulder, where a badge is read as
+   belonging to the icon and not to the word under it. */
+.bottombar > button {
+  position: relative;
+}
+.bottombar .slot-count {
+  position: absolute;
+  top: 6px;
+  left: calc(50% + 5px);
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  display: grid;
+  place-items: center;
+  background: var(--accent);
+  color: var(--on-accent);
+  border-radius: var(--radius-pill);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
 }
 
 /* The panel's scroll region: tool row, search, the list. It starts at the band's
@@ -2452,7 +2543,9 @@ button {
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  z-index: 40;
+  /* Over the bar: a sheet is a full interruption, and its bottom-anchored panel
+     would otherwise have its last row hidden behind the navigation. */
+  z-index: 45;
 }
 /* Covers the whole backdrop so a click outside the panel dismisses it. */
 .sheet-scrim {
@@ -3008,6 +3101,11 @@ p.warning code,
   .rail {
     display: none;
   }
+  /* The conversation list leaves the bar its height: the list is what the Chat slot
+     opens, and pressing that slot again is how you put it away. */
+  .switcher {
+    padding-bottom: calc(var(--bar-h) + env(safe-area-inset-bottom));
+  }
 
   .bubble {
     max-width: 92%;
@@ -3326,6 +3424,29 @@ p.warning code,
 .tool-chips .chip-pair .chip-check .icon {
   width: 11px;
   height: 11px;
+}
+/* Tools is a section of the Agent tab now, so its family row sits UNDER the
+   section chips — and must not read as a second, identical tab bar (the warning
+   `.section-tabs` carries about itself). Hence the lighter row: a group word,
+   then smaller chips, on the surface rather than the pane's own line. */
+.pane-bar.tools-row {
+  gap: 6px;
+  padding: 6px 12px 8px;
+  background: var(--surface);
+}
+.pane-bar.tools-row .row-word {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  padding-right: 4px;
+}
+.pane-bar.tools-row button {
+  font-size: 12.5px;
+  padding: 4px 9px;
+}
+.pane-bar.tools-row .chip-pair .chip-check {
+  width: 26px;
+  min-width: 26px;
 }
 
 /* Under a per-agent tab's chips: who these settings belong to, and where the

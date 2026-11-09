@@ -1,14 +1,20 @@
 /**
- * Tools: which shared tool families this agent may use, and where each one
- * points for it.
+ * The Agent tab's Tools section: which shared tool families this agent may use,
+ * and where each one points for it.
  *
- * This was a section inside the Agent tab, which hid two things: that these are
- * per-agent *narrowings* of globally configured capabilities, and that a family
- * can have per-agent settings of its own (Remote Pi's working folder). So each
- * family is a chip here and the chip carries the on/off checkbox — the checkbox
- * writes at once, because an access toggle has no other fields to wait for.
- * Clicking the name opens the family's pane, where anything with several fields
- * (Remote Pi's connection) saves on its own.
+ * It is a section of the Agent tab and not a pane of its own because the whole
+ * thing is keyed by `agent_id` — the rule is that a setting goes where its backend
+ * key is, and a per-agent narrowing is not a place you navigate to. It used to be
+ * its own tab, which hid two things: that these are per-agent *narrowings* of
+ * globally configured capabilities, and that a family can have per-agent settings
+ * of its own (Remote Pi's working folder). So each family is a chip and the chip
+ * carries the on/off checkbox — the checkbox writes at once, because an access
+ * toggle has no other fields to wait for. Clicking the name opens the family's
+ * pane, where anything with several fields (Remote Pi's connection) saves on its
+ * own.
+ *
+ * The family row sits UNDER the Agent tab's own section chips and must not read as
+ * a second, identical tab bar, hence `.tools-row`: a group word, then lighter chips.
  *
  * Two stores, no overlap: enable/disable lives only in `agent-tool-access.json`
  * (so a checkbox and a pane can never disagree) and the pi connection lives only
@@ -72,7 +78,7 @@ interface Props {
   onOpenGlobalSettings: (section?: string) => void;
 }
 
-export function ToolsTab({ agents, features, onOpenGlobalSettings }: Props) {
+export function AgentToolsSection({ agents, features, onOpenGlobalSettings }: Props) {
   const agentId = agents.agentId;
   const agentName = agents.agents.find((agent) => agent.id === agentId)?.name ?? null;
   const [access, setAccess] = useState<AgentToolAccess | null>(null);
@@ -114,11 +120,7 @@ export function ToolsTab({ agents, features, onOpenGlobalSettings }: Props) {
   }, [families, family]);
 
   if (!agentId) {
-    return (
-      <div className="pane">
-        <p className="muted pad">No agent selected. Pick one from the agent list.</p>
-      </div>
-    );
+    return <p className="muted pad">No agent selected. Pick one from the agent list.</p>;
   }
 
   /** Allowed right now for this agent — what the chip's box shows. */
@@ -138,22 +140,21 @@ export function ToolsTab({ agents, features, onOpenGlobalSettings }: Props) {
 
   if (!families.length) {
     return (
-      <div className="pane">
-        <p className="muted pad">
-          No shared tool family is enabled on this instance, so there is nothing to narrow here.
-          They are switched on by whoever runs this install, in{" "}
-          <button type="button" className="link inline" onClick={() => onOpenGlobalSettings()}>
-            Settings
-          </button>
-          .
-        </p>
-      </div>
+      <p className="muted pad">
+        No shared tool family is enabled on this instance, so there is nothing to narrow here. They
+        are switched on by whoever runs this install, in{" "}
+        <button type="button" className="link inline" onClick={() => onOpenGlobalSettings()}>
+          Settings
+        </button>
+        .
+      </p>
     );
   }
 
   return (
-    <div className="pane">
-      <div className="pane-bar section-tabs tool-chips">
+    <>
+      <div className="pane-bar wrap section-tabs tool-chips tools-row">
+        <span className="row-word">Tool families</span>
         {families.map((id) => (
           <span className="chip-pair" key={id}>
             <button
@@ -224,7 +225,7 @@ export function ToolsTab({ agents, features, onOpenGlobalSettings }: Props) {
           onOpenGlobalSettings={onOpenGlobalSettings}
         />
       ) : null}
-    </div>
+    </>
   );
 }
 
