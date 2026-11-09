@@ -32,8 +32,8 @@
   --menu-row-h: 36px;
   /* The desktop header band (grid row 1). */
   --topbar-h: 52px;
-  /* The phone's bar. It is a token because the conversation list has to leave
-     exactly this much room at the foot of the screen to keep the bar live. */
+  /* The phone's bar. A token because the conversation list has to stop exactly
+     where the bar starts, so the bar stays pressable while the list is up. */
   --bar-h: 68px;
   /* The rail is ONE column of rows: a pane, an agent, the New-agent verb, the foot
      verb and — while Settings is the pane — a section are all the same row: a glyph
@@ -618,14 +618,9 @@ nav.rail.rail-collapsed {
 /* The phone's bar, under the composer: six equal slots — the Chat pane, the
    secondary panes that earn one, Settings, and More. Identity is not its
    business; the agent's face sits in the header's corner. */
-/* Above the conversation list (z-index 40) on purpose: the bar is how you open
-   that list and how you close it again, and a bar you cannot reach is not a bar.
-   A sheet is a different animal and covers it (see `.sheet`). */
 .bottombar {
   display: flex;
   align-items: stretch;
-  position: relative;
-  z-index: 41;
   min-height: var(--bar-h);
   border-top: 1px solid var(--border);
   background: var(--surface);
@@ -2543,9 +2538,7 @@ button {
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  /* Over the bar: a sheet is a full interruption, and its bottom-anchored panel
-     would otherwise have its last row hidden behind the navigation. */
-  z-index: 45;
+  z-index: 40;
 }
 /* Covers the whole backdrop so a click outside the panel dismisses it. */
 .sheet-scrim {
@@ -3101,10 +3094,13 @@ p.warning code,
   .rail {
     display: none;
   }
-  /* The conversation list leaves the bar its height: the list is what the Chat slot
-     opens, and pressing that slot again is how you put it away. */
+  /* The conversation list stops where the bar starts. The bar is how the list is
+     opened AND how it is closed (Chat again), and a bar painted over is a bar you
+     cannot press; shortening the list's box instead of re-stacking it also leaves
+     every sheet and ⋯ opened from inside the list free to cover the bar, which a
+     full interruption should. */
   .switcher {
-    padding-bottom: calc(var(--bar-h) + env(safe-area-inset-bottom));
+    inset: 0 0 calc(var(--bar-h) + env(safe-area-inset-bottom));
   }
 
   .bubble {

@@ -501,10 +501,17 @@ async function openTab(page: Page, name: string): Promise<void> {
   const bar = page.locator(`.bottombar > button:text-is("${name}")`);
   if ((await bar.count()) > 0 && (await bar.first().isVisible())) {
     await bar.first().click();
-    return;
+  } else {
+    await page.locator('.bottombar > button:text-is("More")').click();
+    await page.locator(`.sheet .menu-row-title:text-is("${name}")`).click();
   }
-  await page.locator('.bottombar > button:text-is("More")').click();
-  await page.locator(`.sheet .menu-row-title:text-is("${name}")`).click();
+  // On a phone, arriving on Chat also opens the conversation list — the bar's Chat press IS
+  // the list's way in — so asking for the pane is only half the ask. A test that wants the
+  // list asserts on it itself; every other test wants the pane under it.
+  if ((await page.locator(".switcher").count()) > 0) {
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
+  }
 }
 
 /**
@@ -753,10 +760,13 @@ try {
     );
     check('both "new" cards share one style', new Set(newStyles).size === 1, newStyles);
     const agentsBox = await switcher.locator(".switcher-agents").boundingBox();
+    // At the bottom means at the bottom of what the list owns: it stops where the bar
+    // starts, because the bar is how the list got here and how it goes away.
+    const barTop = (await page.locator(".bottombar").boundingBox())?.y ?? 0;
     check(
-      "agents sit at the bottom",
-      agentsBox !== null && Math.abs(agentsBox.y + agentsBox.height - PHONE.height) < 2,
-      agentsBox,
+      "agents sit at the bottom, down to the bar",
+      agentsBox !== null && Math.abs(agentsBox.y + agentsBox.height - barTop) < 2,
+      { agentsBox, barTop },
     );
     const switcherBox = await overflow(page);
     check("switcher has nothing clipped", switcherBox.clipped.length === 0, switcherBox);
