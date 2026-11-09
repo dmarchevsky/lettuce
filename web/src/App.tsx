@@ -701,19 +701,25 @@ function Workspace({ status }: { status: Status }) {
     selectPane("Agent");
   };
 
-  /** Remembered on the device, then shown — the timestamps toggle's shape. */
-  const applyFilters = useCallback((next: Filters) => {
-    writeFilters(next);
-    setFilters(next);
-  }, []);
+  /** Remembered whenever it changes, so a toggle stays a plain state update. On
+   * mount this rewrites what was just read, which also normalises a hand-edited key. */
+  useEffect(() => {
+    writeFilters(filters);
+  }, [filters]);
 
   const toggleFilter = (group: FilterGroup) => {
-    applyFilters({ groups: toggleShown(filters.groups, group), hidden: filters.hidden });
+    setFilters((current) => ({
+      groups: toggleShown(current.groups, group),
+      hidden: current.hidden,
+    }));
   };
 
   /** A switch inside a group. Its value is independent of the group's own. */
   const toggleDetailShown = (detail: FilterDetail) => {
-    applyFilters({ groups: filters.groups, hidden: toggleDetail(filters.hidden, detail) });
+    setFilters((current) => ({
+      groups: current.groups,
+      hidden: toggleDetail(current.hidden, detail),
+    }));
   };
 
   // SIGNIN=none mints a session for whoever reaches the socket, which is only
@@ -1059,7 +1065,7 @@ function Workspace({ status }: { status: Status }) {
               hiddenDetails={filters.hidden}
               onToggleFilter={toggleFilter}
               onToggleDetail={toggleDetailShown}
-              onClearFilters={() => applyFilters({ groups: new Set(), hidden: new Set() })}
+              onClearFilters={() => setFilters({ groups: new Set(), hidden: new Set() })}
               showTimestamps={showTimestamps}
               onShowTimestamps={onShowTimestamps}
               permissionMode={conversation.permissionMode}
