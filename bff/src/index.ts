@@ -644,7 +644,7 @@ const piService = new PiService({
         log,
       );
     if (meta.agentId && meta.conversationId) {
-      void reportToConversation(meta, 0);
+      void reportToConversation(meta);
     }
   },
 });
@@ -653,31 +653,46 @@ const piService = new PiService({
  * Post one run's verdict into the conversation that dispatched it, retrying
  * while the app-server connection is not up yet.
  *
- * `sendInternal` refuses before the connection is ready, and a boot reconcile
- * reports its orphans at exactly that moment — a report logged and dropped there
- * is the silence this path exists to end, so a late report beats a lost one. Give
- * up after a couple of minutes and say so in the log.
+ * The report is built **once** — reading the capture tail and asking the worker for
+ * its manifest is real work, and repeating it per retry would spend two ssh round
+ * trips per orphan exactly when the app-server is already busy booting. Only the
+ * send is retried, for two minutes, because `sendInternal` refuses until the
+ * connection is up and a boot reconcile reports its orphans right then: a report
+ * logged and dropped there is the silence this path exists to end, so a late report
+ * beats a lost one. After the window give up and say so.
  */
-async function reportToConversation(meta: PiRunMeta, attempt: number): Promise<void> {
+const REPORT_SEND_RETRIES = 24;
+const REPORT_SEND_RETRY_MS = 5_000;
+
+async function reportToConversation(meta: PiRunMeta): Promise<void> {
+  let content: string;
   try {
-    const content = await piService.settleReport(meta);
-    // `sendInternal`, not `send`: the app-server answers any `input` that
-    // carries a request_id with `input_accepted`, and unless the id is
-    // registered as BFF-internal that answer is treated as an
-    // unsolicited frame — sequenced, buffered, and relayed to every tab
-    // watching the conversation with a request id nobody issued.
-    upstream.sendInternal({
-      type: "input",
-      request_id: randomUUID(),
-      runtime: { agent_id: meta.agentId, conversation_id: meta.conversationId },
-      payload: { kind: "create_message", messages: [{ role: "user", content }] },
-    });
+    content = await piService.settleReport(meta);
   } catch (error) {
-    if (attempt < 24) {
-      setTimeout(() => void reportToConversation(meta, attempt + 1), 5_000).unref?.();
-      return;
-    }
     log(`Remote pi: settle report failed: ${errorMessage(error)}`);
+    return;
+  }
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      // `sendInternal`, not `send`: the app-server answers any `input` that
+      // carries a request_id with `input_accepted`, and unless the id is
+      // registered as BFF-internal that answer is treated as an
+      // unsolicited frame — sequenced, buffered, and relayed to every tab
+      // watching the conversation with a request id nobody issued.
+      upstream.sendInternal({
+        type: "input",
+        request_id: randomUUID(),
+        runtime: { agent_id: meta.agentId, conversation_id: meta.conversationId },
+        payload: { kind: "create_message", messages: [{ role: "user", content }] },
+      });
+      return;
+    } catch (error) {
+      if (attempt >= REPORT_SEND_RETRIES) {
+        log(`Remote pi: settle report failed: ${errorMessage(error)}`);
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, REPORT_SEND_RETRY_MS).unref?.());
+    }
   }
 }
 void piService

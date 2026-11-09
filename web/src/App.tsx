@@ -232,12 +232,22 @@ function Workspace({ status }: { status: Status }) {
    * session (a caller that only has a run lets the panel look the session up).
    *
    * It is not a window over the app and it does not change the pane: it renders in
-   * the pane's place, so closing it is exactly the screen the reader came from — a
-   * conversation keeps its draft and its scroll position, the Runs list stays the
-   * Runs list. That replaced a `Sheet` whose only way in from a conversation was a
+   * the pane's place, so closing it is exactly the screen the reader came from — the
+   * conversation keeps its draft, the Runs list stays the Runs list (the chat's
+   * scroll does not survive the remount, as with any pane switch). That replaced a `Sheet` whose only way in from a conversation was a
    * link that reloaded the whole page.
    */
   const [piView, setPiView] = useState<{ runId: string; session: string | null } | null>(null);
+
+  // Switching agents closes the viewer: it renders one agent's session, and a
+  // header wearing the new agent's face over the previous agent's transcript would
+  // be a lie about whose work you are reading.
+  const piViewAgent = useRef(agents.agentId);
+  useEffect(() => {
+    if (piViewAgent.current === agents.agentId) return;
+    piViewAgent.current = agents.agentId;
+    setPiView(null);
+  }, [agents.agentId]);
   const openPiRun = useCallback((runId: string, session: string | null) => {
     setPiView({ runId, session });
   }, []);
@@ -438,6 +448,9 @@ function Workspace({ status }: { status: Status }) {
       // neither renders `.sheet` — so without naming them here one press would
       // answer twice: the menu closes AND the pane underneath it closes.
       if (document.querySelector(".sheet, .switcher, .agent-menu")) return;
+      // A native <select> being open owns the press itself: Escape is how you put a
+      // dropdown back down, and that should not close the pane holding it.
+      if ((event.target as HTMLElement | null)?.tagName === "SELECT") return;
       // The session viewer is the innermost thing in the pane, so it takes the
       // press and the pane underneath it stays: Escape from a run you opened from
       // the Runs list returns the list, not Chat.

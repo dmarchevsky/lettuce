@@ -541,6 +541,10 @@ export class PiRunner {
     let orphaned = 0;
     for (const meta of await this.store.list(1000)) {
       if (meta.state !== "running") continue;
+      // A run this process is watching is not an orphan however stale its stored
+      // meta reads; detaching it here would report it twice — once from here, once
+      // from its own exit hook.
+      if (this.children.has(meta.runId)) continue;
       const orphan: PiRunMeta = {
         ...meta,
         state: "detached",

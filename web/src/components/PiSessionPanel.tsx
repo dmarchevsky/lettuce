@@ -9,6 +9,7 @@ import {
   type PiRunSummary,
   piRunNumber,
   piRunOptions,
+  piRunWave,
   STATUS_LABELS,
 } from "../lib/pi.ts";
 import { msSinceLastPiFrame, stalenessWatchdogMs, usePiLiveRuns } from "../lib/pi-live.ts";
@@ -84,7 +85,9 @@ export function PiSessionPanel({ runId, session }: Props) {
   const stuck = useRef(true);
   const pendingScroll = useRef(false);
   const lastReadMs = useRef(0);
-  const requested = useRef(new Set<string>());
+  // What this panel has already asked the BFF for: the window loader and the
+  // dropdown both consult it, so one run is never read twice by accident.
+  const asked = useRef(new Set<string>());
 
   const loadBody = useCallback(async (id: string) => {
     try {
@@ -145,47 +148,46 @@ export function PiSessionPanel({ runId, session }: Props) {
     };
   }, [runId, session, loadBody, loadList]);
 
-  // The neighbours of the focused run load behind it, nearest first; anything
-  // further away is one dropdown choice away and reads the moment it is picked.
+  // The neighbours of the focused run load behind it, inside a window of NEARBY
+  // positions. `seen` is read through a ref on purpose: a wave that re-ran on every
+  // arrival would cancel its own remaining loads while having already marked them
+  // asked-for, and strand those segments at "Loading…" for the rest of the session.
   const focusedLoaded = Boolean(bodies[focus]);
+  const seen = useRef(bodies);
+  seen.current = bodies;
+  const mounted = useRef(true);
+  useEffect(
+    () => () => {
+      mounted.current = false;
+    },
+    [],
+  );
   useEffect(() => {
-    if (!focusedLoaded || runs.length < 2) return;
-    const focusIndex = Math.max(
-      0,
-      runs.findIndex((run) => run.runId === focus),
-    );
-    const nearestFirst: string[] = [];
-    for (let step = 1; step < runs.length; step++) {
-      for (const candidate of [runs[focusIndex + step], runs[focusIndex - step]]) {
-        if (candidate && candidate.runId !== focus) nearestFirst.push(candidate.runId);
-      }
-    }
-    const wanted = nearestFirst
-      .filter((id) => !bodies[id] && !requested.current.has(id))
-      .slice(0, NEARBY);
-    if (wanted.length === 0) return;
-    for (const id of wanted) requested.current.add(id);
-    let cancelled = false;
+    if (!focusedLoaded) return;
+    const wave = piRunWave(runs, focus, (id) => Boolean(seen.current[id]) || asked.current.has(id), NEARBY);
+    if (wave.length === 0) return;
+    for (const id of wave) asked.current.add(id);
     const fill = async () => {
-      for (const id of wanted) {
-        if (cancelled) return;
+      for (const id of wave) {
+        if (!mounted.current) return;
         await loadBody(id);
       }
     };
     void fill();
-    return () => {
-      cancelled = true;
-    };
-  }, [focusedLoaded, runs, focus, bodies, loadBody]);
+  }, [focusedLoaded, runs, focus, loadBody]);
 
-  // Live growth: a running run's pushed event counter is the growth signal,
-  // coalesced to one read per interval (frames arrive ~2 s apart and each read
-  // is a whole capture tail). Only running runs are re-read — a finished run's
-  // capture is not growing, and a long session re-read every few seconds is a way
-  // to make a phone warm for nothing.
-  const isLive = useCallback(
-    (run: PiRunSummary) => (liveFrames[run.runId]?.state ?? run.status) === "running",
+  // A pushed frame is the freshest fact we hold about a run: the listing was read
+  // when the panel opened, and a run that settles while you watch it changes in
+  // the frame a moment later. Every status the panel prints goes through here, or
+  // the screen that exists to watch a run would keep saying `Running` after it
+  // stopped — the failure this whole feature is meant to end.
+  const statusOf = useCallback(
+    (run: PiRunSummary): PiRunSummary["status"] => liveFrames[run.runId]?.state ?? run.status,
     [liveFrames],
+  );
+  const isLive = useCallback(
+    (run: PiRunSummary) => statusOf(run) === "running",
+    [statusOf],
   );
   const running = runs.some(isLive);
   const liveSignal = runs
@@ -218,14 +220,23 @@ export function PiSessionPanel({ runId, session }: Props) {
     return () => clearInterval(timer);
   }, [running, runs, isLive, loadBody]);
 
-  // A run dispatched onto this session while it is open announces itself with its
-  // first progress frame, which is the moment to re-ask for the list: watching a
-  // session and dispatching to it should not be two different experiences.
+  // The listing is re-asked when a frame says something the list cannot already
+  // show: a run dispatched while you watch (so it appears at all), or a run that
+  // settled (so its end time and counters stop being a guess). Frames alone flip
+  // the status chips; this makes the row's facts agree with them.
+  const settledSeen = useRef(new Set<string>());
   useEffect(() => {
     if (!sessionId) return;
-    const known = new Set(runs.map((run) => run.runId));
+    const byId = new Map(runs.map((run) => [run.runId, run]));
     for (const frame of Object.values(liveFrames)) {
-      if (frame.session === sessionId && !known.has(frame.runId)) {
+      if (frame.session !== sessionId) continue;
+      const known = byId.get(frame.runId);
+      if (!known) {
+        void loadList(sessionId).catch(() => []);
+        return;
+      }
+      if (frame.state !== "running" && !settledSeen.current.has(frame.runId)) {
+        settledSeen.current.add(frame.runId);
         void loadList(sessionId).catch(() => []);
         return;
       }
@@ -259,7 +270,7 @@ export function PiSessionPanel({ runId, session }: Props) {
   const choose = (id: string) => {
     setFocus(id);
     pendingScroll.current = true;
-    requested.current.add(id);
+    asked.current.add(id);
     if (!bodies[id]) void loadBody(id);
   };
 
@@ -277,8 +288,8 @@ export function PiSessionPanel({ runId, session }: Props) {
   return (
     <>
       <div className="pane-bar wrap pi-session-bar">
-        <span className={`tag${TONES[focused?.status ?? "running"]}`}>
-          {STATUS_LABELS[focused?.status ?? "running"]}
+        <span className={`tag${TONES[focused ? statusOf(focused) : "running"]}`}>
+          {STATUS_LABELS[focused ? statusOf(focused) : "running"]}
         </span>
         <strong>{sessionId ? `session ${sessionId.slice(0, 8)}` : "Remote pi run"}</strong>
         <span className="pi-facts muted small">
@@ -327,7 +338,7 @@ export function PiSessionPanel({ runId, session }: Props) {
           {runs.map((run) => {
             const body = bodies[run.runId];
             const frame = liveFrames[run.runId];
-            const live = (frame?.state ?? run.status) === "running";
+            const live = isLive(run);
             return (
               <section key={run.runId} className="pi-run-group">
                 <div className="pi-run-boundary">
@@ -336,7 +347,7 @@ export function PiSessionPanel({ runId, session }: Props) {
                   </strong>
                   <span className="what one-line">{oneLine(run.prompt)}</span>
                   <span className="spacer" />
-                  <span className={`tag${TONES[run.status]}`}>{STATUS_LABELS[run.status]}</span>
+                  <span className={`tag${TONES[statusOf(run)]}`}>{STATUS_LABELS[statusOf(run)]}</span>
                   <span title={run.startedAt ? formatEntryTimeFull(run.startedAt) : undefined}>
                     {run.startedAt ? formatEntryTime(run.startedAt) : ""}
                     {` · ${(frame?.eventCount ?? run.eventCount).toLocaleString()} events`}
@@ -350,8 +361,8 @@ export function PiSessionPanel({ runId, session }: Props) {
                   : null}
                 {!body ? (
                   <p className="muted small">
-                    {requested.current.has(run.runId) ? "Loading this run…" : null}
-                    {!requested.current.has(run.runId) ? (
+                    {asked.current.has(run.runId) ? "Loading this run…" : null}
+                    {!asked.current.has(run.runId) ? (
                       <button type="button" className="link" onClick={() => choose(run.runId)}>
                         Load this run
                       </button>
@@ -359,7 +370,7 @@ export function PiSessionPanel({ runId, session }: Props) {
                   </p>
                 ) : null}
                 {live ? <p className="muted small">Working…</p> : null}
-                {run.status === "detached" ? (
+                {statusOf(run) === "detached" ? (
                   <p className="muted small">
                     Lettuce stopped capturing this run; the remote pi may still be working, and
                     pi_send resumes its session when it is done.
