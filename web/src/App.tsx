@@ -411,11 +411,14 @@ function Workspace({ status }: { status: Status }) {
       if (next === "Chat") {
         if (!wide) {
           // A phone has no drawer to bring: the Switcher IS its conversation list,
-          // and until now the only way in was the face in the header. So arriving on
-          // Chat opens the list, and pressing Chat while already there is a toggle —
-          // the same two-press shape the desktop's unpinned peek has.
+          // and the face in the header has always been its way in. So pressing Chat
+          // *while already on Chat* is the toggle — the same two-press shape the
+          // desktop's unpinned peek has — and arriving from another pane is simply
+          // arriving: a press that named the pane you were already reading is what
+          // makes it a toggle, and a list lifted on arrival answers a question that
+          // was never asked.
           if (tab === "Chat") setSwitcherOpen((open) => !open);
-          else setSwitcherOpen(true);
+          else setSwitcherOpen(false);
         } else if (tab === "Chat") {
           // Pinned, Chat has nothing to do (the panel is already there). Unpinned and
           // already on Chat, Chat is a toggle: pressing it while the peek is open puts

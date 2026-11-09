@@ -16,6 +16,11 @@
  * The family row sits UNDER the Agent tab's own section chips and must not read as
  * a second, identical tab bar, hence `.tools-row`: a group word, then lighter chips.
  *
+ * One control per decision: a family with a single decision (Codex, Claude Code) has
+ * no second one in its pane — the chip's box is it — and a family with more (Google's
+ * level, Remote Pi's host) keeps the box for the allow/block and puts the rest under
+ * it. The pane refetches when the agent changes, so it has no reload verb either.
+ *
  * Two stores, no overlap: enable/disable lives only in `agent-tool-access.json`
  * (so a checkbox and a pane can never disagree) and the pi connection lives only
  * in the pi store. Both are BFF-side; upstream sees four pi tools either way.
@@ -86,7 +91,6 @@ export function AgentToolsSection({ agents, features, onOpenGlobalSettings }: Pr
   /** Only a failed read of this agent's access — a save result is a toast. */
   const [status, setStatus] = useState("");
   const [accessKey, setAccessKey] = useState(0);
-  const [piVersion, setPiVersion] = useState(0);
 
   const families = useMemo<Family[]>(
     () =>
@@ -154,7 +158,7 @@ export function AgentToolsSection({ agents, features, onOpenGlobalSettings }: Pr
   return (
     <>
       <div className="pane-bar wrap section-tabs tool-chips tools-row">
-        <span className="row-word">Tool families</span>
+        <span className="row-word">For this agent</span>
         {families.map((id) => (
           <span className="chip-pair" key={id}>
             <button
@@ -178,13 +182,12 @@ export function AgentToolsSection({ agents, features, onOpenGlobalSettings }: Pr
         ))}
       </div>
       <p className="scope-line small">
-        <strong>{agentName ?? "This agent"}</strong> only — other agents keep their own. Each box
-        allows or blocks that family; these narrow what is set up for every agent in{" "}
+        <strong>{agentName ?? "This agent"}</strong> only — each box narrows what every agent gets
+        from{" "}
         <button type="button" className="link inline" onClick={() => onOpenGlobalSettings()}>
           Settings
         </button>
-        , and apply from this agent&apos;s next turn. They decide which tools the agent is offered,
-        not what its shell can reach — every agent runs in the same container.
+        , and applies from the next turn. Which tools it is offered, not what its shell can reach.
       </p>
       {status ? (
         <p className="warning small" role="alert">
@@ -217,11 +220,9 @@ export function AgentToolsSection({ agents, features, onOpenGlobalSettings }: Pr
       ) : null}
       {access && family === "pi" ? (
         <PiPane
-          key={`${agentId}-${piVersion}`}
           agentId={agentId}
           access={access}
           onStatus={setStatus}
-          onReload={() => setPiVersion((n) => n + 1)}
           onOpenGlobalSettings={onOpenGlobalSettings}
         />
       ) : null}
@@ -258,26 +259,35 @@ async function writeAccess(
   }
 }
 
+/**
+ * Google for this agent. The box on the chip is the allow/block; the only thing
+ * left to choose here is the level it is allowed at, so the select has two options
+ * and no third one that duplicates the box. Gmail, Calendar, Tasks, Contacts.
+ */
 function GooglePane(props: PaneProps) {
   const { access, onOpenGlobalSettings } = props;
   const pick = (google: GoogleAccess) => void writeAccess(props, { google }, `Google: ${google}`);
   return (
     <div className="pad-x">
-      <label className="field">
-        Google (Gmail, Calendar, Tasks, Contacts)
-        <select
-          value={access.google}
-          onChange={(event) => void pick(event.target.value as GoogleAccess)}
-        >
-          <option value="full">Full — read and write</option>
-          <option value="read">Read-only — nothing sent or edited</option>
-          <option value="off">Off for this agent</option>
-        </select>
-        <span className="muted small">
-          The connected account and its scopes are global — what is chosen here only narrows them
-          for this agent.
-        </span>
-      </label>
+      {access.google === "off" ? (
+        <p className="muted small">
+          Blocked for this agent — tick its box above to let it read anything.
+        </p>
+      ) : (
+        <label className="field">
+          Google access
+          <select
+            value={access.google}
+            onChange={(event) => void pick(event.target.value as GoogleAccess)}
+          >
+            <option value="full">Full — read and write</option>
+            <option value="read">Read-only — nothing sent or edited</option>
+          </select>
+          <span className="muted small">
+            The account and its scopes are global; this only narrows them.
+          </span>
+        </label>
+      )}
       <p className="muted small">
         <button
           type="button"
@@ -291,35 +301,26 @@ function GooglePane(props: PaneProps) {
   );
 }
 
-/** Codex and Claude Code work the same way: allowed or not, configured globally. */
+/**
+ * Codex and Claude Code: allowed or not, and configured globally. There is exactly
+ * one decision to make, the chip's box already makes it the moment it is ticked, so
+ * the pane says which way it went and where the rest lives instead of offering a
+ * second control for the same switch.
+ */
 function WorkerPane(props: PaneProps & { family: "codex" | "claude" }) {
   const { family, access, onOpenGlobalSettings } = props;
   const label = family === "codex" ? "Codex" : "Claude Code";
-  const pick = (allowed: boolean) =>
-    void writeAccess(
-      props,
-      { [family]: allowed } as Partial<AgentToolAccess>,
-      `${label} ${allowed ? "allowed" : "blocked"}`,
-    );
   return (
     <div className="pad-x">
-      <label className="field">
-        {label} workers
-        <select
-          value={access[family] ? "on" : "off"}
-          onChange={(event) => void pick(event.target.value === "on")}
-        >
-          <option value="on">Allowed — subagents may run it</option>
-          <option value="off">Blocked — refused in every permission mode</option>
-        </select>
-        <span className="muted small">
-          Endpoint, model and key are global; runs are listed under Tasks.
-        </span>
-      </label>
       <p className="muted small">
+        {access[family]
+          ? "Allowed — a Task may run this worker for this agent."
+          : "Blocked — refused in every permission mode."}{" "}
+        The endpoint, model and key are global, and runs are listed under Tasks.{" "}
         <button type="button" className="link inline" onClick={() => onOpenGlobalSettings(family)}>
-          {label} settings for every agent
+          {label} settings
         </button>
+        .
       </p>
     </div>
   );
@@ -336,13 +337,11 @@ function PiPane({
   agentId,
   access,
   onStatus,
-  onReload,
   onOpenGlobalSettings,
 }: {
   agentId: string;
   access: AgentToolAccess;
   onStatus: (text: string) => void;
-  onReload: () => void;
   onOpenGlobalSettings: (section?: string) => void;
 }) {
   const [override, setOverride] = useState<PiAgentOverride | null>(null);
@@ -444,8 +443,7 @@ function PiPane({
     <div className="pad-x">
       {!access.pi ? (
         <p className="muted small">
-          Remote Pi is blocked for this agent, so none of this is used yet — tick its box to allow
-          it.
+          Blocked for this agent — tick its box above before any of this is used.
         </p>
       ) : null}
       {/* Off and unset are different problems, and only one of them is fixable
@@ -453,8 +451,7 @@ function PiPane({
           inert, so say that instead of letting a saved form imply it runs. */}
       {!global.enabled ? (
         <p className="muted small">
-          Remote Pi is switched off for every agent, so nothing here runs yet — whatever is saved
-          waits for the switch.{" "}
+          Switched off for every agent, so nothing here runs yet —{" "}
           <button type="button" className="link inline" onClick={() => onOpenGlobalSettings("pi")}>
             Settings → Remote Pi
           </button>
@@ -462,9 +459,9 @@ function PiPane({
         </p>
       ) : !globalConfigured ? (
         <p className="muted small">
-          There is no global host or deploy key to inherit yet.{" "}
+          No global host or deploy key to inherit yet —{" "}
           <button type="button" className="link inline" onClick={() => onOpenGlobalSettings("pi")}>
-            Set it up in Settings → Remote Pi
+            set it up in Settings → Remote Pi
           </button>
           .
         </p>
@@ -482,27 +479,25 @@ function PiPane({
           <option value="own">This agent has its own settings</option>
         </select>
         <span className="muted small">
-          Own settings fill in field by field: anything left empty keeps the global value, so a
-          different working folder is one field and nothing else. The ssh key and the on/off switch
-          are never per-agent.
+          Own settings override one field at a time — an empty field keeps the global value. The ssh
+          key and the on/off switch stay global.
         </span>
       </label>
 
       {!own ? (
         <>
           <p className="muted small">
-            This agent uses {globalTarget ?? "no host yet"}
-            {global.workdir ? ` and works in ${global.workdir}` : ""}. Choose “own settings” to
-            point it at a different folder or host.
-          </p>
-          <p className="muted small">
+            Uses {globalTarget ?? "no host yet"}
+            {global.workdir ? ` in ${global.workdir}` : ""}. Choose “own settings” for a different
+            folder or host, or see the{" "}
             <button
               type="button"
               className="link inline"
               onClick={() => onOpenGlobalSettings("pi")}
             >
-              Global Remote Pi settings
+              global settings
             </button>
+            .
           </p>
         </>
       ) : (
@@ -633,19 +628,8 @@ function PiPane({
             ) : null}
             {dirty && !busy ? <span className="muted small">Unsaved changes</span> : null}
           </div>
-          <p className="muted small">
-            Checks {target.user ? `${target.user}@${target.host}` : "the host"}
-            {target.port !== 22 ? `:${target.port}` : ""} with the key from the global settings.
-            Saving checks it too.
-          </p>
         </>
       )}
-      <p className="muted small">
-        Wrong here?{" "}
-        <button type="button" className="link inline" onClick={onReload}>
-          Reload this pane
-        </button>
-      </p>
     </div>
   );
 }

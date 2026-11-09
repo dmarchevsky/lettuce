@@ -737,6 +737,15 @@ try {
     await page.locator('.bottombar > button:text-is("Files")').click();
     await page.waitForTimeout(500);
     check("and another pane closes it", !(await page.locator(".switcher").isVisible()));
+    // The list is Chat's, so only a press on Chat *from Chat* is the toggle. Arriving
+    // from another pane is just arriving: that press named the pane, not the list.
+    await page.locator('.bottombar > button:text-is("Chat")').click();
+    await page.waitForTimeout(500);
+    check(
+      "arriving on Chat from another pane does not lift the list",
+      (await page.locator(".switcher").count()) === 0 &&
+        (await page.locator(".composer textarea").isVisible()),
+    );
     await openTab(page, "Chat");
     await page.waitForTimeout(300);
 
@@ -2728,9 +2737,18 @@ try {
       },
     );
     if (featureOn(toolsFeatures, "google")) {
+      // One control per decision: the level select is there when Google is allowed,
+      // and when the box has it blocked the pane says so instead of offering a second
+      // way to say the same thing.
       check(
         "the tools pane loads access from the BFF",
-        (await page.locator('.pane label:has-text("Google") select').count()) === 1,
+        (await page.locator('.pane label:has-text("Google access") select').count()) +
+          (await page
+            .locator(
+              '.pane p:text-is("Blocked for this agent — tick its box above to let it read anything.")',
+            )
+            .count()) ===
+          1,
       );
     }
     if (featureOn(toolsFeatures, "pi")) {
@@ -2749,7 +2767,12 @@ try {
     check("the tools section has nothing clipped", toolsBox.clipped.length === 0, toolsBox);
     check(
       "the family row says what it is, so it does not read as a second tab bar",
-      (await page.locator(".pane-bar.tools-row .row-word").innerText()).trim() === "Tool families",
+      (await page.locator(".pane-bar.tools-row .row-word").innerText()).trim() === "For this agent",
+    );
+    check(
+      "the scope line is one sentence, not a paragraph",
+      ((await page.locator(".pane .scope-line").innerText()).match(/\.\s/g) ?? []).length <= 2,
+      await page.locator(".pane .scope-line").innerText(),
     );
     await shot(page, "desktop-agent-tools");
 
