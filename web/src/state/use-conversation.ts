@@ -7,7 +7,15 @@ import { buildMessageContent, type PreparedImage } from "../lib/attachments.ts";
 import { errorMessage, friendlyServerError } from "../lib/errors.ts";
 import { consumeFreshConversation } from "../lib/fresh-conversations.ts";
 import { upstreamReturned } from "../lib/link-status.ts";
-import { indicatorStaysOn, seamAllowsFlip, stallProbeDue } from "../lib/live-state.ts";
+import {
+  indicatorStaysOn,
+  QUEUE_HIDDEN,
+  QUEUE_REVEAL_GRACE_MS,
+  queueRevealDecision,
+  queueShownIsStale,
+  seamAllowsFlip,
+  stallProbeDue,
+} from "../lib/live-state.ts";
 import {
   addLocalUserMessage,
   applyStreamDelta,
@@ -97,6 +105,9 @@ export interface ConversationApi {
   /** Working directory of this runtime, from device status. */
   cwd: string | null;
   queue: QueuedItem[];
+  /** `queue` debounced by the reveal grace — render the queue strip from this,
+   * never from `queue`, or an idle send's transient snapshot flashes a strip. */
+  queueShown: QueuedItem[];
   approvals: PendingApproval[];
   error: string | null;
   /** History for the open conversation is in flight: the empty transcript must
@@ -332,6 +343,16 @@ export function useConversation(
   const [processing, setProcessing] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [queue, setQueue] = useState<QueuedItem[]>([]);
+  /**
+   * The queue as rendered: `queue` debounced by the reveal grace, so the
+   * transient snapshot of a send that drained straight from the queue never
+   * paints a strip (`queueRevealDecision`). The strip and the working line's
+   * queue metric render from this; the queue verbs and the indicator seam
+   * read `queue`.
+   */
+  const [queueShown, setQueueShown] = useState<QueuedItem[]>([]);
+  /** When the raw queue went non-empty, for the reveal grace. */
+  const queueSinceRef = useRef<number | null>(null);
   /** Mirror of `queue` for callbacks that must read the live snapshot. */
   const queueRef = useRef<QueuedItem[]>([]);
   /** Ids exempt from the queue's echo erase (the `update_queue` case): a
@@ -632,7 +653,9 @@ export function useConversation(
     setEntries([]);
     setTurnStartedAt(null);
     setQueue([]);
+    setQueueShown([]);
     queueRef.current = [];
+    queueSinceRef.current = null;
     expectResentTurnRef.current = false;
     setApprovals([]);
     setStopping(false);
@@ -830,26 +853,9 @@ export function useConversation(
           const items = readQueue((frame as { queue?: unknown }).queue);
           queueRef.current = items;
           setQueue(items);
-          // A user message that is in the queue is not in the conversation —
-          // yet. Its optimistic echo retires here and the app-server's dequeue
-          // echo creates the transcript entry when the message is actually
-          // routed, so a waiting message lives only in its chip. The erase
-          // mirrors `dropLocalEcho` (declared below) inline: only the local
-          // echo ever goes, a server-echoed entry is the real record. Question
-          // answers keep their echo (their card state rides it) — `keepEchoRef`.
-          for (const item of items) {
-            const queuedId = item.clientMessageId;
-            if (
-              item.source === "user" &&
-              queuedId &&
-              !keepEchoRef.current.has(queuedId) &&
-              transcriptRef.current.get(queuedId)?.local
-            ) {
-              transcriptRef.current.delete(queuedId);
-              streamIndexRef.current.byOtid.delete(queuedId);
-              flushSync();
-            }
-          }
+          // The snapshot does NOT erase the message's local echo: a mid-turn
+          // send would then live nowhere for the strip's reveal grace. The
+          // echo retires when the strip reveals it — see the reveal effect.
           break;
         }
         case "control_request": {
@@ -988,6 +994,49 @@ export function useConversation(
     },
     [flushSync],
   );
+
+  // The reveal grace: the raw snapshot decides when the strip's clock starts
+  // and stops, the pure decision says when it may show (`live-state.ts`).
+  // Revealing is also when a queued message's local echo retires — the chip
+  // takes its place in the same paint, so a mid-turn send lives in exactly
+  // one place at every moment. The timer counts the *remaining* grace, so a
+  // burst of snapshots cannot push the reveal later than the constant.
+  useEffect(() => {
+    const act = queueRevealDecision(
+      queue,
+      queueShown.length > 0,
+      queueSinceRef.current,
+      performance.now(),
+    );
+    if (queue.length === 0) {
+      queueSinceRef.current = null;
+      if (queueShown.length > 0) setQueueShown(QUEUE_HIDDEN as never);
+      return;
+    }
+    queueSinceRef.current ??= performance.now();
+    if (act === "show" || (act === "keep" && queueShownIsStale(queue, queueShown))) {
+      if (act === "show") {
+        // The chip becomes the message's place on screen now (question
+        // answers keep their echo — `keepEchoRef`).
+        for (const item of queue) {
+          if (
+            item.source === "user" &&
+            item.clientMessageId &&
+            !keepEchoRef.current.has(item.clientMessageId)
+          ) {
+            dropLocalEcho(item.clientMessageId);
+          }
+        }
+      }
+      setQueueShown(queue);
+      return;
+    }
+    if (act === "arm") {
+      const remaining = QUEUE_REVEAL_GRACE_MS - (performance.now() - queueSinceRef.current);
+      const timer = setTimeout(() => setQueueShown(queue), Math.max(0, remaining));
+      return () => clearTimeout(timer);
+    }
+  }, [queue, queueShown, dropLocalEcho]);
 
   const abort = useCallback(async (): Promise<boolean> => {
     if (!scope) return false;
@@ -1229,6 +1278,7 @@ export function useConversation(
     stopping,
     cwd,
     queue,
+    queueShown,
     approvals,
     error,
     historyLoading,

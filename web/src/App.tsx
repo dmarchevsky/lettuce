@@ -928,7 +928,11 @@ function Workspace({ status }: { status: Status }) {
               onStopSubagent={conversation.stopSubagent}
             />
 
-            {conversation.queue.length > 0 ? (
+            {/* The strip renders the debounced queue (`queueShown`): the
+                listener enqueues every send and drains an idle one at once,
+                so the raw snapshot flashes for a frame pair and only the
+                reveal grace tells that apart from a real queue. */}
+            {conversation.queueShown.length > 0 ? (
               <div className="queue">
                 {/* No “Queued”/“Paused” label and no per-chip steer: one
                     yellow pill at the strip's left edge stops the turn and
@@ -936,13 +940,13 @@ function Workspace({ status }: { status: Status }) {
                     order (upstream has no per-item promote, so “make THIS
                     next” for a later item is still what edit + delete are
                     for). A parked queue shows Resume instead. */}
-                {conversation.queue.some((item) => item.source === "user" && !item.paused) ? (
+                {conversation.queueShown.some((item) => item.source === "user" && !item.paused) ? (
                   <button
                     type="button"
                     className="queued steer-pill"
                     title="Steer — stop this turn and start the queued messages now"
                     onClick={() => {
-                      const target = conversation.queue.find(
+                      const target = conversation.queueShown.find(
                         (item) => item.source === "user" && !item.paused,
                       );
                       if (target) void conversation.forceSend(target.id);
@@ -952,7 +956,7 @@ function Workspace({ status }: { status: Status }) {
                     Steer
                   </button>
                 ) : null}
-                {conversation.queue.some((item) => item.paused) ? (
+                {conversation.queueShown.some((item) => item.paused) ? (
                   <button
                     type="button"
                     className="queued resume-queue"
@@ -963,7 +967,7 @@ function Workspace({ status }: { status: Status }) {
                     <Icon name="refresh" />
                   </button>
                 ) : null}
-                {conversation.queue.map((item) => (
+                {conversation.queueShown.map((item) => (
                   <span key={item.id} className={`queued${item.paused ? " paused" : ""}`}>
                     <span className="queued-text" title={item.content}>
                       <span>{item.content}</span>
@@ -1021,7 +1025,7 @@ function Workspace({ status }: { status: Status }) {
               stopping={conversation.stopping}
               turn={{
                 entries: conversation.entries,
-                queue: conversation.queue,
+                queue: conversation.queueShown,
                 cwd: conversation.cwd,
                 turnStartedAt: conversation.turnStartedAt,
                 lastActivityAt: conversation.lastActivityAt,

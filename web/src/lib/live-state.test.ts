@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { indicatorStaysOn, seamAllowsFlip, stallProbeDue } from "./live-state.ts";
+import {
+  indicatorStaysOn,
+  QUEUE_HIDDEN,
+  QUEUE_REVEAL_GRACE_MS,
+  queueRevealDecision,
+  queueShownIsStale,
+  seamAllowsFlip,
+  stallProbeDue,
+} from "./live-state.ts";
 
 describe("the force-send seam", () => {
   test("with no send in flight, the indicator follows what the frame says", () => {
@@ -53,5 +61,46 @@ describe("the stall watchdog's probe", () => {
 
   test("a conversation that has heard nothing at all is not a stalled turn", () => {
     expect(due({ lastActivityAt: null })).toBe(false);
+  });
+});
+
+describe("the queue strip's reveal grace", () => {
+  const queued = (paused: boolean) => ({ paused });
+  const since = 1_000;
+
+  test("an empty queue keeps the strip away", () => {
+    expect(queueRevealDecision([], false, null, 5_000)).toBe("keep");
+  });
+
+  test("a queue that just went non-empty waits out the grace", () => {
+    expect(queueRevealDecision([queued(false)], false, null, since)).toBe("arm");
+    expect(queueRevealDecision([queued(false)], false, since, since + 399)).toBe("arm");
+  });
+
+  test("a queue held past the grace reveals — that one really waited", () => {
+    expect(queueRevealDecision([queued(false)], false, since, since + QUEUE_REVEAL_GRACE_MS)).toBe(
+      "show",
+    );
+  });
+
+  test("once shown it stays shown until the queue empties", () => {
+    expect(queueRevealDecision([queued(false)], true, since, since + 1)).toBe("keep");
+    expect(queueRevealDecision([], true, null, since)).toBe("hide");
+  });
+
+  test("a paused item reveals at once: a parked queue is persistent state", () => {
+    expect(queueRevealDecision([queued(true)], false, null, since)).toBe("show");
+  });
+
+  test("the hidden strip's items are one shared empty", () => {
+    expect(QUEUE_HIDDEN.length).toBe(0);
+  });
+
+  test("a shown strip notices the queue moving under it", () => {
+    const item = (id: string) => ({ id });
+    expect(queueShownIsStale([item("a")], [item("a")])).toBe(false);
+    expect(queueShownIsStale([item("a"), item("b")], [item("a")])).toBe(true);
+    expect(queueShownIsStale([item("b")], [item("a")])).toBe(true);
+    expect(queueShownIsStale([], [item("a")])).toBe(true);
   });
 });
