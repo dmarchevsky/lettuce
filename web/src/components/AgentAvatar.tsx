@@ -19,11 +19,15 @@ interface Props {
 
 /**
  * An agent's face: the tint it was given (or the one its id hashes to) with the
- * glyph it was given (or the letter of its name) on top.
+ * glyph it was given (or the letter of its name) on top — or, when one was
+ * uploaded, the picture over that same tint, so its transparency reads as the
+ * agent's colour rather than as a white box.
  *
  * Every surface that shows an agent renders through this one component, because
  * the four of them used to each call `tintFor`/`initialOf` by hand and a
- * preference read in one of them would have shown up in one list only.
+ * preference read in one of them would have shown up in one list only. It is also
+ * why one CSS rule for an uploaded face covers the rail, the switcher, the header
+ * and the picker's own preview at once.
  */
 export function AgentAvatar({
   agentId,
@@ -40,7 +44,7 @@ export function AgentAvatar({
       style={{ background: face.background }}
       aria-hidden={ariaHidden || undefined}
     >
-      {face.content}
+      {face.image ? <img className="agent-avatar-img" src={face.image} alt="" /> : face.content}
       {children}
     </span>
   );
