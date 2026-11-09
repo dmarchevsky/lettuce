@@ -537,22 +537,36 @@ try {
         const again = (await page.locator(".pane .filters button.link").first().innerText()).trim();
         check("and following that returns to the agent's own", again === "show all", again);
       }
-      // A run transcript must be scrollable inside the sheet; it used to be
-      // clipped by the fill sheet with no scroll region at all.
+      // A run transcript must be scrollable inside whatever surface it opens in.
+      // It used to be clipped by the fill sheet with no scroll region at all; a
+      // remote-pi run now opens in the pane instead of a sheet, so both ways of
+      // reading a run are asserted, whichever kind the list happens to lead with.
       const firstRun = page.locator(".list .task button.row").first();
       if ((await firstRun.count()) > 0) {
         await firstRun.click();
-        await page.waitForSelector(".sheet-panel.fill .codex-run", { timeout: 5000 });
-        const scroller = await page.evaluate(() => {
-          const el = document.querySelector<HTMLElement>(".sheet-panel.fill .codex-run");
-          if (!el) return "missing";
-          const style = getComputedStyle(el);
-          return style.overflowY === "auto" ? "yes" : `overflow=${style.overflowY}`;
-        });
-        check("the run transcript scrolls inside its sheet", scroller === "yes", scroller);
-        // The phone sheet is full-screen, so the scrim has no exposed area.
-        await page.locator(".sheet-panel .sheet-close").click();
-        await page.waitForTimeout(200);
+        if (await page.locator(".pi-session").count()) {
+          const scroller = await page.evaluate(() => {
+            const el = document.querySelector<HTMLElement>(".pi-session .messages");
+            if (!el) return "missing";
+            const style = getComputedStyle(el);
+            return style.overflowY === "auto" ? "yes" : `overflow=${style.overflowY}`;
+          });
+          check("the session transcript scrolls in the pane", scroller === "yes", scroller);
+          await page.keyboard.press("Escape");
+          await page.waitForTimeout(200);
+        } else {
+          await page.waitForSelector(".sheet-panel.fill .codex-run", { timeout: 5000 });
+          const scroller = await page.evaluate(() => {
+            const el = document.querySelector<HTMLElement>(".sheet-panel.fill .codex-run");
+            if (!el) return "missing";
+            const style = getComputedStyle(el);
+            return style.overflowY === "auto" ? "yes" : `overflow=${style.overflowY}`;
+          });
+          check("the run transcript scrolls inside its sheet", scroller === "yes", scroller);
+          // The phone sheet is full-screen, so the scrim has no exposed area.
+          await page.locator(".sheet-panel .sheet-close").click();
+          await page.waitForTimeout(200);
+        }
       }
       await openTab(page, "Chat");
     } else {
