@@ -161,7 +161,7 @@ export const GLYPH_CATEGORIES: GlyphCategory[] = [
       { glyph: "🔧", keywords: ["wrench", "fix", "adjust"] },
       { glyph: "🔨", keywords: ["hammer", "build", "nail"] },
       { glyph: "⛏️", keywords: ["pickaxe", "mine", "dig"] },
-      { glyph: "🧰", keywords: ["toolbox", "toolbox", "kit"] },
+      { glyph: "🧰", keywords: ["toolbox", "toolkit", "kit"] },
       { glyph: "🪛", keywords: ["screwdriver", "fix", "screw"] },
       { glyph: "🤖", keywords: ["robot", "bot", "ai", "agent"] },
       { glyph: "🖥️", keywords: ["desktop", "computer", "monitor", "server"] },

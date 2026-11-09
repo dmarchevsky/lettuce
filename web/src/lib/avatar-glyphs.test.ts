@@ -39,13 +39,15 @@ describe("GLYPH_CATEGORIES", () => {
     }
   });
 
-  test("nothing from the block Apple only shipped with iOS 16.4", () => {
-    // 🫠 🫡 🫥 and their neighbours look current but are recent enough that an older
-    // iPhone draws tofu, which in a 22px circle is indistinguishable from a bug.
+  test("nothing newer than Emoji 13 (2020), which every device we are opened on draws", () => {
+    // 🫐 and its Emoji 14 neighbours (U+1FAD0–1FAD9) need iOS 15.4 and 🫠 its Emoji 15
+    // neighbours (U+1FAE0–1FAFF) need iOS 16.4 — recent enough that an older iPhone
+    // draws tofu, which in a 22px circle is indistinguishable from a bug. The gap
+    // between the two blocks is unassigned, so one range covers both.
     for (const entry of ALL_GLYPHS) {
       for (const char of entry.glyph) {
         const code = char.codePointAt(0) ?? 0;
-        expect(code < 0x1fae0).toBe(true);
+        expect(code < 0x1fad0 || code > 0x1faff).toBe(true);
       }
     }
   });
@@ -53,6 +55,28 @@ describe("GLYPH_CATEGORIES", () => {
   test("no ZWJ sequences, which some fonts draw as two glyphs in one tile", () => {
     for (const entry of ALL_GLYPHS) {
       expect(entry.glyph.includes("\u200d")).toBe(false);
+    }
+  });
+
+  test("a glyph with an emoji presentation selector keeps it", () => {
+    // 26 tiles are of the ☠️ ✉️ ⚙️ shape, and U+FE0F is the whole difference between
+    // the emoji and the plain text mark in many fonts. The BFF strips modifiers to
+    // count graphemes (bff/src/agents/avatar-prefs.ts guards that it stores what it
+    // was sent); this is the other half of the round trip — the tile must show the
+    // same character the pref comes back holding, or the picker cannot light up the
+    // face the agent is already wearing.
+    for (const entry of ALL_GLYPHS) {
+      expect([...entry.glyph].filter((char) => char === "\ufe0f").length <= 1).toBe(true);
+      expect(entry.glyph.endsWith("\ufe0f") || !entry.glyph.includes("\ufe0f")).toBe(true);
+    }
+  });
+
+  test("nothing carries an invisible mark that would make a grapheme count lie", () => {
+    const INVISIBLE =
+      /[\u200b\u200c\u200e\u200f\u202a-\u202e\u2060\u2061-\u2064\u2066-\u2069\ufeff]/;
+    for (const entry of ALL_GLYPHS) {
+      expect(INVISIBLE.test(entry.glyph)).toBe(false);
+      expect(entry.glyph.trim()).toBe(entry.glyph);
     }
   });
 });

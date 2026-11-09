@@ -151,7 +151,10 @@ export interface AgentsApi {
   refreshConversations: (agentId: string) => Promise<void>;
   retrieveAgent: (agentId: string) => Promise<AgentDetail>;
   /** Creates the agent and returns its id, so a staged face can be applied to it. */
-  createAgent: (preset: AgentPreset, draft: AgentDraft) => Promise<string>;
+  createAgent: (
+    preset: AgentPreset,
+    draft: AgentDraft,
+  ) => Promise<{ id: string; faceFailed: boolean }>;
   updateAgent: (agentId: string, draft: AgentDraft) => Promise<void>;
   deleteAgent: (agentId: string) => Promise<void>;
   /** Agent ids pinned to the top of every agent list; `agents` is already in that order. */
@@ -165,7 +168,11 @@ export interface AgentsApi {
   setAgentArchived: (agentId: string, archived: boolean) => Promise<void>;
   /** Per-agent avatar choices, present only for agents that chose something. */
   avatars: Readonly<Record<string, AvatarPref>>;
-  /** Writes one agent's choice; an empty pref resets it to the derived default. */
+  /**
+   * Writes one agent's choice; an empty pref resets it to the derived default.
+   * Rejects when the write failed — the caller's Save button is the place that has
+   * to say so.
+   */
   setAvatar: (
     agentId: string,
     pref: { tint?: string | null; glyph?: string | null; image?: string | null },
@@ -289,8 +296,17 @@ export function useAgents(session: SessionApi): AgentsApi {
   const pinnedSet = useMemo(() => new Set(pinnedIds), [pinnedIds]);
   const archivedSet = useMemo(() => new Set(archivedIds), [archivedIds]);
 
+  /**
+   * Writes one agent's face. This one **throws**: the two places that call it are
+   * forms whose Save button is sitting right there, and a swallowed failure reads
+   * as a save that worked. The error line is set on the way out so the lists settle
+   * anyway.
+   */
   const setAvatar = useCallback(
-    async (target: string, pref: { tint?: string | null; glyph?: string | null }) => {
+    async (
+      target: string,
+      pref: { tint?: string | null; glyph?: string | null; image?: string | null },
+    ) => {
       // The server answers with the whole map, so every list showing this agent
       // — rail, switcher, sidebar, header — settles on the same face at once.
       try {
@@ -298,6 +314,7 @@ export function useAgents(session: SessionApi): AgentsApi {
       } catch (cause) {
         setError(errorMessage(cause));
         await loadFlags();
+        throw cause;
       }
     },
     [loadFlags],
@@ -447,14 +464,24 @@ export function useAgents(session: SessionApi): AgentsApi {
 
       // A face picked before the agent existed is applied last and is not fatal:
       // "created, but its face did not stick" beats "nothing happened", and the fix
-      // is one `Choose…` on the new agent's own tab.
+      // is one `Choose…` on the new agent's own tab. It is still *reported*, because
+      // the New agent sheet is the only screen the operator is looking at and a
+      // plain "Created." over a dropped face is how a silently default-coloured
+      // agent gets agreed to.
       const staged = draft.avatar ?? {};
+      let faceFailed = false;
       if (staged.tint !== undefined || staged.glyph !== undefined || staged.image !== undefined) {
-        await setAvatar(created, staged);
+        try {
+          setAvatarPrefs(await saveAgentAvatar(created, staged));
+        } catch (cause) {
+          faceFailed = true;
+          setError(errorMessage(cause));
+          await loadFlags();
+        }
       }
-      return created;
+      return { id: created, faceFailed };
     },
-    [request, refreshAgents, setAvatar],
+    [request, refreshAgents, loadFlags],
   );
 
   const updateAgent = useCallback(

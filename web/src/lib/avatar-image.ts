@@ -101,8 +101,17 @@ export async function resizeToFace(source: Blob, size = FACE_SIZE): Promise<Blob
   canvas.width = size;
   canvas.height = size;
   const context = canvas.getContext("2d");
-  if (!context) throw new Error("This browser cannot resize an image");
-  context.drawImage(bitmap.source, offset, offsetTop, side, side, 0, 0, size, size);
-  bitmap.release?.();
+  if (!context) {
+    bitmap.release?.();
+    throw new Error("This browser cannot resize an image");
+  }
+  try {
+    context.drawImage(bitmap.source, offset, offsetTop, side, side, 0, 0, size, size);
+  } finally {
+    // A decoded bitmap is the biggest thing this page holds — a 4000×3000 photo is
+    // ~48 MB of pixels — and a throw on the way out, from a browser that refused to
+    // draw, would leave it held for the life of the tab.
+    bitmap.release?.();
+  }
   return await encode(canvas);
 }

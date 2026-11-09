@@ -48,8 +48,15 @@ export function AgentEditor({ session, agents, onClose }: Props) {
   const create = async () => {
     setBusy(true);
     try {
-      await agents.createAgent(preset, draft);
-      toast(`Created ${draft.name.trim()}.`);
+      const { faceFailed } = await agents.createAgent(preset, draft);
+      // `warn` is the kind that means "it happened, and one part of it did not":
+      // the agent exists either way, so saying only "Created" would be a lie about
+      // the face, and saying "failed" would be a lie about the agent.
+      const name = draft.name.trim();
+      toast(
+        faceFailed ? `Created ${name} — but its face was not applied.` : `Created ${name}.`,
+        faceFailed ? "warn" : "ok",
+      );
       onClose();
     } catch (cause) {
       setStatus(errorMessage(cause));

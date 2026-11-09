@@ -140,10 +140,12 @@ export function AvatarSheet({
       setArmedDelete(id);
       return;
     }
-    setArmedDelete(null);
     setBusy(true);
     try {
       const result = await removeFace(id);
+      // Only disarmed once it is really gone: a failed delete that un-armed itself
+      // would cost two more taps for nothing.
+      setArmedDelete(null);
       setImages(result.images);
       // The BFF cleared this face off every agent wearing it; if that includes
       // the one this sheet is about, the staged pref has to stop pointing at it.
@@ -340,6 +342,7 @@ export function AvatarSheet({
               ref={fileRef}
               type="file"
               accept="image/png,image/jpeg,image/webp"
+              disabled={busy}
               hidden
               onChange={(event) => void onFile(event.target.files?.[0])}
             />

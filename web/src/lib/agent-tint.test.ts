@@ -58,15 +58,15 @@ describe("resolveAvatar", () => {
     const face = resolveAvatar("agent-a", "memo", { tint: "#7aa2f7", image: "0123456789abcdef" });
     expect(face.image).toBe("/api/avatars/0123456789abcdef");
     expect(face.background).toBe("#7aa2f7");
-    // Nothing to draw under a picture: an empty content is what tells AgentAvatar
-    // not to put a letter behind it.
-    expect(face.content).toBe("");
+    // The letter is still resolved under a picture: it is what AgentAvatar draws
+    // if the picture cannot be fetched, instead of an empty circle.
+    expect(face.content).toBe("M");
   });
 
-  test("a face beats a glyph, and the glyph is not silently kept under it", () => {
+  test("a face beats a glyph, and the glyph stays behind it as the fallback", () => {
     const face = resolveAvatar("agent-a", "memo", { glyph: "🦊", image: "0123456789abcdef" });
     expect(face.image).toBeDefined();
-    expect(face.content).toBe("");
+    expect(face.content).toBe("🦊");
   });
 
   test("without a face there is no image url to fetch", () => {

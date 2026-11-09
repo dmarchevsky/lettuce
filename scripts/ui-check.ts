@@ -4046,6 +4046,36 @@ try {
       "and a second Escape closes the editor",
       (await page.locator('.sheet-panel[aria-label="New agent"]').count()) === 0,
     );
+
+    // The same nesting for the face, which is the case that matters more: the avatar
+    // sheet stages into a draft that has no agent behind it yet, so a pick that
+    // closed the editor, or an Escape that took the editor with it, would throw away
+    // a name typed by hand. Checked at desktop because that is where the panel's
+    // docked New-agent row is the only door.
+    await page.locator(".rail .rail-new").click();
+    await page.locator('.sheet-panel[aria-label="New agent"]').waitFor();
+    const draftName = page.locator('.sheet-panel[aria-label="New agent"] .field input').first();
+    await draftName.fill("Temp Draft");
+    await page
+      .locator('.sheet-panel[aria-label="New agent"] .field:has-text("Avatar") button')
+      .first()
+      .click();
+    const avatarSheet = page.locator('.sheet-panel[aria-label="Avatar"]');
+    await avatarSheet.waitFor({ timeout: 8_000 });
+    await avatarSheet.locator(".avatar-glyph").first().click();
+    const faceStaged = (await avatarSheet.locator(".avatar-preview").innerText()).trim();
+    await page.keyboard.press("Escape");
+    check(
+      "the avatar sheet over the New agent form closes alone and keeps the draft",
+      (await page.locator('.sheet-panel[aria-label="Avatar"]').count()) === 0 &&
+        (await page.locator('.sheet-panel[aria-label="New agent"]').count()) === 1 &&
+        (await draftName.inputValue()) === "Temp Draft" &&
+        faceStaged.length > 0 &&
+        (await page
+          .locator('.sheet-panel[aria-label="New agent"] .avatar-row .avatar-preview')
+          .innerText()) === faceStaged,
+    );
+    await page.keyboard.press("Escape");
     await shot(page, "desktop-agent-model");
     await page.close();
   }

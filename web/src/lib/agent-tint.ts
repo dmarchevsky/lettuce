@@ -87,6 +87,9 @@ export function graphemeCount(value: string): number {
  */
 export function resolveAvatar(id: string, name: string, pref?: AvatarPref): AvatarFace {
   const background = pref?.tint ?? tintFor(id);
-  if (pref?.image) return { background, content: "", image: faceUrl(pref.image) };
-  return { background, content: pref?.glyph || initialOf(name) };
+  // The glyph or letter is resolved even under a picture, because it is what a
+  // surface falls back to when the picture cannot be drawn — see AgentAvatar.
+  const content = pref?.glyph || initialOf(name);
+  if (pref?.image) return { background, content, image: faceUrl(pref.image) };
+  return { background, content };
 }
