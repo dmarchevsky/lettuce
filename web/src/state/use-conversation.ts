@@ -7,7 +7,13 @@ import { buildMessageContent, type PreparedImage } from "../lib/attachments.ts";
 import { errorMessage, friendlyServerError } from "../lib/errors.ts";
 import { consumeFreshConversation } from "../lib/fresh-conversations.ts";
 import { upstreamReturned } from "../lib/link-status.ts";
-import { indicatorStaysOn, seamAllowsFlip, stallProbeDue } from "../lib/live-state.ts";
+import {
+  indicatorStaysOn,
+  QUEUE_REVEAL_GRACE_MS,
+  queueRevealDecision,
+  seamAllowsFlip,
+  stallProbeDue,
+} from "../lib/live-state.ts";
 import {
   addLocalUserMessage,
   applyStreamDelta,
@@ -97,6 +103,9 @@ export interface ConversationApi {
   /** Working directory of this runtime, from device status. */
   cwd: string | null;
   queue: QueuedItem[];
+  /** `queue` debounced by the reveal grace — render the queue strip from this,
+   * never from `queue`, or an idle send's transient snapshot flashes a strip. */
+  queueShown: QueuedItem[];
   approvals: PendingApproval[];
   error: string | null;
   /** History for the open conversation is in flight: the empty transcript must
@@ -332,6 +341,15 @@ export function useConversation(
   const [processing, setProcessing] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [queue, setQueue] = useState<QueuedItem[]>([]);
+  /**
+   * The queue as rendered: `queue` debounced by the reveal grace, so the
+   * transient snapshot of a send that drained straight from the queue never
+   * paints a strip (`queueRevealDecision`). Everything except the strip —
+   * the queue verbs, the echo erase, the indicator seam — reads `queue`.
+   */
+  const [queueShown, setQueueShown] = useState<QueuedItem[]>([]);
+  /** When the raw queue went non-empty, for the reveal grace. */
+  const queueSinceRef = useRef<number | null>(null);
   /** Mirror of `queue` for callbacks that must read the live snapshot. */
   const queueRef = useRef<QueuedItem[]>([]);
   /** Ids exempt from the queue's echo erase (the `update_queue` case): a
@@ -348,6 +366,28 @@ export function useConversation(
    * the flag says the next `turn_finished` is the seam into the resent turn.
    */
   const expectResentTurnRef = useRef(false);
+
+  // The reveal-grace timer: the raw snapshot decides when it starts and stops,
+  // the pure decision says when the strip may show (`live-state.ts`).
+  useEffect(() => {
+    if (queue.length === 0) {
+      queueSinceRef.current = null;
+      setQueueShown([]);
+      return;
+    }
+    queueSinceRef.current ??= performance.now();
+    const act = queueRevealDecision(
+      queue,
+      queueShown.length > 0,
+      queueSinceRef.current,
+      performance.now(),
+    );
+    if (act === "show") setQueueShown(queue);
+    else if (act === "arm") {
+      const timer = setTimeout(() => setQueueShown(queue), QUEUE_REVEAL_GRACE_MS);
+      return () => clearTimeout(timer);
+    }
+  }, [queue, queueShown]);
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -632,7 +672,9 @@ export function useConversation(
     setEntries([]);
     setTurnStartedAt(null);
     setQueue([]);
+    setQueueShown([]);
     queueRef.current = [];
+    queueSinceRef.current = null;
     expectResentTurnRef.current = false;
     setApprovals([]);
     setStopping(false);
@@ -1229,6 +1271,7 @@ export function useConversation(
     stopping,
     cwd,
     queue,
+    queueShown,
     approvals,
     error,
     historyLoading,
