@@ -148,10 +148,11 @@ It defaults to `../..` relative to the compose file, which is **a trap in a work
 `.dev-flow/<slug>/worktree/docker/` resolves to `.dev-flow/<slug>`. Prod sets an absolute path in `docker/.env`
 (hard rule 3), and container work always happens from the main checkout.
 
-Three named volumes remain, none precious: `bff-data` (web-push endpoints, rebuilt by re-subscribing)
+Three named volumes remain: `bff-data` (web-push endpoints and the pin/archive lists, rebuilt by
+re-subscribing, plus the uploaded agent faces in `avatars/`, which nothing can rebuild)
 and `google-policy` / `google-creds` (Settings → Google Workspace, named so the app-server cannot mount them by
 accident through the state tree; losing them means reconnecting Google). Everything precious is under
-that one host directory, so a backup is a single `tar`. Older installs move off the named volumes with
+that one host directory, so a backup is a single `tar` plus that one directory. Older installs move off the named volumes with
 `bun run migrate-state`, which copies and verifies and never deletes — the memfs git history is the
 only record of what an agent has learned.
 

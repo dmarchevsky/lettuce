@@ -19,7 +19,16 @@ import { type Context, Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { installAgentSkills, readSkillTree } from "./agent-skills.ts";
 import { AgentAncestry } from "./agents/ancestry.ts";
-import { AgentAvatarStore, parseAvatarPref } from "./agents/avatar-prefs.ts";
+import {
+  AvatarImageLibrary,
+  AvatarRecentGlyphs,
+  declaredAvatarSizeViolation,
+  deleteFace,
+  listFaces,
+  MAX_AVATAR_IMAGE_BYTES,
+  readAvatarBody,
+} from "./agents/avatar-library.ts";
+import { AgentAvatarStore, isAvatarImageId, parseAvatarPref } from "./agents/avatar-prefs.ts";
 import { AgentFacts } from "./agents/facts.ts";
 import { AgentIdList, isAgentId } from "./agents/id-list.ts";
 import {
@@ -192,6 +201,13 @@ const agentToolAccess = new AgentToolAccessStore(config.agentToolAccessFile, (er
 );
 const agentAvatars = new AgentAvatarStore(config.avatarPrefsFile, (error) =>
   log(`Agent avatar preferences persist failed: ${errorMessage(error)}`),
+);
+// Uploaded faces and the sheet's recent glyphs — see `agents/avatar-library.ts`.
+// Both are lazy about their directory, so booting without them is booting with
+// every face back to its letter.
+const avatarImages = new AvatarImageLibrary(config.avatarImageDir);
+const avatarRecents = new AvatarRecentGlyphs(config.avatarRecentsFile, (error) =>
+  log(`Avatar recents persist failed: ${errorMessage(error)}`),
 );
 // A call with no agent id (an agent shell's curl) gets the default: this is availability, not a boundary.
 const googleAccessFor = (agentId: string | null) =>
@@ -1295,18 +1311,95 @@ app.put("/api/agents/pins/:agentId", async (c) => {
 // rendered mods, see `agents/tool-access.ts`.
 
 // ── Per-agent avatar ────────────────────────────────────────────────────────
-// The tint and glyph picked for one agent (`agents/avatar-prefs.ts`). The whole
-// map comes back so one write can refresh every list that shows an avatar.
+// The tint, glyph or uploaded face picked for one agent
+// (`agents/avatar-prefs.ts`). The whole map comes back so one write can refresh
+// every list that shows an avatar, and saving a glyph records it as recent —
+// saved, not tapped, so browsing the library does not rewrite the list.
 
 app.put("/api/agents/avatar/:agentId", async (c) => {
   const agentId = c.req.param("agentId");
   if (!isAgentId(agentId)) return c.text("Not an agent id", 400);
   const pref = parseAvatarPref(await c.req.json().catch(() => null));
   if (!pref) {
-    return c.text('Body must be { tint?: "#rrggbb", glyph?: string } (empty clears)', 400);
+    return c.text(
+      'Body must be { tint?: "#rrggbb", glyph?: string, image?: faceId } (empty clears)',
+      400,
+    );
+  }
+  // A pref may not name a face the library does not hold: an agent pointing at
+  // missing bytes has no face at all — the picture is blank and the letter is gone
+  // behind it. The obvious way to get there is another tab deleting the face
+  // between this screen loading and saving, which is why the check is here and not
+  // only in the UI that lists the faces.
+  if (pref.image && !avatarImages.get(pref.image)) {
+    return c.text("That face is no longer in the library", 409);
   }
   agentAvatars.set(agentId, pref);
-  return c.json({ avatars: agentAvatars.all() });
+  avatarRecents.push(pref.glyph);
+  return c.json({ avatars: agentAvatars.all(), recents: avatarRecents.list() });
+});
+
+// ── The face library ────────────────────────────────────────────────────────
+// Uploaded faces shared by every agent (`agents/avatar-library.ts`): the sheet
+// shows the whole library, so the list carries who is wearing each face and an
+// upload answers with the fresh list — one round trip refreshes the strip.
+// The recents routes are registered before `/:id` so they are not read as an id.
+
+app.get("/api/avatars", (c) =>
+  c.json({ images: listFaces(avatarImages, agentAvatars), recents: avatarRecents.list() }),
+);
+
+// Raw bytes, not multipart: the client resizes and re-encodes before it sends, and
+// a `FormData` wrapper would only hide what is being posted. The type is decided
+// by magic bytes in the store, never by this request's Content-Type.
+app.post("/api/avatars", async (c) => {
+  const tooLarge = declaredAvatarSizeViolation(c.req.header("content-length") ?? null);
+  if (tooLarge) return c.text(tooLarge, 413);
+  const bytes = await readAvatarBody(c.req.raw.body);
+  if (!bytes) {
+    return c.text(`A face is at most ${MAX_AVATAR_IMAGE_BYTES / 1024} KiB`, 413);
+  }
+  const stored = avatarImages.put(bytes);
+  if ("error" in stored) return c.text(stored.error, stored.status);
+  return c.json({ id: stored.id, images: listFaces(avatarImages, agentAvatars) });
+});
+
+app.get("/api/avatars/recents", (c) => c.json({ recents: avatarRecents.list() }));
+
+app.put("/api/avatars/recents", async (c) => {
+  const body = (await c.req.json().catch(() => null)) as { glyphs?: unknown } | null;
+  if (!body || !Array.isArray(body.glyphs)) return c.text("Body must be { glyphs: string[] }", 400);
+  return c.json({ recents: avatarRecents.set(body.glyphs) });
+});
+
+// A face id is a content hash, so this is the one response in the app that may
+// be cached for a year: the URL changes the moment the bytes would have to differ.
+app.get("/api/avatars/:id", (c) => {
+  const image = avatarImages.get(c.req.param("id"));
+  if (!image) return c.text("No such face", 404);
+  return hardenedResponse(hardened, image.bytes, {
+    "content-type": image.contentType,
+    "content-length": String(image.bytes.byteLength),
+    // `private`, not `public` like the hashed static bundle below: this route
+    // answers only to a session cookie, and a CDN in front of the app would
+    // happily serve a face from its cache to whoever held the URL.
+    "cache-control": "private, max-age=31536000, immutable",
+  });
+});
+
+// Removing a face also clears it from every agent wearing it (`deleteFace`),
+// because a pref pointing at bytes that are gone is a broken image on four
+// surfaces. `cleared` names them so the UI can say who is back to a letter.
+app.delete("/api/avatars/:id", (c) => {
+  const id = c.req.param("id");
+  if (!isAvatarImageId(id)) return c.text("Not a face id", 400);
+  const result = deleteFace(avatarImages, agentAvatars, id);
+  if (!result.removed && result.cleared.length === 0) return c.text("No such face", 404);
+  return c.json({
+    images: listFaces(avatarImages, agentAvatars),
+    avatars: result.avatars,
+    cleared: result.cleared,
+  });
 });
 
 app.get("/api/agents/tool-access/:agentId", (c) => {

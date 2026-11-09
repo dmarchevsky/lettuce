@@ -197,6 +197,9 @@ which drops the BFF's upstream connection, so run
 | `CONTEXT_WATCHDOG_RATIO` | `0.9` | Share of the declared context window at which the BFF compacts a conversation itself, once its turn has ended, instead of waiting for the next request to fail. It also compacts after a provider refusal that smells like a full context (`exceeds the available context size`, `n_ctx`, `prompt is too long`, …) whatever the share. `0` switches it off. See [Model capabilities](#model-capabilities-vision-thinking-real-context-window) for why letta-code's own trigger is not enough. |
 | `CONTEXT_USAGE_FILE` | `/app/data/context-usage.json` | On the `bff-data` volume: the last finished turn per conversation, so the context gauge survives a BFF restart instead of reading `—` until the next turn. Losing it costs nothing but the number. |
 | `CONTEXT_SIZE_FILE` | `/app/data/context-size.json` | On the `bff-data` volume: the context sizes you typed in the **Context** sheet, per agent or conversation. Empty means every agent takes its size from its model's declaration. Losing it only loses those overrides. |
+| `AVATAR_PREFS_FILE` | `/app/data/avatar-prefs.json` | On the `bff-data` volume: which agent chose which colour, glyph or uploaded face. Only agents that chose something are listed; the rest draw their own initial on the colour their id hashes to. |
+| `AVATAR_IMAGE_DIR` | `/app/data/avatars` | On the `bff-data` volume: the uploaded faces, one file per picture named from the hash of its bytes, so the same image offered twice is stored once and its URL can be cached forever. At most 40 faces, each 512 KiB and 512 px or smaller (the browser resizes before uploading). This is the one file on that volume nothing can rebuild — losing it means asking everyone to upload their face again. |
+| `AVATAR_RECENTS_FILE` | `/app/data/avatar-recents.json` | On the `bff-data` volume: the twelve most recently saved glyphs, shared so a phone offers what the laptop picked. Losing it loses the **Recent** row. |
 
 ## Cloudflare Access (`SIGNIN=cf-access`)
 
@@ -579,8 +582,10 @@ run compose from a git worktree and the stack comes up healthy against a
 *different*, usually empty, state directory. Always set it absolutely.
 
 The only named volume left is `bff-data` (web-push device endpoints, pinned
-and archived agent lists, per-agent tool access). Losing it means
-re-subscribing devices and re-pinning agents; nothing else is lost.
+and archived agent lists, per-agent tool access, the avatar choices, and the
+uploaded faces under `avatars/`). Losing it means re-subscribing devices,
+re-pinning agents and asking anyone who uploaded a face to upload it again;
+nothing else is lost.
 
 Migrating an install still on the old named volumes:
 

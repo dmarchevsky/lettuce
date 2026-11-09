@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { type AvatarPref, resolveAvatar } from "../lib/agent-tint.ts";
 
 interface Props {
@@ -19,11 +19,21 @@ interface Props {
 
 /**
  * An agent's face: the tint it was given (or the one its id hashes to) with the
- * glyph it was given (or the letter of its name) on top.
+ * glyph it was given (or the letter of its name) on top — or, when one was
+ * uploaded, the picture over that same tint, so its transparency reads as the
+ * agent's colour rather than as a white box.
  *
  * Every surface that shows an agent renders through this one component, because
  * the four of them used to each call `tintFor`/`initialOf` by hand and a
- * preference read in one of them would have shown up in one list only.
+ * preference read in one of them would have shown up in one list only. It is also
+ * why one CSS rule for an uploaded face covers the rail, the switcher, the header
+ * and the picker's own preview at once.
+ *
+ * A picture that cannot be drawn shows the letter instead. The BFF now refuses a
+ * preference naming a face it does not hold, but a lost `avatars/` directory, a
+ * second tab deleting the file, or a proxy that eats the response all leave the
+ * same artifact: an empty circle where an agent's face was. A letter on the right
+ * tint is a worse-looking face; an empty circle is a broken one.
  */
 export function AgentAvatar({
   agentId,
@@ -34,13 +44,26 @@ export function AgentAvatar({
   ariaHidden,
 }: Props) {
   const face = resolveAvatar(agentId, name, pref);
+  // Keyed on the url rather than a boolean, so putting a different face on an
+  // agent draws immediately instead of staying on the letter it failed onto.
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const showImage = face.image !== undefined && failedUrl !== face.image;
   return (
     <span
       className={className}
       style={{ background: face.background }}
       aria-hidden={ariaHidden || undefined}
     >
-      {face.content}
+      {showImage ? (
+        <img
+          className="agent-avatar-img"
+          src={face.image}
+          alt=""
+          onError={() => setFailedUrl(face.image ?? null)}
+        />
+      ) : (
+        face.content
+      )}
       {children}
     </span>
   );

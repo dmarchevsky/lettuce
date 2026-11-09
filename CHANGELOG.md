@@ -5,6 +5,17 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.39.0-letta_0.34.38] - 2026-11-09
+
+### Added
+- **One sheet gives an agent its face.** Agent → General → **Avatar** opens a single picker with the colour, the glyph and the upload in it, and the face previewed twice — at the picker's size and at the 22px it will actually be drawn in the conversation header. The New agent form offers the same sheet, so a new agent can wear its face from the first message.
+- **144 searchable glyphs.** Typing `fox` surfaces 🦊 🐈 🐺, `mail` surfaces ✉️ 📬 📮; six category chips browse the whole library, a **Recent** row puts what you last picked first, and typing any emoji into the box works too. The colour, the search and the grid all stay open while you compare — a pick stages and shows itself in the preview, `Done` is what closes.
+- **Upload a face.** A png, jpeg or webp is cropped to a square and shrunk in the browser, so a 4000px photo becomes a 128px face; a png or webp keeps its transparency and wears the chosen colour behind it instead of a white box. Faces are shared — upload once and every agent can wear it — and the picker shows who is wearing one before you delete it.
+
+### Changed
+- **The colour belongs to the face, not the form.** The tint row left Agent → General for the sheet, where it sits above both tabs and applies to whichever kind of face you picked; `Auto` gives the agent back the colour its id hashes to.
+- **An agent whose face cannot be drawn wears its letter.** An empty circle used to be what a lost upload looked like; now the initial or glyph it would have worn is kept behind the picture and drawn when the picture cannot be fetched.
+
 ## [v0.38.0-letta_0.34.38] - 2026-11-09
 
 ### Changed

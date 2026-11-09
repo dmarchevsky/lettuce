@@ -154,6 +154,98 @@ async function overflow(page: Page): Promise<{ clientWidth: number; clipped: str
  * The upload is never started: a layout check has no business writing into the
  * agent's workspace.
  */
+/**
+ * The avatar sheet, end to end: one trigger in the form, the whole glyph library
+ * behind it, a filter that narrows it, a pick that stages without closing (the
+ * comparison is the whole point), and the image tab's shared library.
+ *
+ * Nothing here clicks Save, so the pick stays staged and the run mutates no agent:
+ * an avatar preference written by a screenshot suite would be the operator's app
+ * quietly wearing an owl.
+ */
+async function avatarSheetChecks(page: Page, label: string): Promise<void> {
+  await openTab(page, "Agent");
+  await page.waitForTimeout(300);
+  const field = page.locator('.field:has-text("Avatar")').first();
+  check(
+    `${label}: Agent → General offers one avatar trigger`,
+    (await field.locator('button:has-text("Choose…")').count()) === 1,
+  );
+  // The tint row left the form when the sheet grew a colour of its own; a second
+  // colour control would be the split this feature exists to remove.
+  check(
+    `${label}: no colour row is left in the form`,
+    (await field.locator(".avatar-tints").count()) === 0,
+  );
+
+  await field.locator('button:has-text("Choose…")').click();
+  const sheet = page.locator('.sheet-panel[aria-label="Avatar"]');
+  await sheet.waitFor({ state: "visible", timeout: 5_000 });
+  // The sheet opens on whichever tab the agent's saved face lives on, so a run
+  // against a stack where somebody already uploaded one must not be fooled into
+  // thinking the glyph grid is missing.
+  await sheet.locator('.avatar-tab:text-is("Glyph")').click();
+  await page.waitForTimeout(200);
+  const tiles = await sheet.locator(".avatar-glyph").count();
+  check(`${label}: the grid offers the whole library`, tiles >= 144, { tiles });
+  check(
+    `${label}: six category chips beside All`,
+    (await sheet.locator(".avatar-chip").count()) === 7,
+  );
+
+  await sheet.locator(".filter-field input").fill("fox");
+  await page.waitForTimeout(200);
+  const narrowed = await sheet.locator(".avatar-glyph").count();
+  check(
+    `${label}: typing a word narrows the library to its matches`,
+    narrowed > 0 && narrowed < 12,
+    { narrowed },
+  );
+  // Escape belongs to a typed query first — the behaviour `FilterField` exists to
+  // give every filter box in the app, and the reason this one is not a bare input.
+  await sheet.locator(".filter-field input").press("Escape");
+  await page.waitForTimeout(250);
+  check(
+    `${label}: escape clears the query and keeps the sheet open`,
+    (await sheet.isVisible()) &&
+      (await sheet.locator(".filter-field input").inputValue()) === "" &&
+      (await sheet.locator(".avatar-glyph").count()) >= 144,
+  );
+
+  await sheet.locator('.avatar-glyph:text-is("🦉")').click();
+  await page.waitForTimeout(250);
+  check(`${label}: picking a glyph leaves the sheet open`, await sheet.isVisible());
+  const staged = await field.locator(".agent-avatar").first().innerText();
+  check(`${label}: the picked glyph is staged in the form`, staged.includes("🦉"), { staged });
+
+  await sheet.locator('.avatar-tab:has-text("Image")').click();
+  await page.waitForTimeout(250);
+  check(
+    `${label}: the image tab has an upload target`,
+    (await sheet.locator(".avatar-image-drop").count()) === 1,
+  );
+  check(
+    `${label}: the image tab shows the shared library or says it is empty`,
+    (await sheet.locator(".avatar-lib-item, .switcher-empty").count()) >= 1,
+  );
+
+  const box = await overflow(page);
+  check(`${label}: the avatar sheet has nothing clipped`, box.clipped.length === 0, box);
+  await shot(page, `${label}-avatar-sheet`);
+
+  await sheet.locator('.sheet-actions button:has-text("Done")').click();
+  await page.waitForTimeout(300);
+  check(
+    `${label}: Done closes the sheet and leaves the pick staged`,
+    (await page.locator('.sheet-panel[aria-label="Avatar"]').count()) === 0 &&
+      (await field.locator(".agent-avatar").first().innerText()).includes("🦉"),
+  );
+  // Back to where it started, for the checks that run after this one.
+  const reset = field.locator('button:has-text("Reset to default")');
+  if ((await reset.count()) > 0) await reset.click();
+  await page.waitForTimeout(200);
+}
+
 async function uploadSheetChecks(page: Page, label: string): Promise<void> {
   const bar = page.locator(".pane-bar.wrap").first();
   const widths = await bar.evaluate((el) => ({
@@ -476,7 +568,7 @@ try {
         (await page.locator(".topbar .where-avatar").count()) === 1,
     );
     check(
-      "the header's agent face is fingertip-sized and carries the open agent's initial",
+      "the header's agent face is fingertip-sized and carries a face",
       await page.evaluate(() => {
         const btn = document.querySelector(".topbar .where-avatar");
         const face = document.querySelector(".where-avatar-face");
@@ -487,7 +579,10 @@ try {
         // perfectly good face — the check is about the tap target and about the corner
         // never being empty, not about the glyph fitting in a BMP slot.
         const text = Array.from((face.textContent ?? "").trim());
-        return r.width >= 44 && r.height >= 44 && text.length === 1;
+        // An uploaded face carries no text at all, and fills the corner just as well;
+        // the corner being empty is the failure, not the kind of face in it.
+        const picture = face.querySelector("img.agent-avatar-img") !== null;
+        return r.width >= 44 && r.height >= 44 && (text.length === 1 || picture);
       }),
     );
     check(
@@ -1365,6 +1460,10 @@ try {
       lastBox,
     );
 
+    // The avatar sheet on a phone: 144 tiles, a filter, colour wrapping into two
+    // rows, and a pick that does not close the sheet.
+    await avatarSheetChecks(page, "phone");
+
     // Skills on a phone: long names, badges and paths must wrap, not push the
     // pane sideways — measured on the pane for the same reason as above.
     const skillsOpen = await openSkillsSection(page);
@@ -1695,7 +1794,13 @@ try {
         const words = document.querySelector(".topbar .where .where-words .where-agent");
         if (!face || !words) return false;
         const r = face.getBoundingClientRect();
-        return Math.round(r.width) === 22 && (face.textContent ?? "").trim().length > 0;
+        // Same rule as the phone's corner: a face may be a letter, a glyph or an
+        // uploaded picture, and a picture carries no text at all. What must never
+        // happen is an empty 22px circle beside the name.
+        const picture = face.querySelector("img.agent-avatar-img") !== null;
+        return (
+          Math.round(r.width) === 22 && (picture || (face.textContent ?? "").trim().length > 0)
+        );
       }),
     );
     check(
@@ -3100,6 +3205,10 @@ try {
     await page.waitForTimeout(300);
     check("escape closes the task sheet", (await page.locator(".sheet-panel").count()) === 0);
 
+    // The same sheet on a desktop, where it is a centred modal with room for nine
+    // tiles in a row instead of six.
+    await avatarSheetChecks(page, "desktop");
+
     // A document sheet must actually be bigger than a form sheet, and must give
     // its height to the content: the memory editor used to scroll inside a
     // scrolling body, so a 5KB block showed about a dozen lines.
@@ -3937,6 +4046,36 @@ try {
       "and a second Escape closes the editor",
       (await page.locator('.sheet-panel[aria-label="New agent"]').count()) === 0,
     );
+
+    // The same nesting for the face, which is the case that matters more: the avatar
+    // sheet stages into a draft that has no agent behind it yet, so a pick that
+    // closed the editor, or an Escape that took the editor with it, would throw away
+    // a name typed by hand. Checked at desktop because that is where the panel's
+    // docked New-agent row is the only door.
+    await page.locator(".rail .rail-new").click();
+    await page.locator('.sheet-panel[aria-label="New agent"]').waitFor();
+    const draftName = page.locator('.sheet-panel[aria-label="New agent"] .field input').first();
+    await draftName.fill("Temp Draft");
+    await page
+      .locator('.sheet-panel[aria-label="New agent"] .field:has-text("Avatar") button')
+      .first()
+      .click();
+    const avatarSheet = page.locator('.sheet-panel[aria-label="Avatar"]');
+    await avatarSheet.waitFor({ timeout: 8_000 });
+    await avatarSheet.locator(".avatar-glyph").first().click();
+    const faceStaged = (await avatarSheet.locator(".avatar-preview").innerText()).trim();
+    await page.keyboard.press("Escape");
+    check(
+      "the avatar sheet over the New agent form closes alone and keeps the draft",
+      (await page.locator('.sheet-panel[aria-label="Avatar"]').count()) === 0 &&
+        (await page.locator('.sheet-panel[aria-label="New agent"]').count()) === 1 &&
+        (await draftName.inputValue()) === "Temp Draft" &&
+        faceStaged.length > 0 &&
+        (await page
+          .locator('.sheet-panel[aria-label="New agent"] .avatar-row .avatar-preview')
+          .innerText()) === faceStaged,
+    );
+    await page.keyboard.press("Escape");
     await shot(page, "desktop-agent-model");
     await page.close();
   }

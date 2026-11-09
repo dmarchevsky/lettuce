@@ -82,6 +82,14 @@ export interface BffConfig {
   /** Per-agent avatar choices (`agents/avatar-prefs.ts`), on the `bff-data` volume. */
   avatarPrefsFile: string;
   /**
+   * Uploaded faces, one file per face named for its hash (`agents/avatar-library.ts`),
+   * on the `bff-data` volume. The directory *is* the index, and it is created on
+   * first upload — a missing one means no faces, never a BFF that will not boot.
+   */
+  avatarImageDir: string;
+  /** Recently chosen glyphs (`agents/avatar-library.ts`), same volume, same reason. */
+  avatarRecentsFile: string;
+  /**
    * Last finished turn per conversation (`session/turn-usage.ts`), on the
    * `bff-data` volume, so the context gauge survives a BFF restart instead of
    * reading "—" until the next turn.
@@ -614,6 +622,8 @@ export function loadConfig(): BffConfig {
     agentToolAccessFile:
       process.env.AGENT_TOOL_ACCESS_FILE?.trim() || "/app/data/agent-tool-access.json",
     avatarPrefsFile: process.env.AVATAR_PREFS_FILE?.trim() || "/app/data/avatar-prefs.json",
+    avatarImageDir: process.env.AVATAR_IMAGE_DIR?.trim() || "/app/data/avatars",
+    avatarRecentsFile: process.env.AVATAR_RECENTS_FILE?.trim() || "/app/data/avatar-recents.json",
     contextUsageFile: process.env.CONTEXT_USAGE_FILE?.trim() || "/app/data/context-usage.json",
     contextSizeFile: process.env.CONTEXT_SIZE_FILE?.trim() || "/app/data/context-size.json",
     // 0.9 = earlier than letta-code's own trigger; 0 turns it off. See
