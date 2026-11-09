@@ -11,6 +11,7 @@ import { GLYPH_CATEGORIES, glyphSections } from "../lib/avatar-glyphs.ts";
 import { resizeToFace } from "../lib/avatar-image.ts";
 import { errorMessage } from "../lib/errors.ts";
 import { AgentAvatar } from "./AgentAvatar.tsx";
+import { FilterField } from "./FilterField.tsx";
 import { Sheet } from "./Sheet.tsx";
 
 interface Props {
@@ -269,14 +270,10 @@ export function AvatarSheet({
 
       {tab === "glyph" ? (
         <>
-          <div className="avatar-filter">
-            <input
-              value={query}
-              placeholder="type a word — fox, mail, moon…"
-              aria-label="Filter glyphs"
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </div>
+          {/* The app's own filter box, so it looks and behaves like the model and
+              branch sheets': the same field, and Escape clears a typed query before
+              it is allowed to close the sheet. */}
+          <FilterField placeholder="Search" value={query} onChange={setQuery} />
           <div className="avatar-chips">
             <button
               type="button"

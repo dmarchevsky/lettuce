@@ -5177,16 +5177,6 @@ textarea.mono {
   background: var(--surface-2);
   color: var(--text);
 }
-.avatar-filter {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-.avatar-filter input {
-  flex: 1;
-}
-
 /* A section heading inside the grid. Uppercase and small on purpose: 144 tiles
    need headings that do not compete with the sheet title. */
 .avatar-cat {

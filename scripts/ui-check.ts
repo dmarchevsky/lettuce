@@ -188,7 +188,7 @@ async function avatarSheetChecks(page: Page, label: string): Promise<void> {
     (await sheet.locator(".avatar-chip").count()) === 7,
   );
 
-  await sheet.locator(".avatar-filter input").fill("fox");
+  await sheet.locator(".filter-field input").fill("fox");
   await page.waitForTimeout(200);
   const narrowed = await sheet.locator(".avatar-glyph").count();
   check(
@@ -196,8 +196,16 @@ async function avatarSheetChecks(page: Page, label: string): Promise<void> {
     narrowed > 0 && narrowed < 12,
     { narrowed },
   );
-  await sheet.locator(".avatar-filter input").fill("");
-  await page.waitForTimeout(200);
+  // Escape belongs to a typed query first — the behaviour `FilterField` exists to
+  // give every filter box in the app, and the reason this one is not a bare input.
+  await sheet.locator(".filter-field input").press("Escape");
+  await page.waitForTimeout(250);
+  check(
+    `${label}: escape clears the query and keeps the sheet open`,
+    (await sheet.isVisible()) &&
+      (await sheet.locator(".filter-field input").inputValue()) === "" &&
+      (await sheet.locator(".avatar-glyph").count()) >= 144,
+  );
 
   await sheet.locator('.avatar-glyph:text-is("🦉")').click();
   await page.waitForTimeout(250);
