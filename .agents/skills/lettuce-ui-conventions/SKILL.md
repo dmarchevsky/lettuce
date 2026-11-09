@@ -1,6 +1,6 @@
 ---
 name: lettuce-ui-conventions
-description: 'lettuce UI conventions that are ours: pin/archive lists live in the BFF; a viewport-fixed AgentMenu, also opened by a hover ⋯ on a rail agent row (.rail-agent-row, hidden folded); the desktop rail: AGENTS rows up top (its pin folds it to a 56px strip; the Settings rail never folds), panes above a foot cell (⚙ Settings / ☰ Conversations); the drawer is a pinned column or a peek from the band''s agent name; a phone bar of equal slots (Chat, Files, Tasks, Runs where a worker runs, Settings, More) under a header with the agent''s face, where Chat opens and closes the switcher and the bar outlives it; the band''s light opens the responding list; a non-Chat pane''s corner .pane-close; a viewer borrows the pane; the settings split (Agent, with Tools as its chip, and Settings); no native checkbox; a face is one AvatarSheet and one AgentAvatar. Read before touching NavRail, Sidebar, BottomBar, AvatarSheet, AgentAvatar, AgentToolsSection, settings-sections.ts or tabs.ts.'
+description: 'lettuce UI conventions that are ours: pin/archive lists live in the BFF; a viewport-fixed AgentMenu, also opened by a hover ⋯ on a rail agent row (.rail-agent-row, hidden folded); the desktop rail: AGENTS rows up top (its pin folds it to a 56px strip; the Settings rail never folds), panes above a foot cell (⚙ Settings / ☰ Conversations); the drawer is a pinned column or a peek from the band''s agent name; a phone bar of equal slots (Chat, Files, Tasks, Runs where a worker runs, Settings, Agent) under a header with the agent''s face, where Chat toggles the switcher from the chat pane and the bar outlives it; the band''s light opens the responding list; a non-Chat pane''s corner .pane-close; a viewer borrows the pane; the settings split (Agent, with Tools as its chip, and Settings); no native checkbox; a face is one AvatarSheet and one AgentAvatar. Read before touching NavRail, Sidebar, BottomBar, AvatarSheet, AgentAvatar, AgentToolsSection, settings-sections.ts or tabs.ts.'
 ---
 
 # Agent list and sidebar UI conventions
@@ -133,14 +133,17 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   Below 900px both are `display: none` and the
   **bottom bar** (`BottomBar`) is the navigation: equal slots — Chat, Files,
   Tasks, Runs where a coding worker is deployed (the running count rides the slot),
-  Settings, then More holding the agent's own pane alone — and no avatar, because
+  Settings, and the agent's own pane — and no avatar, because
   a letter in a bar never said which agent it meant. Without a worker the bar is five
-  slots, not six padded with a filler verb. **Chat is also the phone's way to the
+  slots, not six padded with a filler verb. There is **no More**: once Runs and
+  Settings had slots the umbrella held one row, and an umbrella over one thing is a
+  step with no view. **Chat is also the phone's way to the
   conversation list**: there is no drawer at that width, so the switcher IS the list,
-  one Chat press opens it and the next puts it away — which is why `.bottombar` is
-  z-indexed above the switcher (41 over 40) and `.switcher` leaves it `--bar-h` of
-  room at the foot. A `.sheet` still covers the bar (45): a sheet is a full
-  interruption, the list is not. The open agent's **face** is in
+  a Chat press *while the chat is what you are reading* opens it and the next puts it
+  away (arriving from another pane is just arriving) — which is why `.switcher` stops
+  `calc(var(--bar-h) + safe-area)` above the foot: the bar is how the list was opened
+  and how it closes, so it stays pressable, and a sheet opened from inside the list
+  covers it instead. Nothing about the bar is re-stacked for this. The open agent's **face** is in
   the header's left corner (`.where-avatar`, hidden from 900px, rendered by `AgentAvatar`, plus
   the responding dot) and opens the same switcher the agent-name button beside it
   does. Identity lives in the header; the bar is panes and nothing else.

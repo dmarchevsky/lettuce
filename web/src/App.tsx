@@ -1159,7 +1159,6 @@ function Workspace({ status }: { status: Status }) {
         {/* The phone's navigation lives under the composer, where a thumb is:
             the top strip it replaces could not say six panes at 390px. */}
         <BottomBar
-          agentName={agentName}
           tab={tab}
           onSelectPane={selectPane}
           onOpenSettings={() => selectPane("Settings")}

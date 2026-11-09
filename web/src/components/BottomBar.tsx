@@ -1,13 +1,8 @@
-import { useState } from "react";
 import type { Tab } from "../lib/tabs.ts";
 import type { IconName } from "./Icon.tsx";
 import { Icon } from "./Icon.tsx";
-import { Sheet } from "./Sheet.tsx";
 
 interface Props {
-  /** Named on the More sheet's Agent row — the bar has no avatar any more, but the
-   * row still has to say whose settings it opens. */
-  agentName: string | null;
   tab: Tab;
   onSelectPane: (tab: Tab) => void;
   onOpenSettings: () => void;
@@ -21,31 +16,22 @@ interface Props {
  * strip that used to squeeze six labels onto 390px.
  *
  * Six equal slots — Chat, Files, Tasks, Runs where a coding worker is deployed,
- * Settings, and More. `Runs` earns a slot of its own because a running worker is
+ * Settings, and Agent. `Runs` earns a slot of its own because a running worker is
  * the one thing on this bar worth interrupting for; without a worker deployed the
- * bar is five slots rather than padded out to six with a filler verb. More keeps
- * only what belongs to the agent: its own settings — Tools is a chip inside that
- * pane now, not a pane, because the record behind it is keyed by `agent_id`.
- * Pressing Chat also opens the conversation list (the switcher), which is App's
- * decision, not this bar's: the bar is panes and nothing else.
+ * bar is five slots rather than padded out to six with a filler verb. There is no
+ * More: once Runs and Settings had slots the umbrella held exactly one row, and an
+ * umbrella over one thing is a step with no view. The agent's own pane takes its
+ * place under its own name — Tools is a chip inside that pane now, not a pane,
+ * because the record behind it is keyed by `agent_id`.
+ * Pressing Chat while Chat is the open pane also opens the conversation list (the
+ * switcher), which is App's decision, not this bar's: the bar is panes and nothing
+ * else.
  *
  * The agent's avatar is not here; it moved to the header's left corner
  * (`where-avatar` in App), because a letter the size of a full stop never told you
  * which agent you were talking to.
  */
-export function BottomBar({
-  agentName,
-  tab,
-  onSelectPane,
-  onOpenSettings,
-  runsEnabled,
-  runsRunning,
-}: Props) {
-  const [moreOpen, setMoreOpen] = useState(false);
-  // More holds the agent's own pane; Settings and Runs both got slots, so a pane
-  // you are standing in lights its own slot, not this one.
-  const inMore = tab === "Agent";
-
+export function BottomBar({ tab, onSelectPane, onOpenSettings, runsEnabled, runsRunning }: Props) {
   const secondary: { tab: Tab; label: string; icon: IconName; count?: number }[] = [
     { tab: "Files", label: "Files", icon: "folder" },
     { tab: "Tasks", label: "Tasks", icon: "task" },
@@ -93,40 +79,14 @@ export function BottomBar({
 
         <button
           type="button"
-          className={inMore ? "active" : ""}
-          aria-current={inMore ? "page" : undefined}
-          onClick={() => setMoreOpen(true)}
+          className={tab === "Agent" ? "active" : ""}
+          aria-current={tab === "Agent" ? "page" : undefined}
+          onClick={() => onSelectPane("Agent")}
         >
-          <Icon name="menu" />
-          More
+          <Icon name="shield" />
+          Agent
         </button>
       </nav>
-
-      {moreOpen ? (
-        <Sheet title="More" onClose={() => setMoreOpen(false)}>
-          <p className="menu-section">This agent</p>
-          <ul className="menu-list">
-            <li>
-              <button
-                type="button"
-                className={`menu-row${tab === "Agent" ? " selected" : ""}`}
-                onClick={() => {
-                  setMoreOpen(false);
-                  onSelectPane("Agent");
-                }}
-              >
-                <Icon name="shield" />
-                <span className="menu-row-text">
-                  <span className="menu-row-title">Agent</span>
-                  <span className="menu-row-desc">
-                    {agentName ?? "No agent"} — model, secrets, tools, reflection, skills
-                  </span>
-                </span>
-              </button>
-            </li>
-          </ul>
-        </Sheet>
-      ) : null}
     </>
   );
 }

@@ -482,10 +482,9 @@ async function shot(page: Page, name: string): Promise<void> {
 
 /**
  * Switch panes wherever this width keeps them: the desktop rail names every pane,
- * the phone bar shows Chat, Files, Tasks, Runs (where a worker is deployed) and
- * Settings, and hides the agent's own pane behind `More`. Settings
- * is not in either list — the rail's foot cell opens it (see `openSettings`), and while
- * it is open the rail holds its sections instead of these panes.
+ * and the phone bar shows the same names — Chat, Files, Tasks, Runs (where a worker
+ * is deployed), Settings and the agent's own pane. There is no umbrella left to
+ * reach through: the bar names every pane it has.
  *
  * Every check that needed a tab click goes through here, so the two navigation
  * surfaces are exercised by the same assertions rather than by two copies of them.
@@ -502,8 +501,7 @@ async function openTab(page: Page, name: string): Promise<void> {
   if ((await bar.count()) > 0 && (await bar.first().isVisible())) {
     await bar.first().click();
   } else {
-    await page.locator('.bottombar > button:text-is("More")').click();
-    await page.locator(`.sheet .menu-row-title:text-is("${name}")`).click();
+    throw new Error(`no "${name}" slot on the phone bar`);
   }
   // On a phone, arriving on Chat also opens the conversation list — the bar's Chat press IS
   // the list's way in — so asking for the pane is only half the ask. A test that wants the
@@ -567,9 +565,9 @@ try {
     const box = await overflow(page);
     check("nothing is clipped off-screen", box.clipped.length === 0, box);
 
-    // The bar is equal slots — Chat, the secondary panes, Settings, More — and the
+    // The bar is equal slots — Chat, the secondary panes, Settings, Agent — and the
     // agent's identity is not one of them: its face is in the header's corner.
-    // Settings graduated out of More to a slot of its own, `Runs` graduated the same
+    // Settings graduated to a slot of its own, `Runs` graduated the same
     // way, and `Tools` left the bar for the Agent pane's chip, because the record
     // behind it is keyed by `agent_id`. Without any coding worker the bar is five
     // slots rather than padded out to six with a filler verb.
@@ -705,20 +703,23 @@ try {
     check("no drawer on a phone", !(await page.locator(".sidebar").isVisible()));
     check("no rail on a phone", !(await page.locator(".rail").isVisible()));
 
-    // More is the agent's own pane and nothing else: Runs has a slot, Tools is a
-    // chip inside Agent, and the shared Settings has its own slot.
-    await page.locator('.bottombar > button:text-is("More")').click();
-    const moreRows = (await page.locator(".sheet .menu-row-title").allInnerTexts()).map((t) =>
-      t.trim(),
-    );
+    // There is no umbrella: once Runs and Settings had slots, More held exactly one
+    // row, so the agent's own pane stands on the bar under its own name. Tools is a
+    // chip inside it, and the shared Settings has its own slot.
     check(
-      "More holds the agent's pane alone",
-      (await page.locator(".sheet").isVisible()) &&
-        JSON.stringify(moreRows) === JSON.stringify(["Agent"]),
-      moreRows,
+      "no More slot, and the agent's pane is one",
+      (await page.locator('.bottombar > button:text-is("More")').count()) === 0 &&
+        (await page.locator('.bottombar > button:text-is("Agent")').count()) === 1,
     );
-    await shot(page, "phone-more");
-    await page.keyboard.press("Escape");
+    await page.locator('.bottombar > button:text-is("Agent")').click();
+    await page.waitForTimeout(600);
+    check(
+      "the Agent slot opens the agent's own pane",
+      (await page.locator('.section-tabs button:text-is("General")').count()) === 1 &&
+        (await page.locator(".sheet").count()) === 0,
+    );
+    await shot(page, "phone-agent");
+    await openTab(page, "Chat");
     await page.waitForTimeout(300);
 
     // Pressing Chat is the phone's way to the conversation list — there is no drawer
