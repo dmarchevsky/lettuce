@@ -793,11 +793,18 @@ try {
       await page.evaluate(() => history.back());
       await page.waitForTimeout(400);
     };
-    const onOverlayEntry = () =>
-      page.evaluate(
+    // Asking whether the entry is STILL there rather than whether it is gone now: an
+    // on-screen close retires its entry with a deferred history.back() (back-stack.ts),
+    // so a single read right after the click races the thing it is meant to observe.
+    // A marker that clears within the wait is not stale; one that stays is.
+    const stillStale = await page
+      .waitForFunction(
         () => (history.state as { lettaOverlay?: boolean } | null)?.lettaOverlay === true,
-      );
-    check("closing on screen leaves no stale Back entry", !(await onOverlayEntry()));
+        { timeout: 1_500 },
+      )
+      .then(() => true)
+      .catch(() => false);
+    check("closing on screen leaves no stale Back entry", !stillStale);
 
     await switcherButton.click();
     await pressBack();
