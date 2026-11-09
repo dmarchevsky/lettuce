@@ -28,8 +28,8 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
   renameSync,
   statSync,
   unlinkSync,
@@ -105,7 +105,7 @@ function asciiAt(bytes: Uint8Array, at: number, text: string): boolean {
 
 const u16be = (b: Uint8Array, i: number) => (b[i]! << 8) | b[i + 1]!;
 const u32be = (b: Uint8Array, i: number) =>
-  (((b[i]! << 24) | (b[i + 1]! << 16) | (b[i + 2]! << 8) | b[i + 3]!) >>> 0);
+  ((b[i]! << 24) | (b[i + 1]! << 16) | (b[i + 2]! << 8) | b[i + 3]!) >>> 0;
 const u16le = (b: Uint8Array, i: number) => b[i]! | (b[i + 1]! << 8);
 const u24le = (b: Uint8Array, i: number) => b[i]! | (b[i + 1]! << 8) | (b[i + 2]! << 16);
 const u32le = (b: Uint8Array, i: number) =>
@@ -448,10 +448,7 @@ export async function readAvatarBody(
 // something a unit test can actually assert.
 
 /** Every stored face plus who is wearing it, newest first. */
-export function listFaces(
-  images: AvatarImageLibrary,
-  prefs: AgentAvatarStore,
-): AvatarFaceEntry[] {
+export function listFaces(images: AvatarImageLibrary, prefs: AgentAvatarStore): AvatarFaceEntry[] {
   const used = new Map<string, string[]>();
   for (const [agentId, pref] of Object.entries(prefs.all())) {
     if (!pref.image) continue;

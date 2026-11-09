@@ -19,7 +19,6 @@ import { type Context, Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { installAgentSkills, readSkillTree } from "./agent-skills.ts";
 import { AgentAncestry } from "./agents/ancestry.ts";
-import { AgentAvatarStore, isAvatarImageId, parseAvatarPref } from "./agents/avatar-prefs.ts";
 import {
   AvatarImageLibrary,
   AvatarRecentGlyphs,
@@ -29,6 +28,7 @@ import {
   MAX_AVATAR_IMAGE_BYTES,
   readAvatarBody,
 } from "./agents/avatar-library.ts";
+import { AgentAvatarStore, isAvatarImageId, parseAvatarPref } from "./agents/avatar-prefs.ts";
 import { AgentFacts } from "./agents/facts.ts";
 import { AgentIdList, isAgentId } from "./agents/id-list.ts";
 import {
@@ -1369,12 +1369,10 @@ app.put("/api/avatars/recents", async (c) => {
 app.get("/api/avatars/:id", (c) => {
   const image = avatarImages.get(c.req.param("id"));
   if (!image) return c.text("No such face", 404);
-  return new Response(image.bytes, {
-    headers: {
-      "content-type": image.contentType,
-      "content-length": String(image.bytes.byteLength),
-      "cache-control": "public, max-age=31536000, immutable",
-    },
+  return hardenedResponse(hardened, image.bytes, {
+    "content-type": image.contentType,
+    "content-length": String(image.bytes.byteLength),
+    "cache-control": "public, max-age=31536000, immutable",
   });
 });
 

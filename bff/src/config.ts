@@ -623,8 +623,7 @@ export function loadConfig(): BffConfig {
       process.env.AGENT_TOOL_ACCESS_FILE?.trim() || "/app/data/agent-tool-access.json",
     avatarPrefsFile: process.env.AVATAR_PREFS_FILE?.trim() || "/app/data/avatar-prefs.json",
     avatarImageDir: process.env.AVATAR_IMAGE_DIR?.trim() || "/app/data/avatars",
-    avatarRecentsFile:
-      process.env.AVATAR_RECENTS_FILE?.trim() || "/app/data/avatar-recents.json",
+    avatarRecentsFile: process.env.AVATAR_RECENTS_FILE?.trim() || "/app/data/avatar-recents.json",
     contextUsageFile: process.env.CONTEXT_USAGE_FILE?.trim() || "/app/data/context-usage.json",
     contextSizeFile: process.env.CONTEXT_SIZE_FILE?.trim() || "/app/data/context-size.json",
     // 0.9 = earlier than letta-code's own trigger; 0 turns it off. See
