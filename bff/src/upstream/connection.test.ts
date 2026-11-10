@@ -5,10 +5,12 @@ import {
   createAppServerClient,
   OWNER_SYNC_TIMEOUT_MS,
   RESYNC_CONCURRENCY,
+  remoteAppServerNotice,
   SWEEP_SYNC_CONCURRENCY,
   SYNC_PACING_MS,
   shouldLogConnectFailure,
   type UpstreamClient,
+  type UpstreamClientOptions,
   UpstreamConnection,
 } from "./connection.ts";
 
@@ -470,6 +472,97 @@ test("an internal request id is known, a browser's is not, and the set stays bou
   upstream.stop();
 });
 
+/**
+ * The socket seam with its memory: what the client handed the constructor.
+ * That is where a capability token has to arrive — upstream's client turns the
+ * second argument's `headers` into the upgrade's `Authorization`, so asserting
+ * here proves our option reaches it without our inventing any header logic.
+ */
+class RecordingSocket {
+  static calls: unknown[][] = [];
+  readyState = 0;
+  send(): void {}
+  close(): void {}
+  addEventListener(): void {}
+  removeEventListener(): void {}
+  on(_type: string): void {}
+  constructor(...args: unknown[]) {
+    RecordingSocket.calls.push(args);
+  }
+}
+
+test("a capability token reaches the client's constructor as a bearer header", () => {
+  RecordingSocket.calls = [];
+  createAppServerClient("ws://other-host:4500/ws", {
+    authToken: "tok-1",
+    WebSocket: RecordingSocket as never,
+  });
+  expect(RecordingSocket.calls.length).toBe(1);
+  expect(RecordingSocket.calls[0]?.[1]).toEqual({
+    headers: { Authorization: "Bearer tok-1" },
+  });
+});
+
+test("no token means no second constructor argument at all", () => {
+  // Today's container shape, unfalsified: unset must not become `""` — upstream's
+  // client throws on a blank token, and an empty options object would itself be a
+  // behaviour change on the loopback socket.
+  for (const unset of [undefined, null, ""]) {
+    RecordingSocket.calls = [];
+    createAppServerClient("ws://127.0.0.1:4599/ws", {
+      authToken: unset,
+      WebSocket: RecordingSocket as never,
+    });
+    expect(RecordingSocket.calls[0]?.[0]).toBe("ws://127.0.0.1:4599/ws");
+    expect(RecordingSocket.calls[0]?.[1]).toBeUndefined();
+  }
+});
+
+test("the client seam is handed the url and the token together", () => {
+  const seen: [string, UpstreamClientOptions | undefined][] = [];
+  const client = new FakeClient();
+  const upstream = new UpstreamConnection({
+    url: "ws://other-host:4500",
+    authToken: "tok-2",
+    onFrame: () => {},
+    onStateChange: () => {},
+    createClient: (url, options) => {
+      seen.push([url, options]);
+      return client;
+    },
+  });
+  upstream.start();
+  expect(seen).toEqual([["ws://other-host:4500", { authToken: "tok-2" }]]);
+  upstream.stop();
+});
+
+test("a remote app-server is spoken about at boot, token or not", () => {
+  // The complaint in issue #95 was silence: a reduced deployment whose connection
+  // works says nothing about the five tool families it cannot have.
+  expect(remoteAppServerNotice("ws://127.0.0.1:4500/ws", null)).toBeNull();
+  expect(remoteAppServerNotice("ws://localhost:4500/ws", null)).toBeNull();
+  expect(remoteAppServerNotice("ws://[::1]:4500/ws", null)).toBeNull();
+  // Nothing we can judge: the connect attempt reports these precisely. A bare
+  // `localhost:4500` parses as a scheme named "localhost" with an empty hostname,
+  // and would otherwise read as a remote host with the wrong advice.
+  expect(remoteAppServerNotice("not a url", null)).toBeNull();
+  expect(remoteAppServerNotice("localhost:4500", null)).toBeNull();
+  expect(remoteAppServerNotice("http://", null)).toBeNull();
+
+  const warning = remoteAppServerNotice("ws://linux-box:4500/ws", null);
+  expect(warning).toContain("LETTA_APP_SERVER_TOKEN");
+  expect(warning).toContain("--ws-auth capability-token");
+  // Naming the token alone would send them looking for a 401 fix only.
+  expect(warning).toContain("web search");
+  expect(warning).toContain("workspaces");
+
+  // A token authenticates the socket and nothing else: the working remote still
+  // hears what it is missing, phrased as a note rather than an alarm.
+  const note = remoteAppServerNotice("wss://linux-box:4500/ws", "tok");
+  expect(note).toContain("web search");
+  expect(note).not.toContain("LETTA_APP_SERVER_TOKEN");
+});
+
 test("the production client attaches to the socket's own error event", () => {
   // Version-independent half of the regression: bun 1.3.0 (CI's pin) lets a refused
   // handshake through as a plain rejection, so only the listener itself can be
@@ -488,7 +581,7 @@ test("the production client attaches to the socket's own error event", () => {
       attached.push(type);
     }
   }
-  createAppServerClient("ws://127.0.0.1:4599/ws", RecordedSocket as never);
+  createAppServerClient("ws://127.0.0.1:4599/ws", { WebSocket: RecordedSocket as never });
   expect(attached).toEqual(["error"]);
 });
 

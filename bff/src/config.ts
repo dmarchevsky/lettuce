@@ -27,6 +27,19 @@ export interface BffConfig {
   hostBind: string;
   /** App-server WebSocket base URL, e.g. ws://letta:4500 */
   appServerUrl: string;
+  /**
+   * The capability token the app-server demands on the WebSocket upgrade, when it
+   * was started with `--ws-auth` (`LETTA_APP_SERVER_TOKEN`). `null` when unset or
+   * blank, and it must stay `null` rather than `""` — upstream's client throws on
+   * an empty token ("app-server auth token must not be empty").
+   *
+   * Unset is the container's own shape and the recommendation: there the BFF joins
+   * the app-server's network namespace and reaches it on loopback with no auth, so
+   * nothing to send. It exists for a BFF pointed at an app-server on another host,
+   * which is a reduced deployment, not a supported one — see
+   * `docs/CONFIGURATION.md` ("Remote app-server") and `remoteAppServerNotice`.
+   */
+  appServerToken: string | null;
   /** Absolute public origin of this BFF. */
   publicOrigin: string;
   /** The `<team>` in `https://<team>.cloudflareaccess.com`. */
@@ -228,6 +241,15 @@ function required(name: string): string {
     throw new Error(`Missing required environment variable ${name}`);
   }
   return value.trim();
+}
+
+/**
+ * A token-shaped setting: trimmed, and absent means `null` rather than `""`.
+ * The distinction matters wherever the value is handed to something that rejects
+ * a blank string instead of reading it as unset.
+ */
+function optionalToken(name: string): string | null {
+  return process.env[name]?.trim() || null;
 }
 
 function optionalNumber(name: string, fallback: number): number {
@@ -601,6 +623,7 @@ export function loadConfig(): BffConfig {
     hostBind,
     port: optionalNumber("PORT", 8080),
     appServerUrl: required("LETTA_APP_SERVER_URL"),
+    appServerToken: optionalToken("LETTA_APP_SERVER_TOKEN"),
     publicOrigin,
     cfAccessTeamDomain: needsCfAccess
       ? required("CF_ACCESS_TEAM_DOMAIN")

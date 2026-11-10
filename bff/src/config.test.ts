@@ -306,6 +306,50 @@ describe("loadConfig access and sign-in", () => {
   });
 });
 
+describe("loadConfig app-server token", () => {
+  const base = {
+    PUBLIC_ORIGIN: "http://localhost:8090",
+    LETTA_APP_SERVER_URL: "ws://127.0.0.1:4500",
+    SESSION_SECRET: "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p67",
+  };
+
+  function withEnv(extra: Record<string, string | undefined>, run: () => void): void {
+    const saved = { ...process.env };
+    try {
+      for (const [key, value] of Object.entries(extra)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      run();
+    } finally {
+      for (const key of Object.keys(process.env)) delete process.env[key];
+      Object.assign(process.env, saved);
+    }
+  }
+
+  test("unset is null, not the empty string", () => {
+    // Upstream's client throws on a blank token, so "unset" has to stay unset all
+    // the way to its constructor options.
+    withEnv({ ...base, LETTA_APP_SERVER_TOKEN: undefined }, () => {
+      expect(loadConfig().appServerToken).toBeNull();
+    });
+  });
+
+  test("a set token is trimmed", () => {
+    withEnv({ ...base, LETTA_APP_SERVER_TOKEN: "  tok-1  " }, () => {
+      expect(loadConfig().appServerToken).toBe("tok-1");
+    });
+  });
+
+  test("blank is unset", () => {
+    for (const blank of ["", "   ", "\t"]) {
+      withEnv({ ...base, LETTA_APP_SERVER_TOKEN: blank }, () => {
+        expect(loadConfig().appServerToken).toBeNull();
+      });
+    }
+  });
+});
+
 describe("parseAllowedUsers", () => {
   test("splits a comma-separated list", () => {
     expect(parseAllowedUsers("a@example.com,b@example.com", "src")).toEqual([

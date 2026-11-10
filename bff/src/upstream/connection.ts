@@ -9,6 +9,7 @@ import type {
   WsProtocolMessage,
 } from "@letta-ai/letta-code/app-server-protocol";
 import WebSocket from "ws";
+import { isLoopbackHostname } from "../auth/origin.ts";
 import { errorMessage } from "../errors.ts";
 import { scopeKeyOf } from "../session/buffer.ts";
 
@@ -43,11 +44,17 @@ export interface UpstreamClient {
 
 export interface UpstreamOptions {
   url: string;
+  /**
+   * Capability token for the app-server's `--ws-auth`, sent as
+   * `Authorization: Bearer <token>` on the upgrade. `null`/`undefined` means the
+   * unauthenticated loopback default (see `createAppServerClient`).
+   */
+  authToken?: string | null;
   onFrame: (frame: WsProtocolMessage) => void;
   onStateChange: (state: UpstreamState, info: AppServerInfoResponseMessage | null) => void;
   log?: (message: string) => void;
   /** Builds the client. Tests inject a fake one; production gets the real one. */
-  createClient?: (url: string) => UpstreamClient;
+  createClient?: (url: string, options?: UpstreamClientOptions) => UpstreamClient;
   /**
    * Overrides the pacing of owner syncs and the ceiling on one of them. Only
    * tests need it: the defaults are tuned to a real app-server's freeze, and a
@@ -147,24 +154,93 @@ class HandshakeTolerantClient implements UpstreamClient {
   }
 }
 
-/** The real client: no `authToken`, deliberately. The app-server listens on
- * loopback without `--ws-auth`, because `letta channel-gateway` cannot send a
- * token and would be locked out; nothing outside the shared network namespace
- * can reach it (docker/compose.yml). An unauthenticated upgrade carrying
- * `Origin` is rejected outright, which `ws` never sends unasked — and which is
- * why a browser cannot connect directly.
+/** The real client. `authToken` is the app-server's `--ws-auth` capability token,
+ * handed to upstream's client, which turns it into an `Authorization: Bearer`
+ * header on the upgrade and **throws on a blank string** — so "unset" arrives here
+ * as `undefined`, never `""`.
  *
- * `webSocket` is the seam that lets a test prove the tolerance is attached without
- * a real socket; production never passes it.
+ * It is `undefined` in the container, deliberately: the BFF joins the app-server's
+ * network namespace and reaches it on loopback with no `--ws-auth`, because
+ * `letta channel-gateway` cannot send a token and would be locked out; nothing
+ * outside that namespace can reach it (docker/compose.yml). An unauthenticated
+ * upgrade carrying `Origin` is rejected outright, which `ws` never sends unasked —
+ * and which is why a browser cannot connect directly.
+ *
+ * A token is what lets the BFF point at an app-server on **another host**, and it
+ * only fixes this one socket: everything that calls back into the BFF still calls
+ * its loopback (`internal-tools/`), so web search, the Google tools, the MCP
+ * bridge and the coding workers stay absent. `remoteAppServerNotice` says that out
+ * loud at boot, and `docs/CONFIGURATION.md` ("Remote app-server") spells it out.
+ *
+ * Named options, not positionals: the old `(url, webSocket)` shape already had one
+ * second argument, and a token swapped places with it silently — an upstream build
+ * then crashes in `appServerSocketOptions` on whatever landed there. `webSocket`
+ * is the seam that lets a test prove the tolerance is attached without a real
+ * socket; production never passes it.
  */
+export interface UpstreamClientOptions {
+  authToken?: string | null;
+  WebSocket?: AppServerSocketConstructor;
+}
+
 export function createAppServerClient(
   url: string,
-  webSocket: AppServerSocketConstructor = WebSocket as unknown as AppServerSocketConstructor,
+  options: UpstreamClientOptions = {},
 ): UpstreamClient {
-  const client = new AppServerClient({ url, WebSocket: webSocket });
+  const client = new AppServerClient({
+    url,
+    WebSocket: options.WebSocket ?? (WebSocket as unknown as AppServerSocketConstructor),
+    ...(options.authToken ? { authToken: options.authToken } : {}),
+  });
   // Constructed before anything awaits: the handshake cannot fail before this
   // listener exists, because no event is delivered while this frame is on the stack.
   return new HandshakeTolerantClient(client);
+}
+
+/**
+ * The one honest sentence about a non-loopback app-server, or `null` when there
+ * is nothing to say. It fires for **every** off-host app-server, token or not,
+ * because the thing issue #95 was really about was silence: the tools that call
+ * back into the BFF over loopback, the sidecars, the agent workspaces and the
+ * coding-worker CLIs are simply absent there, and a working connection makes no
+ * noise about it. The token only authenticates this one socket.
+ *
+ * A URL we cannot parse, or one with nothing after its scheme, gets no line: the
+ * connect attempt reports those precisely, and a wrong warning next to a right
+ * error is worse than none. (`new URL("localhost:4500")` parses — scheme
+ * `localhost:`, empty hostname — so the hostname check alone is not enough.)
+ */
+export function remoteAppServerNotice(
+  url: string,
+  authToken: string | null | undefined,
+): string | null {
+  let host: string;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "ws:" && parsed.protocol !== "wss:") return null;
+    host = parsed.hostname;
+  } catch {
+    return null;
+  }
+  if (!host || isLoopbackHostname(host)) return null;
+  const missing =
+    "the agent tools that call back into the BFF (web search, page reading, " +
+    "Google, the MCP bridge, the Codex/Claude worker policy) reach it on loopback " +
+    "only, and the search/Google sidecars, the agent workspaces and the " +
+    "coding-worker CLIs live in this stack — a remote app-server has none of them. " +
+    'See docs/CONFIGURATION.md ("Remote app-server").';
+  if (authToken) {
+    return (
+      `app-server at ${url} is on another host: this token authenticates only ` +
+      `this connection — ${missing}`
+    );
+  }
+  return (
+    `app-server at ${url} is not on loopback and no token is set: an app-server ` +
+    `listening off-host requires --ws-auth capability-token, so its WebSocket ` +
+    `demands the bearer token — set LETTA_APP_SERVER_TOKEN to the contents of its ` +
+    `--ws-token-file. And a token fixes only this connection: ${missing}`
+  );
 }
 
 const INITIAL_RETRY_MS = 500;
@@ -479,7 +555,9 @@ export class UpstreamConnection {
 
     let client: UpstreamClient;
     try {
-      client = (this.options.createClient ?? createAppServerClient)(this.options.url);
+      client = (this.options.createClient ?? createAppServerClient)(this.options.url, {
+        authToken: this.options.authToken ?? undefined,
+      });
     } catch (error) {
       this.log(`Upstream construction failed: ${errorMessage(error)}`);
       this.scheduleRetry();

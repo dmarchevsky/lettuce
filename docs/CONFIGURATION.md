@@ -35,6 +35,13 @@ there is no server-side session store to invalidate one against afterwards.
 `docker/compose.yml` sets it; you only override it when running the BFF
 outside Docker.
 
+## App server
+
+| Variable | What it is |
+|---|---|
+| `LETTA_APP_SERVER_URL` | The app-server's WebSocket URL. Compose sets it to `ws://127.0.0.1:4500` because `bff` joins the app-server's network namespace; you set it yourself only outside Docker. |
+| `LETTA_APP_SERVER_TOKEN` | The capability token an app-server started with `--ws-auth capability-token` demands, sent as `Authorization: Bearer …` on the WebSocket upgrade — the trimmed contents of the `--ws-token-file` it was given. Trimmed; unset or blank means no token, which is the container's own shape (loopback, no auth) and stays the recommendation. See "Remote app-server" under "Without Docker (development)". |
+
 ## Modes and profiles
 
 One setting decides which optional containers exist, which features the app
@@ -738,6 +745,63 @@ binds itself to loopback — outside Docker that bind *is* the boundary, so ther
 nothing else to set. Pass `SIGNIN=password` to try the password flow, or
 `LETTA_HOST_BIND=0.0.0.0` to reach it from another device (which then demands a
 method).
+
+#### Remote app-server
+
+The BFF can drive an app-server on **another machine**. A listener that is not
+loopback cannot come up without auth — upstream refuses it outright — so such an
+app-server runs with `--ws-auth capability-token` and a token file, and the BFF
+must be handed the same token (its file's trimmed contents; the app-server only
+sha256-compares the bearer) or every WebSocket upgrade is refused and the UI
+stays on "App-server offline":
+
+```bash
+# On the app-server host — a non-loopback listener must carry auth
+LETTA_LOCAL_BACKEND_EXPERIMENTAL=true \
+  letta server --listen ws://0.0.0.0:4500 \
+    --ws-auth capability-token --ws-token-file /etc/letta/ws.token
+
+# On the BFF host
+MY_TOKEN=$(cat /etc/letta/ws.token)   # same file content, delivered out of band
+cd bff && \
+  LETTA_APP_SERVER_URL=ws://app-host:4500 \
+  LETTA_APP_SERVER_TOKEN="$MY_TOKEN" \
+  PUBLIC_ORIGIN=http://localhost:8080 \
+  SESSION_SECRET=$(openssl rand -hex 32) \
+  bun --watch src/index.ts
+```
+
+`LETTA_APP_SERVER_TOKEN` is trimmed, and **unset or blank means no token** — an
+empty string is refused outright by the client rather than treated as unset.
+Whenever the URL names a non-loopback host the BFF logs a line at boot: a warning
+when no token is set (the socket will be refused), a note when one is — because
+the reduced shape below is true either way and a healthy connection says nothing
+about it on its own.
+
+**What it does not get.** The token authenticates exactly one socket — BFF to
+app-server. Everything else in this product assumes the app-server is a container
+in this stack, and a remote one simply lacks it:
+
+| Absent | Why |
+|---|---|
+| Web search, page reading, the Google tools, the MCP bridge, the Codex/Claude worker policy | They are letta-code **mods** that call back into the BFF at `http://127.0.0.1:<bff-port>/internal/tools/…`, and those routes answer loopback clients only — loopback is how the BFF knows it is the app-server calling. On another host that loopback is a different machine. |
+| The SearXNG / ddg-mcp / google-mcp sidecars | Addressed by service name on Compose's network (`http://google-mcp:8000/mcp`); a remote app-server resolves neither. |
+| Agent workspaces | `/work` is a bind mount of the **BFF host's** `LETTA_STATE_DIR/workspaces`. Another host has other files, or none. |
+| The Codex and Claude Code CLIs | They are installed into *our* app-server image (`docker/codex/Dockerfile`); a stock `letta server` elsewhere does not carry them, and the image marker (`coding_installed`) will not match the Settings switches. |
+| Telegram's `channel-gateway` and the BFF-owned reconnect guarantees | They exist in the same shared network namespace, next to that app-server. |
+
+So this is a **development shape** — reading code on a laptop while an app-server
+runs on a beefier box — not a supported topology, and nothing here enforces that.
+
+**A token is not encryption.** Plain `ws://` across a network carries the bearer
+token and every message in the clear; the client only supports the header on a
+Node-style WebSocket. Put the link through a tunnel (`ssh -L 4500:localhost:4500
+app-host`, then point the BFF at `ws://127.0.0.1:4500`, which also silences the
+boot warning — keep the token, since the app-server still demands it). The
+app-server itself listens `ws://` only, so "TLS" means a proxy in front of it
+speaking `wss://` to the BFF. Do not expose an app-server on a public interface
+with a token as the only thing on the port: there is no per-agent isolation
+inside it, and the agent in that process can run shells.
 
 ## Security model
 
