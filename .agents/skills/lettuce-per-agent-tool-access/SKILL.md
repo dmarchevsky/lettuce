@@ -1,13 +1,13 @@
 ---
 name: lettuce-per-agent-tool-access
-description: 'lettuce per-agent tool access mechanics: agent-tool-access.json on bff-data, and the three letta-code hooks that carry it — mod `isEnabled(ctx)` to hide a tool, `letta.permissions.register` to deny Task/Agent with subagent_type codex or claude-code and SendAgentMessage follow-ups, and the x-letta-agent-id header every mod call sends — plus the `parent:` tag chain (`agents/ancestry.ts`, `/internal/agent-access/`) that makes a block reach a subagent, which reports its own agent id. Read before touching bff/src/agents/tool-access.ts, the policy mod, the MCP bridge''s per-agent filtering, or the Tools tab. Availability, not isolation — agent shells are unconfined.'
+description: 'lettuce per-agent tool access mechanics: agent-tool-access.json on bff-data, and the three letta-code hooks that carry it — mod `isEnabled(ctx)` to hide a tool, `letta.permissions.register` to deny Task/Agent with subagent_type codex or claude-code and SendAgentMessage follow-ups, and the x-letta-agent-id header every mod call sends — plus the `parent:` tag chain (`agents/ancestry.ts`, `/internal/agent-access/`) that makes a block reach a subagent, which reports its own agent id. Read before touching bff/src/agents/tool-access.ts, the policy mod, the MCP bridge''s per-agent filtering, or the Agent tab's Tools section (`components/AgentToolsSection.tsx`). Availability, not isolation — agent shells are unconfined.'
 ---
 
-# Per-agent tool access (the Tools tab)
+# Per-agent tool access (the Agent tab's Tools section)
 
 Loaded from `AGENTS.md`. Settings decide what exists; this narrows who is offered it.
 
-- **Per-agent tool access (the Tools tab) narrows Google, Codex, Claude Code and Remote Pi through
+- **Per-agent tool access (the Agent tab's Tools section) narrows Google, Codex, Claude Code and Remote Pi through
   the mods, with no upstream change.** Settings → Codex workers, → Claude Code workers, → Google and
   → Remote Pi decide what exists; each agent can be cut down from there (Google full / read-only /
   off, Codex, Claude Code and Remote Pi allowed / blocked). Each family is gated twice — its compose
@@ -47,7 +47,7 @@ Loaded from `AGENTS.md`. Settings decide what exists; this narrows who is offere
   The skill
   wrapper is also global and cannot be narrowed per agent. Entries of deleted agents are not
   pruned, like pins; they are harmless.
-- **Enable/disable has exactly one home: `agent-tool-access.json`.** The Tools tab's chip box is the
+- **Enable/disable has exactly one home: `agent-tool-access.json`.** The section's chip box is the
   only thing that writes it, so a pane and a checkbox can never disagree about whether an agent gets
   a family. Anything else per-agent is a *different* record with its own file, and must not grow an
   `enabled` field of its own. Remote Pi's is `$PI_DIR/agents.json`

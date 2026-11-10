@@ -82,7 +82,6 @@ import { FilesTab } from "./tabs/FilesTab.tsx";
 import { RunsTab } from "./tabs/RunsTab.tsx";
 import { SettingsPane } from "./tabs/SettingsTab.tsx";
 import { TasksTab } from "./tabs/TasksTab.tsx";
-import { ToolsTab } from "./tabs/ToolsTab.tsx";
 
 interface Status {
   authenticated: boolean;
@@ -389,6 +388,11 @@ function Workspace({ status }: { status: Status }) {
     });
   }, []);
 
+  /** The agents-and-conversations menu (phone); see `Switcher`. Declared up here
+   * because on a phone the Chat slot is one of its two ways in. */
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const openSwitcher = useCallback(() => setSwitcherOpen(true), []);
+
   /**
    * The one pane switcher, shared by the rail and the phone bar.
    *
@@ -405,16 +409,31 @@ function Workspace({ status }: { status: Status }) {
       // not a window to be kept behind the next screen.
       setPiView(null);
       if (next === "Chat") {
-        // Pinned, Chat has nothing to do (the panel is already there). Unpinned and
-        // already on Chat, Chat is a toggle: pressing it while the peek is open puts
-        // it back, and pressing it while shut is the one way to open the peek.
-        if (tab === "Chat") setPanelPeek(!panelPinned && !panelPeek);
+        if (!wide) {
+          // A phone has no drawer to bring: the Switcher IS its conversation list,
+          // and the face in the header has always been its way in. So pressing Chat
+          // *while already on Chat* is the toggle — the same two-press shape the
+          // desktop's unpinned peek has — and arriving from another pane is simply
+          // arriving: a press that named the pane you were already reading is what
+          // makes it a toggle, and a list lifted on arrival answers a question that
+          // was never asked.
+          if (tab === "Chat") setSwitcherOpen((open) => !open);
+          else setSwitcherOpen(false);
+        } else if (tab === "Chat") {
+          // Pinned, Chat has nothing to do (the panel is already there). Unpinned and
+          // already on Chat, Chat is a toggle: pressing it while the peek is open puts
+          // it back, and pressing it while shut is the one way to open the peek.
+          setPanelPeek(!panelPinned && !panelPeek);
+        }
       } else {
         setPanelPeek(false);
+        // Choosing a different pane answers the question the list was open for; a
+        // list left up over the pane you just asked for is a wall.
+        setSwitcherOpen(false);
       }
       setTab(next);
     },
-    [panelPinned, panelPeek, tab],
+    [panelPinned, panelPeek, tab, wide],
   );
 
   /**
@@ -532,10 +551,6 @@ function Workspace({ status }: { status: Status }) {
   const runsFeature = runsEnabled(status?.features);
   /** The responding-conversations list behind the pulsing status dot. */
   const [activityOpen, setActivityOpen] = useState(false);
-  /** The agents-and-conversations menu (phone); see `Switcher`. */
-  const [switcherOpen, setSwitcherOpen] = useState(false);
-  const openSwitcher = useCallback(() => setSwitcherOpen(true), []);
-
   // There used to be a second copy of the agent list at the foot of the drawer, and
   // a block of plumbing to keep the two in step: a mirrored height, a mirrored
   // scrollTop, a "held" mark so one row lit in both columns at once. The rail is
@@ -1129,16 +1144,11 @@ function Workspace({ status }: { status: Status }) {
             section={settingsSection}
             onPick={pickSettingsSection}
           />
-        ) : tab === "Tools" ? (
-          <ToolsTab
-            agents={agents}
-            features={status.features}
-            onOpenGlobalSettings={openSettings}
-          />
         ) : (
           <AgentTab
             session={session}
             agents={agents}
+            features={status.features}
             conversationId={agents.conversationId}
             cwd={conversation.cwd}
             skillsVersion={conversation.skillsVersion}
@@ -1149,7 +1159,6 @@ function Workspace({ status }: { status: Status }) {
         {/* The phone's navigation lives under the composer, where a thumb is:
             the top strip it replaces could not say six panes at 390px. */}
         <BottomBar
-          agentName={agentName}
           tab={tab}
           onSelectPane={selectPane}
           onOpenSettings={() => selectPane("Settings")}

@@ -61,7 +61,7 @@ Loaded from `AGENTS.md`. The sidecar is reachable by anything in the container; 
   cookie, so a `GOOGLE_OAUTH_REDIRECT_URI` on another origin (localhost) works.
 
   Limits by design: the sidecar holds one policy for every agent (a per-agent *boundary* would
-  need per-agent containers; the Tools tab narrows who is *offered* what, see the
+  need per-agent containers; the Agent tab's Tools section narrows who is *offered* what, see the
   `lettuce-per-agent-tool-access` skill), and allowed tools still combine — without an allowed
   recipients list, Calendar `full` can invite any address, which mails them even with Gmail
   read-only. Email content is prompt-injection input either way, and the list guards the

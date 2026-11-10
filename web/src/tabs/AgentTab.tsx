@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { AgentGeneralSection } from "../components/AgentGeneralSection.tsx";
+import { AgentToolsSection } from "../components/AgentToolsSection.tsx";
 import { ReflectionSection } from "../components/ReflectionSection.tsx";
 import { SecretsSection } from "../components/SecretsSection.tsx";
 import { AgentSkills } from "../components/SkillsSections.tsx";
+import type { FeatureFlags } from "../lib/features.ts";
 import type { AgentsApi } from "../state/use-agents.ts";
 import type { SessionApi } from "../state/use-session.ts";
 import { MemoryTab } from "./MemoryTab.tsx";
@@ -10,6 +12,9 @@ import { MemoryTab } from "./MemoryTab.tsx";
 interface Props {
   session: SessionApi;
   agents: AgentsApi;
+  /** Which shared tool families exist on this deployment, which is what decides
+   * whether the Tools chip has anything to narrow. */
+  features?: FeatureFlags;
   /** Reflection settings resolve against the conversation's working directory. */
   conversationId: string | null;
   /** The conversation's working directory — where project-scope skills live. */
@@ -17,14 +22,16 @@ interface Props {
   /** Changes whenever the app-server reports a skill enabled or disabled. */
   skillsVersion: number;
   /** Settings shared by every agent live behind the rail's foot cell (the phone's
-   * More row). */
-  onOpenGlobalSettings: (section?: "skills") => void;
+   * bar slot). The Tools section names the family's own section, so this takes any
+   * section id. */
+  onOpenGlobalSettings: (section?: string) => void;
 }
 
-export type AgentSection = "general" | "secrets" | "reflection" | "skills" | "memory";
+export type AgentSection = "general" | "tools" | "secrets" | "reflection" | "skills" | "memory";
 
 const SECTION_LABELS: Record<AgentSection, string> = {
   general: "General",
+  tools: "Tools",
   secrets: "Secrets",
   reflection: "Reflection",
   skills: "Skills",
@@ -36,10 +43,15 @@ const SECTION_LABELS: Record<AgentSection, string> = {
  * shared by every agent (providers, web, MCP, Google, Codex, global skills) and
  * this device's notifications are in the global Settings screen — this tab used
  * to hold both, told apart only by a grey line under the chips.
+ *
+ * Tools is a section here and not a pane of its own for the same reason the rest
+ * of them are: the record behind it is keyed by `agent_id`, so it belongs to the
+ * agent, not to the navigation.
  */
 export function AgentTab({
   session,
   agents,
+  features,
   conversationId,
   cwd,
   skillsVersion,
@@ -83,6 +95,14 @@ export function AgentTab({
 
       {section === "general" ? (
         <AgentGeneralSection key={agentId} session={session} agents={agents} agentId={agentId} />
+      ) : null}
+      {section === "tools" ? (
+        <AgentToolsSection
+          key={agentId}
+          agents={agents}
+          features={features}
+          onOpenGlobalSettings={onOpenGlobalSettings}
+        />
       ) : null}
       {section === "secrets" ? <SecretsSection session={session} agentId={agentId} /> : null}
       {section === "reflection" ? (

@@ -180,7 +180,7 @@ nothing in the image. Every token is matched as an exact comma-delimited entry (
   settings, and the codex/claude connect-time reapply writes `enabled: false` into `lettuce.json` so
   the shims refuse (the stored endpoint/model/key survive, so re-enabling is one switch flip). Their
   Settings and worker routes answer 404 while the token is off, and `web/` hides the matching sections,
-  Tasks run lists and Tools tab rows from `features` in `/api/status` (absent = all on).
+  Tasks run lists and the Tools chip's rows from `features` in `/api/status` (absent = all on).
 - **The coding tokens and the image marker (`CODING_FEATURES`, `/opt/lettuce/features`,
   `coding_installed`) are the `lettuce-coding-workers` skill: toggling one needs an app-server
   rebuild locally, because a local image tag does not change with the token list** — the published
@@ -200,7 +200,7 @@ working in that area.
 | `bff/src/skills/`, `docker/agent-skills/`, Settings → Global skills, `skill_enable` | `lettuce-skill-discovery` |
 | `docker/codex/`, `bff/src/codex/`, `bff/src/claude/`, Settings → Codex / Claude Code workers | `lettuce-coding-workers` |
 | `bff/src/google/`, `docker/google-mcp/`, OAuth scopes, Settings → Google Workspace | `lettuce-google-integration` |
-| `bff/src/agents/tool-access.ts`, the policy mod, the Tools tab, `bff/src/pi/agent-settings.ts` | `lettuce-per-agent-tool-access` |
+| `bff/src/agents/tool-access.ts`, the policy mod, the Agent tab's Tools chip, `bff/src/pi/agent-settings.ts` | `lettuce-per-agent-tool-access` |
 | `ACCESS`/`SIGNIN`, `bff/src/auth/`, the password store, Settings → Access / Sign-in | `lettuce-access-and-signin` |
 | `web/src/lib/messages.ts`, question/approval cards, `turn-errors.ts`, `turn-usage.ts`, `push/turn-watcher.ts` | `lettuce-transcript-and-streaming` |
 | LLM timeout env, agent app ports, failing subagent spawns, the agent-tools ENV in `docker/codex/Dockerfile` | `lettuce-runtime-and-ops` |

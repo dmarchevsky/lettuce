@@ -5,6 +5,21 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.41.0-letta_0.34.38] - 2026-11-09
+
+### Added
+- **Hover a rail agent and its ⋯ appears.** The same menu right-click gives you — Edit, Pin, Archive, Delete — at the row's right end; the folded strip keeps right-click alone.
+
+### Changed
+- **The phone bar is the whole navigation.** Chat · Files · Tasks · Runs · Agent · Settings sit side by side, and the agent's own pane is a slot among them with Settings last, where the rail ends too.
+- **Chat answers twice.** While the chat is what you are reading, tapping Chat opens the conversation list and tapping it again puts it away; from any other pane it simply opens the chat.
+- **Runs has a bar slot where a worker is deployed**, and it wears the running count that used to hide inside a sheet; the bar is five slots where no worker runs.
+- **Tools is a section of the Agent tab now**, the sixth chip beside General, Secrets, Reflection, Skills and Memory — the same per-agent narrowing, one press closer to the agent it belongs to.
+- **The Tools section repeats itself less.** One control per family instead of two for the same decision, one line saying what it narrows, and no reload verb.
+
+### Removed
+- **The phone's More sheet.** Every pane it opened has a slot of its own now.
+
 ## [v0.40.1-letta_0.34.38] - 2026-11-09
 
 ### Fixed

@@ -13,7 +13,7 @@ import { featureEnabled } from "./features.ts";
  * cells: with Settings open, its sections replace the pane list, and that column's
  * Back cell, the corner X or Escape is the way out — to Chat.
  */
-export const TABS = ["Chat", "Files", "Tasks", "Runs", "Tools", "Agent", "Settings"] as const;
+export const TABS = ["Chat", "Files", "Tasks", "Runs", "Agent", "Settings"] as const;
 export type Tab = (typeof TABS)[number];
 
 /** `Runs` is a pane only where a coding worker is deployed; elsewhere it is absent. */
@@ -23,11 +23,6 @@ export function runsEnabled(features: FeatureFlags | undefined): boolean {
     featureEnabled(features, "claude") ||
     featureEnabled(features, "pi")
   );
-}
-
-/** The pane a `?tab=` value names, or Chat. */
-export function tabFor(name: string | null | undefined): Tab {
-  return (TABS as readonly string[]).includes(name ?? "") ? (name as Tab) : "Chat";
 }
 
 /**

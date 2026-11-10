@@ -521,10 +521,10 @@ async function shot(page: Page, name: string): Promise<void> {
 }
 
 /**
- * Switch panes wherever this width keeps them: the desktop rail names all six, the
- * phone bar shows four and hides the agent's own settings behind `More`. Settings
- * is not in either list — the rail's foot cell opens it (see `openSettings`), and while
- * it is open the rail holds its sections instead of these panes.
+ * Switch panes wherever this width keeps them: the desktop rail names every pane,
+ * and the phone bar shows the same names — Chat, Files, Tasks, Runs (where a worker
+ * is deployed), Settings and the agent's own pane. There is no umbrella left to
+ * reach through: the bar names every pane it has.
  *
  * Every check that needed a tab click goes through here, so the two navigation
  * surfaces are exercised by the same assertions rather than by two copies of them.
@@ -537,13 +537,25 @@ async function openTab(page: Page, name: string): Promise<void> {
     await rail.first().click();
     return;
   }
-  const bar = page.locator(`.bottombar > button:text-is("${name}")`);
+  // `has-text`, not `text-is`: a slot carrying a running count reads as "Runs2", and
+  // the pane is the same pane with or without one.
+  const bar = page.locator(`.bottombar > button:has-text("${name}")`);
   if ((await bar.count()) > 0 && (await bar.first().isVisible())) {
     await bar.first().click();
-    return;
+  } else {
+    throw new Error(`no "${name}" slot on the phone bar`);
   }
-  await page.locator('.bottombar > button:text-is("More")').click();
-  await page.locator(`.sheet .menu-row-title:text-is("${name}")`).click();
+  // On a phone, arriving on Chat also opens the conversation list — the bar's Chat press IS
+  // the list's way in — so asking for the pane is only half the ask. A test that wants the
+  // list asserts on it itself; every other test wants the pane under it.
+  if ((await page.locator(".switcher").count()) > 0) {
+    await page.keyboard.press("Escape");
+    // Wait for it to be gone AND for its way out of the history to land: the entry
+    // retires asynchronously, and a test that reads history.state too early sees a
+    // stale overlay entry it did not create.
+    await page.waitForSelector(".switcher", { state: "detached", timeout: 5_000 });
+    await page.waitForTimeout(500);
+  }
 }
 
 /**
@@ -599,13 +611,33 @@ try {
     const box = await overflow(page);
     check("nothing is clipped off-screen", box.clipped.length === 0, box);
 
-    // The bar is six equal slots — Chat, the secondary panes, Settings, More —
-    // and the agent's identity is not one of them: its face is in the header's
-    // corner. Settings graduated out of More to a slot of its own.
+    // The bar is equal slots — Chat, the secondary panes, Agent, then Settings last
+    // (the rail ends the same way, with its foot cell under the panes) — and the
+    // agent's identity is not one of them: its face is in the header's corner.
+    // Settings graduated to a slot of its own, `Runs` graduated the same
+    // way, and `Tools` left the bar for the Agent pane's chip, because the record
+    // behind it is keyed by `agent_id`. Without any coding worker the bar is five
+    // slots rather than padded out to six with a filler verb.
+    const phoneFeatures = await readFeatures(page);
+    const wantsRuns =
+      featureOn(phoneFeatures, "codex") ||
+      featureOn(phoneFeatures, "claude") ||
+      featureOn(phoneFeatures, "pi");
     const slots = await page.locator(".bottombar > *", { hasText: /./ }).count();
-    check("the bar has six slots", (await page.locator(".bottombar > button").count()) === 6, {
-      slots,
-    });
+    check(
+      `the bar has ${wantsRuns ? "six slots with a worker deployed" : "five slots without one"}`,
+      (await page.locator(".bottombar > button").count()) === (wantsRuns ? 6 : 5),
+      { slots, wantsRuns },
+    );
+    check(
+      "Tools is not a bar slot: it is the Agent pane's chip",
+      (await page.locator('.bottombar > button:text-is("Tools")').count()) === 0,
+    );
+    check(
+      "Settings is the rightmost slot, as the rail ends with its foot cell",
+      (await page.locator(".bottombar > button").last().innerText()).trim().startsWith("Settings"),
+      (await page.locator(".bottombar > button").allInnerTexts()).map((t) => t.trim()),
+    );
     check(
       "the first slot is the Chat pane, and it says which agent the pane belongs to by its face",
       (await page.locator('.bottombar > button:text-is("Chat")').count()) === 1 &&
@@ -636,16 +668,17 @@ try {
         return !!bar && bar.scrollWidth <= bar.clientWidth;
       }),
     );
-    // The Runs pane (worker runs; it hides when every worker token is off),
-    // which on a phone lives behind More.
-    const moreRuns = await page.evaluate(() => {
-      document.querySelector<HTMLElement>(".bottombar > button:last-child")?.click();
-      return true;
-    });
-    await page.waitForTimeout(300);
-    const runsRow = page.locator('.sheet .menu-row-title:text-is("Runs")');
-    if ((await runsRow.count()) > 0 && moreRuns) {
-      await runsRow.click();
+    // The Runs pane (worker runs; it hides when every worker token is off) wears a
+    // bar slot of its own — a running worker is the one thing on this bar worth
+    // interrupting for — and the slot carries the running count.
+    const moreRuns = wantsRuns;
+    const runsSlot = page.locator('.bottombar > button:has-text("Runs")');
+    check(
+      "Runs is a bar slot where a worker is deployed",
+      (await runsSlot.count()) === (wantsRuns ? 1 : 0),
+    );
+    if ((await runsSlot.count()) > 0 && moreRuns) {
+      await runsSlot.click();
       await page.waitForTimeout(400);
       const runsBox = await overflow(page);
       check("the Runs pane has nothing clipped", runsBox.clipped.length === 0, runsBox);
@@ -722,21 +755,51 @@ try {
     check("no drawer on a phone", !(await page.locator(".sidebar").isVisible()));
     check("no rail on a phone", !(await page.locator(".rail").isVisible()));
 
-    // More is what belongs to the agent and nothing else: its own settings (and
-    // where deployed, the workers). The shared Settings has its own slot now.
-    await page.locator('.bottombar > button:text-is("More")').click();
-    const moreRows = (await page.locator(".sheet .menu-row-title").allInnerTexts()).map((t) =>
-      t.trim(),
-    );
+    // There is no umbrella: once Runs and Settings had slots, More held exactly one
+    // row, so the agent's own pane stands on the bar under its own name. Tools is a
+    // chip inside it, and the shared Settings has its own slot.
     check(
-      "More holds only the agent's own rows — Settings has a slot of its own",
-      (await page.locator(".sheet").isVisible()) &&
-        moreRows.includes("Agent") &&
-        !moreRows.includes("Settings"),
-      moreRows,
+      "no More slot, and the agent's pane is one",
+      (await page.locator('.bottombar > button:text-is("More")').count()) === 0 &&
+        (await page.locator('.bottombar > button:text-is("Agent")').count()) === 1,
     );
-    await shot(page, "phone-more");
-    await page.keyboard.press("Escape");
+    await page.locator('.bottombar > button:text-is("Agent")').click();
+    await page.waitForTimeout(600);
+    check(
+      "the Agent slot opens the agent's own pane",
+      (await page.locator('.section-tabs button:text-is("General")').count()) === 1 &&
+        (await page.locator(".sheet").count()) === 0,
+    );
+    await shot(page, "phone-agent");
+    await openTab(page, "Chat");
+    await page.waitForTimeout(300);
+
+    // Pressing Chat is the phone's way to the conversation list — there is no drawer
+    // at this width, so the switcher IS the list. One press opens it, the next puts
+    // it away (which is why the bar stays live above the list), and choosing a
+    // different pane closes it too: a list left over a pane you asked for is a wall.
+    await page.locator('.bottombar > button:text-is("Chat")').click();
+    await page.waitForTimeout(500);
+    check("Chat opens the conversation list", await page.locator(".switcher").isVisible());
+    await shot(page, "phone-chat-list");
+    await page.locator('.bottombar > button:text-is("Chat")').click();
+    await page.waitForTimeout(500);
+    check("and a second press puts it away", !(await page.locator(".switcher").isVisible()));
+    await page.locator('.bottombar > button:text-is("Chat")').click();
+    await page.waitForTimeout(500);
+    await page.locator('.bottombar > button:text-is("Files")').click();
+    await page.waitForTimeout(500);
+    check("and another pane closes it", !(await page.locator(".switcher").isVisible()));
+    // The list is Chat's, so only a press on Chat *from Chat* is the toggle. Arriving
+    // from another pane is just arriving: that press named the pane, not the list.
+    await page.locator('.bottombar > button:text-is("Chat")').click();
+    await page.waitForTimeout(500);
+    check(
+      "arriving on Chat from another pane does not lift the list",
+      (await page.locator(".switcher").count()) === 0 &&
+        (await page.locator(".composer textarea").isVisible()),
+    );
+    await openTab(page, "Chat");
     await page.waitForTimeout(300);
 
     // The switcher: agents and conversations in one full-screen menu, opened
@@ -763,13 +826,24 @@ try {
     );
     check('both "new" cards share one style', new Set(newStyles).size === 1, newStyles);
     const agentsBox = await switcher.locator(".switcher-agents").boundingBox();
+    // At the bottom means at the bottom of what the list owns: it stops where the bar
+    // starts, because the bar is how the list got here and how it goes away.
+    const barTop = (await page.locator(".bottombar").boundingBox())?.y ?? 0;
     check(
-      "agents sit at the bottom",
-      agentsBox !== null && Math.abs(agentsBox.y + agentsBox.height - PHONE.height) < 2,
-      agentsBox,
+      "agents sit at the bottom, down to the bar",
+      agentsBox !== null && Math.abs(agentsBox.y + agentsBox.height - barTop) < 2,
+      { agentsBox, barTop },
     );
     const switcherBox = await overflow(page);
     check("switcher has nothing clipped", switcherBox.clipped.length === 0, switcherBox);
+    // No seam: the list's own box ends on the bar's top edge, or a strip of the chat
+    // sits between the list and the control that closes it.
+    const listBox = await switcher.boundingBox();
+    check(
+      "the list ends on the bar with nothing between",
+      listBox !== null && Math.abs(listBox.y + listBox.height - barTop) < 2,
+      { listBottom: listBox?.y + (listBox?.height ?? 0), barTop },
+    );
     await shot(page, "phone-switcher");
     await switcher.locator(".switcher-bar .sheet-close").click();
     check("back closes the switcher", (await page.locator(".switcher").count()) === 0);
@@ -780,11 +854,19 @@ try {
       await page.evaluate(() => history.back());
       await page.waitForTimeout(400);
     };
-    const onOverlayEntry = () =>
-      page.evaluate(
-        () => (history.state as { lettaOverlay?: boolean } | null)?.lettaOverlay === true,
-      );
-    check("closing on screen leaves no stale Back entry", !(await onOverlayEntry()));
+    // Asking whether the entry is STILL there rather than whether it is gone now: an
+    // on-screen close retires its entry with a deferred history.back() (back-stack.ts),
+    // so a single read right after the click races the thing it is meant to observe.
+    // A marker that clears within the wait is not stale; one that stays is.
+    const cleared = await page
+      .waitForFunction(
+        () => (history.state as { lettaOverlay?: boolean } | null)?.lettaOverlay !== true,
+        undefined,
+        { timeout: 2_000 },
+      )
+      .then(() => true)
+      .catch(() => false);
+    check("closing on screen leaves no stale Back entry", cleared);
 
     await switcherButton.click();
     await pressBack();
@@ -1949,6 +2031,38 @@ try {
     await shot(page, "desktop-agent-menu");
     await page.keyboard.press("Escape");
     check("Escape closes it", (await deskMenu.count()) === 0);
+
+    // The same verbs are on screen now, not only under the right button: resting on a
+    // row reveals its ⋯ at the right end, and the ⋯ opens that same menu. The row is
+    // `.rail-agent-row` because a button cannot contain a button. The pointer is
+    // measured away from the rail first — the right-click above left it on the row, and
+    // "quiet at rest" read as 1 until the pointer actually left.
+    const railRow = page.locator(".rail .rail-agent-row").first();
+    const railMore = railRow.locator(".rail-agent-more");
+    // Away from the rail AND off the row: the ⋯ stays lit for a focused row too, and
+    // the right-click above left focus on one.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.mouse.move(4, 4);
+    await page.waitForTimeout(250);
+    const restOpacity = await railMore.evaluate((el) => getComputedStyle(el).opacity);
+    await railRow.hover();
+    await page.waitForTimeout(250);
+    const hoverOpacity = await railMore.evaluate((el) => getComputedStyle(el).opacity);
+    check(
+      "an agent row keeps its ⋯ quiet at rest and reveals it on hover",
+      Number(restOpacity) === 0 && Number(hoverOpacity) === 1,
+      { restOpacity, hoverOpacity },
+    );
+    await railMore.click();
+    await page.waitForTimeout(250);
+    check("the row's ⋯ opens the agent menu", (await page.locator(".agent-menu").count()) === 1);
+    await shot(page, "desktop-rail-agent-more");
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(250);
+    // The pointer leaves the rail: a row left hovered keeps its ⋯ lit, and the next
+    // section clicks inside a sheet whose corner is under this column.
+    await page.mouse.move(4, 4);
+    await page.waitForTimeout(200);
     check(
       "desktop ⋯ menus wear the rail row scale (30px rows)",
       Math.round(deskRow?.height ?? 0) === 30,
@@ -1967,7 +2081,6 @@ try {
       "Files",
       "Tasks",
       ...(railFeatures.codex || railFeatures.claude || railFeatures.pi ? ["Runs"] : []),
-      "Tools",
       "Agent",
     ];
     check(
@@ -2419,6 +2532,12 @@ try {
           () => getComputedStyle(document.querySelector(".rail-panes .rail-item")!).height,
         )) === "36px",
     );
+    // 56px is all face: the row has no room for a second glyph, so the ⋯ is gone
+    // while the strip is folded — right-click still carries the verbs there.
+    check(
+      "the folded rail carries no agent-row ⋯",
+      (await page.locator(".rail .rail-agent-more").first().isVisible()) === false,
+    );
     // The taller row is the rail's own business: `.app` also wears the class, and
     // the ⋯ menus size by --rail-row from there — a leak resizes every menu in
     // the app the moment the rail folds.
@@ -2602,7 +2721,9 @@ try {
       .waitFor({ state: "visible", timeout: 5000 })
       .then(() => true)
       .catch(() => false);
-    const expectedChips = ["General", "Secrets", "Reflection", "Skills", "Memory"];
+    // Tools is one of these chips now and not a pane: the record behind it is keyed
+    // by `agent_id`, so it belongs to the agent, not to the navigation.
+    const expectedChips = ["General", "Tools", "Secrets", "Reflection", "Skills", "Memory"];
     const chipLabels = (await page.locator(".section-tabs button").allInnerTexts()).map((t) =>
       t.trim(),
     );
@@ -2651,10 +2772,11 @@ try {
       check(`agent ${chip.toLowerCase()} has nothing clipped`, box.clipped.length === 0, box);
     }
 
-    // The Tools tab: one chip per shared family, the chip carries the on/off box
-    // (role=checkbox — the platform checkbox is still banned everywhere), and
-    // clicking the name opens that family's per-agent settings.
-    await openTab(page, "Tools");
+    // The Agent tab's Tools section: one chip per shared family, the chip carries
+    // the on/off box (role=checkbox — the platform checkbox is still banned
+    // everywhere), and clicking the name opens that family's per-agent settings.
+    await openTab(page, "Agent");
+    await page.locator('.section-tabs button:text-is("Tools")').click();
     await page.waitForTimeout(700);
     const toolsFeatures = await readFeatures(page);
     const expectedToolChips = [
@@ -2684,9 +2806,18 @@ try {
       },
     );
     if (featureOn(toolsFeatures, "google")) {
+      // One control per decision: the level select is there when Google is allowed,
+      // and when the box has it blocked the pane says so instead of offering a second
+      // way to say the same thing.
       check(
         "the tools pane loads access from the BFF",
-        (await page.locator('.pane label:has-text("Google") select').count()) === 1,
+        (await page.locator('.pane label:has-text("Google access") select').count()) +
+          (await page
+            .locator(
+              '.pane p:text-is("Blocked for this agent — tick its box above to let it read anything.")',
+            )
+            .count()) ===
+          1,
       );
     }
     if (featureOn(toolsFeatures, "pi")) {
@@ -2702,8 +2833,17 @@ try {
       );
     }
     const toolsBox = await overflow(page);
-    check("tools tab has nothing clipped", toolsBox.clipped.length === 0, toolsBox);
-    await shot(page, "desktop-tools");
+    check("the tools section has nothing clipped", toolsBox.clipped.length === 0, toolsBox);
+    check(
+      "the family row says what it is, so it does not read as a second tab bar",
+      (await page.locator(".pane-bar.tools-row .row-word").innerText()).trim() === "For this agent",
+    );
+    check(
+      "the scope line is one sentence, not a paragraph",
+      ((await page.locator(".pane .scope-line").innerText()).match(/\.\s/g) ?? []).length <= 2,
+      await page.locator(".pane .scope-line").innerText(),
+    );
+    await shot(page, "desktop-agent-tools");
 
     // Back to the Agent tab for its own sections.
     await openTab(page, "Agent");
@@ -4097,6 +4237,10 @@ try {
       });
       await page.keyboard.press("Escape");
       await page.waitForTimeout(300);
+      check(
+        "and Escape closes the sheet when there is nothing to stage",
+        (await page.locator('.sheet-panel[aria-label="Model"]').count()) === 0,
+      );
       console.log(`  SKIP  a staged model pick (nothing to pick but “${before}”)`);
     } else {
       const staged = await page
