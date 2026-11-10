@@ -115,7 +115,12 @@ A fresh worktree has no `docker/.env` (gitignored) — `setup` copies it in when
 the worktree, or the state-dir default lands inside `.dev-flow/<slug>/`. It reads the file from the
 **main** checkout through `git rev-parse --git-common-dir`, because a linked worktree has no
 `docker/.env` of its own and a
-relative `../../` breaks the moment `worktreeDir` changes depth. A failed `setup` fails `flow approve`
+relative `../../` breaks the moment `worktreeDir` changes depth. A scratch browser script is a worktree file too:
+run it **from inside the worktree** (`…/worktree/scripts/scratch.ts`), because that is what makes `bun`
+resolve *this* worktree's Playwright; run from the flow dir or the main checkout it resolves a different
+build and fails with `Executable doesn't exist at ~/.cache/ms-playwright/chromium_headless_shell-<other>/…`,
+which reads like a machine problem and is a cwd problem. `PLAYWRIGHT_CHROMIUM` is the override for either.
+A failed `setup` fails `flow approve`
 and runs again on the next one; a `--docs` flow skips it.
 
 **Verify is two steps, and the first one is the deploy.** `flow verify` (no `--confirmed`) rebases the
@@ -130,6 +135,15 @@ rebase that stops on conflicts is aborted and handed back: resolve it in the wor
 the operator asks you to "deploy this branch", `flow verify` is that command. `health` is a single `/readyz` probe; dev-flow
 retries it within `healthWait`.
 
+**Prove there is a model before driving a turn.** A fresh state dir can hold no provider and no agent, so
+every message answers `llm_error` — `Provider is not configured: openai` — and a conversation-driven check
+fails for a reason that has nothing to do with the change. Read `GET /api/status` and `/api/model-caps`
+first. A stand-in provider stands up in one request (`POST /api/providers` with `{name, type:
+"llama-cpp", baseUrl: http://host.docker.internal:8080/v1, models:[…]}` against any OpenAI-compatible
+endpoint — with no `host.docker.internal`, the bridge-gateway address of the compose network is the host) and comes
+down with `DELETE /api/providers?prefix=…`, so leave the stack as you found it. An agent created through the
+UI is **permanent**: the protocol has no delete-agent verb.
+
 A look at the running stack never mutates operator state on its own. Move nothing under
 `$LETTA_STATE_DIR` or `/app/auth`, never claim an instance you were not handed, and keep nothing durable in
 a container path — the next recreate deletes it. A session that moved the sign-in hash aside to photograph a
@@ -142,7 +156,14 @@ without `docker/.env` cannot interpolate the compose file), the `health` probe g
 signs in with a password (`SIGNIN=password`) sign in to the UI yourself and look at the change — an operator
 should click a working app, not discover a dead one. This machine's password lives in
 `.pi/local-secrets/test-password.md` in the main checkout (gitignored, per-machine, never committed and
-never pasted into a tracked file); if the file is missing, **ask** rather than guess. Because the stack is
+never pasted into a tracked file). **Where it is missing, ask once and write the answer to that path**
+(`mkdir -p .pi/local-secrets` in the main checkout, then export from the file) — the file is the point, not
+the value: an answer that stays in chat is in the session transcript forever, and a value re-typed into the
+argv of every `ui-check` / `smoke` call is a secret in the process list and in the shell history. So the
+rule is *ask once, store in the gitignored file, always export from the file*, never accept it as a message.
+**A stage worker needs the same line in its brief**: hand a worker `bun run ui-check` or `smoke` without
+`export LETTUCE_TEST_PASSWORD=$(cat <main checkout>/.pi/local-secrets/test-password.md)` and it concludes the
+check cannot be run, so the assertions rest on the plan's claim instead of on a run. Because the stack is
 shared, check `docker ps` again just before asking: if another session recreated a service mid-pass, or the
 served `assets/index-*.js` changed under you, **stop and tell the operator** instead of competing for the
 environment or reporting a result you cannot stand behind.
@@ -165,6 +186,13 @@ is not that pass and never counts as one. When the branch edits `scripts/ui-chec
 is narrower: **the operator runs `bun run ui-check` once** during the container test — a click-through does
 not execute the suite and CI's `live.yml` runs with `UI_CHECK=off`, so a new assertion would otherwise ship
 never-run.
+
+**Assertions read the stack's feature flags, and raising profiles is not free.** `ui-check` derives every
+token-gated Settings row and Tools row from `/api/status`'s `features` instead of assuming every compose
+profile is on, so it goes green on a lean stack (`COMPOSE_PROFILES=search,pi`) exactly as on the full prod
+list — a new assertion about a gated surface must go through `featureOn`, or it fails on the machine that
+reads it most. Raising the profiles to reach a section means an `up -d` with a different `COMPOSE_PROFILES`,
+which starts sidecars and can recreate `app-server`: name that in the handoff rather than doing it quietly.
 
 - [ ] built and running in the local container stack by `flow verify`'s own `dev` run (`build:bff`
       first for any web/ change, then unscoped `up -d`), left up while Verified? is asked, and the
@@ -247,6 +275,11 @@ images to GHCR and retags `latest` — so **`release.artifact` is what proves a 
 green and pushed nothing — `lettuce-pr-and-ci` says why a green Compose build is not proof of a push. A
 green pipeline is not the artifact; the registry is. (An unversioned flow tags nothing, so this gate and
 the artifact check both stand down.)
+
+**The tail runs from `main` before `flow finish`, not after it.** `flow finish` closes the feature *and
+records the release* — `flow release-done` is not the step that does it, so a checklist read in the old
+order can leave `deploy-check` unrun against a release already recorded. So: merge → tag → the post-merge
+checks below, from `main` with a clean tree → `flow release-done` → `flow finish`.
 
 - [ ] after the merge and from `main`: `bun run build` **first** — `deploy-check` compares the served bundle
       against this host's `web/dist`, and after a release built in a worktree that copy is stale
