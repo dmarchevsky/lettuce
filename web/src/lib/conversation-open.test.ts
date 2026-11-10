@@ -7,7 +7,7 @@ import { historyShowsLoadingRow, openConversation } from "./conversation-open.ts
  * always runs when the load lands — the hook's own load catches its failures —
  * so a failed load still takes the row off.
  */
-function harness(options: { freshConversation?: boolean } = {}) {
+function harness() {
   const calls: string[] = [];
   let history = () => {
     calls.push("!! history never asked for");
@@ -15,39 +15,32 @@ function harness(options: { freshConversation?: boolean } = {}) {
   let runtime = () => {
     calls.push("!! runtime never asked for");
   };
-  const open = openConversation(
-    {
-      loadHistory: (onSettled) => {
-        calls.push("history asked for");
-        if (options.freshConversation) {
-          onSettled();
-          return;
-        }
-        history = () => {
-          calls.push("history settled");
-          onSettled();
-        };
-      },
-      startRuntime: () => {
-        calls.push("runtime asked for");
-        return new Promise<void>((resolve) => {
-          runtime = () => {
-            calls.push("runtime settled");
-            resolve();
-          };
-        });
-      },
-      endLoadingRow: () => calls.push("row cleared"),
+  const open = openConversation({
+    loadHistory: (onSettled) => {
+      calls.push("history asked for");
+      history = () => {
+        calls.push("history settled");
+        onSettled();
+      };
     },
-    options,
-  );
+    startRuntime: () => {
+      calls.push("runtime asked for");
+      return new Promise<void>((resolve) => {
+        runtime = () => {
+          calls.push("runtime settled");
+          resolve();
+        };
+      });
+    },
+    endLoadingRow: () => calls.push("row cleared"),
+  });
   return { calls, open, settleHistory: () => history(), settleRuntime: () => runtime() };
 }
 
 describe("opening a conversation", () => {
   test("the history is asked for before the runtime is started", async () => {
     // Not a tautology: `startRuntime` sends a file write and then the start,
-    // and anything requested after them queues behind their server-wide freeze.
+    // and anything requested after them queues behind their freeze.
     const h = harness();
     expect(h.calls.slice(0, 2)).toEqual(["history asked for", "runtime asked for"]);
     h.settleHistory();
@@ -94,16 +87,16 @@ describe("opening a conversation", () => {
     await h.open;
     expect(h.calls.filter((c) => c === "row cleared")).toHaveLength(1);
   });
-});
 
-describe("a conversation created in this session", () => {
-  test("has no history to wait for, so its row clears with the start", async () => {
-    const h = harness({ freshConversation: true });
-    expect(h.calls).not.toContain("row cleared");
+  test("a conversation created in this session still loads, and its row never waits", async () => {
+    // The load is what folds live frames into the transcript; skipping it for a
+    // fresh conversation would drop a turn that started mid-open. Whether the
+    // row shows is the hook's call (`historyShowsLoadingRow`), not this one.
+    const h = harness();
+    h.settleHistory();
+    expect(h.calls).toContain("row cleared");
     h.settleRuntime();
     await h.open;
-    expect(h.calls).toContain("row cleared");
-    expect(h.calls.indexOf("row cleared")).toBeGreaterThan(h.calls.indexOf("runtime settled"));
   });
 });
 

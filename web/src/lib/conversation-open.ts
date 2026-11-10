@@ -27,7 +27,7 @@ export interface OpenSequence {
   loadHistory: (onSettled: () => void) => void;
   /** Seed the workspace and start the runtime; may outlast the history. */
   startRuntime: () => Promise<void>;
-  /** Take the loading row off: the history settled, or the fresh start did. */
+  /** Take the loading row off, once the history has settled. */
   endLoadingRow: () => void;
 }
 
@@ -35,28 +35,20 @@ export interface OpenSequence {
  * Fire the history request and the runtime start together, the history first.
  *
  * The loading row goes away when the history settles — a transcript on screen
- * is worth more than the runtime flag, and the start may still be replaying —
- * except for a fresh conversation, which has no history to wait for and so
- * clears with the start, as it always did.
+ * is worth more than the runtime flag, and the start may still be replaying.
+ * Whether the row was ever *shown* is a separate question
+ * (`historyShowsLoadingRow`); a conversation created in this session simply
+ * never showed one, and its load still runs, because live frames need it to
+ * fold into whether or not the conversation had messages.
  */
-export async function openConversation(
-  open: OpenSequence,
-  options: { freshConversation?: boolean } = {},
-): Promise<void> {
-  const clearOnHistory = !options.freshConversation;
+export async function openConversation(open: OpenSequence): Promise<void> {
   // History handed over first, before the start is even attempted: everything
   // sent after a blocking command waits behind it, and the seed write and the
   // start are both file work on the app-server's slow disk.
-  open.loadHistory(() => {
-    if (clearOnHistory) open.endLoadingRow();
-  });
-  const started = open
-    .startRuntime()
-    .then(() => {
-      if (!clearOnHistory) open.endLoadingRow();
-    })
-    .catch(() => {
-      if (!clearOnHistory) open.endLoadingRow();
-    });
+  open.loadHistory(() => open.endLoadingRow());
+  const started = open.startRuntime().then(
+    () => {},
+    () => {},
+  );
   await started;
 }

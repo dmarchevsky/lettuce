@@ -613,15 +613,20 @@ export function useConversation(
         mergeStreamIntoHistory(history, before);
         mergeTurnErrors(history, errors);
         transcriptRef.current = history;
-        // Rebuilt, not kept: history's own keys are its ids, and the only
-        // aliases worth carrying are the live entries that survived the fold —
-        // the next chunk of one of those must land on the merged entry.
-        streamIndexRef.current = createStreamIndex();
-        for (const [key, entry] of before) {
-          if (!history.has(key)) continue;
-          streamIndexRef.current.byMessageId.set(entry.id, key);
-          streamIndexRef.current.byOtid.set(entry.id, key);
+        // The aliases worth carrying are the live index's own, and only for the
+        // entries that survived the fold: they are the ones a later chunk may
+        // still belong to. Rebuilt rather than kept, because an alias whose
+        // entry the history replaced must not keep pointing at the discarded
+        // key — and history's entries need no seeding, their keys are their ids.
+        const survived = (key: string) => history.has(key);
+        const index = createStreamIndex();
+        for (const [alias, key] of streamIndexRef.current.byMessageId) {
+          if (survived(key)) index.byMessageId.set(alias, key);
         }
+        for (const [alias, key] of streamIndexRef.current.byOtid) {
+          if (survived(key)) index.byOtid.set(alias, key);
+        }
+        streamIndexRef.current = index;
         seqRef.current = messages.length;
         flushSync();
         // A request/response frame like this one never carries the sequence
@@ -661,6 +666,7 @@ export function useConversation(
     // loading, not empty — unless this conversation was just created here, in
     // which case empty is exactly what it is and the row would only be a blink
     // over the truth. See `historyShowsLoadingRow`.
+    // Whether the row shows at all; the load itself runs either way.
     const freshConversation = consumeFreshConversation(scope.conversation_id);
     setHistoryLoading(historyShowsLoadingRow(freshConversation));
 
@@ -722,26 +728,16 @@ export function useConversation(
       }
     };
     // The history first and the slow start beside it — see `conversation-open.ts`.
-    // A fresh conversation has no history to wait for, so its row clears with
-    // the start, as it always did.
-    void openConversation(
-      {
-        loadHistory: (onSettled) => {
-          // A fresh conversation has nothing to load: report it settled at once so
-          // the row follows the start, the way it did before.
-          if (freshConversation) {
-            onSettled();
-            return;
-          }
-          void loadHistory(false, gen).then(onSettled, onSettled);
-        },
-        startRuntime,
-        endLoadingRow: () => {
-          if (gen === loadGenRef.current) setHistoryLoading(false);
-        },
+    // Every open loads its history, a freshly created conversation included:
+    // it is the fold of live frames that needs the load, not the messages, and
+    // skipping the load would drop a turn that started mid-open.
+    void openConversation({
+      loadHistory: (onSettled) => void loadHistory(false, gen).then(onSettled, onSettled),
+      startRuntime,
+      endLoadingRow: () => {
+        if (gen === loadGenRef.current) setHistoryLoading(false);
       },
-      { freshConversation },
-    );
+    });
   }, [ready, scope, startNonce, request, setScopes, loadHistory]);
 
   // A resync means the BFF buffer could not cover the gap while we were away.
