@@ -212,7 +212,7 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   `.chip-check.on` for a chip box, which is what `ui-check` counts (`input[type=checkbox]` must be
   0 anywhere in the DOM). The Agent tab's chip list is exactly
   `General/Tools/Secrets/Reflection/Skills/Memory`, and the family row under it carries a
-  `Tool families` group word because two identical chip bars stacked read as one level (the warning
+  `For this agent` group word because two identical chip bars stacked read as one level (the warning
   `.section-tabs` carries about itself). Inside a settings section body
   `.section-note` is a **heading** (12px bold, like "Change password") and the prose that
   explains the rows is `.section-copy` — their inset and size, with the banner's code chip —

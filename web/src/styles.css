@@ -32,8 +32,9 @@
   --menu-row-h: 36px;
   /* The desktop header band (grid row 1). */
   --topbar-h: 52px;
-  /* The phone's bar. A token because the conversation list has to stop exactly
-     where the bar starts, so the bar stays pressable while the list is up. */
+  /* The phone's bar, not counting the safe area. A token because the conversation
+     list has to stop exactly where the bar starts, so the bar stays pressable while
+     the list is up — and both sides of that meeting add the inset the same way. */
   --bar-h: 68px;
   /* The rail is ONE column of rows: a pane, an agent, the New-agent verb, the foot
      verb and — while Settings is the pane — a section are all the same row: a glyph
@@ -616,12 +617,17 @@ nav.rail.rail-collapsed {
   height: 24px;
 }
 /* The phone's bar, under the composer: six equal slots — the Chat pane, the
-   secondary panes that earn one, Settings, and More. Identity is not its
-   business; the agent's face sits in the header's corner. */
+   secondary panes that earn one, the agent's own pane, and Settings last. Identity
+   is not its business; the agent's face sits in the header's corner.
+   The height is `--bar-h` PLUS the safe area rather than `--bar-h` containing it,
+   because the conversation list stops at `calc(var(--bar-h) + env(...))` and the
+   two must be the same number: with the inset folded inside `min-height` the bar
+   came out shorter than the gap it left, and a notched phone saw a strip of the
+   chat between the list and the bar. */
 .bottombar {
   display: flex;
   align-items: stretch;
-  min-height: var(--bar-h);
+  min-height: calc(var(--bar-h) + env(safe-area-inset-bottom));
   border-top: 1px solid var(--border);
   background: var(--surface);
   padding-bottom: env(safe-area-inset-bottom);
@@ -3136,8 +3142,8 @@ p.warning code,
     grid-row: 2;
     grid-column: 3;
   }
-  /* The bar is a phone surface; here the rail owns navigation and there is no
-     More. Mounted and hidden, exactly as the phone block above hides the rail. */
+  /* The bar is a phone surface; here the rail owns navigation, every pane named in
+     it. Mounted and hidden, exactly as the phone block above hides the rail. */
   .bottombar {
     display: none;
   }
@@ -3438,7 +3444,7 @@ p.warning code,
 }
 
 /* Under a per-agent tab's chips: who these settings belong to, and where the
-   shared ones live. Only the Tools tab earns a line — the Agent tab's sections
+   shared ones live. Only the Tools section earns a line — the Agent tab's sections
    are all this agent's, so it says nothing. */
 .scope-line {
   margin: 0;

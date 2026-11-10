@@ -7,7 +7,12 @@ interface Props {
   onSelectPane: (tab: Tab) => void;
   onOpenSettings: () => void;
   runsEnabled: boolean;
-  /** Shown on the Runs slot so a running worker is visible from the bar. */
+  /**
+   * Runs in flight for the remote-pi worker, shown on the Runs slot so a running
+   * worker is visible from the bar. The other workers report their runs under Tasks
+   * and have no live count to put here, so a deployment with pi off shows the slot
+   * unbadged rather than a number that would never move.
+   */
   runsRunning: number;
 }
 
@@ -65,7 +70,13 @@ export function BottomBar({ tab, onSelectPane, onOpenSettings, runsEnabled, runs
           >
             <Icon name={pane.icon} />
             {pane.label}
-            {pane.count && pane.count > 0 ? <span className="slot-count">{pane.count}</span> : null}
+            {pane.count && pane.count > 0 ? (
+              // Spelled out for anyone hearing the bar, who would otherwise hear a
+              // bare "2" after the pane's name.
+              <span className="slot-count" aria-label={`${pane.count} running`}>
+                {pane.count}
+              </span>
+            ) : null}
           </button>
         ))}
 

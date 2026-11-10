@@ -22,7 +22,7 @@ interface Props {
   /** Changes whenever the app-server reports a skill enabled or disabled. */
   skillsVersion: number;
   /** Settings shared by every agent live behind the rail's foot cell (the phone's
-   * More row). The Tools section names the family's own section, so this takes any
+   * bar slot). The Tools section names the family's own section, so this takes any
    * section id. */
   onOpenGlobalSettings: (section?: string) => void;
 }

@@ -497,7 +497,9 @@ async function openTab(page: Page, name: string): Promise<void> {
     await rail.first().click();
     return;
   }
-  const bar = page.locator(`.bottombar > button:text-is("${name}")`);
+  // `has-text`, not `text-is`: a slot carrying a running count reads as "Runs2", and
+  // the pane is the same pane with or without one.
+  const bar = page.locator(`.bottombar > button:has-text("${name}")`);
   if ((await bar.count()) > 0 && (await bar.first().isVisible())) {
     await bar.first().click();
   } else {
@@ -626,7 +628,7 @@ try {
     // bar slot of its own — a running worker is the one thing on this bar worth
     // interrupting for — and the slot carries the running count.
     const moreRuns = wantsRuns;
-    const runsSlot = page.locator('.bottombar > button:text-is("Runs")');
+    const runsSlot = page.locator('.bottombar > button:has-text("Runs")');
     check(
       "Runs is a bar slot where a worker is deployed",
       (await runsSlot.count()) === (wantsRuns ? 1 : 0),
@@ -790,6 +792,14 @@ try {
     );
     const switcherBox = await overflow(page);
     check("switcher has nothing clipped", switcherBox.clipped.length === 0, switcherBox);
+    // No seam: the list's own box ends on the bar's top edge, or a strip of the chat
+    // sits between the list and the control that closes it.
+    const listBox = await switcher.boundingBox();
+    check(
+      "the list ends on the bar with nothing between",
+      listBox !== null && Math.abs(listBox.y + listBox.height - barTop) < 2,
+      { listBottom: listBox?.y + (listBox?.height ?? 0), barTop },
+    );
     await shot(page, "phone-switcher");
     await switcher.locator(".switcher-bar .sheet-close").click();
     check("back closes the switcher", (await page.locator(".switcher").count()) === 0);
@@ -804,14 +814,15 @@ try {
     // on-screen close retires its entry with a deferred history.back() (back-stack.ts),
     // so a single read right after the click races the thing it is meant to observe.
     // A marker that clears within the wait is not stale; one that stays is.
-    const stillStale = await page
+    const cleared = await page
       .waitForFunction(
-        () => (history.state as { lettaOverlay?: boolean } | null)?.lettaOverlay === true,
-        { timeout: 1_500 },
+        () => (history.state as { lettaOverlay?: boolean } | null)?.lettaOverlay !== true,
+        undefined,
+        { timeout: 2_000 },
       )
       .then(() => true)
       .catch(() => false);
-    check("closing on screen leaves no stale Back entry", !stillStale);
+    check("closing on screen leaves no stale Back entry", cleared);
 
     await switcherButton.click();
     await pressBack();
@@ -4168,9 +4179,17 @@ try {
     if (picked === "") {
       // Nothing to pick: this stack's provider lists one model, and it is the one in
       // force, so there is no staging to see. Said out loud rather than failed — the
-      // pick belongs to whatever the running stack actually serves.
+      // pick belongs to whatever the running stack actually serves. But a sheet that
+      // listed NO model is a bug, not a thin stack, so that much is still asserted,
+      // and the way out of a sheet nobody clicked is asserted too.
+      const listed = await rows.count();
+      check("the model sheet lists a model at all", listed > 1, { listed });
       await page.keyboard.press("Escape");
-      await page.waitForTimeout(200);
+      await page.waitForTimeout(300);
+      check(
+        "and Escape closes the sheet when there is nothing to stage",
+        (await page.locator('.sheet-panel[aria-label="Model"]').count()) === 0,
+      );
       console.log(`  SKIP  staging a model pick (the sheet lists only “${before}”)`);
       console.log("  SKIP  and the sheet closing on the pick");
     } else {

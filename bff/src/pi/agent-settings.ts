@@ -11,7 +11,7 @@
  * Two things are deliberately *not* overridable:
  * - **the switch**. Whether an agent gets the pi tools at all is tool access,
  *   and tool access has one home (`bff/src/agents/tool-access.ts`), so the
- *   Tools tab's checkbox and this record cannot disagree.
+ *   Tools section's checkbox and this record cannot disagree.
  * - **the deploy key**. One lettuce-held key whose public half is authorized on
  *   every host; forking custody per agent would add secrets to the volume and a
  *   manual step to every host for no access gain — any agent that can call
