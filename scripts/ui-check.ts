@@ -47,6 +47,7 @@ function section(title: string): void {
  * A password field on the page is how `SIGNIN=password` shows up here.
  */
 async function signIn(page: Page): Promise<void> {
+  watchPage(page);
   await page.goto(ORIGIN, { waitUntil: "networkidle" });
   if (await page.locator('input[type="password"]').first().count()) {
     const password = requireTestPassword("ui-check");
@@ -104,6 +105,55 @@ async function readFeatures(page: Page): Promise<Record<string, boolean>> {
 
 function featureOn(features: Record<string, boolean>, name: string): boolean {
   return features[name] !== false;
+}
+
+/**
+ * What the pages said on the console, and whether any of it was fatal.
+ *
+ * A component that re-set state with a fresh empty array on every paint rendered
+ * ~66k times a second with every layout assertion green: the loop is invisible to
+ * geometry, and only an uncaught `Maximum update depth exceeded` said so — in the
+ * browser's console, which nobody was reading. So the console is an assertion
+ * surface now: an uncaught exception fails the run whatever it is, and so does a
+ * `console.error` outside the allowlist below (React routes the render-loop error
+ * through `console.error` as well as throwing it).
+ *
+ * A page may be closed and its errors stay counted: a crash that takes the page
+ * down is the most interesting failure there is.
+ */
+type PageTrouble = { label: string; errors: string[]; fatal: number };
+const trouble = new Map<Page, PageTrouble>();
+let pageCount = 0;
+
+/**
+ * Console noise that is true of a local harness, not broken about the app: the
+ * headless browser fetches a `/favicon.ico` we never ship, service-worker
+ * registration fails in a context that cannot serve it, a torn-down socket
+ * reports its close, and Chromium complains about a layout observer rather than
+ * about the component that overflowed it.
+ */
+const BENIGN_CONSOLE =
+  /favicon|service worker|ResizeObserver|AbortError|WebSocket is closed|EventSource|Failed to load resource/i;
+
+function watchPage(page: Page): void {
+  if (trouble.has(page)) return;
+  const label = `page ${++pageCount} (${page.viewportSize()?.width ?? "?"}px)`;
+  const entry: PageTrouble = { label, errors: [], fatal: 0 };
+  trouble.set(page, entry);
+  const note = (kind: string, text: string) => {
+    entry.fatal += 1;
+    // Cap what is kept: a render loop prints one line per frame and the run must
+    // still be able to finish, while the count it reports stays the true one.
+    if (entry.errors.length < 3) {
+      entry.errors.push(`${kind}: ${text.replace(/\s+/g, " ").slice(0, 200)}`);
+    }
+  };
+  page.on("pageerror", (error) => note("uncaught", error.message));
+  page.on("console", (message) => {
+    if (message.type() !== "error") return;
+    const text = message.text();
+    if (!BENIGN_CONSOLE.test(text)) note("console", text);
+  });
 }
 
 /**
@@ -4106,6 +4156,19 @@ try {
   }
 } finally {
   await browser.close();
+}
+
+// Every page's console, checked once at the end so a loop that only shows up in a
+// later pane is still caught, and so the verdict does not depend on which section
+// happened to leave its page open.
+{
+  const noisy = [...trouble.values()].filter((t) => t.fatal > 0);
+  const total = noisy.reduce((sum, t) => sum + t.fatal, 0);
+  check(
+    `no page logged a console error or threw (${total} seen)`,
+    noisy.length === 0,
+    noisy.map((t) => `${t.label} x${t.fatal}: ${t.errors.join(" | ")}`),
+  );
 }
 
 console.log(
