@@ -5,6 +5,12 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.40.1-letta_0.34.38] - 2026-11-09
+
+### Fixed
+- **The visual suite now fails when the page says something is wrong.** A component that re-set its own state on every paint shipped with every check green: a clipped tab bar and an off-screen sheet are things the suite can see, a render loop is not, and the only thing that said so — a browser console error — landed where nobody was reading. Every page the suite opens is watched now, so an uncaught exception or an unexpected console error fails the run, counted per page and reported with where it came from; the forgiven lines are only the harness's own noise (an icon or manifest that cannot load, a service worker a local stack cannot register, a socket closing on teardown, a layout observer, an aborted request) and one request a section breaks on purpose by name. What it still cannot see is a loop that stays silent — that needs a render budget probe, not a listener. Two smaller things from the same sweep: the agent-avatar assertion now says which field it landed on instead of timing out thirty seconds later, and five folds landed in the dev-flow playbook (prove a model exists before driving a turn; the local test password is asked once and always exported from its gitignored file, including into a stage worker's brief; scratch browser scripts live in the worktree; the release tail runs from `main` before the closing gate; feature-gated assertions read the running stack's feature flags).
+- **The visual suite runs to the end of itself on a small stack.** A stack with one model left the model sheet waiting for a second row that does not exist, and the open sheet swallowed every click that followed, so two assertions failed and the rest of the suite never ran; a section that asks for a request that must fail (testing an endpoint that is not there, and reading the toast back) was counted against the app by the new console gate. Both are handled now — the first says what it owes instead of blocking the run, the second forgives that one request — and a failed load names its URL, which is how the second was found.
+
 ## [v0.40.0-letta_0.34.38] - 2026-11-09
 
 ### Added
