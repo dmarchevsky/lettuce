@@ -5,6 +5,12 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.42.3-letta_0.34.38] - 2026-11-10
+
+### Added
+- **Your agent now knows how to hand work to the Remote Pi worker.** It ships as a global skill (Settings → Global skills), so every agent gets it: what kind of job belongs on that other machine, how to write an instruction for a worker that sees none of the conversation, that a dispatched job ends the agent's turn and reports back on its own instead of being polled, what each way a run can end actually means (a detached run may have edited files in the moment before it died; a failed one now carries a reason), and why "stop the run" and "stop watching the run" are different actions with different consequences. Before this, every session worked those rules out from scratch, and a few told the user a run was stopped when it was only unwatched.
+
+
 ## [v0.42.2-letta_0.34.38] - 2026-11-10
 
 ### Fixed
