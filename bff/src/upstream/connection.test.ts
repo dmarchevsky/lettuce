@@ -276,9 +276,9 @@ test("the pass asks for a timeout a slow sync can actually fit in", async () => 
   // The 30 s default is what made a restart sweep look broken: the app-server
   // was slow, not stuck, and every timed-out sync had still subscribed its scope.
   expect(client.syncTimeouts).toEqual([OWNER_SYNC_TIMEOUT_MS, OWNER_SYNC_TIMEOUT_MS]);
-  expect((client.syncStarts[1] as number) - (client.syncStarts[0] as number)).toBeGreaterThanOrEqual(
-    SYNC_PACING_MS + client.syncHoldMs - 5,
-  );
+  expect(
+    (client.syncStarts[1] as number) - (client.syncStarts[0] as number),
+  ).toBeGreaterThanOrEqual(SYNC_PACING_MS + client.syncHoldMs - 5);
   upstream.stop();
 });
 
