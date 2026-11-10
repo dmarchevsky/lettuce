@@ -68,12 +68,14 @@ A4. **`pi_wait {run, timeout_seconds}`** (new tool, cap 120 s, default 60) — *
     answers change to: `… pi_wait {run} blocks until it settles; pi_status shows progress.`
     `approval: "auto"`.
 
-A5. **Real cancel.** The remote command becomes `… pi … & rp=$!; echo "lettuce-remote-pid $rp"
-    >&2; wait $rp`. The runner parses `lettuce-remote-pid <n>` off stderr into
-    `meta.remotePid`. `pi_stop {run, force?: true}`: with force, a second ssh runs
-    `kill <rp>` and the run records a new terminal state **`cancelled`** (add to
-    `PiRunState`, all readers stay lenient with unknown strings). Detach stays the default and
-    keeps its honest wording. Guard against killing pid 0/negatives (validate digits).
+A5. **Real cancel.** The remote command prints `lettuce-remote-pid <n>` on stderr (today from
+    the inner shell that `exec`s pi, not the `& rp=$!; wait $rp` form sketched here — that form
+    lost stdin) and the runner parses it into `meta.remotePid`. `pi_stop {run, detach?: true}`:
+    by default a second ssh runs `kill <rp>` and the run records the terminal state
+    **`cancelled`** (in `PiRunState`; readers stay lenient with unknown strings). `{detach: true}`
+    keeps the capture-only behaviour. Guard against killing pid 0/negatives (validate digits).
+    *(Later: detach was the default at launch and stopped being so once remeasuring showed a
+    detached pi does not survive the closed stream anyway — `docs/remote-pi-plan.md` § 3.4.)*
 
 A6. **Web-push on settle** (`bff/src/push/`). The runner already knows the exact settle
     moment; on `completed` / `failed` / `cancelled` (not `detached`) fire a web-push:
@@ -108,10 +110,13 @@ B1. **Run card in the transcript.** `web/src/lib/messages.ts` recognizes a paire
     (`__bff_pi_progress`), with one fetch on mount for history. States (see mockups): running (current step + events + age), quiet (warn pill,
     mtime-based), completed (ok pill + last assistant text + artifacts section placeholder),
     failed (bad pill + error), detached (warn pill + "remote outcome unknown"), cancelled.
-    Actions on the card: **View run** (opens the sheet) and **Stop** / **Force stop** (two-
-    click confirm, mirrors the rotate-key pattern). New BFF route
-    `POST /api/pi/runs/:runId/stop {force}` — the tool already exists; the browser needs a
-    door.
+    Actions on the card: **View run** (opens the sheet) and **Stop** (two-
+    click confirm, mirrors the rotate-key pattern); **Stop watching** appears only once
+    a capture is alive, since detaching is the rarer choice. New BFF route
+    `POST /api/pi/runs/:runId/stop {detach}` — the tool already exists; the browser needs a
+    door. (Superseded as first written: the card offered Stop / **Force stop** because detach
+    was the default and killed nothing — `remote-pi-diagnostics` measured that a detached pi
+    dies on its own next write, flipped the default to stop, and retired the second button.)
 
 B0. **Runs tab.** A seventh tab, `Runs` (label order: Chat · Files · Tasks · **Runs** · Memory
     · Tools · Agent — the nav already scrolls, and `Runs` clears the 58px phone budget).
@@ -139,7 +144,7 @@ B3. **Active-runs chip.** Topbar: when `features.pi` and any run is `running`, a
 B4. **Push → deep link.** A push tap opens the app on the Runs tab with the run sheet open
     (`?tab=runs&run=<id>` query handling in App.tsx).
 
-B5. `web/src/lib/pi.ts`: `stopPiRun(runId, force)`, `piRunEvents(runId, since)`; status
+B5. `web/src/lib/pi.ts`: `stopPiRun(runId, opts)`, `piRunEvents(runId, since)`; status
     union gains `cancelled` (renderers default unknown → neutral tag, as `detached` does).
 
 B6. ui-check assertions: card renders for a scripted pi_run return (fixture), pill tone per

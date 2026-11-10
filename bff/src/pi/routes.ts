@@ -273,12 +273,18 @@ export function registerPiRoutes<Env extends RouteEnv>(app: Hono<Env>, deps: PiR
     return c.json({ status });
   });
 
-  // The card's Stop / Force stop buttons; same paths as the pi_stop tool.
+  // The card's Stop / Stop watching buttons; same paths as the pi_stop tool.
   app.post("/api/pi/runs/:runId/stop", async (c) => {
     const runId = c.req.param("runId");
     if (!isPiRunId(runId)) return c.text("Not a run id", 400);
-    const body = (await c.req.json().catch(() => null)) as { force?: unknown } | null;
-    const answer = await piService.stopRun(runId, body?.force === true);
+    const body = (await c.req.json().catch(() => null)) as {
+      detach?: unknown;
+      force?: unknown;
+    } | null;
+    // `force` is an older name for the default. `detach: true` is the only way to
+    // detach and it wins when both arrive — the same rule the pi_stop tool applies.
+    const detach = body?.detach === true;
+    const answer = await piService.stopRun(runId, detach);
     return c.json(answer, answer.isError ? 409 : 200);
   });
 

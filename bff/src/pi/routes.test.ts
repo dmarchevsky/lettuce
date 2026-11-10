@@ -35,6 +35,7 @@ function meta(runId: string, startedAt: string, session: string | null): PiRunMe
     lastEventAt: null,
     bytesCaptured: 0,
     remotePid: null,
+    remoteExit: null,
     error: null,
   };
 }
@@ -106,4 +107,42 @@ test("the route refuses a string that is not a session id, and answers 404 while
   expect((await off.app.fetch(new Request(`http://x/api/pi/session/${SESSION}/runs`))).status).toBe(
     404,
   );
+});
+
+test("the stop route answers like the tool, and refuses a non-run id", async () => {
+  // The card's two buttons come through here, so the flag has to arrive intact:
+  // detach closes the capture (and there is none to close), the default asks for
+  // the remote process it cannot find. Both refusals are 409s with different
+  // reasons, and `force` — the older body — still means the default.
+  const { store, app } = await routes();
+  const runId = "44444444-4444-4444-8444-444444444444";
+  await store.create(meta(runId, "2026-10-05T12:01:00.000Z", SESSION));
+
+  const detached = await app.fetch(
+    new Request(`http://x/api/pi/runs/${runId}/stop`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ detach: true }),
+    }),
+  );
+  expect(detached.status).toBe(409);
+  expect(((await detached.json()) as { text: string }).text).toContain("not being captured");
+
+  const stopped = await app.fetch(
+    new Request(`http://x/api/pi/runs/${runId}/stop`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ force: true }),
+    }),
+  );
+  expect(stopped.status).toBe(409);
+  expect(((await stopped.json()) as { text: string }).text).toContain("cannot be killed");
+
+  expect(
+    (
+      await app.fetch(
+        new Request("http://x/api/pi/runs/not-a-uuid/stop", { method: "POST", body: "{}" }),
+      )
+    ).status,
+  ).toBe(400);
 });

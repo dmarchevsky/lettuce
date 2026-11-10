@@ -49,6 +49,7 @@ import {
   parsePiSettings,
   piCommandWords,
   piConfigured,
+  piTarget,
   renderPiSettings,
 } from "./settings.ts";
 import { parsePiRun } from "./transcript.ts";
@@ -169,6 +170,9 @@ export interface PiServiceOptions {
 
 /** How long a run may go without a captured line before `pi_status` says `quiet`. */
 const PI_QUIET_MS = 60_000;
+/** How long a `ps` answer about a quiet run stays good, so a polling agent does
+ * not fan out one ssh per status call. */
+const PI_LIVENESS_TTL_MS = 45_000;
 
 /** Retention (docs/remote-pi-live-plan.md A8): the capture is the only durable
  * record of what the remote pi did, so sweep generously — newest kept, plus
@@ -191,6 +195,8 @@ export type PiPinResult =
 
 export class PiService {
   private cached: { text: string | null; settings: PiSettings } | null = null;
+  /** Last `ps` answer per run: a polling agent must not fan out one ssh per call. */
+  private readonly livenessCache = new Map<string, { at: number; text: string }>();
 
   readonly store: DirPiRunStore;
   readonly runner: PiRunner;
@@ -203,7 +209,12 @@ export class PiService {
       this.store,
       options.spawner ?? sshSpawner,
       options.now,
-      options.onSettle,
+      // Every terminal state gets a log line before the caller's hook runs: the
+      // BFF log is the only narrative a run has outside its own files.
+      (meta: PiRunMeta) => {
+        this.log(this.settleLine(meta));
+        options.onSettle?.(meta);
+      },
       options.onProgress,
     );
     this.agentSettings = new PiAgentSettingsStore(piAgentSettingsFile(options.paths), () => {});
@@ -211,6 +222,30 @@ export class PiService {
 
   private nowMs(): number {
     return (this.options.now ?? (() => new Date()))().getTime();
+  }
+
+  /** One line to the BFF log; without a hook, nowhere to write. */
+  private log(message: string): void {
+    (this.options.log ?? (() => {}))(message);
+  }
+
+  /**
+   * The settle line: how a run ended, and whether the remote said so itself.
+   * `exit=<ssh>/<remote>` reads `exit=255/no report` when the pipe died before
+   * pi could report, which is the distinction the run record exists to keep.
+   */
+  private settleLine(meta: PiRunMeta): string {
+    const started = Date.parse(meta.startedAt);
+    const ended = meta.endedAt ? Date.parse(meta.endedAt) : this.nowMs();
+    const seconds =
+      Number.isNaN(started) || Number.isNaN(ended) ? 0 : Math.max(0, (ended - started) / 1000);
+    const ran = seconds >= 60 ? `${Math.round(seconds / 60)}m` : `${Math.round(seconds)}s`;
+    return (
+      `Remote pi: run ${meta.runId.slice(0, 8)} ${meta.state} ` +
+      `exit=${meta.exitCode ?? "signal"}/${meta.remoteExit ?? "no report"} ` +
+      `events=${meta.eventCount} bytes=${meta.bytesCaptured} ran ${ran}` +
+      (meta.error ? ` — ${meta.error.split("\n")[0]?.slice(0, 160) ?? ""}` : "")
+    );
   }
 
   /**
@@ -244,7 +279,7 @@ export class PiService {
   /** Off-state message the tools answer with — the same tone as the codex shim. */
   disabledReason(): string {
     return this.featureEnabled
-      ? "The remote pi worker is disabled (Settings → Remote pi worker)."
+      ? "The remote pi worker is disabled (Settings → Remote Pi)."
       : "The remote pi worker is off: COMPOSE_PROFILES has no `pi` token.";
   }
 
@@ -523,10 +558,7 @@ export class PiService {
   /** Boot reconciliation: runs still marked running are orphans of the old BFF. */
   async reconcile(): Promise<number> {
     const orphaned = await this.runner.reconcileOnBoot();
-    if (orphaned > 0)
-      (this.options.log ?? (() => {}))(
-        `Remote pi: ${orphaned} run(s) orphaned by restart → detached`,
-      );
+    if (orphaned > 0) this.log(`Remote pi: ${orphaned} run(s) orphaned by restart → detached`);
     return orphaned;
   }
 
@@ -615,6 +647,11 @@ export class PiService {
 
     try {
       const files = await this.keyFiles(settings);
+      this.log(
+        `Remote pi: dispatching ${kind} agent=${callerAgentId ?? "none"} target=${piTarget(settings)}` +
+          ` model=${model ?? settings.model ?? "default"}` +
+          `${session ? ` session ${session.slice(0, 8)}` : ""}`,
+      );
       const meta = await this.runner.start(settings, files, {
         kind,
         prompt,
@@ -685,7 +722,10 @@ export class PiService {
     if (meta.error) lines.push(`error: ${meta.error}`);
     if (meta.state === "detached")
       lines.push(
-        "Lettuce stopped capturing this run — it was stopped, its ssh died, or the BFF restarted — so what the remote did after that is unknown. Check pi_status {run} before repeating any of this work, and never start a duplicate of it.",
+        "Lettuce stopped capturing this run — it was stopped, its ssh died, or the BFF restarted. " +
+          "A pi does not survive writing to a stream that closed, so this run's remote process is almost certainly gone, " +
+          "and what it did before that is in pi_log {run}. Check pi_status {run} before repeating any of this work, " +
+          "and never start a duplicate of it.",
       );
     // The answer is the point of the report: the woken turn should need no
     // follow-up call to say what the run said.
@@ -746,7 +786,21 @@ export class PiService {
     if (meta.state === "running") {
       const live = await this.liveView(meta);
       if (live.quietMs > PI_QUIET_MS) {
-        lines.push(`quiet ${Math.floor(live.quietMs / 60_000)}m — no output, ssh still alive`);
+        // The old line said "ssh still alive" as a fact nobody had checked, and
+        // read as "probably hung" — which pushed agents to poll or stop. Say what
+        // is true (is the capture live, is the remote process there) and that a
+        // quiet stream is normal.
+        const captured = this.runner.isRunning(meta.runId);
+        lines.push(
+          `quiet ${Math.floor(live.quietMs / 60_000)}m — nothing written, ` +
+            (captured
+              ? `ssh alive; ${await this.remoteLivenessNote(meta)}.`
+              : // A run whose capture is gone has no reader, so the worker is the
+                // only thing that could answer — and asking it would make a read
+                // path wait on ssh. pi_stop is the verb for a run like this.
+                "and this BFF no longer holds the ssh, so nothing more can be asked of it.") +
+            ` Silence is normal while the model generates or one long tool runs: that is not a hung run, so do not stop it for being quiet.`,
+        );
       }
       if (live.now) lines.push(`now: ${live.now.tool}: ${live.now.input}`);
       if (live.lastSaid) lines.push(`last said: ${live.lastSaid}`);
@@ -795,6 +849,56 @@ export class PiService {
     const said = [...run.steps].reverse().find((step) => step.kind === "message");
     if (said && said.kind === "message") out.lastSaid = said.text.slice(0, 400);
     return out;
+  }
+
+  /**
+   * Is the quiet pi actually running? One `ps` on the worker over the same
+   * second-ssh channel a stop uses, answered from cache for a few seconds.
+   * This is the only thing `pi_status` can say about a silent stream that is not
+   * a guess: a process in `S` state with cpu is a working agent, and a pid that
+   * is gone says the run died without ever reporting how.
+   */
+  private async remoteLivenessNote(meta: PiRunMeta): Promise<string> {
+    const pid = meta.remotePid;
+    if (typeof pid !== "number" || !Number.isInteger(pid) || pid < 2)
+      return "no remote pid was recorded, so the worker cannot be asked";
+    const cached = this.livenessCache.get(meta.runId);
+    if (cached && this.nowMs() - cached.at < PI_LIVENESS_TTL_MS) return cached.text;
+    let text: string;
+    let reached = false;
+    try {
+      const settings = await this.settingsFor(meta.agentId);
+      if (!piConfigured(settings))
+        return "this run's worker settings are off, so it cannot be probed";
+      const files = await this.keyFiles(settings);
+      const { code, stdout } = await this.sshCollect(
+        settings,
+        files,
+        buildPiExecRemoteCommand(settings, `ps -o stat=,etime=,pcpu= -p ${pid}`),
+        { maxChars: 512, timeoutMs: 10_000 },
+      );
+      const line = stdout.trim().replace(/\s+/g, " ");
+      // Three answers, and only the first two are worth caching. `ps` exits 1 for
+      // no such process; ssh exits 255 (or the probe times out and code is null)
+      // when the worker was not reachable at all, and saying "the run died" then
+      // would be a guess dressed up as a measurement — holding that answer for the
+      // whole TTL would pin it across a poll loop, which is the failure this probe
+      // exists to tell apart.
+      if (code === 0 && line) {
+        text = `remote pi pid ${pid} is running (${line})`;
+        reached = true;
+      } else if (code === 1) {
+        text = `remote pi pid ${pid} is gone — the run died without reporting how`;
+        reached = true;
+      } else text = `the worker did not answer the probe about pid ${pid}`;
+    } catch {
+      text = "the worker did not answer the liveness probe";
+    }
+    // Runs are finite and this only fills while something is quiet; clearing on
+    // pressure is enough to keep it from growing forever.
+    if (this.livenessCache.size > 200) this.livenessCache.clear();
+    if (reached) this.livenessCache.set(meta.runId, { at: this.nowMs(), text });
+    return text;
   }
 
   /**
@@ -909,39 +1013,50 @@ export class PiService {
     };
   };
 
-  /** pi_stop: stop the local capture of a run (detach), or with `force`, kill the remote pi too. */
+  /**
+   * pi_stop: stop a run, which means killing the pi process on the remote host.
+   * `detach: true` only stops Lettuce watching — and since a pi whose stream
+   * closes does not long survive it, that is a far weaker thing than it sounds.
+   * `force: true` is still accepted and means the default.
+   */
   readonly piStop: ToolHandler = async (args) => {
     const off = this.guard();
     if (off) return off;
     const runId = typeof args.run === "string" ? args.run.trim() : "";
     if (!runId) return { text: "`run` is a run id from a previous pi_run/pi_send", isError: true };
-    return this.stopRun(runId, args.force === true);
+    return this.stopRun(runId, args.detach === true);
   };
 
   /** Shared by the tool and POST /api/pi/runs/:runId/stop. */
-  async stopRun(runId: string, force: boolean): Promise<ToolAnswer> {
+  async stopRun(runId: string, detach: boolean): Promise<ToolAnswer> {
     const meta = await this.store.read(runId);
     if (!meta) return { text: `No remote-pi run ${runId}`, isError: true };
 
-    if (!force) {
+    if (detach) {
       if (!this.runner.stop(runId))
         return {
           text: `Run ${runId} is not being captured by this BFF (state: ${meta.state})`,
           isError: true,
         };
+      this.log(`Remote pi: run ${runId.slice(0, 8)} detached on request (capture closed)`);
       return {
-        text: `Stopped capturing run ${runId}. The remote pi keeps running until its turn ends (detach-only; docs/remote-pi-plan.md § 4.5).`,
+        text:
+          `Stopped watching run ${runId}. The remote pi was NOT killed, but it will die writing to ` +
+          `the stream that just closed — so this is not a way to let work finish unwatched. ` +
+          `The run is recorded as detached and its session stays resumable.`,
         isError: false,
       };
     }
 
-    // Force: a second ssh kills the REMOTE pi (the § 3.4 spike proved this
-    // works; v1 chose detach-only, and prod showed agents read detach as
-    // “cannot stop runaway work” and spawned duplicates instead).
+    // Stopping a run kills the REMOTE pi (the § 3.4 spike proved the second-ssh
+    // kill works). The old default was detach, and it was worse than useless:
+    // the closing capture kills the remote anyway, so an agent believed it had
+    // stopped runaway work that was in fact still editing files. Prod also
+    // showed agents read detach as "cannot stop" and spawned duplicates.
     const pid = meta.remotePid;
     if (typeof pid !== "number" || !Number.isInteger(pid) || pid < 2)
       return {
-        text: `Run ${runId} has no recorded remote pid (an older run?), so it cannot be force-stopped — detach-only: pi_stop {run:"${runId}"}.`,
+        text: `Run ${runId} has no recorded remote pid (an older run?), so the pi process cannot be killed — pi_stop {run:"${runId}", detach:true} only closes the capture.`,
         isError: true,
       };
     if (meta.state !== "running")
@@ -966,7 +1081,7 @@ export class PiService {
       // kill exits 1 when the process is already gone — the wanted outcome too.
       if (code !== null && code > 1)
         return {
-          text: `Force stop failed: the remote kill exited ${code} — the run is still live.`,
+          text: `Stop failed: the remote kill exited ${code} — the run is still live.`,
           isError: true,
         };
       const cancelled = await this.runner.cancel(runId);
@@ -979,12 +1094,12 @@ export class PiService {
         };
       }
       return {
-        text: `Force-stopped run ${runId}: the remote pi (pid ${pid}) was killed and the run is cancelled (its session stays resumable).`,
+        text: `Stopped run ${runId}: the remote pi (pid ${pid}) was killed and the run is cancelled (its session stays resumable).`,
         isError: false,
       };
     } catch (error) {
       return {
-        text: `Force stop failed: ${error instanceof Error ? error.message : String(error)}`,
+        text: `Stop failed: ${error instanceof Error ? error.message : String(error)}`,
         isError: true,
       };
     }
@@ -1339,10 +1454,14 @@ const STOP_PARAMETERS = {
   type: "object",
   properties: {
     run: { type: "string", description: "The run id from pi_run/pi_send's answer." },
-    force: {
+    detach: {
       type: "boolean",
       description:
-        "true also kills the remote pi (the run is recorded as cancelled); absent/false only stops the capture (detach).",
+        "true only closes Lettuce's capture and leaves the remote process alone (it dies writing to the closed stream anyway, so this is rarely what you want). Absent/false — the default — kills the remote pi and records the run cancelled.",
+    },
+    force: {
+      type: "boolean",
+      description: "Accepted for older callers: true means the default (kill the remote pi).",
     },
   },
   required: ["run"],
@@ -1416,8 +1535,10 @@ export const PI_TOOL_SPECS: readonly ToolSpec[] = [
   {
     name: "pi_stop",
     description:
-      "Stop a remote-pi run. Default (detach): Lettuce stops capturing; the remote pi is NOT killed and its session stays resumable. " +
-      "With force: true, the remote pi process is killed too and the run is recorded as cancelled.",
+      "Stop a remote-pi run: this kills the pi process on the remote host and records the run cancelled. " +
+      "The session stays resumable either way. " +
+      "With detach: true Lettuce only closes its capture — the remote is not killed, but it dies writing to the closed stream, " +
+      "so detaching is not a way to let work finish unwatched.",
     parameters: STOP_PARAMETERS,
     approval: "auto",
   },

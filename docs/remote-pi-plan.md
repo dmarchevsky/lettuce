@@ -179,6 +179,15 @@ survived with the same PID (1538929) and kept working; killing it required an ex
 `ssh … kill <pid>` (then verified gone both sides). **Local kill detaches, it does not
 cancel** — § 4 sub-decision 4 resolves v1 semantics around this.
 
+> **Superseded (2026-11-10).** That check looked at the process a moment after the kill.
+> Re-measured with the runner's own command and pi 1.5.0, closing the stdout pipe the way a
+> killed local ssh closes it: the pi was alive three seconds later and gone twelve seconds
+> after — `write EPIPE`. With no PTY, no `setsid` and no remote log file, nothing keeps a
+> detached pi alive; it dies at its next write, and a real ssh buffer only buys it a little
+> more time. So local kill *delays* the remote's death rather than detaching from it, which is
+> why stopping a run kills the remote process (see `stopRun`). A real detach — `setsid` plus a
+> remote log file the BFF tails — would be the way to make "keeps running unwatched" true.
+
 ### 3.5 Capture custody and host cleanup
 
 The raw captures (full `spike-a.jsonl`, `spike-b.jsonl`, the fetched durable session file,
@@ -239,6 +248,8 @@ Sub-decisions, resolved:
    finishes its turn and its session stays resumable via `pi_send`). An explicit remote
    kill (`ssh host kill <pid>` — still nothing-installed) becomes an optional `pi_stop`
    tool later if the operator wants it.
+   *(Later: the kill shipped, and § 3.4's note above is why it is now the default — detach
+   never kept the remote running, it only stopped us from watching.)*
 5. **Timeouts / blocking**: mod calls never wait on a run. `pi_run` / `pi_send` start the
    ssh detached and return `{runId, sessionId}` immediately; `pi_status` reports
    `running | detached | completed | failed` from the capture process + stream tail; the
@@ -287,4 +298,5 @@ For the operator to settle before implementation:
   volume that lives outside the state-dir backup tar; rotation is one click (manual
   removal of the old line on the remote is part of it).
 - **`pi_stop` scope**: is detach-only acceptable at launch, or does the operator want the
-  explicit remote-kill slice in v1?
+  explicit remote-kill slice in v1? *(Answered: the kill shipped, then became the default
+  once remeasuring showed detach does not keep the run alive — see § 3.4.)*

@@ -7,11 +7,14 @@
  * viewer reads; the remote pi keeps its own session file, which the next run
  * resumes with `--session <uuid>`.
  *
- * Cancellation is detach-only (§ 4.5): killing the local ssh stops the
- * capture, the remote keeps working; `stop()` records that honestly as
- * `detached`, never pretending the remote stopped. So `detached` always means
- * "we stopped watching", never "the remote did not finish": completion is a
- * clean ssh exit, with or without the upstream `agent_settled` line.
+ * Cancellation: killing the local ssh stops the capture, and that is all it can
+ * do. Measured on pi 1.5.0: with no PTY, no `setsid` and no remote log file, the
+ * remote pi dies writing to the closed pipe within seconds of the connection
+ * going away. So stopping a run asks for the REMOTE pi to be killed (see
+ * `stopRun` in `service.ts`), and `detached` is reserved for what it always has
+ * meant — "we stopped watching", either because that was asked for or because
+ * the connection died first. Completion is a clean ssh exit, with or without
+ * the upstream `agent_settled` line.
  */
 
 import { randomUUID } from "node:crypto";
@@ -66,8 +69,15 @@ export interface PiRunMeta {
   lastEventAt: string | null;
   /** Bytes captured so far — the honest counter a frozen `events 0` could not be. */
   bytesCaptured: number;
-  /** The pi process on the remote host, captured from stderr; force-stop kills it. */
+  /** The pi process on the remote host, captured from stderr; stop kills it. */
   remotePid: number | null;
+  /**
+   * pi's own exit code, printed by the wrapper just before ssh exits. Null for a
+   * run that ended before the wrapper could report — the difference between
+   * "the remote told us how it ended" and "the pipe went away", and the reason
+   * a crash is no longer filed as a detach.
+   */
+  remoteExit: number | null;
   /** stderr tail, when the run failed outright (never an ssh secret). */
   error: string | null;
 }
@@ -112,6 +122,18 @@ export function shqWord(value: string): string {
 }
 
 /**
+ * Quote a value for a double-quoted REMOTE context. The wrapper embeds the inner
+ * script in `"…"` inside the single-quoted ssh argument, so the four characters
+ * an outer shell would otherwise eat have to be escaped: the inner script's `$$`
+ * pid marker must survive to the inner shell, and backticks, `"` and `\` cannot
+ * be reinterpreted on the way. pi's own arguments arrive already single-quoted
+ * by `shq`, which a double-quoted context passes through literally.
+ */
+export function shdq(value: string): string {
+  return `"${value.replace(/[\\$"`]/g, (c) => `\\${c}`)}"`;
+}
+
+/**
  * The remote command: cd into the workdir, give a non-interactive PATH what it
  * misses (spike finding § 3.1), and run pi in json mode. Empty `pathPrepend`
  * must NOT emit `env PATH=:$PATH` — an empty PATH entry means the cwd.
@@ -124,12 +146,23 @@ export function shqWord(value: string): string {
  * Two adjacent quoted segments concatenate, so the prepend stays quoted and
  * `$PATH` still expands, spaces in the inherited PATH included.
  *
- * The `{ pi … & rp=$!; echo pid >&2; wait $rp; }` wrapper exists for one
- * reason: force-stop needs pi's REMOTE pid. Backgrounding pi makes its own pid
- * `$!` (backgrounding the whole compound would name a subshell whose kill
- * orphans pi), and `wait $rp` — not a bare `wait`, which always returns 0 —
- * keeps the ssh exit code equal to pi's. The marker goes to stderr because
- * stdout is the json stream.
+ * The command is two shells deep, each for one reason.
+ *
+ * The INNER shell is the pid marker's whole trick: the stop path needs pi's REMOTE
+ * pid, so the inner shell prints its own `$$` and then `exec`s pi, which makes
+ * that pid pi's. (`&`-backgrounding pi instead would give it /dev/null stdin —
+ * the bug the `exec` form exists to fix — and backgrounding a subshell would
+ * name a process whose kill orphans pi.)
+ *
+ * The OUTER wrapper is why a run can tell a crash from a lost connection. pi's
+ * exit code alone cannot: a pi killed by a signal reaches ssh as `128+n` (dash
+ * reports the signal), and a pi whose ssh connection dropped dies writing to the
+ * closed stdout, which reaches ssh the same way. So once the inner shell is
+ * really gone the wrapper prints `lettuce-remote-exit <code>` to stderr and
+ * re-raises that code. A run whose stream carries the marker knows pi's own
+ * exit code; one whose ssh died without it knows only that the pipe went away,
+ * and says so instead of guessing. Both markers go to stderr because stdout is
+ * the json stream.
  */
 export function buildPiRemoteCommand(
   settings: PiSettings,
@@ -172,7 +205,8 @@ export function buildPiRemoteCommand(
   const outer: string[] = ["cd", shq(settings.workdir), "&&"];
   const prepend = normalizePathPrepend(settings.pathPrepend);
   if (prepend) outer.push("env", `PATH=${shq(prepend)}:"$PATH"`);
-  outer.push("/bin/sh", "-c", shq(inner.join(" ")));
+  const wrapper = `/bin/sh -c ${shdq(inner.join(" "))}; rc=$?; echo "lettuce-remote-exit $rc" >&2; exit $rc`;
+  outer.push("/bin/sh", "-c", shq(wrapper));
   return outer.join(" ");
 }
 
@@ -517,13 +551,35 @@ export class DirPiRunStore implements PiRunStore {
 function withDefaults(meta: PiRunMeta): PiRunMeta {
   meta.bytesCaptured ??= 0;
   meta.remotePid ??= null;
+  meta.remoteExit ??= null;
   return meta;
+}
+
+/**
+ * One short clause out of an ssh stderr tail, for a `meta.error` that a model
+ * reads in a conversation and a person reads on a card. The tail is kept whole
+ * in memory precisely so the last lines — the ones that name the reason — can be
+ * quoted here; a 2 KB dump of `ssh` chatter in a transcript helps nobody.
+ */
+function brief(text: string): string {
+  // The wrapper's own protocol lines travel in the same stderr and are noise to
+  // whoever reads the error — the reason is what the tail is for.
+  const flat = text
+    .split("\n")
+    .filter((line) => !line.trimStart().startsWith("lettuce-remote-"))
+    .join(" ")
+    .trim()
+    .replace(/\s+/g, " ");
+  if (!flat) return "";
+  return flat.length > 200 ? `: …${flat.slice(-197)}` : `: ${flat}`;
 }
 
 export class PiRunner {
   private readonly children = new Map<string, PiProcess>();
   /** Live runs by id — the in-process truth behind the on-disk meta. */
   private readonly metas = new Map<string, PiRunMeta>();
+  /** Runs whose capture we were asked to stop, so their exit is a detach we chose. */
+  private readonly stopRequested = new Set<string>();
 
   constructor(
     private readonly store: PiRunStore,
@@ -549,9 +605,13 @@ export class PiRunner {
         ...meta,
         state: "detached",
         endedAt: meta.endedAt ?? this.now().toISOString(),
-        error: "capture ended when the BFF restarted; the remote run may have continued",
+        error:
+          "the BFF restarted, so its capture of this run ended; the remote pi almost certainly " +
+          "died on its next write to a stream nobody was reading",
       };
       await this.store.update(orphan);
+      // A run that ends in front of us gets its verdict from the exit hook; an
+      // orphan has no ssh left to report anything, which is what the line says.
       // Report it the way a run that ended in front of us reports itself. These
       // are the runs whose dispatching conversation is still waiting for a line
       // that will now never arrive on its own, and `settle()` only serves runs
@@ -598,6 +658,7 @@ export class PiRunner {
       lastEventAt: null,
       bytesCaptured: 0,
       remotePid: null,
+      remoteExit: null,
       error: null,
     };
     await this.store.create(meta);
@@ -693,7 +754,7 @@ export class PiRunner {
       },
       (chunk) => {
         stderrTail = `${stderrTail}${chunk}`.slice(-2_000);
-        // The wrapper's first stderr line is pi's remote pid; force-stop kills
+        // The wrapper's first stderr line is pi remote pid; the stop path kills
         // it through a second ssh, so it must reach the durable record.
         if (meta.remotePid === null) {
           const m = /lettuce-remote-pid (\d+)/.exec(stderrTail);
@@ -701,6 +762,11 @@ export class PiRunner {
             meta.remotePid = Number(m[1]);
             lineChain = lineChain.then(flushMeta);
           }
+        }
+        // The last marker wins: a worker that somehow produced two (a retried
+        // login shell, say) reported the second one as its own verdict.
+        for (const m of stderrTail.matchAll(/lettuce-remote-exit (\d+)/g)) {
+          meta.remoteExit = Number(m[1]);
         }
       },
     );
@@ -714,7 +780,7 @@ export class PiRunner {
       this.children.delete(meta.runId);
       await lineChain;
       if (buffer.trim()) await handleLine(buffer);
-      // A force-stop already recorded `cancelled`; a detached-or-completed write
+      // A stop-by-kill already recorded `cancelled`; a detached-or-completed write
       // here would overwrite the honest verdict with a guess.
       if (meta.state !== "running") {
         this.settle(meta);
@@ -722,6 +788,10 @@ export class PiRunner {
       }
       meta.exitCode = code;
       meta.endedAt = this.now().toISOString();
+      const askedToStop = this.stopRequested.delete(meta.runId);
+      // The stderr tail is capped because it lands in a conversation and on a
+      // card, not in a log file: the reason, not the dump.
+      const stderrNote = brief(stderrTail);
       // A clean ssh exit IS the finish line: pi exits when its prompts are done,
       // so a zero with a captured stream is a finished run whether or not the
       // stream carried `agent_settled`. Making that one upstream event the only
@@ -729,11 +799,37 @@ export class PiRunner {
       // "never finished" — and a run nobody reports is exactly what taught agents
       // to poll. `settled` stays on the meta as the separate fact it is.
       if (code === 0 && meta.eventCount > 0) meta.state = "completed";
+      // `settled` outranks a late non-zero exit on purpose: pi said it was done,
+      // and what happens to a process after it finishes its turn is not the
+      // run's failure. The code still lands in `exitCode`/`remoteExit`.
       else if (meta.settled) meta.state = "completed";
-      else if (meta.eventCount === 0) {
+      else if (askedToStop) {
+        // This server chose to close the capture, so that is the story — even when
+        // the worker got an exit code out alongside it. Asked for before anything
+        // was captured still counts as our choice, not the remote's failure.
+        meta.state = "detached";
+        meta.error =
+          "capture stopped on request; the remote pi dies writing to the closed stream" +
+          (meta.remoteExit === null || meta.remoteExit === 0
+            ? ""
+            : ` (the worker reported pi exited ${meta.remoteExit})`);
+      } else if (meta.remoteExit !== null && meta.remoteExit !== 0) {
+        // The wrapper saw pi leave, so this is the remote's own verdict and not
+        // our guess. Until now stderr was only recorded for a run that streamed
+        // nothing, so a pi that crashed after working for a while was filed as
+        // `detached` with `error: null` and the agent reading it blamed the
+        // network. `137` plus the shell's `Killed` is not the network.
         meta.state = "failed";
-        meta.error = stderrTail.trim() || `ssh exited ${code}`;
-      } else meta.state = "detached";
+        meta.error = `pi exited ${meta.remoteExit}${stderrNote}`;
+      } else if (meta.eventCount === 0) {
+        meta.state = "failed";
+        meta.error = brief(stderrTail).slice(2) || `ssh exited ${code}`;
+      } else {
+        // No marker: pi never got to report how it ended, so the only honest
+        // statement is that the pipe went away — the connection or ssh died.
+        meta.state = "detached";
+        meta.error = `the remote pi never reported its exit; ssh exited ${code ?? "on a signal"}${stderrNote}`;
+      }
       await this.store.update(meta);
       this.settle(meta);
     });
@@ -744,6 +840,7 @@ export class PiRunner {
    * and the meta is retired. Nothing waits for a run any more — a settled run
    * reports itself into its conversation — so there are no waiters to wake. */
   private settle(meta: PiRunMeta): void {
+    this.stopRequested.delete(meta.runId);
     if (!this.metas.delete(meta.runId)) return;
     this.report(meta);
   }
@@ -768,16 +865,21 @@ export class PiRunner {
     return this.children.has(runId);
   }
 
-  /** Detach: kill the local capture only. The remote pi is not stopped (§ 4.5). */
+  /**
+   * Detach: kill the local capture only. The remote pi is not sent any signal —
+   * and it will not long survive the closed stream, which is why stopping a run
+   * goes through `cancel` (a remote kill) and only a requested detach lands here.
+   */
   stop(runId: string): boolean {
     const child = this.children.get(runId);
     if (!child) return false;
+    this.stopRequested.add(runId);
     child.kill();
     return true;
   }
 
   /**
-   * Record a force-stop after the remote kill succeeded: the run is `cancelled`
+   * Record a stop after the remote kill succeeded: the run is `cancelled`
    * (not `detached` — the remote really was stopped), and the local capture goes
    * with it. The ssh exit hook sees the terminal state and does not overwrite it.
    */
@@ -786,7 +888,7 @@ export class PiRunner {
     if (!meta) return false;
     meta.state = "cancelled";
     meta.endedAt = meta.endedAt ?? this.now().toISOString();
-    meta.error = reason ?? `force-stopped: remote pi ${meta.remotePid ?? "?"} terminated`;
+    meta.error = reason ?? `stopped: remote pi ${meta.remotePid ?? "?"} terminated`;
     await this.store.update(meta);
     this.children.get(runId)?.kill();
     this.settle(meta);
