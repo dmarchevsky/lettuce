@@ -100,18 +100,20 @@ class FakeClient implements UpstreamClient {
       this.syncIds.push(String(command.request_id));
       this.inFlightSyncs += 1;
       this.maxInFlightSyncs = Math.max(this.maxInFlightSyncs, this.inFlightSyncs);
-      const settle = () =>
-        this.failSync ? { success: false, error: "no such conversation" } : { success: true };
+      // Rejected, not resolved with `success: false`: the app-server refusing a
+      // sync is an error on the wire, and resolving would count it as synced.
+      const settle = (): Promise<unknown> =>
+        this.failSync
+          ? Promise.reject(new Error("no such conversation"))
+          : Promise.resolve({ success: true });
       if (!this.syncHoldMs) {
         this.inFlightSyncs -= 1;
-        // Rejected, not resolved: the app-server refusing a sync is an error on
-        // the wire, and `success: true` above would count it as a synced scope.
-        return this.failSync ? Promise.reject(new Error("no such conversation")) : settle();
+        return settle();
       }
-      return new Promise((resolve) =>
+      return new Promise((resolve, reject) =>
         setTimeout(() => {
           this.inFlightSyncs -= 1;
-          resolve(settle());
+          settle().then(resolve, reject);
         }, this.syncHoldMs),
       );
     }
