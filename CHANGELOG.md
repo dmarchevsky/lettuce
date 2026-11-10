@@ -5,6 +5,8 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.42.1-letta_0.34.38] - 2026-11-10
+
 ### Fixed
 - **Reopening a conversation is instant again.** Once a conversation is running, the BFF answers the re-open itself from the live state it has been routing anyway — processing, the queue, running subagents — instead of asking the app-server to replay everything, which on a slow disk took seconds and stopped every other conversation while it ran. Anything the BFF cannot be sure of still goes to the app-server: a different working directory, an approval waiting to be clicked, a turn that has just ended, or a minute of silence on a turn that claimed to be running.
 
