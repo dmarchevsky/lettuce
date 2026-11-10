@@ -22,7 +22,19 @@ import {
   withWebClientPreferences,
   workspaceViolation,
 } from "./protocol.ts";
+import { RuntimeStartCache, type StartScope, startScopeOf } from "./runtime-start-cache.ts";
 import { type Lstat, symlinkViolation } from "./symlink-guard.ts";
+
+export interface RegistryOptions {
+  /**
+   * Answer a repeat `runtime_start` from what this connection already knows.
+   * On by default; `RUNTIME_START_CACHE=off` turns it off — every start then
+   * goes upstream and pays for its replay, which is how this worked before.
+   */
+  cacheRuntimeStart?: boolean;
+  /** Clock for the staleness rule; a test waits out a minute without sleeping. */
+  cacheNow?: () => number;
+}
 
 export interface SessionSocket {
   send(data: string): void;
@@ -81,6 +93,16 @@ const RATE_LIMIT_MAX_COMMANDS = 120;
 const MAX_PENDING_PER_SESSION = 500;
 
 /**
+ * Ceiling on the forwarded starts awaiting their answer across all sessions.
+ *
+ * Same reason as the per-session ceiling above, one level up: a start that is
+ * never answered would otherwise be remembered forever. It is only bookkeeping
+ * for the cache, so an eviction costs a later open forwarding upstream — the
+ * behaviour this whole feature exists to avoid, never a wrong answer.
+ */
+const MAX_PENDING_STARTS = 500;
+
+/**
  * Routes frames between many short-lived browser sessions and the one permanent
  * upstream connection.
  *
@@ -104,6 +126,19 @@ export class SessionRegistry {
    * runtime that advertised it; the reconnect forces a fresh device status.
    */
   private readonly advertisedMods = new Set<string>();
+  /**
+   * Conversations whose runtime this connection has started, with the live state
+   * last routed for each — see `runtime-start-cache.ts`.
+   */
+  private readonly startCache: RuntimeStartCache;
+  /**
+   * Forwarded `runtime_start`s awaiting their answer, by the BFF request id, so
+   * the response can say whether the conversation is now started. Bounded like
+   * a session's pending requests: upstream does not always answer.
+   */
+  private readonly pendingStarts = new Map<string, { scopeKey: string; cwd: string }>();
+  /** Whether a repeat `runtime_start` may be answered here — see `RegistryOptions`. */
+  private readonly cachesRuntimeStart: boolean;
   private requestCounter = 0;
 
   constructor(
@@ -114,8 +149,11 @@ export class SessionRegistry {
     private readonly workspaceMount: string = WORKSPACE_ROOT,
     /** Injectable so the guard is testable without a real symlinked tree. */
     private readonly lstat: Lstat = lstatSync,
+    options: RegistryOptions = {},
   ) {
     this.buffer = new FrameBuffer(frameBufferSize);
+    this.startCache = new RuntimeStartCache(options.cacheNow);
+    this.cachesRuntimeStart = options.cacheRuntimeStart ?? true;
   }
 
   get sessionCount(): number {
@@ -298,6 +336,14 @@ export class SessionRegistry {
     const scopeKey = frameScopeKey(command as unknown as WsProtocolMessage);
     if (scopeKey) session.scopes.add(scopeKey);
 
+    // A repeat start for a runtime this connection already has is answered here
+    // rather than forwarded — see `runtime-start-cache.ts` for what makes that
+    // safe, and for why the live-state frames travel with the answer.
+    const repeatStart = this.cachesRuntimeStart
+      ? startScopeOf(command, scopeKeyOf)
+      : (null as StartScope | null);
+    if (repeatStart && this.answerRuntimeStart(session, command, repeatStart)) return;
+
     // Opt the conversation into the async AskUserQuestion tool before anything
     // else touches the frame (see `withWebClientPreferences`).
     const outbound: Record<string, unknown> = withWebClientPreferences({ ...command });
@@ -310,6 +356,16 @@ export class SessionRegistry {
           ? { path: command.path }
           : {}),
       });
+      // A start the cache could answer for, if it succeeds: remember what it was
+      // for, so its response can say whether the conversation is now started.
+      if (repeatStart) {
+        this.pendingStarts.set(bffRequestId, repeatStart);
+        while (this.pendingStarts.size > MAX_PENDING_STARTS) {
+          const oldest = this.pendingStarts.keys().next();
+          if (oldest.done) break;
+          this.pendingStarts.delete(oldest.value);
+        }
+      }
       while (session.pendingRequests.size > MAX_PENDING_PER_SESSION) {
         const oldest = session.pendingRequests.keys().next();
         if (oldest.done) break;
@@ -355,6 +411,9 @@ export class SessionRegistry {
 
     // A correlated response belongs to exactly one session.
     if (typeof requestId === "string") {
+      if (frame.type === "runtime_start_response") {
+        this.settleStart(requestId, frame as { success?: unknown });
+      }
       for (const session of this.sessions.values()) {
         const pending = session.pendingRequests.get(requestId);
         if (pending === undefined) continue;
@@ -385,6 +444,17 @@ export class SessionRegistry {
 
     // Unsolicited frame: sequence it, buffer it for resume, fan it out.
     const scopeKey = frameScopeKey(frame);
+    if (scopeKey) {
+      // The live-only state a replay would have re-emitted, kept per conversation
+      // so a repeat start can be answered here. A turn that ended in an error is
+      // the one case where the honest answer is "ask the server", so the
+      // conversation is forgotten rather than remembered with a bad state.
+      if (frame.type === "turn_finished" && (frame as { error?: unknown }).error) {
+        this.startCache.forget(scopeKey);
+      } else {
+        this.startCache.noteFrame(scopeKey, frame);
+      }
+    }
     const buffered = this.buffer.append(frame, scopeKey);
     const payload = { ...frame, [SEQ_FIELD]: buffered.seq };
 
@@ -394,6 +464,60 @@ export class SessionRegistry {
       }
       this.sendTo(session.socket, payload as unknown as BffServerMessage);
     }
+  }
+
+  /**
+   * Answer a repeat `runtime_start` locally, or return false to forward it.
+   *
+   * The reply is the frames the replay was for, then the response the browser is
+   * waiting on — in that order, so the live state is already correct by the time
+   * the open unblocks. `answered_from_cache` says so on the frame: the thing to
+   * check on prod is "no `runtime_start` reached the app-server", and that is
+   * only visible from the browser side if the answer admits where it came from.
+   */
+  private answerRuntimeStart(
+    session: Session,
+    command: Record<string, unknown>,
+    scope: StartScope,
+  ): boolean {
+    const frames = this.startCache.replayFor(
+      scope.scopeKey,
+      scope.cwd,
+      this.upstream.getGeneration(),
+    );
+    if (frames === null) return false;
+    for (const frame of frames) {
+      // SAFETY: a frame routed from upstream is exactly what a browser session is
+      // fed everywhere else in this class; the union type is a boundary, not a
+      // transformation.
+      this.sendTo(session.socket, frame as unknown as BffServerMessage);
+    }
+    this.sendTo(session.socket, {
+      type: "runtime_start_response",
+      ...(typeof command.request_id === "string" ? { request_id: command.request_id } : {}),
+      success: true,
+      runtime: { agent_id: command.agent_id, conversation_id: command.conversation_id },
+      created: { agent: false, conversation: false },
+      answered_from_cache: true,
+    });
+    this.log(
+      `Answered a repeat runtime_start for ${scope.scopeKey} from cache ` +
+        `(${frames.length} live-state frames, no replay)`,
+    );
+    return true;
+  }
+
+  /**
+   * A forwarded start was answered: remember the conversation as started, or
+   * forget it. Only an explicit `success: false` is a failure — the response does
+   * not promise the field, and a missing one means nothing went wrong.
+   */
+  private settleStart(requestId: string, frame: { success?: unknown }): void {
+    const pending = this.pendingStarts.get(requestId);
+    if (pending === undefined) return;
+    this.pendingStarts.delete(requestId);
+    if (frame.success === false) this.startCache.forget(pending.scopeKey);
+    else this.startCache.remember(pending.scopeKey, pending.cwd, this.upstream.getGeneration());
   }
 
   /**
@@ -448,7 +572,14 @@ export class SessionRegistry {
   broadcastUpstreamState(state: UpstreamState, info: AppServerInfoResponseMessage | null): void {
     // With the upstream gone nothing is known to be running; the reconnect's
     // forced device-status replay rebuilds the set.
-    if (state !== "connected") this.advertisedMods.clear();
+    if (state !== "connected") {
+      this.advertisedMods.clear();
+      // Same reason one level down: after a reconnect the app-server may have
+      // restarted, so no earlier start is believed, and no live state from
+      // before it is current.
+      this.startCache.clear();
+      this.pendingStarts.clear();
+    }
     if (state !== "connected" && this.activity.clear()) this.broadcastActivity();
     for (const session of this.sessions.values()) {
       this.sendTo(session.socket, {

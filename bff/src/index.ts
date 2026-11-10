@@ -329,7 +329,9 @@ if (remoteAppServerLine) {
   log(`${config.appServerToken ? "note:" : "WARNING:"} ${remoteAppServerLine}`);
 }
 
-const registry = new SessionRegistry(upstream, config.frameBufferSize, log);
+const registry = new SessionRegistry(upstream, config.frameBufferSize, log, undefined, undefined, {
+  cacheRuntimeStart: config.runtimeStartCache,
+});
 
 // Compacts a conversation the app-server's own pressure trigger cannot save —
 // see `session/context-watchdog.ts` for why the declared window is not enough.
