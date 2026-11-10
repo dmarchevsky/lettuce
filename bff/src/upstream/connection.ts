@@ -48,6 +48,15 @@ export interface UpstreamOptions {
   log?: (message: string) => void;
   /** Builds the client. Tests inject a fake one; production gets the real one. */
   createClient?: (url: string) => UpstreamClient;
+  /**
+   * Overrides the pacing of owner syncs and the ceiling on one of them. Only
+   * tests need it: the defaults are tuned to a real app-server's freeze, and a
+   * test asserting a 500 ms gap would just be a slow test.
+   */
+  syncPacing?: { pacingMs?: number; ownerSyncTimeoutMs?: number; passBudgetMs?: number };
+  /** How often the periodic sweep runs. Tests shorten it to exercise the
+   * overlap guard without waiting five minutes; production leaves it alone. */
+  sweepIntervalMs?: number;
 }
 
 /** What a socket-level error event actually says, under either runtime. */
@@ -199,23 +208,64 @@ const SCOPE_SWEEP_MAX_PAGES = 10;
  * nothing: at the steady 50-per-5-minutes rate a BFF that restarts would leave
  * every conversation unsubscribed for tens of minutes, and a cron turn in that
  * window produces no push, no activity dot and no interrupted-turn resume.
+ *
+ * Paced — see `SWEEP_SYNC_CONCURRENCY` — a sweep of the whole budget runs long,
+ * N × (sync + gap), which on prod's disk is about half an hour for 500 scopes
+ * and so overruns `SCOPE_SWEEP_INTERVAL_MS` by a wide margin. That is deliberate
+ * and bounded: `sweepInFlight` makes the overlapping ticks no-ops rather than a
+ * second pass over the same lists, the cap still bounds how much one pass
+ * starts, and everything left over is picked up by the next tick. It is also no
+ * worse than what it replaces — the app-server serialized those syncs either
+ * way, and one that timed out was still being worked through, resume flag and
+ * all. What a slow first sweep does cost is that a conversation created during
+ * it waits for the next tick to be subscribed, and `SYNC_PASS_BUDGET_MS` is what
+ * stops a server that answers nothing from holding the flag indefinitely.
  */
 const SCOPE_SWEEP_MAX_NEW_SCOPES = 50;
 const SCOPE_SWEEP_MAX_NEW_SCOPES_INITIAL = 500;
 /**
- * How many owner `sync` commands one pass keeps in flight.
+ * How long to wait between owner `sync` commands.
  *
- * Both the reconnect re-subscribe and the scope sweep used to await one sync at
- * a time, and each is answered with a full state replay for its scope. A
- * long-lived BFF knows every conversation it has ever touched, so one
- * app-server restart was a thousand round trips deep — minutes during which
- * `sweepInFlight` stayed true, so a conversation created in that window was not
- * subscribed either, and no push came from its turns. Eight bounds the burst the
- * scope cap already bounds and shortens the pass by an order of magnitude. The
- * replies are independent scopes matched by request id, so their order means
- * nothing; `request()` registers each id before it sends.
+ * Owner syncs are paced rather than batched because the app-server **blocks**
+ * while answering one: a `sync` replays its scope's state and takes about 3.5 s
+ * there, nearly all of it in synchronous `fsync` calls on the main thread
+ * (`durable-file-lock.ts`; upstream letta-ai/letta-code#5623), and while it runs
+ * the app-server answers nothing else on **any** connection. Concurrency buys
+ * nothing against a serial, blocking server — eight syncs at a time is the same
+ * 8 × 3.5 s of freeze, but past the request timeout, so the BFF abandons syncs
+ * the app-server is still working through, a backlog grows on the one connection
+ * every browser shares, and every unrelated request queues behind it. One at a
+ * time with a gap between them keeps that freeze to one sync at a time and leaves
+ * the event loop free to answer what arrives in between.
  */
-const SYNC_CONCURRENCY = 8;
+export const SWEEP_SYNC_CONCURRENCY = 1;
+/** A reconnect must re-subscribe everything it knew before the next sweep starts,
+ * so it gets two in flight where the steady-state sweep takes one. */
+export const RESYNC_CONCURRENCY = 2;
+/** Breathing room between syncs, during which the app-server is free to answer
+ * anything else that was waiting. */
+export const SYNC_PACING_MS = 500;
+/**
+ * Ceiling on one owner sync, generously above what one takes. The 30 s default
+ * in `request()` is what made a restart sweep look broken: the app-server was
+ * slow, not stuck, and every abandoned sync was still subscribed the scope and
+ * still being worked through when the timeout fired.
+ */
+export const OWNER_SYNC_TIMEOUT_MS = 120_000;
+/**
+ * Ceiling on one pass, so a server that holds the socket open but answers
+ * nothing cannot hold `sweepInFlight` — and so the next sweep — hostage for
+ * 500 timeouts' worth of hours. Whatever the budget cut off is retried on the
+ * next tick, which is the point of the cap rather than a reason to wait it out.
+ */
+const SYNC_PASS_BUDGET_MS = 10 * 60 * 1000;
+/**
+ * How many failures of one pass get their reason spelled out. A whole sweep
+ * failing — the usual case on a slow disk — used to print one line per scope and
+ * buried everything else in the log; the tally below says how often, these say
+ * why.
+ */
+const SYNC_PASS_FAILURE_DETAIL = 3;
 /**
  * Ceiling on remembered internal request ids. Generous relative to real traffic
  * (a sweep of 100 agents x 100 conversations is ~10k ids) so eviction only
@@ -309,7 +359,7 @@ export class UpstreamConnection {
     if (!this.sweepTimer) {
       this.sweepTimer = setInterval(() => {
         if (this.isReady()) void this.subscribeToAllScopes();
-      }, SCOPE_SWEEP_INTERVAL_MS);
+      }, this.options.sweepIntervalMs ?? SCOPE_SWEEP_INTERVAL_MS);
     }
   }
 
@@ -508,50 +558,127 @@ export class UpstreamConnection {
    * when nothing was interrupted or a turn is live. Browser syncs are not
    * given the flag: they stay observer syncs, as upstream intends.
    */
-  private syncAsOwner(
+  private async syncAsOwner(
     scope: { agent_id: string; conversation_id: string },
     requestId: string,
-  ): Promise<unknown> {
-    return this.request({
-      type: "sync",
-      request_id: requestId,
-      runtime: scope,
-      recover_approvals: true,
-      resume_interrupted_turn: true,
-      force_device_status: true,
-    });
-  }
-
-  /**
-   * Owner-sync `scopes`, `SYNC_CONCURRENCY` at a time. A scope whose sync throws
-   * is logged and skipped: one conversation that refuses must not stop the rest
-   * of the pass, which is what the per-scope try/catch has always meant.
-   */
-  private async syncScopes(
-    scopes: readonly { agent_id: string; conversation_id: string }[],
-    idPrefix: string,
-    failureWhat: string,
   ): Promise<void> {
-    for (let i = 0; i < scopes.length; i += SYNC_CONCURRENCY) {
-      await Promise.all(
-        scopes.slice(i, i + SYNC_CONCURRENCY).map(async (scope) => {
-          try {
-            await this.syncAsOwner(
-              scope,
-              `bff-${idPrefix}-${scope.agent_id}-${scope.conversation_id}-${Date.now()}`,
-            );
-          } catch (error) {
-            this.log(
-              `${failureWhat} ${scopeKeyOf(scope.agent_id, scope.conversation_id)}: ${errorMessage(error)}`,
-            );
-          }
-        }),
-      );
+    const response = (await this.request(
+      {
+        type: "sync",
+        request_id: requestId,
+        runtime: scope,
+        recover_approvals: true,
+        resume_interrupted_turn: true,
+        force_device_status: true,
+      },
+      this.options.syncPacing?.ownerSyncTimeoutMs ?? OWNER_SYNC_TIMEOUT_MS,
+    )) as { success?: unknown; error?: unknown };
+    // The client resolves anything carrying the request id, refused included
+    // (letta-code: listener/message-router.ts answers a sync it will not run
+    // with `{success: false, error}`), so a refusal is only a failure if this
+    // caller says so. Without this a pass reports a scope it never subscribed as
+    // synced, which is exactly the line an operator reads after a restart.
+    if (response && response.success === false) {
+      const why = typeof response.error === "string" ? response.error : "refused";
+      throw new Error(`sync refused: ${why}`);
     }
   }
 
+  /**
+   * The two owner-sync passes, named so a log line says which one it is about.
+   * `sweep` subscribes scopes this connection has never seen; `resync` re-subscribes
+   * the ones it knew, after a reconnect, and always runs before the sweep that
+   * follows the connect.
+   */
+  private syncPass(idPrefix: "resync" | "sweep-sync", what: string, concurrency: number) {
+    return { idPrefix, what, concurrency };
+  }
+
+  /**
+   * Owner-sync `scopes`, `concurrency` at a time, each started
+   * `syncPacingMs` after the previous one finishes. A scope whose sync fails is
+   * logged as it happens and skipped: one conversation that refuses must not stop
+   * the rest of the pass, which is what the per-scope try/catch has always meant.
+   *
+   * A shared cursor and `concurrency` workers, not batches: batches wait for the
+   * slowest of each batch, which with one sync in flight is the same as serial
+   * but with a worse failure story. Each worker rests for the pacing gap after
+   * every sync it finishes, so the gap is between sync *completions* and the
+   * app-server gets its share of the event loop whatever the concurrency is.
+   *
+   * Two ways a pass stops early, both of which keep `sweepInFlight` from being
+   * held for hours over a pass that is going nowhere: the connection dropped (the
+   * reconnect re-subscribes what matters, and the remaining scopes were never
+   * even sent), or the wall-clock budget ran out (a server that accepts the
+   * socket but never answers would otherwise take 500 × the timeout to say so).
+   * Whatever was not attempted is left for the next tick — a scope is only
+   * remembered as seen when its sync was actually sent.
+   */
+  private async syncScopes(
+    scopes: readonly { agent_id: string; conversation_id: string }[],
+    pass: { idPrefix: string; what: string; concurrency: number },
+  ): Promise<void> {
+    if (!scopes.length) return;
+    const started = Date.now();
+    const budgetMs = this.options.syncPacing?.passBudgetMs ?? SYNC_PASS_BUDGET_MS;
+    const pacingMs = this.options.syncPacing?.pacingMs ?? SYNC_PACING_MS;
+    let next = 0;
+    let synced = 0;
+    let failed = 0;
+    let stopped: string | null = null;
+    const worker = async (): Promise<void> => {
+      for (;;) {
+        if (stopped) return;
+        if (!this.isReady()) {
+          stopped = "connection lost";
+          return;
+        }
+        if (Date.now() - started > budgetMs) {
+          stopped = "out of time budget";
+          return;
+        }
+        const i = next++;
+        if (i >= scopes.length) return;
+        const scope = scopes[i] as { agent_id: string; conversation_id: string };
+        const scopeKey = scopeKeyOf(scope.agent_id, scope.conversation_id);
+        try {
+          await this.syncAsOwner(
+            scope,
+            `bff-${pass.idPrefix}-${scope.agent_id}-${scope.conversation_id}-${Date.now()}`,
+          );
+          synced += 1;
+        } catch (error) {
+          failed += 1;
+          // Spoken when it happens, not at the end: a pass against a server that
+          // answers nothing takes the whole timeout per scope, and a summary that
+          // only arrives hours later says nothing to anyone watching the log.
+          if (failed <= SYNC_PASS_FAILURE_DETAIL) {
+            this.log(`${pass.what} failed for ${scopeKey}: ${errorMessage(error)}`);
+          }
+        }
+        if (pacingMs && next < scopes.length) {
+          await new Promise((resolve) => setTimeout(resolve, pacingMs));
+        }
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(Math.max(pass.concurrency, 1), scopes.length) }, () =>
+        worker(),
+      ),
+    );
+    const notAttempted = scopes.length - synced - failed;
+    const parts = [`${synced} synced`, `${failed} failed`];
+    if (notAttempted > 0) parts.push(`${notAttempted} not attempted`);
+    parts.push(`${Math.round((Date.now() - started) / 1000)} s`);
+    if (stopped) parts.push(stopped);
+    this.log(`${pass.what}: ${parts.join(", ")}`);
+  }
+
   private resubscribe(): Promise<void> {
-    return this.syncScopes([...this.knownScopes.values()], "resync", "Re-subscribe failed for");
+    return this.syncScopes(
+      [...this.knownScopes.values()],
+      this.syncPass("resync", "Re-subscribe", RESYNC_CONCURRENCY),
+    );
   }
 
   /**
@@ -625,7 +752,8 @@ export class UpstreamConnection {
     }
 
     // Scanned first, then synced: the cap bounds how many owner syncs one pass
-    // starts, and `syncScopes` is what keeps that burst bounded and short.
+    // starts, and `syncScopes` is what spaces them out so the pass does not
+    // monopolise the app-server.
     const pending: { agent_id: string; conversation_id: string }[] = [];
     scanning: for (const agent of agents) {
       const conversations = await this.listConversationIds(agent.id);
@@ -645,7 +773,10 @@ export class UpstreamConnection {
         pending.push({ agent_id: agent.id, conversation_id: conversationId });
       }
     }
-    await this.syncScopes(pending, "sweep-sync", "Scope sweep: sync failed for");
+    await this.syncScopes(
+      pending,
+      this.syncPass("sweep-sync", "Scope sweep", SWEEP_SYNC_CONCURRENCY),
+    );
   }
 
   /**
