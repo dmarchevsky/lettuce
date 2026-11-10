@@ -67,16 +67,16 @@ export function BottomBar({ tab, onSelectPane, onOpenSettings, runsEnabled, runs
             className={tab === pane.tab ? "active" : ""}
             aria-current={tab === pane.tab ? "page" : undefined}
             onClick={() => onSelectPane(pane.tab)}
+            // Spelled out for anyone hearing the bar, who would otherwise hear a bare
+            // "2" after the pane's name. It goes on the button — a label on a bare
+            // badge is not a name any screen reader announces.
+            aria-label={
+              pane.count && pane.count > 0 ? `${pane.label}, ${pane.count} running` : undefined
+            }
           >
             <Icon name={pane.icon} />
             {pane.label}
-            {pane.count && pane.count > 0 ? (
-              // Spelled out for anyone hearing the bar, who would otherwise hear a
-              // bare "2" after the pane's name.
-              <span className="slot-count" aria-label={`${pane.count} running`}>
-                {pane.count}
-              </span>
-            ) : null}
+            {pane.count && pane.count > 0 ? <span className="slot-count">{pane.count}</span> : null}
           </button>
         ))}
 
