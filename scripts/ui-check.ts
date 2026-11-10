@@ -217,9 +217,22 @@ async function avatarSheetChecks(page: Page, label: string): Promise<void> {
   await openTab(page, "Agent");
   await page.waitForTimeout(300);
   const field = page.locator('.field:has-text("Avatar")').first();
+  const triggers = page.locator('button:has-text("Choose…")');
   check(
     `${label}: Agent → General offers one avatar trigger`,
     (await field.locator('button:has-text("Choose…")').count()) === 1,
+    {
+      // When this fails the question is *which* Avatar field the selector landed on
+      // and whether its button is on screen, so the run says so rather than timing
+      // out on a click thirty seconds later.
+      fields: (await page.locator('.field').allInnerTexts())
+        .filter((t) => t.includes("Avatar"))
+        .map((t) => t.replace(/\s+/g, " ").slice(0, 60)),
+      triggers: await triggers.count(),
+      visibleTriggers: await triggers.filter((b) => b.isVisible()).count(),
+      sheets: await page.locator(".sheet-panel").count(),
+      tab: await page.locator(".section-tabs button.active").innerText().catch(() => "?"),
+    },
   );
   // The tint row left the form when the sheet grew a colour of its own; a second
   // colour control would be the split this feature exists to remove.
