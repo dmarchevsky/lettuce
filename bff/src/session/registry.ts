@@ -347,6 +347,20 @@ export class SessionRegistry {
     // Opt the conversation into the async AskUserQuestion tool before anything
     // else touches the frame (see `withWebClientPreferences`).
     const outbound: Record<string, unknown> = withWebClientPreferences({ ...command });
+    // Remember a start the cache could answer for, if it succeeds — remember it
+    // *now*, not when it is answered: upstream replays the state before it
+    // answers, so the frames of this very start's replay arrive here first and
+    // would otherwise be thrown away, which is the difference between the next
+    // open being free and the open after that one being free. A start answered
+    // with failure is forgotten again on its response; one that is never answered
+    // had nothing replayed for it.
+    if (repeatStart) {
+      this.startCache.remember(
+        repeatStart.scopeKey,
+        repeatStart.cwd,
+        this.upstream.getGeneration(),
+      );
+    }
     if (typeof command.request_id === "string") {
       this.requestCounter += 1;
       const bffRequestId = `bff-${session.id.slice(0, 8)}-${this.requestCounter}`;
@@ -356,20 +370,8 @@ export class SessionRegistry {
           ? { path: command.path }
           : {}),
       });
-      // A start the cache could answer for, if it succeeds: remember what it was
-      // for, so its response can say whether the conversation is now started.
-      // Remember it as started *now*, not when it is answered: upstream replays
-      // the state before it answers, so the frames of this very start's replay
-      // arrive here first and would otherwise be thrown away — which is the
-      // difference between the next open being free and the open after that one
-      // being free. A start answered with failure is forgotten again on its
-      // response; one that is never answered had nothing replayed for it.
+      // What it was for, so its response can settle or forget the entry.
       if (repeatStart) {
-        this.startCache.remember(
-          repeatStart.scopeKey,
-          repeatStart.cwd,
-          this.upstream.getGeneration(),
-        );
         this.pendingStarts.set(bffRequestId, repeatStart);
         while (this.pendingStarts.size > MAX_PENDING_STARTS) {
           const oldest = this.pendingStarts.keys().next();

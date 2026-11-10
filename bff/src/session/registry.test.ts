@@ -342,6 +342,11 @@ describe("repeat runtime_start", () => {
     runtime: scope,
     queue: [{ id: "q1" }],
   } as never;
+  const subagents = {
+    type: "update_subagent_state",
+    runtime: scope,
+    subagents: [{ subagent_id: "sub-1", name: "worker", state: "running" }],
+  } as never;
 
   function setup(options: RegistryOptions = {}) {
     const forwarded: Record<string, unknown>[] = [];
@@ -486,11 +491,13 @@ describe("repeat runtime_start", () => {
     const { forwarded, ask, startOnce, registry } = setup();
     startOnce([status(true)]);
     // The replay is what re-delivers the card the user has to click, so while one
-    // is outstanding the app-server has to be the one asked.
+    // is outstanding the app-server has to be the one asked. Flat scope fields,
+    // which is how `control_request` carries them on the wire.
     registry.handleUpstreamFrame({
       type: "control_request",
       request_id: "approval-1",
-      runtime: scope,
+      agent_id: "agent-1",
+      conversation_id: "conv-1",
       request: { tool_name: "bash", input: { command: "rm -r /" } },
     } as never);
 
@@ -516,5 +523,35 @@ describe("repeat runtime_start", () => {
     startOnce([status(false)]);
     ask(start("web-2"));
     expect(forwarded).toHaveLength(2);
+  });
+
+  test("a running subagent travels with the answer", () => {
+    const { forwarded, sent, ask, startOnce } = setup();
+    startOnce([status(true), subagents]);
+
+    ask(start("web-2"));
+
+    expect(forwarded).toHaveLength(1);
+    // A reload mid-turn would otherwise lose the child's progress and its Stop.
+    expect(sent.map((m) => m.type)).toEqual([
+      "update_device_status",
+      "update_subagent_state",
+      "runtime_start_response",
+    ]);
+  });
+
+  test("a start nobody asked to answer is still remembered", () => {
+    const { forwarded, sent, ask, registry } = setup();
+    // No `request_id`, so nothing comes back to settle it — but the replay it
+    // causes still tells this connection the runtime is up, which is all the
+    // next open needs.
+    ask({ type: "runtime_start", ...scope, wait_for_replay: true, cwd });
+    registry.handleUpstreamFrame(status(false));
+    expect(forwarded).toHaveLength(1);
+
+    ask(start("web-2"));
+
+    expect(forwarded).toHaveLength(1);
+    expect(sent.some((m) => m.type === "runtime_start_response")).toBe(true);
   });
 });

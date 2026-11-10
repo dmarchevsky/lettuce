@@ -4,13 +4,19 @@ import type { WsProtocolMessage } from "@letta-ai/letta-code/app-server-protocol
  * The frames a state replay re-emits, which the BFF therefore has to keep in
  * order to answer a repeat start without one.
  *
- * These are the three the web client reads `processing`, the queue and the status
- * pill from (`use-conversation.ts`): the app-server stores none of them, so a
- * conversation opened without its replay would show a turn that ended, or miss
- * one that is running. The BFF routes all three anyway, so keeping the newest of
- * each costs three objects per conversation and buys the whole replay.
+ * These are the four `emitStateSync` re-emits and the web client reads its live
+ * state from (`use-conversation.ts`): the app-server stores none of them, so a
+ * conversation opened without its replay would show a turn that ended, miss one
+ * that is running, or lose a running subagent's progress. The BFF routes all four
+ * anyway, so keeping the newest of each costs four objects per conversation and
+ * stands in for the replay.
  */
-const LIVE_STATE_FRAMES = new Set(["update_device_status", "update_queue", "update_loop_status"]);
+const LIVE_STATE_FRAMES = new Set([
+  "update_device_status",
+  "update_loop_status",
+  "update_queue",
+  "update_subagent_state",
+]);
 
 /**
  * How long a replayed "busy" stays believable.
@@ -198,10 +204,12 @@ export class RuntimeStartCache {
     if (entry.generation !== generation || entry.start.cwd !== cwd) return null;
     if (entry.frames.size === 0) return null;
     if (this.busyOf(entry) && this.now() - entry.at > STALE_AFTER_MS) return null;
+    // Same order `emitStateSync` uses, so a cached answer reads like the replay.
     return [
       entry.frames.get("update_device_status"),
       entry.frames.get("update_loop_status"),
       entry.frames.get("update_queue"),
+      entry.frames.get("update_subagent_state"),
     ].filter((frame): frame is WsProtocolMessage => frame !== undefined);
   }
 

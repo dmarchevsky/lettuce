@@ -364,6 +364,11 @@ services:
       # docker/.env would never reach the container.
       SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-}
       FRAME_BUFFER_SIZE: ${FRAME_BUFFER_SIZE:-}
+      # Reopening a conversation is answered by the BFF from the live state it has
+      # already seen, instead of asking the app-server to replay it — which on a
+      # slow disk stalls every conversation for seconds each time. Set `off` to
+      # put every open back through the replay. Empty means on.
+      RUNTIME_START_CACHE: ${RUNTIME_START_CACHE:-}
       # Share of the declared context window at which the BFF compacts a
       # conversation after its turn rather than waiting for the next request to
       # fail; 0 switches it off. Empty means the BFF's own 0.9. Docs:

@@ -94,6 +94,11 @@ const loopIdle = {
   runtime: { agent_id: "agent-1", conversation_id: "conv-1" },
   loop_status: { status: "WAITING_ON_INPUT" },
 } as never;
+const subagents = {
+  type: "update_subagent_state",
+  runtime: { agent_id: "agent-1", conversation_id: "conv-1" },
+  subagents: [{ subagent_id: "sub-1", name: "worker", state: "running" }],
+} as never;
 
 describe("RuntimeStartCache", () => {
   test("an unseen conversation is not answerable", () => {
@@ -129,6 +134,17 @@ describe("RuntimeStartCache", () => {
     cache.noteFrame(SCOPE, busy, 1);
     cache.noteFrame(SCOPE, queued, 1);
     expect(cache.replayFor(SCOPE, CWD, 1)).toEqual([busy, queued]);
+  });
+
+  test("a running subagent rides along, in the order the replay emits them", () => {
+    const cache = new RuntimeStartCache();
+    cache.remember(SCOPE, CWD, 1);
+    cache.noteFrame(SCOPE, idle, 1);
+    cache.noteFrame(SCOPE, loopIdle, 1);
+    cache.noteFrame(SCOPE, queued, 1);
+    cache.noteFrame(SCOPE, subagents, 1);
+    // `emitStateSync` order, so a browser cannot tell the two answers apart.
+    expect(cache.replayFor(SCOPE, CWD, 1)).toEqual([idle, loopIdle, queued, subagents]);
   });
 
   test("the newest frame replaces the one before it", () => {
