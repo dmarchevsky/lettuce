@@ -5395,21 +5395,16 @@ textarea.mono {
    conversation's own rows — `.messages`, the `.entry` rails, the tool `.rail` —
    so a worker's thread reads as a thread rather than a new species of screen.
    The only thing that is new is the surface: the same rails on `--surface`
-   against Chat's `--bg`, which is what says "this is the worker's, not yours". */
+   against Chat's `--bg`, which is what says "this is the worker's, not yours".
+   The reading column is Chat's too: the shared desktop `.messages` padding rule
+   sizes the measure from the pane, so a local max-width here would be paid
+   twice and collapse the column on a wide pane. */
 .pi-session {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--surface);
-}
-.pi-session .messages {
-  /* The pane can be wide; a transcript line is not the pane's width. Chat gets
-     its measure from the columns beside it, so the cap only appears here. */
-  max-width: 900px;
-  width: 100%;
-  margin: 0 auto;
-  -webkit-overflow-scrolling: touch;
 }
 /* The line that opens one run's segment inside the one transcript. It wraps, so
    on a phone the prompt and the counters go under the run's name rather than into
@@ -5439,8 +5434,9 @@ textarea.mono {
   gap: var(--entry-gap);
   min-width: 0;
 }
-/* The scroll target at the end of each run's segment: invisible, and the reason
-   "go to run 2" can mean the last thing run 2 said rather than its first. */
+/* The invisible tail target at the end of each run's segment: while the reader
+   is at the bottom, a live run keeps pulling the view to its last line. The
+   dropdown's "go to run N" aims at the segment's boundary line instead. */
 .pi-run-end {
   height: 1px;
   flex: none;
