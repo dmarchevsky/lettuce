@@ -1,11 +1,16 @@
 import { expect, test } from "bun:test";
-import { type PiRunSummary, piRunNumber, piRunOptions, piRunWave } from "./pi.ts";
+import { groupPiRuns, type PiRunSummary, piRunNumber, piRunOptions, piRunWave } from "./pi.ts";
 
-function run(runId: string, prompt: string, status: PiRunSummary["status"] = "completed") {
+function run(
+  runId: string,
+  prompt: string,
+  status: PiRunSummary["status"] = "completed",
+  session: string | null = "s",
+) {
   return {
     runId,
     agentId: null,
-    session: "s",
+    session,
     target: "worker@pi.example.invalid",
     kind: "send",
     status,
@@ -56,6 +61,39 @@ test("piRunWave never reaches past the window, however long the session", () => 
   // The regression this bounds: a wave sized by count and re-derived after each
   // arrival walked the whole session outward, reading every capture in turn.
   expect(piRunWave(six, "r6", () => false, 3)).toEqual(["r5", "r4", "r3"]);
+});
+
+test("the Runs list folds a session's runs into one row led by the newest", () => {
+  // Newest-first listing with two interleaved sessions: the row is keyed by
+  // session, counts every run of it, and leads with the newest one it first saw.
+  const runs = [
+    run("r6", "newest of b", "running", "b"),
+    run("r5", "newest of a", "completed", "a"),
+    run("r4", "older of b", "completed", "b"),
+    run("r3", "middle of a", "detached", "a"),
+    run("r2", "oldest of a", "completed", "a"),
+  ];
+  const rows = groupPiRuns(runs);
+  expect(rows.map((row) => [row.key, row.count, row.latest.runId])).toEqual([
+    ["s:b", 2, "r6"],
+    ["s:a", 3, "r5"],
+  ]);
+});
+
+test("a run whose session never surfaced is a row alone, and two of them never merge", () => {
+  const rows = groupPiRuns([run("r2", "one", "failed", null), run("r1", "two", "failed", null)]);
+  expect(rows.map((row) => [row.key, row.session, row.count])).toEqual([
+    ["r:r2", null, 1],
+    ["r:r1", null, 1],
+  ]);
+});
+
+test("grouping an empty or single-run listing changes nothing worth guarding", () => {
+  expect(groupPiRuns([])).toEqual([]);
+  const one = groupPiRuns([run("r1", "only")]);
+  expect(one.length).toBe(1);
+  expect(one[0]?.count).toBe(1);
+  expect(one[0]?.latest.runId).toBe("r1");
 });
 
 test("piRunWave skips what is loaded without shrinking the window", () => {

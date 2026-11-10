@@ -342,6 +342,48 @@ export function piRunNumber(runs: readonly PiRunSummary[], runId: string): numbe
   return at < 0 ? runs.length : at + 1;
 }
 
+/** One **Runs list** row: a whole session, or a run whose session never surfaced. */
+export interface PiSessionRow {
+  /** Stable React key: the session when there is one, the run when there is not. */
+  key: string;
+  session: string | null;
+  /** How many of the fetched runs belong to this session. */
+  count: number;
+  /** The session's newest run — the row's status, prompt and click target. */
+  latest: PiRunSummary;
+}
+
+/**
+ * Fold a newest-first run listing into one row per session.
+ *
+ * The Runs list used to spend a row per run, so one five-run session took five
+ * rows and read as five unrelated jobs rather than one session sending five
+ * messages. Each session leads with its newest run — that is the status worth
+ * seeing and the transcript worth opening — and says how many runs it holds.
+ * Group order is order of first occurrence, so sessions sort by recency too.
+ * A run with no session yet (it died before its header line) is a row alone.
+ */
+export function groupPiRuns(runs: readonly PiRunSummary[]): PiSessionRow[] {
+  const rows: PiSessionRow[] = [];
+  const bySession = new Map<string, PiSessionRow>();
+  for (const run of runs) {
+    const row = run.session ? bySession.get(run.session) : undefined;
+    if (row) {
+      row.count += 1;
+      continue;
+    }
+    const next: PiSessionRow = {
+      key: run.session ? `s:${run.session}` : `r:${run.runId}`,
+      session: run.session,
+      count: 1,
+      latest: run,
+    };
+    rows.push(next);
+    if (run.session) bySession.set(run.session, next);
+  }
+  return rows;
+}
+
 function oneLine(text: string): string {
   return (text || "").split("\n")[0]?.trim().slice(0, 80) ?? "";
 }

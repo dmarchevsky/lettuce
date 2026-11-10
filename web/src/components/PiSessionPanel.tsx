@@ -25,6 +25,9 @@ interface Props {
 
 /** How close to the bottom counts as "reading the end", so a live run can follow. */
 const STUCK_PX = 80;
+/** How far a pinned run's boundary line may drift from the top before it is
+ * pulled back — segments loading above it push the whole transcript down. */
+const REANCHOR_PX = 48;
 /** How many neighbours of the focused run load unasked. Each read is a whole
  * capture tail, so a session with sixty runs must not mean sixty reads at open. */
 const NEARBY = 3;
@@ -80,10 +83,18 @@ export function PiSessionPanel({ runId, session }: Props) {
 
   // The scroller is `.messages` itself: the transcript scrolls, the bar does not.
   const scroller = useRef<HTMLDivElement | null>(null);
-  // One marker per run, at the end of its segment — the place "go to run N" aims.
+  // One marker per run at each end of its segment. The start marker (the run's
+  // boundary line) is where "go to run N" lands — a chosen run reads from its
+  // Task down; the end marker is what the live tail-follow sticks to.
+  const starts = useRef(new Map<string, HTMLDivElement | null>());
   const ends = useRef(new Map<string, HTMLDivElement | null>());
   const stuck = useRef(true);
   const pendingScroll = useRef(false);
+  // The run whose boundary a jump pinned near the top. While pinned, nothing
+  // pulls the view: the reader asked to be here, and arrivals loading above
+  // must not silently push what they chose to read out of sight.
+  const pinned = useRef<string | null>(null);
+  const pinnedTop = useRef(0);
   const lastReadMs = useRef(0);
   // What this panel has already asked the BFF for: the window loader and the
   // dropdown both consult it, so one run is never read twice by accident.
@@ -245,8 +256,8 @@ export function PiSessionPanel({ runId, session }: Props) {
     }
   }, [sessionId, runs, liveFrames, loadList]);
 
-  // "Go to run N" means the end of that run: what it last said, which is where
-  // its attention was when it finished — or where it is now, live.
+  // The tail aim, for opening and for following: the end of the focused run, so
+  // a live run stays read at its last line while the reader is down there.
   const scrollToFocus = useCallback(() => {
     const box = scroller.current;
     const marker = ends.current.get(focus);
@@ -256,18 +267,47 @@ export function PiSessionPanel({ runId, session }: Props) {
     stuck.current = true;
   }, [focus]);
 
-  // Jump when the focus changes (the dropdown, a row clicked elsewhere), and
-  // follow the tail while a live run grows and the reader is at its end. `bodies`
-  // is the trigger for the follow: new steps are what should pull the view down.
+  // "Go to run N" means the **start** of that run: its boundary line lands at
+  // the top of the transcript, so the run reads from what it was asked down to
+  // what it did, and the jump **pins** there — even a clamped jump (a segment
+  // not loaded yet, everything below it short) leaves no tail-follow armed to
+  // yank the view back to the run's end when the next arrival lands.
+  const jumpToStart = useCallback(() => {
+    const box = scroller.current;
+    const marker = starts.current.get(focus);
+    if (!box || !marker) return;
+    box.scrollTop += marker.getBoundingClientRect().top - box.getBoundingClientRect().top - 8;
+    pinned.current = focus;
+    pinnedTop.current = box.scrollTop;
+    stuck.current = false;
+  }, [focus]);
+
+  // Jump to the start when the focus changes (the dropdown, a row clicked
+  // elsewhere); while pinned, re-anchor instead of following, so arrivals above
+  // cannot drift the chosen boundary away on browsers without scroll anchoring
+  // (WebKit among them). The tail-follow runs only for an unpinned reader who is
+  // at the bottom. `bodies` is the trigger: new steps are what move the view.
   // biome-ignore lint/correctness/useExhaustiveDependencies: the deps say when to scroll, not what to read
   useLayoutEffect(() => {
     if (pendingScroll.current) {
       pendingScroll.current = false;
-      scrollToFocus();
+      jumpToStart();
+      return;
+    }
+    if (pinned.current === focus) {
+      const box = scroller.current;
+      const marker = starts.current.get(focus);
+      if (
+        box &&
+        marker &&
+        marker.getBoundingClientRect().top - box.getBoundingClientRect().top > REANCHOR_PX
+      ) {
+        jumpToStart();
+      }
       return;
     }
     if (stuck.current) scrollToFocus();
-  }, [focus, bodies, scrollToFocus]);
+  }, [focus, bodies, jumpToStart, scrollToFocus]);
 
   const choose = (id: string) => {
     setFocus(id);
@@ -329,6 +369,11 @@ export function PiSessionPanel({ runId, session }: Props) {
             const box = scroller.current;
             if (!box) return;
             stuck.current = box.scrollHeight - box.scrollTop - box.clientHeight < STUCK_PX;
+            // The jump's own scroll sits exactly where it left the view; anything
+            // else is the reader taking the wheel, and the pin is theirs to drop.
+            if (pinned.current && Math.abs(box.scrollTop - pinnedTop.current) > 4) {
+              pinned.current = null;
+            }
           }}
         >
           {error && runs.length === 0 ? (
@@ -343,7 +388,12 @@ export function PiSessionPanel({ runId, session }: Props) {
             const live = isLive(run);
             return (
               <section key={run.runId} className="pi-run-group">
-                <div className="pi-run-boundary">
+                <div
+                  className="pi-run-boundary"
+                  ref={(node) => {
+                    starts.current.set(run.runId, node);
+                  }}
+                >
                   <strong>
                     Run {piRunNumber(runs, run.runId)} · {run.kind}
                   </strong>

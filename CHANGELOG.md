@@ -5,6 +5,14 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.41.1-letta_0.34.38] - 2026-11-10
+
+### Changed
+- **The Runs tab lists remote-pi sessions, not runs.** One row per session, led by its newest run with `session … · N runs` beside it; inside a session, the dropdown lands on the start of the run you pick.
+
+### Fixed
+- **The remote-pi session pane reads at conversation width again.** A width cap stacked on the conversation's own measure rule collapsed the text column to a few hundred pixels on a wide pane.
+
 ## [v0.41.0-letta_0.34.38] - 2026-11-09
 
 ### Added

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listDate } from "../lib/conversation-groups.ts";
-import { ago, fetchPiRuns, type PiRunSummary, STATUS_LABELS } from "../lib/pi.ts";
+import { ago, fetchPiRuns, groupPiRuns, type PiRunSummary, STATUS_LABELS } from "../lib/pi.ts";
 import { msSinceLastPiFrame, stalenessWatchdogMs, usePiLiveRuns } from "../lib/pi-live.ts";
 import { type AgentNames, type RunsListProps, scopedEmptyLabel } from "../lib/runs-scope.ts";
 import { formatEntryTimeFull } from "../lib/timestamps.ts";
@@ -15,12 +15,24 @@ const STATUS_TONES: Record<PiRunSummary["status"], string> = {
 };
 
 /**
- * Recent remote-pi runs, newest first, each opening the full transcript.
+ * Recent remote-pi runs folded into one row per session, newest session first.
  * Unlike the Codex and Claude lists (which read the CLI's own files inside
  * the app-server), these runs are captured by the BFF itself, so the list
  * exists without the upstream connection — and "running" means the BFF
  * still holds the ssh child.
+ *
+ * One row per run read as five unrelated jobs where one session had sent five
+ * messages, so a row is a session now: its newest run leads it (status chip,
+ * prompt) and the row says how many runs the session holds. The fetch is the
+ * route's whole page so one busy session cannot crowd every other session out
+ * of the section.
  */
+const RUNS_PAGE = 30;
+/** Session rows the section shows — the same eight-line budget the run rows had.
+ * The fetch asks the route's whole page (it clamps `limit` to 30 runs), and a
+ * row's `N runs` counts only runs that page held — a session older than the
+ * page says fewer there than the panel it opens will show. */
+const VISIBLE_SESSIONS = 8;
 export function PiRunsList({
   refreshKey,
   agentId,
@@ -41,7 +53,7 @@ export function PiRunsList({
 
   const load = useCallback(async () => {
     try {
-      const page = await fetchPiRuns(8, agentId);
+      const page = await fetchPiRuns(RUNS_PAGE, agentId);
       for (const run of page.runs) seenRuns.current.add(run.runId);
       setRuns(page.runs);
       setOther(page.other);
@@ -112,6 +124,10 @@ export function PiRunsList({
   // See CodexRunsList: silence means nothing-to-show, never hidden-by-the-scope.
   if (!error && runs.length === 0 && other === 0) return null;
 
+  // Group after the frame patch, so a run that settled live leads its row with
+  // the truth, not with the status the fetch saw.
+  const sessions = groupPiRuns(rows).slice(0, VISIBLE_SESSIONS);
+
   return (
     <>
       <p className="section-note">Remote Pi runs</p>
@@ -127,40 +143,50 @@ export function PiRunsList({
         <p className="muted small">{scopedEmptyLabel("Remote Pi runs", agentName, other)}</p>
       ) : (
         <ul className="list">
-          {rows.map((run) => (
-            <li key={run.runId} className="task">
-              <button
-                type="button"
-                className="row"
-                onClick={() => onOpenRun(run.runId, run.session)}
-                title={run.prompt}
-              >
-                <span className="grow-text">
-                  <span className="task-head stacked">
-                    <span className={`tag${STATUS_TONES[run.status]}`}>
-                      {STATUS_LABELS[run.status]}
+          {sessions.map((row) => {
+            const run = row.latest;
+            return (
+              <li key={row.key} className="task">
+                <button
+                  type="button"
+                  className="row"
+                  onClick={() => onOpenRun(run.runId, run.session)}
+                  title={run.prompt}
+                >
+                  <span className="grow-text">
+                    <span className="task-head stacked">
+                      <span className={`tag${STATUS_TONES[run.status]}`}>
+                        {STATUS_LABELS[run.status]}
+                      </span>
+                      <span className="small one-line">{run.prompt || "(no prompt recorded)"}</span>
                     </span>
-                    <span className="small one-line">{run.prompt || "(no prompt recorded)"}</span>
+                    <span
+                      className="muted small one-line"
+                      title={run.startedAt ? formatEntryTimeFull(run.startedAt) : undefined}
+                    >
+                      {/* A sessionless run (it died before its header line) has no
+                          session to name, so it says nothing it cannot know. */}
+                      {row.session
+                        ? `session ${row.session.slice(0, 8)} · ${row.count} run${
+                            row.count === 1 ? "" : "s"
+                          } · `
+                        : ""}
+                      {run.startedAt ? listDate(run.startedAt) : ""}
+                      {` · ${run.target}`}
+                      {/* A pi run carries no cwd, so when every agent is listed it is
+                        the only kind whose owner would otherwise go unsaid. */}
+                      {agentId === null
+                        ? ` · ${run.agentId ? (agentNames[run.agentId] ?? "no agent") : "no agent"}`
+                        : ""}
+                      {run.status === "running" && run.eventCount > 0
+                        ? ` · ${run.eventCount.toLocaleString()} events${run.lastEventAt ? ` · ${ago(run.lastEventAt)}` : ""}`
+                        : ""}
+                    </span>
                   </span>
-                  <span
-                    className="muted small one-line"
-                    title={run.startedAt ? formatEntryTimeFull(run.startedAt) : undefined}
-                  >
-                    {run.startedAt ? listDate(run.startedAt) : ""}
-                    {` · ${run.target}`}
-                    {/* A pi run carries no cwd, so when every agent is listed it is
-                      the only kind whose owner would otherwise go unsaid. */}
-                    {agentId === null
-                      ? ` · ${run.agentId ? (agentNames[run.agentId] ?? "no agent") : "no agent"}`
-                      : ""}
-                    {run.status === "running" && run.eventCount > 0
-                      ? ` · ${run.eventCount.toLocaleString()} events${run.lastEventAt ? ` · ${ago(run.lastEventAt)}` : ""}`
-                      : ""}
-                  </span>
-                </span>
-              </button>
-            </li>
-          ))}
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
     </>
