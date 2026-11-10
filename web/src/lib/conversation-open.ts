@@ -44,6 +44,12 @@ export async function openConversation(
   options: { freshConversation?: boolean } = {},
 ): Promise<void> {
   const clearOnHistory = !options.freshConversation;
+  // History handed over first, before the start is even attempted: everything
+  // sent after a blocking command waits behind it, and the seed write and the
+  // start are both file work on the app-server's slow disk.
+  open.loadHistory(() => {
+    if (clearOnHistory) open.endLoadingRow();
+  });
   const started = open
     .startRuntime()
     .then(() => {
@@ -52,8 +58,5 @@ export async function openConversation(
     .catch(() => {
       if (!clearOnHistory) open.endLoadingRow();
     });
-  open.loadHistory(() => {
-    if (clearOnHistory) open.endLoadingRow();
-  });
   await started;
 }

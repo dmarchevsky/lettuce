@@ -17,8 +17,6 @@ function harness(options: { freshConversation?: boolean } = {}) {
   };
   const open = openConversation(
     {
-      // The hook calls this first, before it starts the runtime; the helper
-      // keeps that order so the record below matches what really happens.
       loadHistory: (onSettled) => {
         calls.push("history asked for");
         if (options.freshConversation) {
@@ -47,6 +45,16 @@ function harness(options: { freshConversation?: boolean } = {}) {
 }
 
 describe("opening a conversation", () => {
+  test("the history is asked for before the runtime is started", async () => {
+    // Not a tautology: `startRuntime` sends a file write and then the start,
+    // and anything requested after them queues behind their server-wide freeze.
+    const h = harness();
+    expect(h.calls.slice(0, 2)).toEqual(["history asked for", "runtime asked for"]);
+    h.settleHistory();
+    h.settleRuntime();
+    await h.open;
+  });
+
   test("the transcript is in hand before the slow start is answered", async () => {
     const h = harness();
     h.settleHistory();
