@@ -40,7 +40,7 @@ export function PiRunCard({
   const [facts, setFacts] = useState<PiRunFacts | null>(null);
   const [files, setFiles] = useState<PiRunFile[]>([]);
   const [gone, setGone] = useState(false);
-  const [busy, setBusy] = useState<"stop" | "force" | null>(null);
+  const [busy, setBusy] = useState<"stop" | "watch" | null>(null);
   // One tick per second while the run lives: the running clock should not wait
   // on the 3-second status poll.
   const [tick, setTick] = useState(0);
@@ -128,14 +128,14 @@ export function PiRunCard({
         (facts.endedAt ? Date.parse(facts.endedAt) : Date.now()) - Date.parse(facts.startedAt),
       )
     : 0;
-  const stop = async (force: boolean) => {
-    const question = force
-      ? "Force stop: this kills the pi process on the remote host. Continue?"
-      : "Stop watching this run? The remote pi keeps working (detach).";
+  const stop = async (detach: boolean) => {
+    const question = detach
+      ? "Stop watching this run? Lettuce closes its capture; the remote pi is not killed, but it dies writing to the closed stream."
+      : "Stop this run? It kills the pi process on the remote host. The session stays resumable.";
     if (!window.confirm(question)) return;
-    setBusy(force ? "force" : "stop");
+    setBusy(detach ? "watch" : "stop");
     try {
-      await stopPiRun(runId, force);
+      await stopPiRun(runId, detach);
       // One short beat for the ssh path to record the verdict, then re-read.
       await new Promise((resolve) => setTimeout(resolve, 500));
       setFacts(await fetchPiRunFacts(runId));
@@ -217,7 +217,7 @@ export function PiRunCard({
             <>
               <button
                 type="button"
-                className="link"
+                className="link danger"
                 disabled={busy !== null}
                 onClick={() => void stop(false)}
               >
@@ -225,11 +225,11 @@ export function PiRunCard({
               </button>
               <button
                 type="button"
-                className="link danger"
+                className="link"
                 disabled={busy !== null}
                 onClick={() => void stop(true)}
               >
-                {busy === "force" ? "Killing…" : "Force stop"}
+                {busy === "watch" ? "Closing…" : "Stop watching"}
               </button>
             </>
           ) : null}

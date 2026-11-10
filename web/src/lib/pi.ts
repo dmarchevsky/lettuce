@@ -441,12 +441,12 @@ export function piRunFileUrl(runId: string, name: string): string {
   return `/api/pi/runs/${encodeURIComponent(runId)}/files/${encodeURIComponent(name)}`;
 }
 
-/** Detach (default) or force-kill the remote pi. Errors come back as 409 text. */
-export async function stopPiRun(runId: string, force = false): Promise<void> {
+/** Kill the remote pi (default) or only close Lettuce's watch. Errors come back as 409 text. */
+export async function stopPiRun(runId: string, detach = false): Promise<void> {
   const response = await fetch(`/api/pi/runs/${encodeURIComponent(runId)}/stop`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ force }),
+    body: JSON.stringify({ detach }),
   });
   if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
 }

@@ -35,6 +35,7 @@ function meta(runId: string, startedAt: string, session: string | null): PiRunMe
     lastEventAt: null,
     bytesCaptured: 0,
     remotePid: null,
+    remoteExit: null,
     error: null,
   };
 }
