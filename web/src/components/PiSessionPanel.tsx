@@ -80,7 +80,10 @@ export function PiSessionPanel({ runId, session }: Props) {
 
   // The scroller is `.messages` itself: the transcript scrolls, the bar does not.
   const scroller = useRef<HTMLDivElement | null>(null);
-  // One marker per run, at the end of its segment — the place "go to run N" aims.
+  // One marker per run at each end of its segment. The start marker (the run's
+  // boundary line) is where "go to run N" lands — a chosen run reads from its
+  // Task down; the end marker is what the live tail-follow sticks to.
+  const starts = useRef(new Map<string, HTMLDivElement | null>());
   const ends = useRef(new Map<string, HTMLDivElement | null>());
   const stuck = useRef(true);
   const pendingScroll = useRef(false);
@@ -245,8 +248,8 @@ export function PiSessionPanel({ runId, session }: Props) {
     }
   }, [sessionId, runs, liveFrames, loadList]);
 
-  // "Go to run N" means the end of that run: what it last said, which is where
-  // its attention was when it finished — or where it is now, live.
+  // The tail aim, for opening and for following: the end of the focused run, so
+  // a live run stays read at its last line while the reader is down there.
   const scrollToFocus = useCallback(() => {
     const box = scroller.current;
     const marker = ends.current.get(focus);
@@ -256,18 +259,31 @@ export function PiSessionPanel({ runId, session }: Props) {
     stuck.current = true;
   }, [focus]);
 
-  // Jump when the focus changes (the dropdown, a row clicked elsewhere), and
-  // follow the tail while a live run grows and the reader is at its end. `bodies`
-  // is the trigger for the follow: new steps are what should pull the view down.
+  // "Go to run N" means the **start** of that run: its boundary line lands at
+  // the top of the transcript, so the run reads from what it was asked down to
+  // what it did. Where the jump leaves the reader decides whether the tail is
+  // being followed again — a short run fully on screen still counts as stuck.
+  const jumpToStart = useCallback(() => {
+    const box = scroller.current;
+    const marker = starts.current.get(focus);
+    if (!box || !marker) return;
+    box.scrollTop += marker.getBoundingClientRect().top - box.getBoundingClientRect().top - 8;
+    stuck.current = box.scrollHeight - box.scrollTop - box.clientHeight < STUCK_PX;
+  }, [focus]);
+
+  // Jump to the start when the focus changes (the dropdown, a row clicked
+  // elsewhere), and follow the tail while a live run grows and the reader is at
+  // its end. `bodies` is the trigger for the follow: new steps are what should
+  // pull the view down.
   // biome-ignore lint/correctness/useExhaustiveDependencies: the deps say when to scroll, not what to read
   useLayoutEffect(() => {
     if (pendingScroll.current) {
       pendingScroll.current = false;
-      scrollToFocus();
+      jumpToStart();
       return;
     }
     if (stuck.current) scrollToFocus();
-  }, [focus, bodies, scrollToFocus]);
+  }, [focus, bodies, jumpToStart, scrollToFocus]);
 
   const choose = (id: string) => {
     setFocus(id);
@@ -343,7 +359,12 @@ export function PiSessionPanel({ runId, session }: Props) {
             const live = isLive(run);
             return (
               <section key={run.runId} className="pi-run-group">
-                <div className="pi-run-boundary">
+                <div
+                  className="pi-run-boundary"
+                  ref={(node) => {
+                    starts.current.set(run.runId, node);
+                  }}
+                >
                   <strong>
                     Run {piRunNumber(runs, run.runId)} · {run.kind}
                   </strong>
