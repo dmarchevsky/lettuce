@@ -1646,6 +1646,24 @@ export function transcriptFromHistory(messages: readonly unknown[]): Transcript 
   return transcript;
 }
 
+/**
+ * Fold the live entries that arrived before the history response into the
+ * history just rebuilt: keep every transcript entry the history did not
+ * already carry, and drop the ones it did — its copy of a message is the
+ * complete one, where the streamed copy is only as far as it had got.
+ *
+ * The BFF's connection is already subscribed when a conversation opens, so
+ * stream frames can reach the app before `conversation_messages_list` is
+ * answered, and a history load that assigns `transcriptRef` wholesale would
+ * otherwise delete them mid-flight. Nothing re-fetches them: the frames are
+ * live-only and the server has not stored the turn yet.
+ */
+export function mergeStreamIntoHistory(history: Transcript, stream: Transcript): void {
+  for (const [key, entry] of stream) {
+    if (!history.has(key)) history.set(key, entry);
+  }
+}
+
 /** A failed turn as the BFF remembers it — `GET /api/turn-errors`. */
 export interface TurnErrorRecord {
   turn_id: string;

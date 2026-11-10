@@ -4,6 +4,7 @@ import {
 } from "@letta-ai/letta-code/ask-user-question";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildMessageContent, type PreparedImage } from "../lib/attachments.ts";
+import { historyShowsLoadingRow, openConversation } from "../lib/conversation-open.ts";
 import { errorMessage, friendlyServerError } from "../lib/errors.ts";
 import { consumeFreshConversation } from "../lib/fresh-conversations.ts";
 import { upstreamReturned } from "../lib/link-status.ts";
@@ -21,6 +22,7 @@ import {
   applyStreamDelta,
   clearLocalNotice,
   createStreamIndex,
+  mergeStreamIntoHistory,
   mergeTurnErrors,
   type StreamIndex,
   setLocalNotice,
@@ -601,9 +603,25 @@ export function useConversation(
         });
         if (!current()) return;
         const messages = Array.isArray(response?.messages) ? response.messages : [];
-        transcriptRef.current = transcriptFromHistory(messages);
-        mergeTurnErrors(transcriptRef.current, await turnErrors);
+        const errors = await turnErrors;
+        // Whatever arrived live while this request was in flight stays: the
+        // history is a snapshot taken before those frames, so its copy of a
+        // message wins and its own entries are kept. The index is rebuilt after
+        // the fold so later chunks of a still-streaming entry keep its keys.
+        const before = transcriptRef.current;
+        const history = transcriptFromHistory(messages);
+        mergeStreamIntoHistory(history, before);
+        mergeTurnErrors(history, errors);
+        transcriptRef.current = history;
+        // Rebuilt, not kept: history's own keys are its ids, and the only
+        // aliases worth carrying are the live entries that survived the fold —
+        // the next chunk of one of those must land on the merged entry.
         streamIndexRef.current = createStreamIndex();
+        for (const [key, entry] of before) {
+          if (!history.has(key)) continue;
+          streamIndexRef.current.byMessageId.set(entry.id, key);
+          streamIndexRef.current.byOtid.set(entry.id, key);
+        }
         seqRef.current = messages.length;
         flushSync();
         // A request/response frame like this one never carries the sequence
@@ -639,12 +657,12 @@ export function useConversation(
     if (startedRef.current === key) return;
     startedRef.current = key;
     const gen = ++loadGenRef.current;
-    // From here to `loadHistory` settling the transcript on screen is
-    // in-flight: an empty transcript during it must read as loading, not
-    // empty — unless this conversation was just created here, in which case
-    // empty is exactly what it is (and `runtime_start` below outlasts the
-    // load, so the loading row would only be a blink over the truth).
-    setHistoryLoading(!consumeFreshConversation(scope.conversation_id));
+    // An empty transcript from here until the history lands must read as
+    // loading, not empty — unless this conversation was just created here, in
+    // which case empty is exactly what it is and the row would only be a blink
+    // over the truth. See `historyShowsLoadingRow`.
+    const freshConversation = consumeFreshConversation(scope.conversation_id);
+    setHistoryLoading(historyShowsLoadingRow(freshConversation));
 
     transcriptRef.current = new Map();
     streamIndexRef.current = createStreamIndex();
@@ -664,7 +682,7 @@ export function useConversation(
     setLastActivityAt(null);
 
     setScopes([scope]);
-    void (async () => {
+    const startRuntime = async (): Promise<void> => {
       const home = agentWorkspace(scope.agent_id);
       try {
         // Seed the workspace once per agent per load — see `seededWorkspaces`.
@@ -702,12 +720,28 @@ export function useConversation(
       } catch (cause) {
         if (gen === loadGenRef.current) setError(friendlyServerError(errorMessage(cause)));
       }
-      try {
-        await loadHistory(false, gen);
-      } finally {
-        if (gen === loadGenRef.current) setHistoryLoading(false);
-      }
-    })();
+    };
+    // The history first and the slow start beside it — see `conversation-open.ts`.
+    // A fresh conversation has no history to wait for, so its row clears with
+    // the start, as it always did.
+    void openConversation(
+      {
+        loadHistory: (onSettled) => {
+          // A fresh conversation has nothing to load: report it settled at once so
+          // the row follows the start, the way it did before.
+          if (freshConversation) {
+            onSettled();
+            return;
+          }
+          void loadHistory(false, gen).then(onSettled, onSettled);
+        },
+        startRuntime,
+        endLoadingRow: () => {
+          if (gen === loadGenRef.current) setHistoryLoading(false);
+        },
+      },
+      { freshConversation },
+    );
   }, [ready, scope, startNonce, request, setScopes, loadHistory]);
 
   // A resync means the BFF buffer could not cover the gap while we were away.

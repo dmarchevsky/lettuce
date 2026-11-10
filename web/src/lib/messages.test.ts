@@ -17,6 +17,7 @@ import {
   filterEntries,
   groupTranscript,
   isShown,
+  mergeStreamIntoHistory,
   mergeTurnErrors,
   pendingCompactStartedAt,
   readContentParts,
@@ -1723,5 +1724,41 @@ describe("a running /compact", () => {
       },
     ]);
     expect(sortedEntries(transcript)).toHaveLength(0);
+  });
+});
+
+describe("a history load meeting live frames", () => {
+  const msg = (id: string, content: string) => ({
+    id,
+    date: "d",
+    message_type: "assistant_message",
+    content,
+  });
+
+  test("a live entry the history does not have survives the reload", () => {
+    // The frames arrive on the already-subscribed connection before
+    // `conversation_messages_list` is answered; without the fold the reload
+    // deletes a message mid-flight and nothing re-fetches it.
+    const history = transcriptFromHistory([msg("m1", "older")]);
+    const live = transcriptFromHistory([msg("m1", "older"), msg("m2", "just arrived")]);
+    mergeStreamIntoHistory(history, live);
+    expect(sortedEntries(history).map((e) => e.text)).toEqual(["older", "just arrived"]);
+  });
+
+  test("the history's copy of a message wins over the streamed one", () => {
+    // A message caught mid-stream is only as complete as it had got; the
+    // history entry for the same id is the whole thing.
+    const history = transcriptFromHistory([msg("m1", "the complete answer")]);
+    const live = transcriptFromHistory([msg("m1", "the complete an")]);
+    mergeStreamIntoHistory(history, live);
+    expect(sortedEntries(history).map((e) => e.text)).toEqual(["the complete answer"]);
+  });
+
+  test("a live load with nothing extra changes nothing", () => {
+    // (the list is newest-first, so m2 is the older of the two here)
+    const history = transcriptFromHistory([msg("m1", "one"), msg("m2", "two")]);
+    const live = transcriptFromHistory([msg("m1", "one")]);
+    mergeStreamIntoHistory(history, live);
+    expect(sortedEntries(history).map((e) => e.text)).toEqual(["two", "one"]);
   });
 });
