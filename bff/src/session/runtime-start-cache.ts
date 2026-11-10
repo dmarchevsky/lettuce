@@ -62,6 +62,7 @@ export function startScopeOf(
   command: Record<string, unknown>,
   scopeKeyOf: (agentId: string, conversationId: string) => string,
 ): StartScope | null {
+  if (command.type !== "runtime_start") return null;
   for (const key of Object.keys(command)) {
     if (!CACHEABLE_FIELDS.has(key)) return null;
   }

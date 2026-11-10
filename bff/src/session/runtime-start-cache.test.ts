@@ -26,6 +26,12 @@ describe("startScopeOf", () => {
     expect(scope).toEqual({ scopeKey: SCOPE, cwd: "/work/agent-1" });
   });
 
+  test("only a start is a start", () => {
+    // The fields are what makes an `input` carry the same shape; the type is
+    // what makes it a request to start anything.
+    expect(startScopeOf({ ...START, type: "input" }, scopeKeyOf)).toBeNull();
+  });
+
   test("any other parameter is the app-server's question, not the BFF's", () => {
     for (const extra of [
       { mode: "acceptEdits" },
