@@ -23,12 +23,15 @@ const STATUS_TONES: Record<PiRunSummary["status"], string> = {
  *
  * One row per run read as five unrelated jobs where one session had sent five
  * messages, so a row is a session now: its newest run leads it (status chip,
- * prompt) and the row says how many runs the session holds. The fetch is
- * deliberately deeper than the rows it feeds, so one busy session cannot
- * crowd every other session out of the page.
+ * prompt) and the row says how many runs the session holds. The fetch is the
+ * route's whole page so one busy session cannot crowd every other session out
+ * of the section.
  */
-const RUNS_PAGE = 40;
-/** Session rows the section shows — the same eight-line budget the run rows had. */
+const RUNS_PAGE = 30;
+/** Session rows the section shows — the same eight-line budget the run rows had.
+ * The fetch asks the route's whole page (it clamps `limit` to 30 runs), and a
+ * row's `N runs` counts only runs that page held — a session older than the
+ * page says fewer there than the panel it opens will show. */
 const VISIBLE_SESSIONS = 8;
 export function PiRunsList({
   refreshKey,
