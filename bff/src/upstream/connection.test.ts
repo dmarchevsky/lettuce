@@ -3,6 +3,10 @@ import type { AppServerInfoResponseMessage } from "@letta-ai/letta-code/app-serv
 import type { WsProtocolMessage } from "@letta-ai/letta-code/app-server-protocol";
 import {
   createAppServerClient,
+  OWNER_SYNC_TIMEOUT_MS,
+  RESYNC_CONCURRENCY,
+  SWEEP_SYNC_CONCURRENCY,
+  SYNC_PACING_MS,
   shouldLogConnectFailure,
   type UpstreamClient,
   UpstreamConnection,
@@ -39,15 +43,11 @@ class FakeClient implements UpstreamClient {
   inFlightSyncs = 0;
   maxInFlightSyncs = 0;
   /** Wall-clock ms when each `sync` reached the client, in arrival order. */
-  readonly syncStarts: number[] = [];
-  /** The options each `requestRaw` was given, indexed like `requests`. */
-  readonly requestOptions: { timeoutMs?: number }[] = [];
-  /** The `request_id` of every sync, so a test can tell a sweep's syncs from a
-   * reconnect's. */
-  readonly syncIds: string[] = [];
-  /** `requestRaw` options recorded only for the syncs, so a test can read the
-   * timeout the BFF asked for without re-parsing the command. */
-  readonly syncTimeouts: (number | undefined)[] = [];
+  syncStarts: number[] = [];
+  /** The timeout each sync was given, so a test can read what the pass asked for. */
+  syncTimeouts: (number | undefined)[] = [];
+  /** The `request_id` of every sync, so a test can tell a sweep's from a reconnect's. */
+  syncIds: string[] = [];
   private messageHandler: ((message: WsProtocolMessage) => void) | null = null;
   private disconnectHandler: (() => void) | null = null;
   private page = 0;
@@ -83,7 +83,6 @@ class FakeClient implements UpstreamClient {
     options: { timeoutMs?: number } = {},
   ): Promise<unknown> {
     this.requests.push(command);
-    this.requestOptions.push(options);
     const query = command.query as { after?: string } | undefined;
     if (command.type === "agent_list")
       return Promise.resolve({ success: true, agents: this.agents });
@@ -100,11 +99,12 @@ class FakeClient implements UpstreamClient {
       this.syncIds.push(String(command.request_id));
       this.inFlightSyncs += 1;
       this.maxInFlightSyncs = Math.max(this.maxInFlightSyncs, this.inFlightSyncs);
-      // Rejected, not resolved with `success: false`: the app-server refusing a
-      // sync is an error on the wire, and resolving would count it as synced.
+      // A refused sync RESOLVES with `success: false` — that is what upstream's
+      // client does with any message carrying the request id, and what
+      // letta-code's message-router answers a sync it will not run with.
       const settle = (): Promise<unknown> =>
         this.failSync
-          ? Promise.reject(new Error("no such conversation"))
+          ? Promise.resolve({ success: false, error: "Runtime is no longer active" })
           : Promise.resolve({ success: true });
       if (!this.syncHoldMs) {
         this.inFlightSyncs -= 1;
@@ -146,7 +146,14 @@ async function waitFor(what: string, done: () => boolean, ms = 3000): Promise<vo
   }
 }
 
-function makeConnection(client: FakeClient, frames: WsProtocolMessage[] = []) {
+function makeConnection(
+  client: FakeClient,
+  frames: WsProtocolMessage[] = [],
+  // What the tests wait on is what a pass does, never how long it waits between
+  // syncs — the pacing has its own tests, and this keeps the suite out of
+  // seconds. Pass null to get production's own pacing.
+  syncPacing: { pacingMs?: number } | null = { pacingMs: 0 },
+) {
   const states: string[] = [];
   const logs: string[] = [];
   const upstream = new UpstreamConnection({
@@ -155,19 +162,10 @@ function makeConnection(client: FakeClient, frames: WsProtocolMessage[] = []) {
     onStateChange: (state) => states.push(state),
     log: (message) => logs.push(message),
     createClient: () => client,
-    // Every other test here is about what a pass does, not how long it waits
-    // between syncs; the pacing itself has its own tests below.
-    syncPacing: { pacingMs: 0 },
+    ...(syncPacing ? { syncPacing } : {}),
   });
   return { upstream, states, frames, logs };
 }
-
-/** The pacing production uses, restated here so a test would fail if a source
- * default drifted: syncs are paced one at a time because the app-server blocks
- * while answering one (see the doc comment on `SWEEP_SYNC_CONCURRENCY`). */
-const SWEEP_SYNC_CONCURRENCY = 1;
-const RESYNC_CONCURRENCY = 2;
-const OWNER_SYNC_TIMEOUT_MS = 120_000;
 
 /**
  * A connection whose sync pacing is overridden, so a test that waits on the gap
@@ -175,7 +173,8 @@ const OWNER_SYNC_TIMEOUT_MS = 120_000;
  */
 function makePacedConnection(
   client: FakeClient,
-  syncPacing: { pacingMs?: number; ownerSyncTimeoutMs?: number },
+  syncPacing: { pacingMs?: number; ownerSyncTimeoutMs?: number; passBudgetMs?: number },
+  sweepIntervalMs?: number,
 ) {
   const logs: string[] = [];
   const upstream = new UpstreamConnection({
@@ -185,6 +184,7 @@ function makePacedConnection(
     log: (message) => logs.push(message),
     createClient: () => client,
     syncPacing,
+    ...(sweepIntervalMs ? { sweepIntervalMs } : {}),
   });
   return { upstream, logs };
 }
@@ -265,34 +265,99 @@ test("the sweep runs one sync at a time and leaves a gap between them", async ()
 
 test("the pass asks for a timeout a slow sync can actually fit in", async () => {
   const client = new FakeClient();
-  client.pages = [[{ id: "conv-1" }]];
-  const { upstream } = makeConnection(client);
+  client.syncHoldMs = 10;
+  client.pages = [[{ id: "conv-1" }, { id: "conv-2" }]];
+  // The default connection, so this also pins the production gap: a test that
+  // overrode it everywhere would leave the value nobody runs to drift.
+  const { upstream } = makeConnection(client, [], null);
   upstream.start();
-  await waitFor("the sweep", () => client.syncedScopes().length === 1);
+  await waitFor("the sweep", () => client.syncedScopes().length === 2, 5000);
 
   // The 30 s default is what made a restart sweep look broken: the app-server
   // was slow, not stuck, and every timed-out sync had still subscribed its scope.
-  expect(client.syncTimeouts).toEqual([OWNER_SYNC_TIMEOUT_MS]);
+  expect(client.syncTimeouts).toEqual([OWNER_SYNC_TIMEOUT_MS, OWNER_SYNC_TIMEOUT_MS]);
+  expect((client.syncStarts[1] as number) - (client.syncStarts[0] as number)).toBeGreaterThanOrEqual(
+    SYNC_PACING_MS + client.syncHoldMs - 5,
+  );
   upstream.stop();
 });
 
 test("a request that is not a sync gets answered while the sweep runs", async () => {
   const client = new FakeClient();
-  client.syncHoldMs = 60;
+  const holdMs = 60;
+  const pacingMs = 40;
+  client.syncHoldMs = holdMs;
   client.pages = [Array.from({ length: 6 }, (_, i) => ({ id: `conv-${i}` }))];
-  const { upstream } = makePacedConnection(client, { pacingMs: 40 });
+  const { upstream } = makePacedConnection(client, { pacingMs });
   upstream.start();
   await waitFor("the sweep to start", () => client.syncStarts.length >= 1);
 
   // The point of pacing: the event loop is free between syncs, so anything else
-  // the BFF needs is not stuck behind the whole pass.
+  // the BFF needs is not stuck behind the whole pass. Paced, this answer lands
+  // inside the first sync; unpaced it would wait for the last one — assert that
+  // bound rather than a stopwatch number that only proves the fake is fast.
   const started = Date.now();
   await upstream.request({ type: "agent_list", request_id: "bff-mid-sweep" });
-  expect(Date.now() - started).toBeLessThan(50);
+  const waited = Date.now() - started;
+  expect(waited).toBeLessThan(holdMs + pacingMs);
+  expect(client.syncStarts.length).toBeLessThan(6);
   upstream.stop();
 });
 
-test("a sweep that fails says so once, not once per conversation", async () => {
+test("a pass that runs out of its time budget leaves the rest to the next sweep", async () => {
+  const client = new FakeClient();
+  client.syncHoldMs = 300;
+  client.pages = [Array.from({ length: 6 }, (_, i) => ({ id: `conv-${i}` }))];
+  const { upstream, logs } = makePacedConnection(client, { pacingMs: 0, passBudgetMs: 100 });
+  upstream.start();
+
+  // A server that holds the socket but never answers would otherwise take the
+  // full per-sync timeout times the whole backlog to say so, holding the
+  // no-overlap flag the entire time.
+  await waitFor("the pass to stop on its budget", () =>
+    logs.some((l) => l.includes("Scope sweep:")),
+  );
+  const summary = logs.filter((l) => l.startsWith("Scope sweep:"));
+  expect(summary.length).toBe(1);
+  expect(summary[0]).toContain("not attempted");
+  expect(summary[0]).toContain("out of time budget");
+  expect(client.syncIds.length).toBeLessThan(6);
+  upstream.stop();
+});
+
+test("a connection lost mid-pass stops it instead of failing every scope", async () => {
+  const client = new FakeClient();
+  client.syncHoldMs = 60;
+  client.pages = [Array.from({ length: 12 }, (_, i) => ({ id: `conv-${i}` }))];
+  const { upstream, logs } = makePacedConnection(client, { pacingMs: 0 });
+  upstream.start();
+  await waitFor("the sweep to start", () => client.syncStarts.length >= 1);
+
+  client.drop();
+  await waitFor("the pass to stop", () => logs.some((l) => l.includes("connection lost")));
+  // The scopes never sent are not failed and not claimed: the reconnect
+  // re-subscribes what was known and the next sweep picks up the rest.
+  expect(client.syncIds.length).toBeLessThan(12);
+  upstream.stop();
+});
+
+test("a sweep still running when the interval fires is skipped, not stacked", async () => {
+  const client = new FakeClient();
+  client.syncHoldMs = 40;
+  // 6 conversations at 40 ms each outlasts a 15 ms interval several times over,
+  // so the timer has to catch a running sweep rather than start another.
+  client.pages = [Array.from({ length: 6 }, (_, i) => ({ id: `conv-${i}` }))];
+  const { upstream, logs } = makePacedConnection(client, { pacingMs: 0 }, 15);
+  upstream.start();
+
+  await waitFor("an overlapping tick", () =>
+    logs.some((l) => l.includes("previous sweep still running")),
+  );
+  expect(client.requests.filter((r) => r.type === "agent_list").length).toBeLessThan(4);
+  upstream.stop();
+});
+
+test("a refused sync counts as a failure and says so as it happens", async () => {
   const client = new FakeClient();
   client.failSync = true;
   client.pages = [Array.from({ length: 10 }, (_, i) => ({ id: `conv-${i}` }))];
@@ -300,12 +365,17 @@ test("a sweep that fails says so once, not once per conversation", async () => {
   upstream.start();
 
   await waitFor("the sweep to fail through", () => client.syncIds.length === 10);
-  const sweep = logs.filter((line) => line.startsWith("Scope sweep:"));
-  expect(sweep.length).toBe(1);
-  expect(sweep[0]).toContain("0 synced, 10 failed");
-  // Why, for the first few only — the tally is what an operator reads, the
-  // per-scope reasons are for the third conversation in a row that says.
-  expect(sweep[0]).toContain("+7 more");
+  await waitFor("the summary", () => logs.some((l) => l.startsWith("Scope sweep:")));
+  // Upstream resolves a refusal, so a pass that only watched for rejections
+  // would report all ten as synced — the one line an operator reads after a
+  // restart would be the lie.
+  const summary = logs.filter((l) => l.startsWith("Scope sweep:"));
+  expect(summary.length).toBe(1);
+  expect(summary[0]).toContain("0 synced, 10 failed");
+  const details = logs.filter((l) => l.startsWith("Scope sweep failed for"));
+  // Why, for the first few only, and when it happened rather than at the end.
+  expect(details.length).toBe(3);
+  expect(details[0]).toContain("Runtime is no longer active");
   upstream.stop();
 });
 
@@ -322,7 +392,10 @@ test("a reconnect re-subscribes at the slightly higher concurrency it asks for",
   await waitFor("the reconnect", () => upstream.getGeneration() === 2, 5000);
   await waitFor("the re-subscribe", () => client.syncedScopes().length >= 12, 8000);
   // Bounded by what resync asks for, and actually concurrent — serial here would
-  // double the time a reconnect spends unable to deliver turns.
+  // double the time a reconnect spends unable to deliver turns. It cannot stack
+  // on a leftover sweep: a pass left running by the drop stops at its next check
+  // (there is no connection to sync on), and the connect path awaits the
+  // re-subscribe before it starts a sweep.
   expect(client.maxInFlightSyncs).toBeLessThanOrEqual(RESYNC_CONCURRENCY);
   expect(client.maxInFlightSyncs).toBeGreaterThan(1);
   upstream.stop();

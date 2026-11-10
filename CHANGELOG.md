@@ -5,6 +5,9 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Fixed
+- **A restart no longer freezes the app for minutes.** The BFF now catches up with conversations one at a time instead of eight at once, so opening a conversation or running a tool while it catches up stops waiting.
+
 ## [v0.41.1-letta_0.34.38] - 2026-11-10
 
 ### Changed
