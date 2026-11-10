@@ -1231,6 +1231,63 @@ test("a detach we were asked for says so, instead of reading like a crash", asyn
   expect(meta.error).toContain("capture stopped on request");
 });
 
+test("a stop we asked for outranks the exit code the worker reported", async () => {
+  // The kill path can land a marker alongside the stop. Our choice is still the
+  // story the run gets — with the code named, not hidden.
+  const { runner, children } = await freshRunner();
+  const meta = await runner.start(
+    BASE,
+    { keyFile: "/k", knownHostsFile: "/kh" },
+    { kind: "run", prompt: "hi" },
+  );
+  const child = only(children);
+  child.emit(`{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/tmp"}\n`);
+  runner.stop(meta.runId);
+  child.emitErr?.("Killed\nlettuce-remote-exit 137\n");
+  child.finish(137);
+  await Bun.sleep(10);
+  expect(meta.state).toBe("detached");
+  expect(meta.error).toContain("capture stopped on request");
+  expect(meta.error).toContain("pi exited 137");
+});
+
+test("a settled run stays completed even when the wrapper reports a late non-zero exit", async () => {
+  const { runner, children } = await freshRunner();
+  const meta = await runner.start(
+    BASE,
+    { keyFile: "/k", knownHostsFile: "/kh" },
+    { kind: "run", prompt: "hi" },
+  );
+  const child = only(children);
+  child.emit(`{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/tmp"}\n`);
+  child.emit(`{"type":"agent_settled"}\n`);
+  child.emitErr?.("lettuce-remote-exit 1\n");
+  child.finish(1);
+  await Bun.sleep(10);
+  expect(meta.state).toBe("completed");
+  expect(meta.remoteExit).toBe(1); // the fact is kept, the verdict is pi's
+});
+
+test("the error a run carries is the reason, not the wrapper's protocol or a dump", async () => {
+  // The tail lands in a conversation and on a card. `brief` drops the marker lines
+  // and caps the length, so what an agent reads is a clause, not 2 kB of noise.
+  const { runner, children } = await freshRunner();
+  const meta = await runner.start(
+    BASE,
+    { keyFile: "/k", knownHostsFile: "/kh" },
+    { kind: "run", prompt: "hi" },
+  );
+  const child = only(children);
+  child.emit(`{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/tmp"}\n`);
+  child.emitErr?.(`${"noise\n".repeat(400)}out of memory\nlettuce-remote-exit 134\n`);
+  child.finish(134);
+  await Bun.sleep(10);
+  expect(meta.state).toBe("failed");
+  expect(meta.error).toContain("out of memory");
+  expect(meta.error).not.toContain("lettuce-remote-");
+  expect(meta.error!.length).toBeLessThan(260);
+});
+
 test("an interrupted capture still detaches, and a run with no output still fails", async () => {
   const { store, runner, children } = await freshRunner();
   const meta = await runner.start(

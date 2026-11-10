@@ -110,10 +110,13 @@ B1. **Run card in the transcript.** `web/src/lib/messages.ts` recognizes a paire
     (`__bff_pi_progress`), with one fetch on mount for history. States (see mockups): running (current step + events + age), quiet (warn pill,
     mtime-based), completed (ok pill + last assistant text + artifacts section placeholder),
     failed (bad pill + error), detached (warn pill + "remote outcome unknown"), cancelled.
-    Actions on the card: **View run** (opens the sheet) and **Stop** / **Force stop** (two-
-    click confirm, mirrors the rotate-key pattern). New BFF route
-    `POST /api/pi/runs/:runId/stop {force}` — the tool already exists; the browser needs a
-    door.
+    Actions on the card: **View run** (opens the sheet) and **Stop** (two-
+    click confirm, mirrors the rotate-key pattern); **Stop watching** appears only once
+    a capture is alive, since detaching is the rarer choice. New BFF route
+    `POST /api/pi/runs/:runId/stop {detach}` — the tool already exists; the browser needs a
+    door. (Superseded as first written: the card offered Stop / **Force stop** because detach
+    was the default and killed nothing — `remote-pi-diagnostics` measured that a detached pi
+    dies on its own next write, flipped the default to stop, and retired the second button.)
 
 B0. **Runs tab.** A seventh tab, `Runs` (label order: Chat · Files · Tasks · **Runs** · Memory
     · Tools · Agent — the nav already scrolls, and `Runs` clears the 58px phone budget).
@@ -141,7 +144,7 @@ B3. **Active-runs chip.** Topbar: when `features.pi` and any run is `running`, a
 B4. **Push → deep link.** A push tap opens the app on the Runs tab with the run sheet open
     (`?tab=runs&run=<id>` query handling in App.tsx).
 
-B5. `web/src/lib/pi.ts`: `stopPiRun(runId, force)`, `piRunEvents(runId, since)`; status
+B5. `web/src/lib/pi.ts`: `stopPiRun(runId, opts)`, `piRunEvents(runId, since)`; status
     union gains `cancelled` (renderers default unknown → neutral tag, as `detached` does).
 
 B6. ui-check assertions: card renders for a scripted pi_run return (fixture), pill tone per

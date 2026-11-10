@@ -5,6 +5,14 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.42.2-letta_0.34.38] - 2026-11-10
+
+### Fixed
+- **Stopping a Remote Pi run stops the run.** `pi_stop` closed only the BFF's view of it while saying the remote kept working — it did not: a detached pi dies at its next write to a stream nobody is reading, which is seconds into any real task, so the button offered a detach that never happened and left everyone guessing. Stop now ends the run on the worker. Watching without stopping is still there — `detach` in the tool, **Stop watching** on the card — and both now say plainly that the run ends shortly after anyway.
+- **A crashed Remote Pi run reads as a crash.** A pi that died mid-task — out of memory, killed by the kernel, an unhandled error — came back as `detached` with no reason at all, so the agent reading it blamed the network and usually retried the whole job. The runner now carries the remote exit code (a run killed by a signal reports `pi exited 137` with the last words from its own stderr), the conversation that dispatched it is told, and only a connection that genuinely dropped is still called `detached` — and says that is what it is.
+- **A quiet Remote Pi run is not called a hung one.** Its status used to assert "ssh still alive" without checking and read as a hint to stop watching. It now says whether this BFF still holds the stream, asks the worker what that process is doing when it can, and states that a silent stream while the model generates or one long tool runs is normal.
+- **Remote Pi runs appear in the BFF log.** Every run now logs its dispatch (worker, working directory, prompt length, how it was started) and its outcome with the same reason the run reports, so "did it even start?" is answerable from the log.
+
 ## [v0.42.1-letta_0.34.38] - 2026-11-10
 
 ### Fixed

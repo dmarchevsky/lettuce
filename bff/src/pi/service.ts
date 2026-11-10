@@ -793,9 +793,13 @@ export class PiService {
         const captured = this.runner.isRunning(meta.runId);
         lines.push(
           `quiet ${Math.floor(live.quietMs / 60_000)}m — nothing written, ` +
-            `${captured ? "ssh alive" : "and this BFF no longer holds the ssh"}; ` +
-            (await this.remoteLivenessNote(meta)) +
-            `. Silence is normal while the model generates or one long tool runs: that is not a hung run, so do not stop it for being quiet.`,
+            (captured
+              ? `ssh alive; ${await this.remoteLivenessNote(meta)}.`
+              : // A run whose capture is gone has no reader, so the worker is the
+                // only thing that could answer — and asking it would make a read
+                // path wait on ssh. pi_stop is the verb for a run like this.
+                "and this BFF no longer holds the ssh, so nothing more can be asked of it.") +
+            ` Silence is normal while the model generates or one long tool runs: that is not a hung run, so do not stop it for being quiet.`,
         );
       }
       if (live.now) lines.push(`now: ${live.now.tool}: ${live.now.input}`);
@@ -861,7 +865,7 @@ export class PiService {
     const cached = this.livenessCache.get(meta.runId);
     if (cached && this.nowMs() - cached.at < PI_LIVENESS_TTL_MS) return cached.text;
     let text: string;
-    let cache = true;
+    let reached = false;
     try {
       const settings = await this.settingsFor(meta.agentId);
       if (!piConfigured(settings))
@@ -874,22 +878,26 @@ export class PiService {
         { maxChars: 512, timeoutMs: 10_000 },
       );
       const line = stdout.trim().replace(/\s+/g, " ");
-      // Three answers, not two. `ps` exits 1 for no such process; ssh exits 255
-      // (or the probe times out and code is null) when the worker was not
-      // reachable at all, and saying "the run died" then would be a guess dressed
-      // up as a measurement.
-      if (code === 0 && line) text = `remote pi pid ${pid} is running (${line})`;
-      else if (code === 1)
+      // Three answers, and only the first two are worth caching. `ps` exits 1 for
+      // no such process; ssh exits 255 (or the probe times out and code is null)
+      // when the worker was not reachable at all, and saying "the run died" then
+      // would be a guess dressed up as a measurement — holding that answer for the
+      // whole TTL would pin it across a poll loop, which is the failure this probe
+      // exists to tell apart.
+      if (code === 0 && line) {
+        text = `remote pi pid ${pid} is running (${line})`;
+        reached = true;
+      } else if (code === 1) {
         text = `remote pi pid ${pid} is gone — the run died without reporting how`;
-      else text = `the worker did not answer the probe about pid ${pid}`;
+        reached = true;
+      } else text = `the worker did not answer the probe about pid ${pid}`;
     } catch {
       text = "the worker did not answer the liveness probe";
-      cache = false; // a failure is not worth holding onto for the whole TTL
     }
     // Runs are finite and this only fills while something is quiet; clearing on
     // pressure is enough to keep it from growing forever.
     if (this.livenessCache.size > 200) this.livenessCache.clear();
-    if (cache) this.livenessCache.set(meta.runId, { at: this.nowMs(), text });
+    if (reached) this.livenessCache.set(meta.runId, { at: this.nowMs(), text });
     return text;
   }
 
