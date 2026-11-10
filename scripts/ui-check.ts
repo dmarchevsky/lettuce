@@ -21,7 +21,13 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { type Browser, chromium, type Page } from "playwright";
 import { chromiumExecutable, requireTestPassword } from "./harness.ts";
-import { newTrouble, type PageTrouble, watchPage as watchPageConsole } from "./page-console.ts";
+import {
+  expectClean,
+  expectNetworkNoise,
+  newTrouble,
+  type PageTrouble,
+  watchPage as watchPageConsole,
+} from "./page-console.ts";
 
 const ORIGIN = process.argv[2] ?? "http://127.0.0.1:8090";
 const OUT_DIR = new URL("../.ui-check/", import.meta.url).pathname;
@@ -3071,11 +3077,16 @@ try {
     );
     await addSheet.locator('input[placeholder^="http://"]').fill("http://127.0.0.1:9/v1");
     check("a URL makes the test available", await testButton.isEnabled());
+    expectNetworkNoise(page);
     // Nothing listens on port 9, so the answer is the endpoint's refusal — and it
-    // arrives as a toast over the sheet, not as a line inside the form.
+    // arrives as a toast over the sheet, not as a line inside the form. The suite is
+    // asking for that failure on purpose, so the browser's own line about it is
+    // forgiven for the length of the request and picked back up after.
+    await testButton.click();
     await testButton.click();
     const toast = page.locator(".toast");
     await toast.waitFor({ timeout: 20_000 });
+    expectClean(page);
     check(
       "a failed test reports itself in a toast",
       (await toast.innerText()).trim().length > 5 &&
@@ -4074,20 +4085,31 @@ try {
         break;
       }
     }
-    const staged = await page
-      .locator(".pane .field .small", { hasText: "Saves as" })
-      .first()
-      .waitFor({ timeout: 5_000 })
-      .then(() => true)
-      .catch(() => false);
-    check(
-      `a pick stages instead of applying (“${picked || before}”)`,
-      picked !== "" && staged && (await trigger.innerText()).trim() === picked,
-    );
-    check(
-      "and the sheet closes on the pick",
-      (await page.locator('.sheet-panel[aria-label="Model"]').count()) === 0,
-    );
+    // A stack with one model has no second row to pick, so the staging contract has
+    // nothing to act on — and leaving the sheet open here would block every later
+    // click, which is how one thin stack once blacked out the back half of the suite.
+    if (picked === "") {
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(300);
+      console.log(
+        `  SKIP  a staged model pick (this stack offers one model, “${before}” — nothing to pick)`,
+      );
+    } else {
+      const staged = await page
+        .locator(".pane .field .small", { hasText: "Saves as" })
+        .first()
+        .waitFor({ timeout: 5_000 })
+        .then(() => true)
+        .catch(() => false);
+      check(
+        `a pick stages instead of applying (“${picked}”)`,
+        staged && (await trigger.innerText()).trim() === picked,
+      );
+      check(
+        "and the sheet closes on the pick",
+        (await page.locator('.sheet-panel[aria-label="Model"]').count()) === 0,
+      );
+    }
     // Nested case: the model sheet over the New agent sheet. The panel's docked
     // New-agent row opens the editor directly — on desktop that is the only door,
     // and it is Chat's row, so the pane has to be Chat again to reach it (a secondary

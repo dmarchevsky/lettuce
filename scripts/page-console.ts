@@ -43,7 +43,9 @@ export function classifyConsoleError(text: string, url = ""): string | null {
   const one = text.replace(/\s+/g, " ").slice(0, 200);
   if (BENIGN_CONSOLE.test(one)) return null;
   if (/Failed to load resource/.test(one) && BENIGN_RESOURCE.test(url)) return null;
-  return `console: ${one}`;
+  // The browser's own line names no endpoint, and "which request failed" is the
+  // whole question, so the page's URL rides along when there is one.
+  return `console: ${one}${url && !one.includes(url) ? ` [${url}]` : ""}`;
 }
 
 /** Count a line into the page's tally, keeping at most three samples of it. */
@@ -54,6 +56,25 @@ export function record(entry: PageTrouble, line: string): void {
   if (entry.errors.length < 3) entry.errors.push(line);
 }
 
+/**
+ * Pages whose deliberate failure a section is about to raise, so the browser's own
+ * line about it is not counted. Some assertions can only be made by asking for a
+ * request that must fail — testing an endpoint that is not there, and reading the
+ * toast back — and Chromium logs every failed load whether the app handled it
+ * gracefully or not. The mute forgives that line alone: a thrown error or a
+ * `console.error` on a muted page is still a failure.
+ */
+const mutedPages = new WeakSet<Page>();
+
+export function expectNetworkNoise(page: Page): void {
+  mutedPages.add(page);
+}
+
+/** A section owes this after its deliberate failure, so the mute is not permanent. */
+export function expectClean(page: Page): void {
+  mutedPages.delete(page);
+}
+
 /** Attach the listeners. Idempotent per page; a closed page keeps its count. */
 export function watchPage(page: Page, entry: PageTrouble): void {
   page.on("pageerror", (error) =>
@@ -61,7 +82,9 @@ export function watchPage(page: Page, entry: PageTrouble): void {
   );
   page.on("console", (message) => {
     if (message.type() !== "error") return;
-    const line = classifyConsoleError(message.text(), message.location().url ?? "");
+    const text = message.text();
+    if (mutedPages.has(page) && /Failed to load resource/.test(text)) return;
+    const line = classifyConsoleError(text, message.location().url ?? "");
     if (line) record(entry, line);
   });
 }
