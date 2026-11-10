@@ -1,6 +1,6 @@
 ---
 name: delegating-to-remote-pi
-description: 'Remote pi worker mechanics — the pi_run / pi_send dispatch tools and the pi_status, pi_log, pi_result, pi_fetch, pi_ls, pi_stop, pi_exec watchers in bff/src/pi/service.ts, why a dispatched run ends your turn instead of being polled or cron-watched, the full-UUID run id the tools need while every report prints only eight characters, what completed / detached / failed / cancelled each oblige you to do, detach versus force stop and the difference in what is still running, budget-exceeded cancellations, the 25 MB pi_fetch and 200 KB pi_exec caps, and the off-state messages that mean the `pi` compose token or Settings → Remote Pi is missing. Read before handing work to the remote pi worker, or when a run looks quiet, stuck, detached or failed.'
+description: 'Remote pi worker mechanics — the pi_run / pi_send dispatch tools and the pi_status, pi_log, pi_result, pi_fetch, pi_ls, pi_stop, pi_exec watchers in bff/src/pi/service.ts, why a dispatched run ends your turn instead of being polled or cron-watched, the full-UUID run id the tools need while every report prints only eight characters, what completed / detached / failed / cancelled each oblige you to do, what stopping a run kills and what detaching the capture does not, budget-exceeded cancellations, the 25 MB pi_fetch and 200 KB pi_exec caps, and the off-state messages that mean the `pi` compose token or Settings → Remote Pi is missing. Read before handing work to the remote pi worker, or when a run looks quiet, stuck, detached or failed.'
 ---
 
 # Delegating work to the remote pi agent
@@ -129,7 +129,7 @@ a hang.
 ## If it fails at once
 
 - `The remote pi worker is off: COMPOSE_PROFILES has no `pi` token.` — this install lacks the
-  feature. `The remote pi worker is disabled (Settings → Remote pi worker).` — the worker is switched
+  feature. `The remote pi worker is disabled (Settings → Remote Pi).` — the worker is switched
   off **or its connection is incomplete**: an empty host or user, a workdir that is not an absolute
   path, or no deploy key all read as disabled (per-agent host: Agent → Tools → Remote Pi). Tell the
   user; do not configure SSH keys, hosts or settings yourself, the web UI owns them.
