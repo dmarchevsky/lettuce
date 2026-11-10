@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { UpstreamConnection } from "../upstream/connection.ts";
-import { SessionRegistry, type SessionSocket } from "./registry.ts";
+import { type RegistryOptions, SessionRegistry, type SessionSocket } from "./registry.ts";
 
 /**
  * `isScopeWatched` decides whether a push is sent or silently dropped, so these
@@ -17,6 +17,7 @@ const fakeUpstream = {
   isReady: () => true,
   send: () => {},
   isInternalRequest: () => false,
+  getGeneration: () => 1,
 } as unknown as UpstreamConnection;
 
 function setup() {
@@ -310,5 +311,247 @@ describe("broadcastPiProgress", () => {
     watchPi(id, false);
     await registry.broadcastPiProgress(() => ({ runId: "r1" }));
     expect(sent.filter((m) => m.type === "__bff_pi_progress")).toHaveLength(0);
+  });
+});
+
+/**
+ * A repeat `runtime_start` asks the app-server for a state replay it has already
+ * done for this connection, and on a slow disk that replay is seconds during
+ * which nobody else is answered. The BFF can answer it locally; these pin both
+ * the answer and every case that must still go upstream.
+ */
+describe("repeat runtime_start", () => {
+  const scope = { agent_id: "agent-1", conversation_id: "conv-1" };
+  const cwd = "/work/agent-1";
+  const start = (requestId: string, extra: Record<string, unknown> = {}) => ({
+    type: "runtime_start",
+    request_id: requestId,
+    ...scope,
+    wait_for_replay: true,
+    cwd,
+    ...extra,
+  });
+  const status = (isProcessing: boolean) =>
+    ({
+      type: "update_device_status",
+      runtime: scope,
+      device_status: { is_processing: isProcessing },
+    }) as never;
+  const queued = {
+    type: "update_queue",
+    runtime: scope,
+    queue: [{ id: "q1" }],
+  } as never;
+  const subagents = {
+    type: "update_subagent_state",
+    runtime: scope,
+    subagents: [{ subagent_id: "sub-1", name: "worker", state: "running" }],
+  } as never;
+
+  function setup(options: RegistryOptions = {}) {
+    const forwarded: Record<string, unknown>[] = [];
+    const sent: Record<string, unknown>[] = [];
+    const clock = { now: 1_000, generation: 1 };
+    const upstream = {
+      getState: () => "connected",
+      getInfo: () => null,
+      isReady: () => true,
+      send: (frame: Record<string, unknown>) => forwarded.push(frame),
+      isInternalRequest: () => false,
+      getGeneration: () => clock.generation,
+    } as unknown as UpstreamConnection;
+    const registry = new SessionRegistry(upstream, 100, () => {}, undefined, undefined, {
+      cacheNow: () => clock.now,
+      ...options,
+    });
+    const socket: SessionSocket = { send: (raw) => sent.push(JSON.parse(raw)), close: () => {} };
+    const id = registry.add(socket, { email: "someone@example.com" });
+    const ask = (command: Record<string, unknown>) =>
+      registry.handleSessionMessage(id, JSON.stringify(command));
+    /**
+     * Ask once the way the wire works: the app-server replays state, then answers.
+     * The order is the whole difficulty of this feature — a cache that only opens
+     * an entry when the answer arrives throws away every frame of that replay.
+     */
+    const startOnce = (frames: never[] = []) => {
+      ask(start("web-1"));
+      for (const frame of frames) registry.handleUpstreamFrame(frame);
+      registry.handleUpstreamFrame({
+        type: "runtime_start_response",
+        request_id: forwarded[0]?.request_id,
+        success: true,
+      } as never);
+      sent.length = 0;
+    };
+    return { registry, forwarded, sent, ask, startOnce, clock };
+  }
+
+  test("the first open goes upstream: nothing is remembered yet", () => {
+    const { ask, forwarded } = setup();
+    ask(start("web-1"));
+    expect(forwarded).toHaveLength(1);
+  });
+
+  test("the next open is answered here, with the live state the replay was for", () => {
+    const { forwarded, sent, ask, startOnce } = setup();
+    startOnce([status(true), queued]);
+
+    ask(start("web-2"));
+
+    expect(forwarded).toHaveLength(1);
+    expect(sent.map((m) => m.type)).toEqual([
+      "update_device_status",
+      "update_queue",
+      "runtime_start_response",
+    ]);
+    const reply = sent.at(-1) as Record<string, unknown>;
+    expect(reply.request_id).toBe("web-2");
+    expect(reply.success).toBe(true);
+    expect(reply.answered_from_cache).toBe(true);
+    expect(reply.runtime).toEqual(scope);
+  });
+
+  test("the newest status is the one handed over", () => {
+    const { sent, ask, startOnce } = setup();
+    startOnce([status(true), status(false)]);
+
+    ask(start("web-2"));
+
+    expect(sent.filter((m) => m.type === "update_device_status")).toHaveLength(1);
+    expect(sent[0]?.device_status).toEqual({ is_processing: false });
+  });
+
+  test("another cwd is another runtime, so it goes upstream", () => {
+    const { forwarded, ask, startOnce } = setup();
+    startOnce([status(false)]);
+    ask(start("web-2", { cwd: "/elsewhere" }));
+    expect(forwarded).toHaveLength(2);
+  });
+
+  test("a start carrying anything else is the app-server's question", () => {
+    const { forwarded, ask, startOnce } = setup();
+    startOnce([status(false)]);
+    ask(start("web-2", { mode: "acceptEdits" }));
+    expect(forwarded).toHaveLength(2);
+  });
+
+  test("a new upstream connection is a different answer", () => {
+    const { forwarded, ask, startOnce, clock } = setup();
+    startOnce([status(false)]);
+    clock.generation += 1;
+    ask(start("web-2"));
+    expect(forwarded).toHaveLength(2);
+  });
+
+  test("an upstream drop invalidates the answer even at the same generation", () => {
+    const { forwarded, ask, startOnce, registry } = setup();
+    startOnce([status(false)]);
+    registry.broadcastUpstreamState("disconnected", null);
+    registry.broadcastUpstreamState("connected", null);
+    ask(start("web-2"));
+    expect(forwarded).toHaveLength(2);
+  });
+
+  test("a start the app-server refused is never remembered as a success", () => {
+    const { forwarded, ask, registry } = setup();
+    ask(start("web-1"));
+    registry.handleUpstreamFrame({
+      type: "runtime_start_response",
+      request_id: forwarded[0]?.request_id,
+      success: false,
+      error: "No such conversation",
+    } as never);
+    registry.handleUpstreamFrame(status(false));
+
+    ask(start("web-2"));
+
+    expect(forwarded).toHaveLength(2);
+  });
+
+  test("a busy conversation that has gone silent asks the server again", () => {
+    const { forwarded, sent, ask, startOnce, clock } = setup();
+    startOnce([status(true)]);
+    clock.now += 61_000;
+
+    ask(start("web-2"));
+
+    expect(forwarded).toHaveLength(2);
+    expect(sent.map((m) => m.type)).not.toContain("runtime_start_response");
+  });
+
+  test("an idle conversation stays answerable however long it sits", () => {
+    const { forwarded, ask, startOnce, clock } = setup();
+    startOnce([status(false)]);
+    clock.now += 600_000;
+    ask(start("web-2"));
+    expect(forwarded).toHaveLength(1);
+  });
+
+  test("an approval waiting on a human goes back upstream", () => {
+    const { forwarded, ask, startOnce, registry } = setup();
+    startOnce([status(true)]);
+    // The replay is what re-delivers the card the user has to click, so while one
+    // is outstanding the app-server has to be the one asked. Flat scope fields,
+    // which is how `control_request` carries them on the wire.
+    registry.handleUpstreamFrame({
+      type: "control_request",
+      request_id: "approval-1",
+      agent_id: "agent-1",
+      conversation_id: "conv-1",
+      request: { tool_name: "bash", input: { command: "rm -r /" } },
+    } as never);
+
+    ask(start("web-2"));
+
+    expect(forwarded).toHaveLength(2);
+  });
+
+  test("a turn that has ended goes back upstream", () => {
+    const { forwarded, ask, startOnce, registry } = setup();
+    startOnce([status(true)]);
+    // Upstream evicts the idle runtime with the turn, so the next open is a cold
+    // start as far as the server is concerned and must not be answered here.
+    registry.handleUpstreamFrame({ type: "turn_finished", runtime: scope } as never);
+
+    ask(start("web-2"));
+
+    expect(forwarded).toHaveLength(2);
+  });
+
+  test("RUNTIME_START_CACHE=off puts every start back upstream", () => {
+    const { forwarded, ask, startOnce } = setup({ cacheRuntimeStart: false });
+    startOnce([status(false)]);
+    ask(start("web-2"));
+    expect(forwarded).toHaveLength(2);
+  });
+
+  test("a running subagent travels with the answer", () => {
+    const { forwarded, sent, ask, startOnce } = setup();
+    startOnce([status(true), subagents]);
+
+    ask(start("web-2"));
+
+    expect(forwarded).toHaveLength(1);
+    // A reload mid-turn would otherwise lose the child's progress and its Stop.
+    expect(sent.map((m) => m.type)).toEqual([
+      "update_device_status",
+      "update_subagent_state",
+      "runtime_start_response",
+    ]);
+  });
+
+  test("a start nobody asked to answer is still remembered", () => {
+    const { forwarded, sent, ask, registry } = setup();
+    // No `request_id`, so nothing comes back to settle it — but the replay it
+    // causes still tells this connection the runtime is up, which is all the
+    // next open needs.
+    ask({ type: "runtime_start", ...scope, wait_for_replay: true, cwd });
+    registry.handleUpstreamFrame(status(false));
+    expect(forwarded).toHaveLength(1);
+
+    ask(start("web-2"));
+
+    expect(forwarded).toHaveLength(1);
+    expect(sent.some((m) => m.type === "runtime_start_response")).toBe(true);
   });
 });

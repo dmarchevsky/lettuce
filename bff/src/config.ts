@@ -69,6 +69,14 @@ export interface BffConfig {
   /** Total frames retained for session resume across all conversations. */
   frameBufferSize: number;
   /**
+   * Whether the BFF answers a repeat `runtime_start` from what it already knows
+   * instead of forwarding it (see `session/runtime-start-cache.ts`). On unless
+   * `RUNTIME_START_CACHE=off`, which puts every conversation open back through
+   * the app-server's state replay — seconds of whole-server stall each time on
+   * a slow disk.
+   */
+  runtimeStartCache: boolean;
+  /**
    * How long SIGTERM waits for in-flight turns before closing the upstream
    * connection (see `shutdown.ts`). Must stay below the container's
    * `stop_grace_period`, or Docker's SIGKILL ends the drain first.
@@ -250,6 +258,17 @@ function required(name: string): string {
  */
 function optionalToken(name: string): string | null {
   return process.env[name]?.trim() || null;
+}
+
+/**
+ * Whether an operator meant "switch this off".
+ *
+ * A feature flag defaults on, so the only value that matters is the one that
+ * turns it off, and operators write that four ways. Anything else — including
+ * empty, which is how `docker/compose.yml` passes "use the default" — is on.
+ */
+function isOff(value: string | undefined): boolean {
+  return ["off", "0", "false", "no"].includes(value?.trim().toLowerCase() ?? "");
 }
 
 function optionalNumber(name: string, fallback: number): number {
@@ -634,6 +653,7 @@ export function loadConfig(): BffConfig {
     sessionTtlSeconds: optionalNumber("SESSION_TTL_SECONDS", 60 * 60 * 24 * 30),
     allowedUsers: readAllowedUsers(signin),
     frameBufferSize: optionalNumber("FRAME_BUFFER_SIZE", 5000),
+    runtimeStartCache: !isOff(process.env.RUNTIME_START_CACHE),
     // 9 min: under `stop_grace_period` (10m), and drain + image build under
     // the prod deploy manager's 900 s `compose up` timeout — see docker/compose.yml.
     shutdownDrainTimeoutMs: optionalNumber("SHUTDOWN_DRAIN_TIMEOUT_SECONDS", 9 * 60) * 1000,
