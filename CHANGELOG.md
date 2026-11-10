@@ -5,6 +5,11 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.40.1-letta_0.34.38] - 2026-11-09
+
+### Fixed
+- **The visual suite now fails when the page says something is wrong.** A component that re-set its own state on every paint shipped with every check green: a clipped tab bar and an off-screen sheet are things the suite can see, a render loop is not, and the only thing that said so — a browser console error — landed where nobody was reading. Every page the suite opens is watched now, so an uncaught exception or an unexpected console error fails the run, counted per page and reported with where it came from; the forgiven lines are only the harness's own noise (the icon it has no business serving, a service worker a local stack cannot register, a socket closing on teardown, a layout observer). What it still cannot see is a loop that stays silent — that needs a render budget probe, not a listener. Two smaller things from the same sweep: the agent-avatar assertion now says which field it landed on instead of timing out thirty seconds later, and five folds landed in the dev-flow playbook (prove a model exists before driving a turn; the local test password is asked once and always exported from its gitignored file, including into a stage worker's brief; scratch browser scripts live in the worktree; the release tail runs from `main` before the closing gate; feature-gated assertions read the running stack's feature flags).
+
 ## [v0.40.0-letta_0.34.38] - 2026-11-09
 
 ### Added
