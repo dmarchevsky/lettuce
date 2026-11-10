@@ -21,6 +21,13 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { type Browser, chromium, type Page } from "playwright";
 import { chromiumExecutable, requireTestPassword } from "./harness.ts";
+import {
+  expectClean,
+  expectNetworkNoise,
+  newTrouble,
+  type PageTrouble,
+  watchPage as watchPageConsole,
+} from "./page-console.ts";
 
 const ORIGIN = process.argv[2] ?? "http://127.0.0.1:8090";
 const OUT_DIR = new URL("../.ui-check/", import.meta.url).pathname;
@@ -47,6 +54,7 @@ function section(title: string): void {
  * A password field on the page is how `SIGNIN=password` shows up here.
  */
 async function signIn(page: Page): Promise<void> {
+  watchPage(page);
   await page.goto(ORIGIN, { waitUntil: "networkidle" });
   if (await page.locator('input[type="password"]').first().count()) {
     const password = requireTestPassword("ui-check");
@@ -104,6 +112,22 @@ async function readFeatures(page: Page): Promise<Record<string, boolean>> {
 
 function featureOn(features: Record<string, boolean>, name: string): boolean {
   return features[name] !== false;
+}
+
+/**
+ * What the pages said on the console, counted per page and asserted once at the
+ * end. The deciding logic lives in `page-console.ts` so it can be unit-tested
+ * without an app to drive; a page that closes keeps its count, because a crash
+ * that takes the page down is the most interesting failure there is.
+ */
+const trouble = new Map<Page, PageTrouble>();
+let pageCount = 0;
+
+function watchPage(page: Page): void {
+  if (trouble.has(page)) return;
+  const entry = newTrouble(`page ${++pageCount} (${page.viewportSize()?.width ?? "?"}px)`);
+  trouble.set(page, entry);
+  watchPageConsole(page, entry);
 }
 
 /**
@@ -167,9 +191,25 @@ async function avatarSheetChecks(page: Page, label: string): Promise<void> {
   await openTab(page, "Agent");
   await page.waitForTimeout(300);
   const field = page.locator('.field:has-text("Avatar")').first();
+  const triggers = page.locator('button:has-text("Choose…")');
   check(
     `${label}: Agent → General offers one avatar trigger`,
     (await field.locator('button:has-text("Choose…")').count()) === 1,
+    {
+      // When this fails the question is *which* Avatar field the selector landed on
+      // and whether its button is on screen, so the run says so rather than timing
+      // out on a click thirty seconds later.
+      fields: (await page.locator(".field").allInnerTexts())
+        .filter((t) => t.includes("Avatar"))
+        .map((t) => t.replace(/\s+/g, " ").slice(0, 60)),
+      triggers: await triggers.count(),
+      visibleTriggers: await triggers.filter({ visible: true }).count(),
+      sheets: await page.locator(".sheet-panel").count(),
+      tab: await page
+        .locator(".section-tabs button.active")
+        .innerText()
+        .catch(() => "?"),
+    },
   );
   // The tint row left the form when the sheet grew a colour of its own; a second
   // colour control would be the split this feature exists to remove.
@@ -556,6 +596,10 @@ const browser = await chromium.launch({
   // Required inside containers and unprivileged environments.
   args: ["--no-sandbox"],
 });
+// Every page this browser produces, however it arrives — a section's own newPage,
+// a target="_blank" link the app renders — is watched, so coverage is not a
+// convention a future section can forget.
+browser.on("page", watchPage);
 
 try {
   // ── Phone ────────────────────────────────────────────────────────────────
@@ -3174,10 +3218,17 @@ try {
     await addSheet.locator('input[placeholder^="http://"]').fill("http://127.0.0.1:9/v1");
     check("a URL makes the test available", await testButton.isEnabled());
     // Nothing listens on port 9, so the answer is the endpoint's refusal — and it
-    // arrives as a toast over the sheet, not as a line inside the form.
-    await testButton.click();
+    // arrives as a toast over the sheet, not as a line inside the form. The suite is
+    // asking for that failure on purpose, so the browser's own line about that one
+    // endpoint is forgiven for the length of the request and picked back up after.
+    expectNetworkNoise(page, /\/api\/providers\/models/);
     const toast = page.locator(".toast");
-    await toast.waitFor({ timeout: 20_000 });
+    try {
+      await testButton.click();
+      await toast.waitFor({ timeout: 20_000 });
+    } finally {
+      expectClean(page);
+    }
     check(
       "a failed test reports itself in a toast",
       (await toast.innerText()).trim().length > 5 &&
@@ -4176,22 +4227,21 @@ try {
         break;
       }
     }
+    // A stack with one model has no second row to pick, so the staging contract has
+    // nothing to act on — and leaving the sheet open here would block every later
+    // click, which is how one thin stack once blacked out the back half of the suite.
     if (picked === "") {
-      // Nothing to pick: this stack's provider lists one model, and it is the one in
-      // force, so there is no staging to see. Said out loud rather than failed — the
-      // pick belongs to whatever the running stack actually serves. But a sheet that
-      // listed NO model is a bug, not a thin stack, so that much is still asserted,
-      // and the way out of a sheet nobody clicked is asserted too.
-      const listed = await rows.count();
-      check("the model sheet lists a model at all", listed > 1, { listed });
+      check("the model sheet lists rows to pick from", (await rows.count()) > 0, {
+        rows: await rows.count(),
+        "in force": before,
+      });
       await page.keyboard.press("Escape");
       await page.waitForTimeout(300);
       check(
         "and Escape closes the sheet when there is nothing to stage",
         (await page.locator('.sheet-panel[aria-label="Model"]').count()) === 0,
       );
-      console.log(`  SKIP  staging a model pick (the sheet lists only “${before}”)`);
-      console.log("  SKIP  and the sheet closing on the pick");
+      console.log(`  SKIP  a staged model pick (nothing to pick but “${before}”)`);
     } else {
       const staged = await page
         .locator(".pane .field .small", { hasText: "Saves as" })
@@ -4264,6 +4314,19 @@ try {
   }
 } finally {
   await browser.close();
+}
+
+// Every page's console, checked once at the end so a loop that only shows up in a
+// later pane is still caught, and so the verdict does not depend on which section
+// happened to leave its page open.
+{
+  const noisy = [...trouble.values()].filter((t) => t.fatal > 0);
+  const total = noisy.reduce((sum, t) => sum + t.fatal, 0);
+  check(
+    `no page logged a console error or threw (${total} seen)`,
+    noisy.length === 0,
+    noisy.map((t) => `${t.label} x${t.fatal}: ${t.errors.join(" | ")}`),
+  );
 }
 
 console.log(
