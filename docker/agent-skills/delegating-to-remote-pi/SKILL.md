@@ -1,6 +1,6 @@
 ---
 name: delegating-to-remote-pi
-description: Load this before handing work to the Remote Pi worker with pi_run or pi_send — a pi coding agent on another machine, reached over SSH, with its own shell, files, extensions and git credentials. It says how to write a prompt that stands alone, why you end your turn instead of polling or scheduling a cron, what each terminal state (completed, detached, failed, cancelled) obliges you to do, how to fetch what the run produced, and what to do when the worker is off or this agent may not use it.
+description: Load this before handing work to the Remote Pi worker with pi_run or pi_send — a pi coding agent on another machine, reached over SSH, with its own shell, files, extensions and git credentials. It says how to write a prompt that stands alone, why you end your turn instead of polling or scheduling a cron, what each terminal state (completed, detached, failed, cancelled) obliges you to do, what stopping a run kills and what merely closing the capture does not, how to fetch what the run produced, and what to do when the worker is off or this agent may not use it.
 ---
 
 # Delegating work to the Remote Pi worker
@@ -57,8 +57,10 @@ are for when the user asks "how far along is it?". They are not for waiting.
   also lands it in your own workspace (`pi/<run>/<name>`) — do that for anything you must read or edit.
   `pi_ls {run, path?}` lists the workdir (the listing is cut at 8 KB, so list a subfolder, not a huge
   root). Either tool also takes `session` instead of `run`.
-- `pi_stop {run, force?}` — by default it only stops watching and **the remote keeps running**; with
-  `force: true` the remote process is killed too. Say which you used.
+- `pi_stop {run}` — **kills the pi process on the worker** and records the run `cancelled`; the session
+  stays resumable either way. It refuses when no remote pid was recorded. `pi_stop {run, detach: true}`
+  only closes the capture — the remote is not killed, but it dies writing to the stream that just
+  closed, so detaching is *not* a way to let work finish unwatched. Say which you did.
 - `pi_exec {command, timeout_seconds?}` — one raw command in its workdir for the `git log` / `cat` jobs
   that need no agent turn. The human approves every call; a minute is the ceiling and only ~100 KB of
   output comes back, so longer work belongs in a run.
@@ -68,23 +70,25 @@ are for when the user asks "how far along is it?". They are not for waiting.
 | State | What it means | What you do |
 | --- | --- | --- |
 | `completed` | it finished its turn | Read `last said`, or `pi_result` for all of it; `pi_fetch` the files. |
-| `detached` | capturing stopped (stopped, ssh lost, server restarted) | **Do not repeat the work blind** — the remote may be alive and still editing. Check `pi_status` and `pi_log`, then the remote's real state (`pi_exec` for `git status`, or a short `pi_send` asking for it), and continue the **same session**. |
-| `cancelled` | force-stopped, or a runtime/event budget was hit | The server tried to kill it; a failed kill is not proof it died, so check the remote before repeating anything. |
-| `failed` | nothing was captured — the channel never came up | Pass on the `error:` text. There is no session to resume, so fix the cause and dispatch again. |
+| `detached` | the capture closed: `detach: true`, the ssh died, or the server restarted | **Do not repeat the work blind.** A detached run survives only briefly once its stream closes, so it may have edited files in that window. Read `error:` to see which case it was, check `pi_log`, then the remote's real state (`pi_exec` for `git status`, or a short `pi_send` asking for it), and continue the **same session**. |
+| `cancelled` | stopped with `pi_stop`, or a runtime/event budget was hit (`error: budget exceeded …`) | It was killed; a best-effort kill is not proof it died, so check the remote before repeating anything. |
+| `failed` | pi exited non-zero (`error: pi exited 137`, plus what stderr said), or nothing was captured at all | Pass on the `error:` text — there is a reason there now, so do not invent one. With a session id you can `pi_send` to pick up where it got; without one, fix the cause and dispatch again. |
 
 Report what the `error:` line and exit code say rather than inventing a cause, and do not chop the work
 into many tiny "is it still alive?" runs because one went quiet.
 
 ## A run that looks stuck
 
-Silence is normal — a build, a test suite, a slow model. `quiet 4m — no output, ssh still alive` means
-the process is alive and has printed nothing; it is not a hang. Wait for the report unless the user
-asks you to stop it.
+Silence is normal — a build, a test suite, a slow model. `quiet 4m — nothing written, ssh alive`
+followed by `remote pi pid 4123 is running (S 12:03 9.1)` is the worker itself confirming the process
+is there. Silence is not a hang. Wait for the report unless the user asks you to stop it; `pi_stop`
+then really stops it.
 
 ## If it cannot start
 
-- `The remote pi worker is disabled (…)` means it is switched off or not set up — **Settings → Remote
-  Pi** owns the host, the folder and the key. Tell the user; never configure ssh, hosts or keys yourself.
+- `The remote pi worker is disabled (Settings → Remote Pi).` means it is switched off **or half
+  configured** — an empty host or user, a folder that is not an absolute path, or no key all read that
+  way. **Settings → Remote Pi** owns all of it. Tell the user; never configure ssh, hosts or keys yourself.
 - `The run failed to start: …` is usually the connection (host key, refused key, unreachable host).
   Pass the text on; the **Check host** button in Settings → Remote Pi diagnoses it.
 - If the `pi_*` tools are not in your tool list at all, this agent is not allowed to use them
