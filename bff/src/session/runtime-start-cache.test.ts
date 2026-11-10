@@ -20,10 +20,11 @@ const START = {
 
 const scope = startScopeOf(START, scopeKeyOf);
 const SCOPE = scopeKeyOf("agent-1", "conv-1");
+const CWD = "/work/agent-1";
 
 describe("startScopeOf", () => {
   test("a plain open is answerable, at its cwd", () => {
-    expect(scope).toEqual({ scopeKey: SCOPE, cwd: "/work/agent-1" });
+    expect(scope).toEqual({ scopeKey: SCOPE, cwd: CWD });
   });
 
   test("only a start is a start", () => {
@@ -62,7 +63,7 @@ describe("startScopeOf", () => {
   });
 });
 
-/** A clock the test turns, because staleness is about a minute of silence. */
+/** A clock the test turns, because a busy claim is only good for a minute. */
 function clock(start = 1_000) {
   let now = start;
   return { now: () => now, advance: (ms: number) => (now += ms) };
@@ -83,92 +84,155 @@ const queued = {
   runtime: { agent_id: "agent-1", conversation_id: "conv-1" },
   queue: [{ id: "q1" }],
 } as never;
+const loopBusy = {
+  type: "update_loop_status",
+  runtime: { agent_id: "agent-1", conversation_id: "conv-1" },
+  loop_status: { status: "RUNNING" },
+} as never;
+const loopIdle = {
+  type: "update_loop_status",
+  runtime: { agent_id: "agent-1", conversation_id: "conv-1" },
+  loop_status: { status: "WAITING_ON_INPUT" },
+} as never;
 
 describe("RuntimeStartCache", () => {
   test("an unseen conversation is not answerable", () => {
-    expect(new RuntimeStartCache().replayFor(SCOPE, "/work/agent-1", 1)).toBeNull();
+    expect(new RuntimeStartCache().replayFor(SCOPE, CWD, 1)).toBeNull();
   });
 
   test("a started runtime with nothing routed yet says nothing about live state", () => {
     const cache = new RuntimeStartCache();
-    cache.remember(SCOPE, "/work/agent-1", 1);
-    expect(cache.replayFor(SCOPE, "/work/agent-1", 1)).toBeNull();
+    cache.remember(SCOPE, CWD, 1);
+    expect(cache.replayFor(SCOPE, CWD, 1)).toBeNull();
+  });
+
+  test("frames from a start's own replay are kept before its answer", () => {
+    const cache = new RuntimeStartCache();
+    // Upstream's order: the replay is emitted, then the response resolves.
+    cache.noteFrame(SCOPE, idle, 1);
+    cache.remember(SCOPE, CWD, 1);
+    expect(cache.replayFor(SCOPE, CWD, 1)).toEqual([idle]);
+  });
+
+  test("frames from before a reconnect are not this connection's state", () => {
+    const cache = new RuntimeStartCache();
+    cache.noteFrame(SCOPE, busy, 1);
+    cache.noteFrame(SCOPE, idle, 2);
+    cache.remember(SCOPE, CWD, 2);
+    expect(cache.replayFor(SCOPE, CWD, 2)).toEqual([idle]);
+    expect(cache.replayFor(SCOPE, CWD, 1)).toBeNull();
   });
 
   test("a remembered start replays the newest live state it has", () => {
     const cache = new RuntimeStartCache();
-    cache.remember(SCOPE, "/work/agent-1", 1);
-    cache.noteFrame(SCOPE, busy);
-    cache.noteFrame(SCOPE, queued);
-    expect(cache.replayFor(SCOPE, "/work/agent-1", 1)).toEqual([busy, queued]);
+    cache.remember(SCOPE, CWD, 1);
+    cache.noteFrame(SCOPE, busy, 1);
+    cache.noteFrame(SCOPE, queued, 1);
+    expect(cache.replayFor(SCOPE, CWD, 1)).toEqual([busy, queued]);
   });
 
   test("the newest frame replaces the one before it", () => {
     const cache = new RuntimeStartCache();
-    cache.remember(SCOPE, "/work/agent-1", 1);
-    cache.noteFrame(SCOPE, busy);
-    cache.noteFrame(SCOPE, idle);
-    expect(cache.replayFor(SCOPE, "/work/agent-1", 1)).toEqual([idle]);
+    cache.remember(SCOPE, CWD, 1);
+    cache.noteFrame(SCOPE, busy, 1);
+    cache.noteFrame(SCOPE, idle, 1);
+    expect(cache.replayFor(SCOPE, CWD, 1)).toEqual([idle]);
   });
 
   test("a different cwd is a different runtime", () => {
     const cache = new RuntimeStartCache();
-    cache.remember(SCOPE, "/work/agent-1", 1);
-    cache.noteFrame(SCOPE, idle);
+    cache.remember(SCOPE, CWD, 1);
+    cache.noteFrame(SCOPE, idle, 1);
     expect(cache.replayFor(SCOPE, "/elsewhere", 1)).toBeNull();
   });
 
   test("a start from another connection is not this connection's answer", () => {
     const cache = new RuntimeStartCache();
-    cache.remember(SCOPE, "/work/agent-1", 1);
-    cache.noteFrame(SCOPE, idle);
-    expect(cache.replayFor(SCOPE, "/work/agent-1", 2)).toBeNull();
+    cache.remember(SCOPE, CWD, 1);
+    cache.noteFrame(SCOPE, idle, 1);
+    expect(cache.replayFor(SCOPE, CWD, 2)).toBeNull();
   });
 
   test("an idle conversation stays answerable however long it has been quiet", () => {
     const t = clock();
     const cache = new RuntimeStartCache(t.now);
-    cache.remember(SCOPE, "/work/agent-1", 1);
-    cache.noteFrame(SCOPE, idle);
+    cache.remember(SCOPE, CWD, 1);
+    cache.noteFrame(SCOPE, idle, 1);
     t.advance(STALE_AFTER_MS * 10);
-    expect(cache.replayFor(SCOPE, "/work/agent-1", 1)).toEqual([idle]);
+    expect(cache.replayFor(SCOPE, CWD, 1)).toEqual([idle]);
   });
 
   test("a busy conversation that has gone silent is a claim, not an observation", () => {
     const t = clock();
     const cache = new RuntimeStartCache(t.now);
-    cache.remember(SCOPE, "/work/agent-1", 1);
-    cache.noteFrame(SCOPE, busy);
+    cache.remember(SCOPE, CWD, 1);
+    cache.noteFrame(SCOPE, busy, 1);
     t.advance(STALE_AFTER_MS + 1);
-    expect(cache.replayFor(SCOPE, "/work/agent-1", 1)).toBeNull();
+    expect(cache.replayFor(SCOPE, CWD, 1)).toBeNull();
     // Inside the window the frame is still what the app-server last said.
-    cache.noteFrame(SCOPE, busy);
-    expect(cache.replayFor(SCOPE, "/work/agent-1", 1)).toEqual([busy]);
+    cache.noteFrame(SCOPE, busy, 1);
+    expect(cache.replayFor(SCOPE, CWD, 1)).toEqual([busy]);
   });
 
-  test("a failed turn forgets the conversation", () => {
+  test("a loop claiming work counts as busy, not only a device status", () => {
+    const t = clock();
+    const cache = new RuntimeStartCache(t.now);
+    cache.remember(SCOPE, CWD, 1);
+    cache.noteFrame(SCOPE, idle, 1);
+    cache.noteFrame(SCOPE, loopBusy, 1);
+    expect(cache.replayFor(SCOPE, CWD, 1)).toEqual([idle, loopBusy]);
+    t.advance(STALE_AFTER_MS + 1);
+    expect(cache.replayFor(SCOPE, CWD, 1)).toBeNull();
+  });
+
+  test("a loop back at the input prompt is idle", () => {
+    const t = clock();
+    const cache = new RuntimeStartCache(t.now);
+    cache.remember(SCOPE, CWD, 1);
+    cache.noteFrame(SCOPE, loopIdle, 1);
+    t.advance(STALE_AFTER_MS * 3);
+    expect(cache.replayFor(SCOPE, CWD, 1)).toEqual([loopIdle]);
+  });
+
+  test("an approval waiting on a human makes the conversation unanswerable", () => {
     const cache = new RuntimeStartCache();
-    cache.remember(SCOPE, "/work/agent-1", 1);
-    cache.noteFrame(SCOPE, idle);
+    cache.remember(SCOPE, CWD, 1);
+    cache.noteFrame(SCOPE, busy, 1);
+    // The replay a skipped start would have re-emitted the approval card, so the
+    // answer goes back to the app-server until the next start re-remembers it.
+    cache.askApproval(SCOPE);
+    expect(cache.replayFor(SCOPE, CWD, 1)).toBeNull();
+    cache.remember(SCOPE, CWD, 1);
+    expect(cache.replayFor(SCOPE, CWD, 1)).toBeNull();
+  });
+
+  test("a turn that ended forgets the conversation", () => {
+    const cache = new RuntimeStartCache();
+    cache.remember(SCOPE, CWD, 1);
+    cache.noteFrame(SCOPE, idle, 1);
     cache.forget(SCOPE);
-    expect(cache.replayFor(SCOPE, "/work/agent-1", 1)).toBeNull();
+    expect(cache.replayFor(SCOPE, CWD, 1)).toBeNull();
   });
 
   test("a reconnect forgets every conversation: the server may have restarted", () => {
     const cache = new RuntimeStartCache();
-    cache.remember(SCOPE, "/work/agent-1", 1);
-    cache.noteFrame(SCOPE, idle);
+    cache.remember(SCOPE, CWD, 1);
+    cache.noteFrame(SCOPE, idle, 1);
     cache.clear();
     expect(cache.size).toBe(0);
   });
 
   test("only the live-state frames are kept", () => {
     const cache = new RuntimeStartCache();
-    cache.remember(SCOPE, "/work/agent-1", 1);
-    cache.noteFrame(SCOPE, {
-      type: "assistant_turn_message",
-      runtime: { agent_id: "agent-1", conversation_id: "conv-1" },
-    } as never);
-    expect(cache.replayFor(SCOPE, "/work/agent-1", 1)).toBeNull();
+    cache.remember(SCOPE, CWD, 1);
+    cache.noteFrame(
+      SCOPE,
+      {
+        type: "assistant_turn_message",
+        runtime: { agent_id: "agent-1", conversation_id: "conv-1" },
+      } as never,
+      1,
+    );
+    expect(cache.replayFor(SCOPE, CWD, 1)).toBeNull();
   });
 });

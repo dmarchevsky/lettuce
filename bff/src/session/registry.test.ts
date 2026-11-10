@@ -17,6 +17,7 @@ const fakeUpstream = {
   isReady: () => true,
   send: () => {},
   isInternalRequest: () => false,
+  getGeneration: () => 1,
 } as unknown as UpstreamConnection;
 
 function setup() {
@@ -362,15 +363,19 @@ describe("repeat runtime_start", () => {
     const id = registry.add(socket, { email: "someone@example.com" });
     const ask = (command: Record<string, unknown>) =>
       registry.handleSessionMessage(id, JSON.stringify(command));
-    /** Ask once, let the app-server say yes, then route whatever it said after. */
+    /**
+     * Ask once the way the wire works: the app-server replays state, then answers.
+     * The order is the whole difficulty of this feature — a cache that only opens
+     * an entry when the answer arrives throws away every frame of that replay.
+     */
     const startOnce = (frames: never[] = []) => {
       ask(start("web-1"));
+      for (const frame of frames) registry.handleUpstreamFrame(frame);
       registry.handleUpstreamFrame({
         type: "runtime_start_response",
         request_id: forwarded[0]?.request_id,
         success: true,
       } as never);
-      for (const frame of frames) registry.handleUpstreamFrame(frame);
       sent.length = 0;
     };
     return { registry, forwarded, sent, ask, startOnce, clock };
@@ -475,6 +480,35 @@ describe("repeat runtime_start", () => {
     clock.now += 600_000;
     ask(start("web-2"));
     expect(forwarded).toHaveLength(1);
+  });
+
+  test("an approval waiting on a human goes back upstream", () => {
+    const { forwarded, ask, startOnce, registry } = setup();
+    startOnce([status(true)]);
+    // The replay is what re-delivers the card the user has to click, so while one
+    // is outstanding the app-server has to be the one asked.
+    registry.handleUpstreamFrame({
+      type: "control_request",
+      request_id: "approval-1",
+      runtime: scope,
+      request: { tool_name: "bash", input: { command: "rm -r /" } },
+    } as never);
+
+    ask(start("web-2"));
+
+    expect(forwarded).toHaveLength(2);
+  });
+
+  test("a turn that has ended goes back upstream", () => {
+    const { forwarded, ask, startOnce, registry } = setup();
+    startOnce([status(true)]);
+    // Upstream evicts the idle runtime with the turn, so the next open is a cold
+    // start as far as the server is concerned and must not be answered here.
+    registry.handleUpstreamFrame({ type: "turn_finished", runtime: scope } as never);
+
+    ask(start("web-2"));
+
+    expect(forwarded).toHaveLength(2);
   });
 
   test("RUNTIME_START_CACHE=off puts every start back upstream", () => {

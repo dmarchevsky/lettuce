@@ -358,7 +358,18 @@ export class SessionRegistry {
       });
       // A start the cache could answer for, if it succeeds: remember what it was
       // for, so its response can say whether the conversation is now started.
+      // Remember it as started *now*, not when it is answered: upstream replays
+      // the state before it answers, so the frames of this very start's replay
+      // arrive here first and would otherwise be thrown away — which is the
+      // difference between the next open being free and the open after that one
+      // being free. A start answered with failure is forgotten again on its
+      // response; one that is never answered had nothing replayed for it.
       if (repeatStart) {
+        this.startCache.remember(
+          repeatStart.scopeKey,
+          repeatStart.cwd,
+          this.upstream.getGeneration(),
+        );
         this.pendingStarts.set(bffRequestId, repeatStart);
         while (this.pendingStarts.size > MAX_PENDING_STARTS) {
           const oldest = this.pendingStarts.keys().next();
@@ -446,13 +457,21 @@ export class SessionRegistry {
     const scopeKey = frameScopeKey(frame);
     if (scopeKey) {
       // The live-only state a replay would have re-emitted, kept per conversation
-      // so a repeat start can be answered here. A turn that ended in an error is
-      // the one case where the honest answer is "ask the server", so the
-      // conversation is forgotten rather than remembered with a bad state.
-      if (frame.type === "turn_finished" && (frame as { error?: unknown }).error) {
+      // so a repeat start can be answered here. Frames are kept before any start
+      // succeeded, because a start's own replay reaches this line before its
+      // response does.
+      if (frame.type === "turn_finished") {
+        // Upstream evicts the idle runtime at the end of every turn, and lettuce
+        // sends neither workspace sandbox nor execution settings to hold it up,
+        // so from here nothing about this conversation is known — including an
+        // approval that was still waiting on it.
         this.startCache.forget(scopeKey);
+      } else if (frame.type === "control_request") {
+        // An approval waiting on a human: the replay is what re-delivers that
+        // card, so a conversation with one outstanding is not ours to answer.
+        this.startCache.askApproval(scopeKey);
       } else {
-        this.startCache.noteFrame(scopeKey, frame);
+        this.startCache.noteFrame(scopeKey, frame, this.upstream.getGeneration());
       }
     }
     const buffered = this.buffer.append(frame, scopeKey);
@@ -516,8 +535,10 @@ export class SessionRegistry {
     const pending = this.pendingStarts.get(requestId);
     if (pending === undefined) return;
     this.pendingStarts.delete(requestId);
+    // Only an explicit refusal is a failure — the response type does not promise
+    // the field, and a missing one means nothing went wrong. The conversation is
+    // already remembered from the moment the start was forwarded.
     if (frame.success === false) this.startCache.forget(pending.scopeKey);
-    else this.startCache.remember(pending.scopeKey, pending.cwd, this.upstream.getGeneration());
   }
 
   /**
