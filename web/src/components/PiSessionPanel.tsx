@@ -426,9 +426,9 @@ export function PiSessionPanel({ runId, session }: Props) {
                 {live ? <p className="muted small">Working…</p> : null}
                 {statusOf(run) === "detached" ? (
                   <p className="muted small">
-                    Lettuce stopped capturing this run, and a pi whose stream closes dies at its
-                    writing to a stream that closed — so this one almost certainly stopped. pi_send
-                    resumes its session.
+                    Lettuce stopped capturing this run, and a pi does not survive long writing to a
+                    stream nobody reads — so this one almost certainly stopped. pi_send resumes its
+                    session.
                   </p>
                 ) : null}
                 <div

@@ -35,12 +35,12 @@ Run states everywhere: `running` `completed` `detached` `failed` `cancelled`.
 | --- | --- |
 | `pi_run {prompt, model?}` | Starts a **fresh session** on this agent's host and workdir. Returns immediately with the run id, the session id, `user@host` and the workdir. `model` overrides the remote pi's own default. Needs the human's approval. |
 | `pi_send {session, prompt}` | Continues an existing session, so the remote keeps its context. Needs approval. A send onto a session with a **live** run queues behind it on the remote — send only after that run has been reported. |
-| `pi_status {run}` | State, session, `events N`, start and last activity. While running: `quiet Nm — no output, ssh still alive` once the stream has been silent a minute, then `now: <tool>: <input>` and `last said:`. When finished: the last assistant text. |
+| `pi_status {run}` | State, session, `events N`, start and last activity. While running: once the stream has been silent a minute, `quiet Nm — nothing written, ssh alive` plus what the worker said when asked (`remote pi pid N is running (S 12:03 9.1)`, or that it is gone), then `now: <tool>: <input>` and `last said:`. When finished: the last assistant text. |
 | `pi_log {run, tail?}` | Tail of the captured stream, formatted (`→ Bash {…}`, `← …`, `assistant: …`). Default 40 records, max 200. Read from the BFF's own capture — no ssh, cheap. |
 | `pi_result {run, transcript?}` | The final assistant message, read back over the last 1 MB of the capture (30 000-char cap); `transcript: true` returns the whole run with each step's command input/output shortened (60 000-char cap). |
 | `pi_fetch {run\|session, path, save?}` | One file the run produced, max **25 MB**, confined to the configured workdir. Gives a link for the human; `save` also writes it into **your** workspace at `./pi/<run8>/<name>` — do that for anything you must read or edit. |
 | `pi_ls {run\|session, path?}` | Listing inside the workdir (default `.`); the remote truncates it silently at 8 KB, so list a subdirectory rather than a huge root. |
-| `pi_stop {run, force?}` | Default is **detach**: Lettuce stops capturing, the remote pi **keeps running** and stays resumable. `force: true` kills the remote process (recorded `cancelled`) and refuses when the remote pid was never seen. |
+| `pi_stop {run, detach?}` | Default **stops the run**: a second ssh kills the pi process on the worker and the run is recorded `cancelled`; the session stays resumable. Refuses when the remote pid was never seen. `{detach: true}` only closes Lettuce's capture — the remote is not killed, and it does not long survive a stream nobody reads, so this is not a way to let work finish unwatched. (`force: true` is an older name for the default.) |
 | `pi_exec {command, timeout_seconds?}` | One raw shell command in the remote workdir, for the `git log` / `mv` / `cat` ops that do not need an agent turn. **Asks the human every call**; 30 s default, clamped 5–120; the capture caps at 200 KB and only the first 100 KB of stdout is shown. |
 
 `pi_wait` is retired: it is no longer offered, and a legacy call returns the status at once with the
@@ -103,9 +103,9 @@ That message starts your next turn. So after `pi_run` / `pi_send`:
 | State | Meaning | What you do |
 | --- | --- | --- |
 | `completed` | pi finished its turn | Read `last said`; `pi_result {run}` for the full message, `transcript: true` for the whole run; `pi_fetch` for files. |
-| `failed` | **nothing was captured** — the channel never came up, or ssh died before pi printed a line | Read `error:` and pass it on. There is no session id to resume, so fix the cause and dispatch again. A pi that produced output and then died is `detached`, not this. |
-| `detached` | Lettuce stopped capturing it (stopped, ssh lost, BFF restarted, or the remote died) | **Do not re-run the work blind** — the remote may be alive and still editing. Check `pi_status` and `pi_log`, then the real state of the remote (`pi_exec` for `git status`, or a short `pi_send` asking for it). Resume the **same session**. |
-| `cancelled` | force-stopped, or `error: budget exceeded (20 min runtime)` | The BFF tried to kill the remote process; a best-effort kill is not proof it died, so check the remote as above before repeating anything. |
+| `failed` | pi exited non-zero (the run records its own code, e.g. `pi exited 137` plus what stderr said), or **nothing was captured** and the channel never came up | Read `error:` and pass it on — there is a reason there now, so do not invent one. With a session id you can `pi_send` to resume what got that far; without one, fix the cause and dispatch again. |
+| `detached` | Lettuce stopped capturing it: `{detach: true}`, the ssh died, or the BFF restarted | **Do not re-run the work blind.** A detached pi survives only briefly after the stream closes, so it may have edited files in that window. Read `error:` to see which case it was, check `pi_log`, then the real state of the remote (`pi_exec` for `git status`, or a short `pi_send` asking for it). Resume the **same session**. |
+| `cancelled` | stopped with `pi_stop`, or `error: budget exceeded (20 min runtime)` | The BFF killed the remote process; a best-effort kill is not proof it died, so check the remote as above before repeating anything. |
 
 Do not invent a cause. "The SSH channel drops after N minutes" is a theory, not a finding — report
 what the `error:` line and the exit code say. If a pattern appears, tell the user and let them look;
@@ -118,11 +118,12 @@ error mid-work.
 ## A run that looks stuck
 
 Long silences are normal — a build, a test suite, a slow model, a linter extension on the remote.
-`quiet Nm — no output, ssh still alive` means the process is alive and has printed nothing; it is not
-a hang.
+`quiet Nm — nothing written, ssh alive` followed by `remote pi pid N is running (S 12:03 9.1)` is
+the worker itself saying the process is there. Silence is not a hang.
 
-- Wait for the report. If the user wants it stopped, `pi_stop {run}` only stops watching (the remote
-  may keep going) and `pi_stop {run, force: true}` kills the remote pi too — say which you used.
+- Wait for the report. If the user wants it stopped, `pi_stop {run}` kills the remote pi and
+  records `cancelled` — say that you did it. `pi_stop {run, detach: true}` only closes the
+  capture, which is almost never what "stop" was meant to mean.
 - Never start a second run of the **same work** while one is live, and never duplicate a detached
   one before checking what it already changed. Different work on a different session is fine.
 

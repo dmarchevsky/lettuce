@@ -555,6 +555,18 @@ function withDefaults(meta: PiRunMeta): PiRunMeta {
   return meta;
 }
 
+/**
+ * One short clause out of an ssh stderr tail, for a `meta.error` that a model
+ * reads in a conversation and a person reads on a card. The tail is kept whole
+ * in memory precisely so the last lines — the ones that name the reason — can be
+ * quoted here; a 2 KB dump of `ssh` chatter in a transcript helps nobody.
+ */
+function brief(text: string): string {
+  const flat = text.trim().replace(/\s+/g, " ");
+  if (!flat) return "";
+  return flat.length > 200 ? `: …${flat.slice(-197)}` : `: ${flat}`;
+}
+
 export class PiRunner {
   private readonly children = new Map<string, PiProcess>();
   /** Live runs by id — the in-process truth behind the on-disk meta. */
@@ -586,7 +598,9 @@ export class PiRunner {
         ...meta,
         state: "detached",
         endedAt: meta.endedAt ?? this.now().toISOString(),
-        error: "capture ended when the BFF restarted; the remote run may have continued",
+        error:
+          "the BFF restarted, so its capture of this run ended; the remote pi did not survive " +
+          "writing to a stream nobody was reading",
       };
       await this.store.update(orphan);
       // A run that ends in front of us gets its verdict from the exit hook; an
@@ -743,8 +757,10 @@ export class PiRunner {
           }
         }
         if (meta.remoteExit === null) {
-          const m = /lettuce-remote-exit (\d+)/.exec(stderrTail);
-          if (m) meta.remoteExit = Number(m[1]);
+          // The last marker wins: a worker that somehow produced two (a retried
+          // login shell, say) reported the second one as its own verdict.
+          const all = stderrTail.matchAll(/lettuce-remote-exit (\d+)/g);
+          for (const m of all) meta.remoteExit = Number(m[1]);
         }
       },
     );
@@ -767,7 +783,9 @@ export class PiRunner {
       meta.exitCode = code;
       meta.endedAt = this.now().toISOString();
       const askedToStop = this.stopRequested.delete(meta.runId);
-      const stderrNote = stderrTail.trim() ? `: ${stderrTail.trim()}` : "";
+      // The stderr tail is capped because it lands in a conversation and on a
+      // card, not in a log file: the reason, not the dump.
+      const stderrNote = brief(stderrTail);
       // A clean ssh exit IS the finish line: pi exits when its prompts are done,
       // so a zero with a captured stream is a finished run whether or not the
       // stream carried `agent_settled`. Making that one upstream event the only
@@ -775,6 +793,9 @@ export class PiRunner {
       // "never finished" — and a run nobody reports is exactly what taught agents
       // to poll. `settled` stays on the meta as the separate fact it is.
       if (code === 0 && meta.eventCount > 0) meta.state = "completed";
+      // `settled` outranks a late non-zero exit on purpose: pi said it was done,
+      // and what happens to a process after it finishes its turn is not the
+      // run's failure. The code still lands in `exitCode`/`remoteExit`.
       else if (meta.settled) meta.state = "completed";
       else if (meta.remoteExit !== null && meta.remoteExit !== 0) {
         // The wrapper saw pi leave, so this is the remote's own verdict and not
@@ -784,12 +805,14 @@ export class PiRunner {
         // network. `137` plus the shell's `Killed` is not the network.
         meta.state = "failed";
         meta.error = `pi exited ${meta.remoteExit}${stderrNote}`;
+      } else if (askedToStop) {
+        // Asked for before anything was captured still counts as our choice, not
+        // the remote's failure.
+        meta.state = "detached";
+        meta.error = "capture stopped on request; the remote pi dies writing to the closed stream";
       } else if (meta.eventCount === 0) {
         meta.state = "failed";
         meta.error = stderrTail.trim() || `ssh exited ${code}`;
-      } else if (askedToStop) {
-        meta.state = "detached";
-        meta.error = "capture stopped on request; the remote pi dies writing to the closed stream";
       } else {
         // No marker: pi never got to report how it ended, so the only honest
         // statement is that the pipe went away — the connection or ssh died.

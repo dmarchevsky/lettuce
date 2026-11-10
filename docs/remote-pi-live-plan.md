@@ -68,12 +68,14 @@ A4. **`pi_wait {run, timeout_seconds}`** (new tool, cap 120 s, default 60) — *
     answers change to: `… pi_wait {run} blocks until it settles; pi_status shows progress.`
     `approval: "auto"`.
 
-A5. **Real cancel.** The remote command becomes `… pi … & rp=$!; echo "lettuce-remote-pid $rp"
-    >&2; wait $rp`. The runner parses `lettuce-remote-pid <n>` off stderr into
-    `meta.remotePid`. `pi_stop {run, force?: true}`: with force, a second ssh runs
-    `kill <rp>` and the run records a new terminal state **`cancelled`** (add to
-    `PiRunState`, all readers stay lenient with unknown strings). Detach stays the default and
-    keeps its honest wording. Guard against killing pid 0/negatives (validate digits).
+A5. **Real cancel.** The remote command prints `lettuce-remote-pid <n>` on stderr (today from
+    the inner shell that `exec`s pi, not the `& rp=$!; wait $rp` form sketched here — that form
+    lost stdin) and the runner parses it into `meta.remotePid`. `pi_stop {run, detach?: true}`:
+    by default a second ssh runs `kill <rp>` and the run records the terminal state
+    **`cancelled`** (in `PiRunState`; readers stay lenient with unknown strings). `{detach: true}`
+    keeps the capture-only behaviour. Guard against killing pid 0/negatives (validate digits).
+    *(Later: detach was the default at launch and stopped being so once remeasuring showed a
+    detached pi does not survive the closed stream anyway — `docs/remote-pi-plan.md` § 3.4.)*
 
 A6. **Web-push on settle** (`bff/src/push/`). The runner already knows the exact settle
     moment; on `completed` / `failed` / `cancelled` (not `detached`) fire a web-push:

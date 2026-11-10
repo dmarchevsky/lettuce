@@ -281,8 +281,9 @@ export function registerPiRoutes<Env extends RouteEnv>(app: Hono<Env>, deps: PiR
       detach?: unknown;
       force?: unknown;
     } | null;
-    // `force` is the older name for the default; only `detach: true` detaches.
-    const detach = body?.detach === true && body?.force !== true;
+    // `force` is an older name for the default. `detach: true` is the only way to
+    // detach and it wins when both arrive — the same rule the pi_stop tool applies.
+    const detach = body?.detach === true;
     const answer = await piService.stopRun(runId, detach);
     return c.json(answer, answer.isError ? 409 : 200);
   });

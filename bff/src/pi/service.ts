@@ -648,7 +648,8 @@ export class PiService {
     try {
       const files = await this.keyFiles(settings);
       this.log(
-        `Remote pi: dispatching ${kind} to ${piTarget(settings)}` +
+        `Remote pi: dispatching ${kind} agent=${callerAgentId ?? "none"} target=${piTarget(settings)}` +
+          ` model=${model ?? settings.model ?? "default"}` +
           `${session ? ` session ${session.slice(0, 8)}` : ""}`,
       );
       const meta = await this.runner.start(settings, files, {
@@ -860,6 +861,7 @@ export class PiService {
     const cached = this.livenessCache.get(meta.runId);
     if (cached && this.nowMs() - cached.at < PI_LIVENESS_TTL_MS) return cached.text;
     let text: string;
+    let cache = true;
     try {
       const settings = await this.settingsFor(meta.agentId);
       if (!piConfigured(settings))
@@ -872,17 +874,22 @@ export class PiService {
         { maxChars: 512, timeoutMs: 10_000 },
       );
       const line = stdout.trim().replace(/\s+/g, " ");
-      text =
-        code === 0 && line
-          ? `remote pi pid ${pid} is running (${line})`
-          : `remote pi pid ${pid} is gone — the run died without reporting how`;
+      // Three answers, not two. `ps` exits 1 for no such process; ssh exits 255
+      // (or the probe times out and code is null) when the worker was not
+      // reachable at all, and saying "the run died" then would be a guess dressed
+      // up as a measurement.
+      if (code === 0 && line) text = `remote pi pid ${pid} is running (${line})`;
+      else if (code === 1)
+        text = `remote pi pid ${pid} is gone — the run died without reporting how`;
+      else text = `the worker did not answer the probe about pid ${pid}`;
     } catch {
       text = "the worker did not answer the liveness probe";
+      cache = false; // a failure is not worth holding onto for the whole TTL
     }
     // Runs are finite and this only fills while something is quiet; clearing on
     // pressure is enough to keep it from growing forever.
     if (this.livenessCache.size > 200) this.livenessCache.clear();
-    this.livenessCache.set(meta.runId, { at: this.nowMs(), text });
+    if (cache) this.livenessCache.set(meta.runId, { at: this.nowMs(), text });
     return text;
   }
 

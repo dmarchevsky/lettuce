@@ -867,6 +867,22 @@ test("an argument with a space survives the two shells as one argument", () => {
   expect(r.stdout.toString()).toBe("[--tag][a b][--mode][json][--approve]");
 });
 
+test("what an operator types stays literal through three shells", () => {
+  // The nesting is the risk: a value goes single-quoted into the inner script,
+  // and the inner script sits double-quoted inside the wrapper inside the
+  // single-quoted ssh argument. A `$`, a backtick, a quote or a backslash that
+  // survives literally here is the proof the quoting layers hold — and a model
+  // name is exactly where someone types one.
+  const nasty = "mo del$HOME`ticked\"quoted'aim\\slash";
+  const cmd = buildPiRemoteCommand(
+    { ...BASE, workdir: "/tmp", pathPrepend: "", command: "printf '[%s]'" },
+    { model: nasty },
+  );
+  const r = Bun.spawnSync(["sh", "-c", cmd]);
+  const out = r.stdout.toString();
+  expect(out).toBe(`[--mode][json][--approve][--model][${nasty}]`);
+});
+
 test("the probe asks about the configured command, not the one we assumed", () => {
   const probe = buildProbeRemoteCommand({
     workdir: "",
@@ -1462,6 +1478,69 @@ test("a quiet run gets one liveness probe, and the answer is cached", async () =
   expect(second.text).toContain("remote pi pid 4711 is running");
   expect(spawned.length).toBe(afterFirst); // the second read came from the cache
   child.finish(0);
+});
+
+test("a quiet run with no ssh left says so, and does not claim liveness", async () => {
+  // The restart case: the meta still reads `running` because nothing recorded
+  // its end, and no child exists to hold the claim "ssh alive" true.
+  const { dir, service, files } = await runHarness();
+  const runId = "55555555-6666-4777-8888-999999999999";
+  await service.store.create({
+    runId,
+    kind: "run",
+    agentId: null,
+    conversationId: null,
+    session: SESSION,
+    prompt: "left running",
+    model: null,
+    target: "worker@pi.example.invalid",
+    startedAt: new Date(Date.now() - 10 * 60_000).toISOString(),
+    endedAt: null,
+    state: "running",
+    exitCode: null,
+    settled: false,
+    eventCount: 3,
+    lastEventAt: null,
+    bytesCaptured: 10,
+    remotePid: null,
+    remoteExit: null,
+    error: null,
+  });
+  const { utimes } = await import("node:fs/promises");
+  const past = new Date(Date.now() - 5 * 60_000);
+  await utimes(`${dir}/runs/${runId}.jsonl`, past, past);
+  void files;
+  const status = await service.piStatus({ run: runId });
+  expect(status.text).toContain("no longer holds the ssh");
+  expect(status.text).not.toContain("ssh alive;");
+});
+
+test("the liveness probe tells gone from unreachable", async () => {
+  // `ps` exits 1 for no such process; ssh exits 255 when the worker is not
+  // reachable at all. Saying "the run died" in the second case would be a guess.
+  for (const [code, expectText] of [
+    [1, "pid 4711 is gone"],
+    [255, "did not answer the probe"],
+  ] as const) {
+    const { dir, service, spawned, files } = await runHarness();
+    const meta = await service.runner.start(await service.load(), files, {
+      kind: "run",
+      prompt: "probe me",
+    });
+    const child = spawnedChild(spawned, 0);
+    child.emit(`{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/w"}\n`);
+    child.emitErr?.("lettuce-remote-pid 4711\n");
+    await Bun.sleep(20);
+    const { utimes } = await import("node:fs/promises");
+    const past = new Date(Date.now() - 5 * 60_000 - 1000);
+    await utimes(`${dir}/runs/${meta.runId}.jsonl`, past, past);
+    const pending = service.piStatus({ run: meta.runId });
+    const probe = await waitForSpawns(spawned, 2);
+    probe.finish(code);
+    const res = await pending;
+    expect(res.text).toContain(expectText);
+    child.finish(0);
+  }
 });
 
 test("a send onto a session with a live run is announced as queueing", async () => {
