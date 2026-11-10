@@ -198,40 +198,48 @@ export function createAppServerClient(
 }
 
 /**
- * The boot warning for a remote app-server, or `null` when there is nothing to say.
+ * The one honest sentence about a non-loopback app-server, or `null` when there
+ * is nothing to say. It fires for **every** off-host app-server, token or not,
+ * because the thing issue #95 was really about was silence: the tools that call
+ * back into the BFF over loopback, the sidecars, the agent workspaces and the
+ * coding-worker CLIs are simply absent there, and a working connection makes no
+ * noise about it. The token only authenticates this one socket.
  *
- * It fires on the shape that loses features **silently**: an app-server on another
- * host with no capability token, where the handshake is simply refused and every
- * callback the mods make into the BFF lands on the wrong loopback. A token fixes
- * only the first half, so the message names both — an operator who reads "set a
- * token" and stops there would still find web search missing and no explanation.
- *
- * A non-loopback host with a token gets no line on purpose: on a trusted LAN an
- * unauthenticated-but-private app-server is a legitimate choice, and a warning that
- * cries there too is a warning people learn to ignore.
+ * A URL we cannot parse, or one with nothing after its scheme, gets no line: the
+ * connect attempt reports those precisely, and a wrong warning next to a right
+ * error is worse than none. (`new URL("localhost:4500")` parses — scheme
+ * `localhost:`, empty hostname — so the hostname check alone is not enough.)
  */
 export function remoteAppServerNotice(
   url: string,
   authToken: string | null | undefined,
 ): string | null {
-  if (authToken) return null;
   let host: string;
   try {
-    host = new URL(url).hostname;
+    const parsed = new URL(url);
+    if (parsed.protocol !== "ws:" && parsed.protocol !== "wss:") return null;
+    host = parsed.hostname;
   } catch {
-    // Not a URL we can judge; the connect attempt itself will report the problem.
     return null;
   }
-  if (isLoopbackHostname(host)) return null;
+  if (!host || isLoopbackHostname(host)) return null;
+  const missing =
+    "the agent tools that call back into the BFF (web search, page reading, " +
+    "Google, the MCP bridge, the Codex/Claude worker policy) reach it on loopback " +
+    "only, and the search/Google sidecars, the agent workspaces and the " +
+    "coding-worker CLIs live in this stack — a remote app-server has none of them. " +
+    'See docs/CONFIGURATION.md ("Remote app-server").';
+  if (authToken) {
+    return (
+      `app-server at ${url} is on another host: this token authenticates only ` +
+      `this connection — ${missing}`
+    );
+  }
   return (
-    `app-server at ${url} is not on loopback and no token is set: ` +
-    `if it was started with --ws-auth the WebSocket is refused — set ` +
-    `LETTA_APP_SERVER_TOKEN to its capability token. Note that a token fixes only ` +
-    `this connection: the agent tools that call back into the BFF (web search, page ` +
-    `reading, Google, the MCP bridge, the Codex/Claude worker policy) reach it on ` +
-    `loopback only, and the search/Google sidecars, the agent workspaces and the ` +
-    `coding-worker CLIs live in this stack — a remote app-server has none of them. ` +
-    `See docs/CONFIGURATION.md ("Remote app-server").`
+    `app-server at ${url} is not on loopback and no token is set: an app-server ` +
+    `listening off-host requires --ws-auth capability-token, so its WebSocket ` +
+    `demands the bearer token — set LETTA_APP_SERVER_TOKEN to the contents of its ` +
+    `--ws-token-file. And a token fixes only this connection: ${missing}`
   );
 }
 

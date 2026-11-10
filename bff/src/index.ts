@@ -321,8 +321,13 @@ const upstream = new UpstreamConnection({
 // another host is refused, and even an authenticated one loses everything that
 // calls back into the BFF over loopback. Say it once here rather than let the
 // operator discover it as a silent 401 and five missing tools.
-const remoteAppServerWarning = remoteAppServerNotice(config.appServerUrl, config.appServerToken);
-if (remoteAppServerWarning) log(`WARNING: ${remoteAppServerWarning}`);
+const remoteAppServerLine = remoteAppServerNotice(config.appServerUrl, config.appServerToken);
+if (remoteAppServerLine) {
+  // No token means the socket will be refused — that is a warning. With a token
+  // the connection works and the line is the honest footnote about what is
+  // missing anyway, so it must not shout.
+  log(`${config.appServerToken ? "note:" : "WARNING:"} ${remoteAppServerLine}`);
+}
 
 const registry = new SessionRegistry(upstream, config.frameBufferSize, log);
 

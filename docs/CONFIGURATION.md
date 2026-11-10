@@ -40,7 +40,7 @@ outside Docker.
 | Variable | What it is |
 |---|---|
 | `LETTA_APP_SERVER_URL` | The app-server's WebSocket URL. Compose sets it to `ws://127.0.0.1:4500` because `bff` joins the app-server's network namespace; you set it yourself only outside Docker. |
-| `LETTA_APP_SERVER_TOKEN` | The capability token an app-server started with `--ws-auth` demands, sent as `Authorization: Bearer …` on the WebSocket upgrade. Trimmed; unset or blank means no token, which is the container's own shape (loopback, no auth) and stays the recommendation. See "Remote app-server" under "Without Docker (development)". |
+| `LETTA_APP_SERVER_TOKEN` | The capability token an app-server started with `--ws-auth capability-token` demands, sent as `Authorization: Bearer …` on the WebSocket upgrade — the trimmed contents of the `--ws-token-file` it was given. Trimmed; unset or blank means no token, which is the container's own shape (loopback, no auth) and stays the recommendation. See "Remote app-server" under "Without Docker (development)". |
 
 ## Modes and profiles
 
@@ -748,16 +748,21 @@ method).
 
 #### Remote app-server
 
-The BFF can drive an app-server on **another machine**, and when that app-server
-was started with `--ws-auth <token>` it must be told the token, or the WebSocket
-upgrade is refused and the UI stays on "app-server disconnected":
+The BFF can drive an app-server on **another machine**. A listener that is not
+loopback cannot come up without auth — upstream refuses it outright — so such an
+app-server runs with `--ws-auth capability-token` and a token file, and the BFF
+must be handed the same token (its file's trimmed contents; the app-server only
+sha256-compares the bearer) or every WebSocket upgrade is refused and the UI
+stays on "App-server offline":
 
 ```bash
-# On the app-server host — note the non-loopback listen address --ws-auth implies
+# On the app-server host — a non-loopback listener must carry auth
 LETTA_LOCAL_BACKEND_EXPERIMENTAL=true \
-  letta server --listen ws://0.0.0.0:4500 --ws-auth "$MY_TOKEN"
+  letta server --listen ws://0.0.0.0:4500 \
+    --ws-auth capability-token --ws-token-file /etc/letta/ws.token
 
 # On the BFF host
+MY_TOKEN=$(cat /etc/letta/ws.token)   # same file content, delivered out of band
 cd bff && \
   LETTA_APP_SERVER_URL=ws://app-host:4500 \
   LETTA_APP_SERVER_TOKEN="$MY_TOKEN" \
@@ -767,9 +772,11 @@ cd bff && \
 ```
 
 `LETTA_APP_SERVER_TOKEN` is trimmed, and **unset or blank means no token** — an
-empty string is refused outright by the client rather than treated as unset. If
-the URL names a non-loopback host and no token is set, the BFF logs a warning at
-boot saying so, because that is the shape that loses things quietly.
+empty string is refused outright by the client rather than treated as unset.
+Whenever the URL names a non-loopback host the BFF logs a line at boot: a warning
+when no token is set (the socket will be refused), a note when one is — because
+the reduced shape below is true either way and a healthy connection says nothing
+about it on its own.
 
 **What it does not get.** The token authenticates exactly one socket — BFF to
 app-server. Everything else in this product assumes the app-server is a container
@@ -790,9 +797,11 @@ runs on a beefier box — not a supported topology, and nothing here enforces th
 token and every message in the clear; the client only supports the header on a
 Node-style WebSocket. Put the link through a tunnel (`ssh -L 4500:localhost:4500
 app-host`, then point the BFF at `ws://127.0.0.1:4500`, which also silences the
-boot warning) or serve the app-server over TLS. Do not expose an app-server on a
-public interface with a token as the only thing on the port: there is no
-per-agent isolation inside it, and the agent in that process can run shells.
+boot warning — keep the token, since the app-server still demands it). The
+app-server itself listens `ws://` only, so "TLS" means a proxy in front of it
+speaking `wss://` to the BFF. Do not expose an app-server on a public interface
+with a token as the only thing on the port: there is no per-agent isolation
+inside it, and the agent in that process can run shells.
 
 ## Security model
 

@@ -6,7 +6,7 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 ## [Unreleased]
 
 ### Added
-- **The BFF can now drive an app-server on another machine.** Point `LETTA_APP_SERVER_URL` at it and set `LETTA_APP_SERVER_TOKEN` to the capability token it was started with (`--ws-auth`); without the token the handshake is refused, and the BFF now says so at boot instead of leaving the app quietly stuck at "app-server disconnected". A remote app-server is a reduced one whatever the token says — the agent tools that call back into the BFF, the search and Google sidecars, the agent workspaces and the coding-worker CLIs all live in this stack — and `docs/CONFIGURATION.md` ("Remote app-server") lists what is missing and why.
+- **The BFF can now drive an app-server on another machine.** Point `LETTA_APP_SERVER_URL` at it and set `LETTA_APP_SERVER_TOKEN` to the contents of the token file it was started with (`--ws-auth capability-token`); without the token the handshake is refused, and the BFF now says so at boot instead of leaving the app quietly stuck at "App-server offline". A remote app-server is a reduced one whatever the token says — the agent tools that call back into the BFF, the search and Google sidecars, the agent workspaces and the coding-worker CLIs all live in this stack — and `docs/CONFIGURATION.md` ("Remote app-server") lists what is missing and why.
 
 D
 ### Fixed

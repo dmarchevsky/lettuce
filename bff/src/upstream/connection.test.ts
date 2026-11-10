@@ -4,8 +4,8 @@ import type { WsProtocolMessage } from "@letta-ai/letta-code/app-server-protocol
 import {
   createAppServerClient,
   OWNER_SYNC_TIMEOUT_MS,
-  remoteAppServerNotice,
   RESYNC_CONCURRENCY,
+  remoteAppServerNotice,
   SWEEP_SYNC_CONCURRENCY,
   SYNC_PACING_MS,
   shouldLogConnectFailure,
@@ -513,7 +513,8 @@ test("no token means no second constructor argument at all", () => {
       authToken: unset,
       WebSocket: RecordingSocket as never,
     });
-    expect(RecordingSocket.calls[0]).toEqual(["ws://127.0.0.1:4599/ws", undefined, undefined]);
+    expect(RecordingSocket.calls[0]?.[0]).toBe("ws://127.0.0.1:4599/ws");
+    expect(RecordingSocket.calls[0]?.[1]).toBeUndefined();
   }
 });
 
@@ -535,21 +536,31 @@ test("the client seam is handed the url and the token together", () => {
   upstream.stop();
 });
 
-test("a remote app-server with no token is said out loud at boot", () => {
-  // The complaint in issue #95 was silence, not just the missing header: a refused
-  // socket plus five absent tools with nothing printed about either.
+test("a remote app-server is spoken about at boot, token or not", () => {
+  // The complaint in issue #95 was silence: a reduced deployment whose connection
+  // works says nothing about the five tool families it cannot have.
   expect(remoteAppServerNotice("ws://127.0.0.1:4500/ws", null)).toBeNull();
   expect(remoteAppServerNotice("ws://localhost:4500/ws", null)).toBeNull();
   expect(remoteAppServerNotice("ws://[::1]:4500/ws", null)).toBeNull();
-  // A token means the operator chose this; no line, so the line keeps meaning.
-  expect(remoteAppServerNotice("ws://192.0.2.5:4500/ws", "tok")).toBeNull();
+  // Nothing we can judge: the connect attempt reports these precisely. A bare
+  // `localhost:4500` parses as a scheme named "localhost" with an empty hostname,
+  // and would otherwise read as a remote host with the wrong advice.
   expect(remoteAppServerNotice("not a url", null)).toBeNull();
+  expect(remoteAppServerNotice("localhost:4500", null)).toBeNull();
+  expect(remoteAppServerNotice("http://", null)).toBeNull();
 
   const warning = remoteAppServerNotice("ws://linux-box:4500/ws", null);
   expect(warning).toContain("LETTA_APP_SERVER_TOKEN");
+  expect(warning).toContain("--ws-auth capability-token");
   // Naming the token alone would send them looking for a 401 fix only.
   expect(warning).toContain("web search");
   expect(warning).toContain("workspaces");
+
+  // A token authenticates the socket and nothing else: the working remote still
+  // hears what it is missing, phrased as a note rather than an alarm.
+  const note = remoteAppServerNotice("wss://linux-box:4500/ws", "tok");
+  expect(note).toContain("web search");
+  expect(note).not.toContain("LETTA_APP_SERVER_TOKEN");
 });
 
 test("the production client attaches to the socket's own error event", () => {
