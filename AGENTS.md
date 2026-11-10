@@ -200,7 +200,7 @@ of context until needed. Each `description` names the files and the traps; read 
 | `docker/codex/`, `bff/src/codex/`, `bff/src/claude/`, Settings → Codex / Claude Code workers | `lettuce-coding-workers` |
 | `bff/src/google/`, `docker/google-mcp/`, OAuth scopes, Settings → Google Workspace | `lettuce-google-integration` |
 | `bff/src/agents/tool-access.ts`, the policy mod, the Agent tab's Tools chip, `bff/src/pi/agent-settings.ts` | `lettuce-per-agent-tool-access` |
-| `bff/src/pi/`, the `pi_*` tools, a quiet or detached run | `delegating-to-remote-pi` |
+| `bff/src/pi/service.ts`, the `pi_*` tools, a stuck run | `delegating-to-remote-pi` |
 | `ACCESS`/`SIGNIN`, `bff/src/auth/`, the password store, Settings → Access / Sign-in | `lettuce-access-and-signin` |
 | `web/src/lib/messages.ts`, question/approval cards, `turn-errors.ts`, `turn-usage.ts`, `push/turn-watcher.ts` | `lettuce-transcript-and-streaming` |
 | LLM timeout env, agent app ports, failing subagent spawns, the agent-tools ENV in `docker/codex/Dockerfile` | `lettuce-runtime-and-ops` |

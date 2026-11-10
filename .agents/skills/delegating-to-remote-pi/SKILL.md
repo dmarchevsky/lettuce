@@ -14,6 +14,10 @@ Implementation: `bff/src/pi/service.ts` (the tools, the settle report, the caps)
 `bff/src/pi/runner.ts` (the ssh capture, the states, the budget). Design prose:
 `docs/remote-pi-plan.md`, `docs/remote-pi-live-plan.md`.
 
+**Out of scope here:** relaying a **dev-flow** checkpoint from a remote run (Approve? / Verified? /
+Release? / Finish? arriving through `pi_send`). Its own skill covers it — do not improvise a gate
+answer into a prompt.
+
 ## When to use it
 
 - Coding or ops work that belongs on that machine — its checkout, its toolchain, its docker, its
@@ -33,11 +37,11 @@ Run states everywhere: `running` `completed` `detached` `failed` `cancelled`.
 | `pi_send {session, prompt}` | Continues an existing session, so the remote keeps its context. Needs approval. A send onto a session with a **live** run queues behind it on the remote — send only after that run has been reported. |
 | `pi_status {run}` | State, session, `events N`, start and last activity. While running: `quiet Nm — no output, ssh still alive` once the stream has been silent a minute, then `now: <tool>: <input>` and `last said:`. When finished: the last assistant text. |
 | `pi_log {run, tail?}` | Tail of the captured stream, formatted (`→ Bash {…}`, `← …`, `assistant: …`). Default 40 records, max 200. Read from the BFF's own capture — no ssh, cheap. |
-| `pi_result {run, transcript?}` | The final assistant message read from the whole stream (30 000-char cap); `transcript: true` returns the whole run (60 000-char cap). |
+| `pi_result {run, transcript?}` | The final assistant message, read back over the last 1 MB of the capture (30 000-char cap); `transcript: true` returns the whole run with each step's command input/output shortened (60 000-char cap). |
 | `pi_fetch {run\|session, path, save?}` | One file the run produced, max **25 MB**, confined to the configured workdir. Gives a link for the human; `save` also writes it into **your** workspace at `./pi/<run8>/<name>` — do that for anything you must read or edit. |
-| `pi_ls {run\|session, path?}` | Listing inside the workdir (default `.`), 32 KB cap. |
+| `pi_ls {run\|session, path?}` | Listing inside the workdir (default `.`); the remote truncates it silently at 8 KB, so list a subdirectory rather than a huge root. |
 | `pi_stop {run, force?}` | Default is **detach**: Lettuce stops capturing, the remote pi **keeps running** and stays resumable. `force: true` kills the remote process (recorded `cancelled`) and refuses when the remote pid was never seen. |
-| `pi_exec {command, timeout_seconds?}` | One raw shell command in the remote workdir, for the `git log` / `mv` / `cat` ops that do not need an agent turn. **Asks the human every call**; 30 s default, clamped 5–120; output capped at 200 KB. |
+| `pi_exec {command, timeout_seconds?}` | One raw shell command in the remote workdir, for the `git log` / `mv` / `cat` ops that do not need an agent turn. **Asks the human every call**; 30 s default, clamped 5–120; the capture caps at 200 KB and only the first 100 KB of stdout is shown. |
 
 `pi_wait` is retired: it is no longer offered, and a legacy call returns the status at once with the
 instruction that made waiting unnecessary. Do not call it, and do not call `pi_status` in a loop.
@@ -49,9 +53,11 @@ relay, not to route around.
 ## Starting a run
 
 `pi_run {prompt}` starts fresh; `pi_send {session, prompt}` resumes. **Keep the full run id** — the
-tools take the whole UUID. The id printed in a report or a `pi_log` header is eight characters and
-display-only: hand that back and `pi_status` answers "No remote-pi run", `pi_fetch` refuses it.
-Recover the real id from `pi_run`'s answer, the run card in this conversation, or the Runs tab.
+tools take the whole UUID. Eight characters is not an id: a report, a `pi_log` header and the Runs
+list all print eight characters (the Runs list's is a *session* prefix), and handing one back gets
+"No remote-pi run" from `pi_status` and a refusal from `pi_fetch`. The full id comes from `pi_run`'s
+own answer — the run card links the run but never prints its id — so copy it out of the tool result
+and keep it in your reply to the user.
 
 Write the prompt so it stands alone:
 
@@ -88,6 +94,7 @@ That message starts your next turn. So after `pi_run` / `pi_send`:
 - **Do not schedule a cron, reminder or wake-up to watch a run.** The report *is* the wake-up, and a
   cron turn may land in a different conversation, leaving two threads of one job.
 - Every terminal state is reported, `detached` and `failed` included. No news is the run still going.
+  (The report needs a dispatching conversation to land in — a run with none has nowhere to report.)
 
 `pi_status` / `pi_log` are for when **the user asks** "how far along is it?". They are not for waiting.
 
@@ -96,13 +103,13 @@ That message starts your next turn. So after `pi_run` / `pi_send`:
 | State | Meaning | What you do |
 | --- | --- | --- |
 | `completed` | pi finished its turn | Read `last said`; `pi_result {run}` for the full message, `transcript: true` for the whole run; `pi_fetch` for files. |
-| `failed` | it never started, or the remote pi died | Read `error:` and pass it on. Resume with `pi_send` only once the cause is dealt with. |
+| `failed` | **nothing was captured** — the channel never came up, or ssh died before pi printed a line | Read `error:` and pass it on. There is no session id to resume, so fix the cause and dispatch again. A pi that produced output and then died is `detached`, not this. |
 | `detached` | Lettuce stopped capturing it (stopped, ssh lost, BFF restarted, or the remote died) | **Do not re-run the work blind** — the remote may be alive and still editing. Check `pi_status` and `pi_log`, then the real state of the remote (`pi_exec` for `git status`, or a short `pi_send` asking for it). Resume the **same session**. |
 | `cancelled` | force-stopped, or `error: budget exceeded (20 min runtime)` | The BFF tried to kill the remote process; a best-effort kill is not proof it died, so check the remote as above before repeating anything. |
 
 Do not invent a cause. "The SSH channel drops after N minutes" is a theory, not a finding — report
 what the `error:` line and the exit code say. If a pattern appears, tell the user and let them look;
-do not re-plan the work around it into many tiny "checkpoint" runs.
+do not re-plan the work around it into many tiny "is it still alive?" runs.
 
 The limits behind those two lines are Settings → Remote Pi values: `maxEvents` (default 200 000)
 and `maxRuntimeMinutes` (default **0** = no runtime cap). A budget hit records `cancelled`, not an
@@ -122,12 +129,13 @@ a hang.
 ## If it fails at once
 
 - `The remote pi worker is off: COMPOSE_PROFILES has no `pi` token.` — this install lacks the
-  feature. `The remote pi worker is disabled (Settings → Remote pi worker).` — the stored switch is
-  off or unset up in **Settings → Remote Pi** (per-agent host: Agent → Tools → Remote Pi). Tell the
+  feature. `The remote pi worker is disabled (Settings → Remote pi worker).` — the worker is switched
+  off **or its connection is incomplete**: an empty host or user, a workdir that is not an absolute
+  path, or no deploy key all read as disabled (per-agent host: Agent → Tools → Remote Pi). Tell the
   user; do not configure SSH keys, hosts or settings yourself, the web UI owns them.
-- `The run failed to start: …` — the run was created and its stream recorded a failure, usually ssh
-  (host key, refused key, unreachable host). `Could not start the remote-pi run: …` — the channel
-  never launched at all. Pass the text on; **Check host** in Settings → Remote Pi names which.
+- `The run failed to start: …` — the run was created and captured nothing, usually ssh (host key,
+  refused key, unreachable host). `Could not start the remote-pi run: …` — the spawn itself threw.
+  Pass the text on; **Check host** in Settings → Remote Pi names which.
 - `Run <id> is not being captured by this BFF (state: …)` — a detach was asked for a run that is
   already terminal. Nothing to stop; read the report.
 
