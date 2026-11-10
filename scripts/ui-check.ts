@@ -565,7 +565,8 @@ try {
     const box = await overflow(page);
     check("nothing is clipped off-screen", box.clipped.length === 0, box);
 
-    // The bar is equal slots — Chat, the secondary panes, Settings, Agent — and the
+    // The bar is equal slots — Chat, the secondary panes, Agent, then Settings last
+    // (the rail ends the same way, with its foot cell under the panes) — and the
     // agent's identity is not one of them: its face is in the header's corner.
     // Settings graduated to a slot of its own, `Runs` graduated the same
     // way, and `Tools` left the bar for the Agent pane's chip, because the record
@@ -585,6 +586,11 @@ try {
     check(
       "Tools is not a bar slot: it is the Agent pane's chip",
       (await page.locator('.bottombar > button:text-is("Tools")').count()) === 0,
+    );
+    check(
+      "Settings is the rightmost slot, as the rail ends with its foot cell",
+      (await page.locator(".bottombar > button").last().innerText()).trim().startsWith("Settings"),
+      (await page.locator(".bottombar > button").allInnerTexts()).map((t) => t.trim()),
     );
     check(
       "the first slot is the Chat pane, and it says which agent the pane belongs to by its face",

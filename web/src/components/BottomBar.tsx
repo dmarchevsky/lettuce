@@ -16,16 +16,18 @@ interface Props {
  * strip that used to squeeze six labels onto 390px.
  *
  * Six equal slots — Chat, Files, Tasks, Runs where a coding worker is deployed,
- * Settings, and Agent. `Runs` earns a slot of its own because a running worker is
+ * Agent, and Settings last. `Runs` earns a slot of its own because a running worker is
  * the one thing on this bar worth interrupting for; without a worker deployed the
  * bar is five slots rather than padded out to six with a filler verb. There is no
  * More: once Runs and Settings had slots the umbrella held exactly one row, and an
  * umbrella over one thing is a step with no view. The agent's own pane takes its
  * place under its own name — Tools is a chip inside that pane now, not a pane,
  * because the record behind it is keyed by `agent_id`.
- * Pressing Chat while Chat is the open pane also opens the conversation list (the
- * switcher), which is App's decision, not this bar's: the bar is panes and nothing
- * else.
+ * Settings is the LAST slot because the rail ends the same way: its foot cell is the
+ * shared-settings door, below the panes rather than among them, and the bar is the
+ * same list read sideways. Pressing Chat while Chat is the open pane also opens the
+ * conversation list (the switcher), which is App's decision, not this bar's: the bar
+ * is panes and nothing else.
  *
  * The agent's avatar is not here; it moved to the header's left corner
  * (`where-avatar` in App), because a letter the size of a full stop never told you
@@ -69,22 +71,22 @@ export function BottomBar({ tab, onSelectPane, onOpenSettings, runsEnabled, runs
 
         <button
           type="button"
-          className={tab === "Settings" ? "active" : ""}
-          aria-current={tab === "Settings" ? "page" : undefined}
-          onClick={onOpenSettings}
-        >
-          <Icon name="settings" />
-          Settings
-        </button>
-
-        <button
-          type="button"
           className={tab === "Agent" ? "active" : ""}
           aria-current={tab === "Agent" ? "page" : undefined}
           onClick={() => onSelectPane("Agent")}
         >
           <Icon name="shield" />
           Agent
+        </button>
+
+        <button
+          type="button"
+          className={tab === "Settings" ? "active" : ""}
+          aria-current={tab === "Settings" ? "page" : undefined}
+          onClick={onOpenSettings}
+        >
+          <Icon name="settings" />
+          Settings
         </button>
       </nav>
     </>

@@ -1,6 +1,6 @@
 ---
 name: lettuce-ui-conventions
-description: 'lettuce UI conventions that are ours: pin/archive lists live in the BFF; a viewport-fixed AgentMenu, also opened by a hover ⋯ on a rail agent row (.rail-agent-row, hidden folded); the desktop rail: AGENTS rows up top (its pin folds it to a 56px strip; the Settings rail never folds), panes above a foot cell (⚙ Settings / ☰ Conversations); the drawer is a pinned column or a peek from the band''s agent name; a phone bar of equal slots (Chat, Files, Tasks, Runs where a worker runs, Settings, Agent) under a header with the agent''s face, where Chat toggles the switcher from the chat pane and the bar outlives it; the band''s light opens the responding list; a non-Chat pane''s corner .pane-close; a viewer borrows the pane; the settings split (Agent, with Tools as its chip, and Settings); no native checkbox; a face is one AvatarSheet and one AgentAvatar. Read before touching NavRail, Sidebar, BottomBar, AvatarSheet, AgentAvatar, AgentToolsSection, settings-sections.ts or tabs.ts.'
+description: 'lettuce UI conventions that are ours: pin/archive lists live in the BFF; a viewport-fixed AgentMenu, also opened by a hover ⋯ on a rail agent row (.rail-agent-row, hidden folded); the desktop rail: AGENTS rows up top (its pin folds it to a 56px strip; the Settings rail never folds), panes above a foot cell (⚙ Settings / ☰ Conversations); the drawer is a pinned column or a peek from the band''s agent name; a phone bar of equal slots (Chat, Files, Tasks, Runs where a worker runs, Agent, Settings last, like the rail's foot cell) under a header with the agent''s face, where Chat toggles the switcher from the chat pane and the bar outlives it; the band''s light opens the responding list; a non-Chat pane''s corner .pane-close; a viewer borrows the pane; the settings split (Agent, with Tools as its chip, and Settings); no native checkbox; a face is one AvatarSheet and one AgentAvatar. Read before touching NavRail, Sidebar, BottomBar, AvatarSheet, AgentAvatar, AgentToolsSection, settings-sections.ts or tabs.ts.'
 ---
 
 # Agent list and sidebar UI conventions
@@ -133,7 +133,8 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   Below 900px both are `display: none` and the
   **bottom bar** (`BottomBar`) is the navigation: equal slots — Chat, Files,
   Tasks, Runs where a coding worker is deployed (the running count rides the slot),
-  Settings, and the agent's own pane — and no avatar, because
+  and the agent's own pane, with **Settings last** because the rail ends with its
+  foot cell — and no avatar, because
   a letter in a bar never said which agent it meant. Without a worker the bar is five
   slots, not six padded with a filler verb. There is **no More**: once Runs and
   Settings had slots the umbrella held one row, and an umbrella over one thing is a
