@@ -140,9 +140,10 @@ every message answers `llm_error` — `Provider is not configured: openai` — a
 fails for a reason that has nothing to do with the change. Read `GET /api/status` and `/api/model-caps`
 first. A stand-in provider stands up in one request (`POST /api/providers` with `{name, type:
 "llama-cpp", baseUrl: http://host.docker.internal:8080/v1, models:[…]}` against any OpenAI-compatible
-endpoint — with no `host.docker.internal`, the bridge-gateway address of the compose network is the host) and comes
-down with `DELETE /api/providers?prefix=…`, so leave the stack as you found it. An agent created through the
-UI is **permanent**: the protocol has no delete-agent verb.
+endpoint — with no `host.docker.internal`, the bridge-gateway address of the compose network is the host) and
+comes down with `DELETE /api/providers?prefix=…`, so leave the stack as you found it. The same symmetry
+holds for an agent a check had to create: it *can* be deleted (`agent_delete`, behind Agent → General's
+destructive row) and the rule above still applies — clean up what you made, never what you were handed.
 
 A look at the running stack never mutates operator state on its own. Move nothing under
 `$LETTA_STATE_DIR` or `/app/auth`, never claim an instance you were not handed, and keep nothing durable in
@@ -276,10 +277,12 @@ green and pushed nothing — `lettuce-pr-and-ci` says why a green Compose build 
 green pipeline is not the artifact; the registry is. (An unversioned flow tags nothing, so this gate and
 the artifact check both stand down.)
 
-**The tail runs from `main` before `flow finish`, not after it.** `flow finish` closes the feature *and
-records the release* — `flow release-done` is not the step that does it, so a checklist read in the old
-order can leave `deploy-check` unrun against a release already recorded. So: merge → tag → the post-merge
-checks below, from `main` with a clean tree → `flow release-done` → `flow finish`.
+**The tail runs from `main` before `flow finish`, not after it.** The order is merge → tag → the post-merge
+checks below, from `main` with a clean tree → `flow release-done` → `flow finish`, and the reason it is an
+order and not a preference is that `flow finish` is the last gate and it *will* record a release it finds
+unrecorded on its way to deleting the worktree. So a session that treats finish as the cleanup step can end
+with a release recorded, a worktree gone and `deploy-check` never run. `flow release-done` stays the step
+that records the tag and writes the GitHub Release; finish only catches it when that was skipped.
 
 - [ ] after the merge and from `main`: `bun run build` **first** — `deploy-check` compares the served bundle
       against this host's `web/dist`, and after a release built in a worktree that copy is stale

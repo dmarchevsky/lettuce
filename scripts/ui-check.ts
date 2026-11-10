@@ -21,6 +21,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { type Browser, chromium, type Page } from "playwright";
 import { chromiumExecutable, requireTestPassword } from "./harness.ts";
+import { newTrouble, type PageTrouble, watchPage as watchPageConsole } from "./page-console.ts";
 
 const ORIGIN = process.argv[2] ?? "http://127.0.0.1:8090";
 const OUT_DIR = new URL("../.ui-check/", import.meta.url).pathname;
@@ -108,52 +109,19 @@ function featureOn(features: Record<string, boolean>, name: string): boolean {
 }
 
 /**
- * What the pages said on the console, and whether any of it was fatal.
- *
- * A component that re-set state with a fresh empty array on every paint rendered
- * ~66k times a second with every layout assertion green: the loop is invisible to
- * geometry, and only an uncaught `Maximum update depth exceeded` said so — in the
- * browser's console, which nobody was reading. So the console is an assertion
- * surface now: an uncaught exception fails the run whatever it is, and so does a
- * `console.error` outside the allowlist below (React routes the render-loop error
- * through `console.error` as well as throwing it).
- *
- * A page may be closed and its errors stay counted: a crash that takes the page
- * down is the most interesting failure there is.
+ * What the pages said on the console, counted per page and asserted once at the
+ * end. The deciding logic lives in `page-console.ts` so it can be unit-tested
+ * without an app to drive; a page that closes keeps its count, because a crash
+ * that takes the page down is the most interesting failure there is.
  */
-type PageTrouble = { label: string; errors: string[]; fatal: number };
 const trouble = new Map<Page, PageTrouble>();
 let pageCount = 0;
 
-/**
- * Console noise that is true of a local harness, not broken about the app: the
- * headless browser fetches a `/favicon.ico` we never ship, service-worker
- * registration fails in a context that cannot serve it, a torn-down socket
- * reports its close, and Chromium complains about a layout observer rather than
- * about the component that overflowed it.
- */
-const BENIGN_CONSOLE =
-  /favicon|service worker|ResizeObserver|AbortError|WebSocket is closed|EventSource|Failed to load resource/i;
-
 function watchPage(page: Page): void {
   if (trouble.has(page)) return;
-  const label = `page ${++pageCount} (${page.viewportSize()?.width ?? "?"}px)`;
-  const entry: PageTrouble = { label, errors: [], fatal: 0 };
+  const entry = newTrouble(`page ${++pageCount} (${page.viewportSize()?.width ?? "?"}px)`);
   trouble.set(page, entry);
-  const note = (kind: string, text: string) => {
-    entry.fatal += 1;
-    // Cap what is kept: a render loop prints one line per frame and the run must
-    // still be able to finish, while the count it reports stays the true one.
-    if (entry.errors.length < 3) {
-      entry.errors.push(`${kind}: ${text.replace(/\s+/g, " ").slice(0, 200)}`);
-    }
-  };
-  page.on("pageerror", (error) => note("uncaught", error.message));
-  page.on("console", (message) => {
-    if (message.type() !== "error") return;
-    const text = message.text();
-    if (!BENIGN_CONSOLE.test(text)) note("console", text);
-  });
+  watchPageConsole(page, entry);
 }
 
 /**
@@ -225,13 +193,16 @@ async function avatarSheetChecks(page: Page, label: string): Promise<void> {
       // When this fails the question is *which* Avatar field the selector landed on
       // and whether its button is on screen, so the run says so rather than timing
       // out on a click thirty seconds later.
-      fields: (await page.locator('.field').allInnerTexts())
+      fields: (await page.locator(".field").allInnerTexts())
         .filter((t) => t.includes("Avatar"))
         .map((t) => t.replace(/\s+/g, " ").slice(0, 60)),
       triggers: await triggers.count(),
-      visibleTriggers: await triggers.filter((b) => b.isVisible()).count(),
+      visibleTriggers: await triggers.filter({ visible: true }).count(),
       sheets: await page.locator(".sheet-panel").count(),
-      tab: await page.locator(".section-tabs button.active").innerText().catch(() => "?"),
+      tab: await page
+        .locator(".section-tabs button.active")
+        .innerText()
+        .catch(() => "?"),
     },
   );
   // The tint row left the form when the sheet grew a colour of its own; a second
@@ -607,6 +578,10 @@ const browser = await chromium.launch({
   // Required inside containers and unprivileged environments.
   args: ["--no-sandbox"],
 });
+// Every page this browser produces, however it arrives — a section's own newPage,
+// a target="_blank" link the app renders — is watched, so coverage is not a
+// convention a future section can forget.
+browser.on("page", watchPage);
 
 try {
   // ── Phone ────────────────────────────────────────────────────────────────
