@@ -29,6 +29,13 @@ const BENIGN_RESOURCE = /favicon|\.ico$|manifest/i;
 /** Errors one page is allowed to produce before the run is failed; older ones are dropped. */
 export type PageTrouble = { label: string; errors: string[]; fatal: number };
 
+/** Where the page ended up, so a report says which screen misbehaved and not just which tab. */
+function where(page: Page): string {
+  const url = page.url();
+  if (!url || url === "about:blank") return "signing in";
+  return url.replace(/^https?:\/\/[^/]+/, "") || "/";
+}
+
 export function newTrouble(label: string): PageTrouble {
   return { label, errors: [], fatal: 0 };
 }
@@ -64,10 +71,16 @@ export function record(entry: PageTrouble, line: string): void {
  * gracefully or not. The mute forgives that line alone: a thrown error or a
  * `console.error` on a muted page is still a failure.
  */
-const mutedPages = new WeakSet<Page>();
+const mutedPages = new WeakMap<Page, RegExp>();
 
-export function expectNetworkNoise(page: Page): void {
-  mutedPages.add(page);
+/**
+ * Forgive failed loads whose URL matches, until `expectClean`. Pass the pattern of
+ * the endpoint you are about to break on purpose: a page-wide mute would also
+ * forgive a real BFF failure in the same window, and the refusal this suite asks
+ * for is wire-identical to one.
+ */
+export function expectNetworkNoise(page: Page, url?: RegExp): void {
+  mutedPages.set(page, url ?? /.*/);
 }
 
 /** A section owes this after its deliberate failure, so the mute is not permanent. */
@@ -78,13 +91,16 @@ export function expectClean(page: Page): void {
 /** Attach the listeners. Idempotent per page; a closed page keeps its count. */
 export function watchPage(page: Page, entry: PageTrouble): void {
   page.on("pageerror", (error) =>
-    record(entry, `uncaught: ${error.message.replace(/\s+/g, " ").slice(0, 200)}`),
+    record(entry, `uncaught: ${error.message.replace(/\s+/g, " ").slice(0, 200)} @ ${where(page)}`),
   );
   page.on("console", (message) => {
     if (message.type() !== "error") return;
     const text = message.text();
-    if (mutedPages.has(page) && /Failed to load resource/.test(text)) return;
+    const muted = mutedPages.get(page);
+    if (muted && /Failed to load resource/.test(text) && muted.test(message.location().url ?? "")) {
+      return;
+    }
     const line = classifyConsoleError(text, message.location().url ?? "");
-    if (line) record(entry, line);
+    if (line) record(entry, `${line} @ ${where(page)}`);
   });
 }

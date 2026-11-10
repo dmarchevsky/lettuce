@@ -3077,16 +3077,18 @@ try {
     );
     await addSheet.locator('input[placeholder^="http://"]').fill("http://127.0.0.1:9/v1");
     check("a URL makes the test available", await testButton.isEnabled());
-    expectNetworkNoise(page);
     // Nothing listens on port 9, so the answer is the endpoint's refusal — and it
     // arrives as a toast over the sheet, not as a line inside the form. The suite is
-    // asking for that failure on purpose, so the browser's own line about it is
-    // forgiven for the length of the request and picked back up after.
-    await testButton.click();
-    await testButton.click();
+    // asking for that failure on purpose, so the browser's own line about that one
+    // endpoint is forgiven for the length of the request and picked back up after.
+    expectNetworkNoise(page, /\/api\/providers\/models/);
     const toast = page.locator(".toast");
-    await toast.waitFor({ timeout: 20_000 });
-    expectClean(page);
+    try {
+      await testButton.click();
+      await toast.waitFor({ timeout: 20_000 });
+    } finally {
+      expectClean(page);
+    }
     check(
       "a failed test reports itself in a toast",
       (await toast.innerText()).trim().length > 5 &&
@@ -4089,11 +4091,13 @@ try {
     // nothing to act on — and leaving the sheet open here would block every later
     // click, which is how one thin stack once blacked out the back half of the suite.
     if (picked === "") {
+      check("the model sheet lists rows to pick from", (await rows.count()) > 0, {
+        rows: await rows.count(),
+        "in force": before,
+      });
       await page.keyboard.press("Escape");
       await page.waitForTimeout(300);
-      console.log(
-        `  SKIP  a staged model pick (this stack offers one model, “${before}” — nothing to pick)`,
-      );
+      console.log(`  SKIP  a staged model pick (nothing to pick but “${before}”)`);
     } else {
       const staged = await page
         .locator(".pane .field .small", { hasText: "Saves as" })

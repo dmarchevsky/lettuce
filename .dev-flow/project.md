@@ -264,8 +264,9 @@ merge = merge
 Publish only — the preparation happened above. Push the branch, open the PR from
 `.github/pull_request_template.md`, wait for `ci` green, **merge it yourself**
 (`gh pr merge <n> --merge`), `git fetch`, create the annotated tag at `main`'s tip and push it
-**by name** (`git push origin v<x>`, never `--follow-tags`), then `flow release-done`, which creates
-the GitHub Release for that tag (`release.releases = true`) with the changelog section as its notes. Nothing here deploys prod, and nothing is pushed, merged or
+**by name** (`git push origin v<x>`, never `--follow-tags`). `flow release-done` creates
+the GitHub Release for that tag (`release.releases = true`) with the changelog section as its notes — and
+the post-merge checks below run **before** it, not after it. Nothing here deploys prod, and nothing is pushed, merged or
 tagged without the operator's **Release?** for that specific change — a standing yes from an earlier
 change is not one. dev-flow refuses `gh pr merge` and tag pushes before `flow release`; after it, the
 merge guard wants the style spelled out (`gh pr merge <n> --merge`).
