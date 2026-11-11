@@ -2133,22 +2133,31 @@ try {
       rows.owner,
     );
     // A pinned agent wears a gold pushpin on the corner of its face. It is the
-    // FILLED twin at 16px because a 10px outline on a coloured disc was a smudge —
-    // and it is filled ONLY there: the column header's fold control and the
-    // switcher's row marker are verbs and stay stroked like every other icon.
-    check(
-      "a pinned agent's badge is a 16px filled pushpin, and the fold verb is not",
-      await page.evaluate(() => {
-        const badge = document.querySelector(".rail .agent-pin");
-        if (!badge) return true;
-        const r = badge.getBoundingClientRect();
-        const filled = badge.querySelector("svg")?.getAttribute("fill") === "currentColor";
-        const header = document.querySelector(".rail-agents-head .col-pin svg");
-        return (
-          Math.round(r.width) === 16 && filled && header?.getAttribute("fill") !== "currentColor"
-        );
-      }),
-    );
+    // FILLED twin at 16px because a 10px outline on a coloured disc was a smudge — and
+    // it is filled ONLY where it stands on a face: the rail's fold control, which sits
+    // on the page's own background, stays stroked like every other icon.
+    const badgeFlags = await page.request
+      .get("/api/agents/flags")
+      .then((r) => r.json() as Promise<{ pinned: string[] }>)
+      .catch(() => ({ pinned: [] as string[] }));
+    if (badgeFlags.pinned.length > 0) {
+      check(
+        "a pinned agent's badge is a 16px filled pushpin, and the fold control is not",
+        await page.evaluate(() => {
+          const badge = document.querySelector(".rail .agent-pin");
+          const header = document.querySelector(".rail-agents-head .col-pin svg");
+          if (!badge || !header) return false;
+          const r = badge.getBoundingClientRect();
+          return (
+            Math.round(r.width) === 16 &&
+            badge.querySelector("svg")?.getAttribute("fill") === "currentColor" &&
+            header.getAttribute("fill") !== "currentColor"
+          );
+        }),
+      );
+    } else {
+      console.log("  SKIP  the pinned badge (nothing is pinned)");
+    }
     // The panel belongs to Chat, and a secondary pane is not about conversations.
     const panelOn = () => page.evaluate(() => !document.querySelector(".sidebar.hidden"));
     check("the panel is on for Chat", await panelOn());
@@ -2536,15 +2545,20 @@ try {
       { wideBefore, folded },
     );
     // With the words gone the marks are the whole row — the FACES lead them:
-    // 28px faces over 24px pane glyphs in 36px rows (rail-avatar-scale).
+    // 28px faces over 24px pane glyphs in 36px rows (rail-avatar-scale). The AGENT row
+    // keeps the strip's 36 too: the face is the only thing in a folded row, so it gets
+    // the room the name used to take — an assertion on the pane row could not see that.
     const glyph = (sel: string) =>
       page.evaluate((s) => getComputedStyle(document.querySelector(`${s} .icon`)!).width, sel);
     check(
-      "the folded rail leads with 28px faces over 24px glyphs (36px rows)",
+      "the folded rail leads with 28px faces over 24px glyphs (36px rows, agents' rows too)",
       (await page.evaluate(
         () =>
           getComputedStyle(document.querySelector(".rail-agents .rail-agent .agent-avatar")!).width,
       )) === "28px" &&
+        (await page.evaluate(
+          () => getComputedStyle(document.querySelector(".rail-agents .rail-agent")!).height,
+        )) === "36px" &&
         (await glyph(".rail-panes .rail-item")) === "24px" &&
         (await glyph(".rail-new")) === "24px" &&
         (await glyph(".rail-door")) === "24px" &&

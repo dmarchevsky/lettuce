@@ -44,15 +44,17 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
 - **Navigation is two surfaces, one per width, and `web/src/lib/tabs.ts` is the pane list they
   share.** Desktop gets a `--rail-w` (184px) **rail** (`NavRail`): an `AGENTS` group up top — its
   head row carries the group word and, in the right corner, the **collapse pin** — then one
-  **face+name row per agent** (the token's face, the name taking the room, on a 32px row — the
-  one row taller than `--rail-row`, because a 28px face with its two corner marks needs the air),
+  **face+name row per agent** (the token's face, the name taking the room, on a 32px row),
   then `＋ New agent`. Each
   agent row is a `.rail-agent-row` wrapping the row button and a `.rail-agent-more` — a button cannot
   hold a button — quiet until the row is hovered or focused, opening the same `AgentMenu` a right-click
   does; the folded 56px strip has no room for it, so it hides there and right-click remains;
   the panes (Chat, Files, Tasks, Runs, Agent) ride above the foot, because "who" is the first
   question and the steady things live nearest the bottom. **Every slot is one row**
-  (`--rail-row`, 30px, glyph then word, left-aligned). The rail used to be a 56px strip of icon-only
+  (`--rail-row`, 30px, glyph then word, left-aligned) — the agent row is the ONE exception at
+  32px, because a 28px face with its two corner marks needs the air (and it takes the strip's
+  36px when folded, where the face is the only thing in the row). The rail used to be a 56px
+  strip of icon-only
   squares whose agent names lived in a *second* copy of the same list inside the panel, and that pair
   needed a mirrored height, a mirrored scrollTop and a shared hover mark to pass for one control —
   the machinery is deleted and the row language the Settings column already proved carries the whole
@@ -65,8 +67,8 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   drawer with you. The agent block fills the room above the panes and scrolls on its own: a long
   list scrolls in the block, and the panes and the door never move. **The AGENTS-row pin collapses
   the MAIN rail** to a `--rail-w-collapsed` (56px) glyph strip — words hide, the glyphs grow to 28px
-  on 36px rows (both only while folded; the faces were already 28px, so folding changes the row's
-  air and not an agent's size), `title`
+  on 36px rows, the agents' rows with them (the faces were already 28px, so folding changes the
+  row's air and not an agent's size), `title`
   carries the word, and the choice persists per device (`lettuce:rail-pin-expanded`, default
   expanded). The Settings rail is exempt: a list of words needs a column that can hold one, so the
   collapse re-applies only when a non-Settings pane is up. **The drawer's toggle is the band's agent name** (`.where`): it
