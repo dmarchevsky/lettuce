@@ -297,10 +297,12 @@ export function NavRail({
             >
               <AgentAvatar agentId={agent.id} name={agent.name} pref={agents.avatars[agent.id]}>
                 {/* Pinned is a gold pushpin on the face — the same glyph the
-                    switcher's rows already mark with, where a dot never fitted. */}
+                    switcher's rows already mark with, where a dot never fitted. It is
+                    the FILLED twin, not the stroked rail verb: this one is a status mark
+                    on a coloured disc, and a 12px outline there disappears. */}
                 {agents.pinned.has(agent.id) ? (
                   <span className="agent-pin">
-                    <Icon name="pin" />
+                    <Icon name="pin-solid" />
                   </span>
                 ) : null}
               </AgentAvatar>
