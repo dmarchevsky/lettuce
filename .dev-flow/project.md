@@ -42,7 +42,7 @@ checkpoint is pre-answered and the plugin tells you to run the remaining gates b
 still asks its own Release?**, with the derived version, the commit range and whether `app-server` is
 recreated stated back, and waits for the verb. AGENTS.md hard rule 5 is why — a yes spoken before the
 commits exist is not a yes for the tag, however it was worded, so "yolo, release as patch bump" at plan
-buys the bump's *preparation*, never the push.
+buys the bump's *preparation*, never the push. **And a yolo expires at `flow release`.** It pre-answers the checkpoints up to release, never the tag push: pushing `v<x>` is the one step that leaves this machine, so it is stated back and confirmed for that specific tag before it runs — even under a yolo, and even minutes after the yes that authorized the merge.
 
 `protect` and `forbid` name a path and its subtree; a glob works in the **last segment only**, as a
 sibling set: `protect docker/.env*` covers `.env` and every `docker/.env.bak-20261021` a variable flip
@@ -69,6 +69,10 @@ Write the plan to `plan/` **as the discussion goes**, not when it ends: pi has a
 the file, so the file is the work's memory. Pace the gates the same way: land each one's output on disk
 before moving on.
 
+A one-line `--patch` plan is not enough when the change **stands in for upstream letta-code behaviour**: name the upstream command path (`file:line`) it short-circuits in the plan line, before Approve?, so the ordering assumption is on disk and checkable before code is written — a patch flow has no plan file, so that line is the only place a wrong assumption can surface. A cache once keyed its fill on `runtime_start_response`, but upstream replays state *before* that response (`src/websocket/listener/commands/runtime-start.ts`): the design could never fill, and the cache and its tests were rewritten after implementation through a second review round.
+
+An asked-for *skill* settles its harness **before the flow starts**: `.agents/skills/` is this repo's dev harness — pi reads it in the checkout, and nothing mounts this checkout into a container, so it reaches no agent — while `docker/agent-skills/` is what ships: the bff image carries it and `bff/src/agent-skills.ts` installs it into `/root/.letta/skills` on every connect, global to every agent (Settings → Global skills). Ask which one is meant when it is ambiguous; guessing wrong once cost a whole extra unversioned flow for a skill that could never reach the app, plus a modify/delete rebase conflict when the harness copy was deleted.
+
 Anything user-visible starts with `flow start <slug> --ui`. A docs-only change (nothing under `bff/`,
 `web/` or `docker/`) still needs a flow: `flow start <slug> --patch` — and `--patch` / `--docs` are the
 operator's grant in chat, never self-selected. `flow approve` cuts the branch from
@@ -79,7 +83,7 @@ pays for with a merge and a full CI re-run. Local-only commits on `main`
 
 **A fold is not done until a repo-wide grep says so.** When a reflection names one stale string or verb,
 `git grep` the whole tree, not the file the note names: a rename that left `ponytail-review` printing in
-`scripts/verify.ts`'s epilogue cost an extra commit, and the note itself pointed nowhere near it.
+`scripts/verify.ts`'s epilogue cost an extra commit, and the note itself pointed nowhere near it. A fold also **rewrites addresses before committing**: a reflection records what it really saw — one carried a docker bridge-gateway address verbatim — and `check-prod-info` fails any tracked file holding a private IPv4, so a fold that copies a literal LAN or bridge address out of a reflection is doomed to fail its own gate. Reword it to the mechanism ("the bridge-gateway address of the compose network"), or to RFC 5737's documentation range where a literal example is the point.
 
 ## implement
 
@@ -102,6 +106,8 @@ flow, it offers only **replace** or **wait** — put both to the operator with t
 stage, commit) and never pick for them. `servedBuild` reads the `sha=` line the image bakes into
 `BUILD_INFO`; verify refuses when it is not the worktree's HEAD, which is the "still serving the previous
 bundle" failure `deploy-check` exists for, caught before the operator is asked.
+
+A **mid-flow recheck** runs against the shared stack, because there is no second stack to build: compose publishes the agents' web-app range `3000-3099` wide and only its bind address is configurable, so a hand-built parallel project — even one namespaced with `COMPOSE_PROJECT_NAME=lettuce$DEV_FLOW_SUFFIX` — dies with `port 3000 already allocated` and leaves its containers in `Created`. Route a recheck through `flow verify`, or scope it by hand to the one service that changed: `bun run build:bff` then `docker compose -f docker/compose.yml up -d --no-deps bff`. The `--no-deps` rule is not only for the release tail — a hand-run unscoped `up -d` from a worktree silently recreates `app-server` on the shared stack and kills every in-flight turn a parallel flow has open, with no drain. The playbook's own unscoped `dev` run is not the forbidden case: `flow verify` is sanctioned because it enforces port ownership, names the holder and asks **replace or wait** before anything is recreated — the rule is *never unscoped by hand*, not *never unscoped*.
 
 `bun run verify` is the whole offline half (worktree, version pins, prod-info, release hygiene, docs,
 lint, typecheck, tests, build), so no separate `build` key. The commands assume `bun` on PATH, which the
@@ -161,7 +167,7 @@ never pasted into a tracked file). **Where it is missing, ask once and write the
 (`mkdir -p .pi/local-secrets` in the main checkout, then export from the file) — the file is the point, not
 the value: an answer that stays in chat is in the session transcript forever, and a value re-typed into the
 argv of every `ui-check` / `smoke` call is a secret in the process list and in the shell history. So the
-rule is *ask once, store in the gitignored file, always export from the file*, never accept it as a message.
+rule is *ask once, store in the gitignored file, always export from the file*, never accept it as a message. When a look needs raw curl instead of the harness, sign-in is a **JSON** endpoint: `POST /auth/login` with `{"password": …}` — a `--data-urlencode` form post is refused with 400 — so load the value from the **main checkout** (`PW=$(tr -d '\n' < <main-checkout>/.pi/local-secrets/test-password.md)`) and post it as `-d "{\"password\":\"$PW\"}"` with a cookie jar; never `cat` / `head` / `od` the file in a command that prints its value, and never paste the password into argv.
 **A stage worker needs the same line in its brief**: hand a worker `bun run ui-check` or `smoke` without
 `export LETTUCE_TEST_PASSWORD=$(cat <main checkout>/.pi/local-secrets/test-password.md)` and it concludes the
 check cannot be run, so the assertions rest on the plan's claim instead of on a run. Because the stack is
@@ -174,7 +180,7 @@ command is `docker compose -f docker/compose.yml ps -a`, before anything else: c
 `depends_on: app-server: condition: service_healthy`, so a transient unhealthy `/healthz` (busy under load)
 fails the dependency and leaves `bff` in `Created` — never started — while the gate prints only "dependency
 failed to start". The operator's app is silently down. The miss is usually transient (app-server was healthy
-seconds later): say plainly that the stack is down, then re-run `flow verify`.
+seconds later): say plainly that the stack is down, then re-run `flow verify`. The same deploy has a **second failure shape: up, but serving the old build.** Compose can half-recreate `bff`, `/readyz` answers ok, and the container keeps running the previous flow's bundle under the same `lettuce-bff:<VERSION>` tag — `build:bff` retags the image, a running container never swaps. So after any failed dev, run `servedBuild` and compare it to the worktree HEAD before re-running; when the served sha is the old bundle, recovery is `docker compose -f docker/compose.yml up -d --no-deps --force-recreate bff` — a retag alone changes nothing.
 
 `smoke` and `ui-check` both stop at `LETTUCE_TEST_PASSWORD` when the stack signs in with a password
 (`scripts/harness.ts`), and an agent never stores that password: **it is not a repo file**, and exporting it
@@ -227,7 +233,7 @@ without a bump is red. The heading an entry lands under is what CI derives the b
 — otherwise the derivation answers `unknown` against a `bump:patch` label. A flow that ships no version runs `flow release --no-version` on the operator's
 word instead, **and it still owes its line**: an unversioned flow files one `## [Unreleased]` entry even
 when `lettuce-releasing` calls the change internal-only, because the next versioned release folds
-`Unreleased` under its heading and remembers what no image carries. A harness-only entry (playbook, skills,
+`Unreleased` under its heading and remembers what no image carries. No gate enforces that debt on a `bump:none` branch — `check-release-hygiene --pr` passes a docs branch with no entry and `flow release --no-version` accepts such a tree — so the line is the agent's duty, and a green hygiene run is not evidence it was written. A harness-only entry (playbook, skills,
 CI) goes under `### Changed` — the heading rule above reads only at a versioned release, where the `bump:*`
 label is what CI derives from and a harness flow carries `bump:none`. Parallel branches collide on `VERSION`
 and `CHANGELOG.md`: merge `main` in and re-derive
