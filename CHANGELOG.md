@@ -5,6 +5,14 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.42.4-letta_0.34.38] - 2026-11-11
+
+### Fixed
+- **The nightly live check no longer dies installing a browser it never uses.** A runner that lost
+  DNS mid-install reddened the check before the stack was even started; the browser is now fetched
+  only when the UI check is on, and a run that fails before the stack boots reports once, not three
+  times.
+
 ## [v0.42.3-letta_0.34.38] - 2026-11-10
 
 ### Added
