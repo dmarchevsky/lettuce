@@ -36,13 +36,13 @@ A force push needs no rule of its own: dev-flow asks the operator before any `gi
 updated by merging `main` into it — that includes a contributor's fork-PR branch, pushed to under
 maintainerCanModify with a PR comment saying so — never by rebasing it.
 
-**What a `yolo` word does, and what it still does not buy.** dev-flow takes yolo literally: every later
-checkpoint is pre-answered and the plugin tells you to run the remaining gates back to back without asking
-— Release? included. The gate will not stop you, so the rule is on the agent: **a versioned `flow release`
-still asks its own Release?**, with the derived version, the commit range and whether `app-server` is
-recreated stated back, and waits for the verb. AGENTS.md hard rule 5 is why — a yes spoken before the
-commits exist is not a yes for the tag, however it was worded, so "yolo, release as patch bump" at plan
-buys the bump's *preparation*, never the push. **And a yolo expires at `flow release`.** It pre-answers the checkpoints up to release, never the tag push: pushing `v<x>` is the one step that leaves this machine, so it is stated back and confirmed for that specific tag before it runs — even under a yolo, and even minutes after the yes that authorized the merge.
+**What a `yolo` word does.** dev-flow takes yolo literally: every later checkpoint is pre-answered and
+the plugin runs the remaining gates back to back without asking — Release?, the merge and the tag push
+included. AGENTS.md hard rule 5 is satisfied by that answer: a yolo, or a Release? answer, is the ask for
+*that flow's* tag, so the release stage pushes it without a second question. What a yolo does not buy is
+anything outside its own flow (another flow's tag, a prod deploy), and it does not cover a version that
+changed after it was given — if the derived version differs from the one stated when the yolo or
+Release? was answered, state the new one back and wait.
 
 `protect` and `forbid` name a path and its subtree; a glob works in the **last segment only**, as a
 sibling set: `protect docker/.env*` covers `.env` and every `docker/.env.bak-20261021` a variable flip
@@ -102,8 +102,9 @@ servedBuild = COMPOSE_PROJECT_NAME=lettuce$DEV_FLOW_SUFFIX docker compose -f doc
 **One stack per machine: `parallelDev = no`.** Two lettuce instances cannot run side by side here. Both
 would mount the same `$LETTA_STATE_DIR`, and `build:bff` tags its images by `VERSION`, so a second build
 retags the image the first instance runs. So when `flow verify` finds the stack deployed by another live
-flow, it offers only **replace** or **wait** — put both to the operator with the holder it names (slug,
-stage, commit) and never pick for them. `servedBuild` reads the `sha=` line the image bakes into
+flow that is still under review, it offers only **replace** or **wait** — put both to the operator with the
+holder it names (slug, stage, commit) and never pick for them. A holder already past its Verified? is
+replaced by verify itself (dev-flow releases after 0.90.1): nobody is reviewing that deploy. `servedBuild` reads the `sha=` line the image bakes into
 `BUILD_INFO`; verify refuses when it is not the worktree's HEAD, which is the "still serving the previous
 bundle" failure `deploy-check` exists for, caught before the operator is asked.
 
