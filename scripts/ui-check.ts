@@ -1947,10 +1947,11 @@ try {
         const r = face.getBoundingClientRect();
         // Same rule as the phone's corner: a face may be a letter, a glyph or an
         // uploaded picture, and a picture carries no text at all. What must never
-        // happen is an empty 22px circle beside the name.
+        // happen is an empty circle beside the name — and the circle is the ONE
+        // identity size the rail, the switcher and the band share.
         const picture = face.querySelector("img.agent-avatar-img") !== null;
         return (
-          Math.round(r.width) === 22 && (picture || (face.textContent ?? "").trim().length > 0)
+          Math.round(r.width) === 28 && (picture || (face.textContent ?? "").trim().length > 0)
         );
       }),
     );
@@ -2112,22 +2113,41 @@ try {
       };
     });
     check(
-      "the rail is --rail-w wide and every row is --rail-row tall (the foot verb aside)",
+      "the rail is --rail-w wide and every row is --rail-row tall (the agent row and the foot verb aside)",
       rows.row > 0 &&
         // A column of rows, not a strip of squares: several rows wide.
         rows.railVar > 5 * rows.row &&
         rows.rail?.w === rows.railVar &&
         rows.pane?.w === rows.railVar &&
         rows.pane?.h === rows.row &&
-        rows.face?.h === rows.row &&
+        // The agent row is the ONE row that outgrows the token: a 28px face with two
+        // corner marks needs the air. Everything else stays at `--rail-row`.
+        rows.face?.h === rows.row + 2 &&
         rows.face?.w === rows.railVar &&
         (rows.foot?.h ?? 0) > rows.row,
       rows,
     );
     check(
-      "the agent face is the small size the row can carry",
-      rows.owner !== null && rows.owner.h <= 24 && rows.owner.h >= 18,
+      "the agent face is the shared identity size, not a size of its own",
+      rows.owner !== null && rows.owner.h === 28,
       rows.owner,
+    );
+    // A pinned agent wears a gold pushpin on the corner of its face. It is the
+    // FILLED twin at 16px because a 10px outline on a coloured disc was a smudge —
+    // and it is filled ONLY there: the column header's fold control and the
+    // switcher's row marker are verbs and stay stroked like every other icon.
+    check(
+      "a pinned agent's badge is a 16px filled pushpin, and the fold verb is not",
+      await page.evaluate(() => {
+        const badge = document.querySelector(".rail .agent-pin");
+        if (!badge) return true;
+        const r = badge.getBoundingClientRect();
+        const filled = badge.querySelector("svg")?.getAttribute("fill") === "currentColor";
+        const header = document.querySelector(".rail-agents-head .col-pin svg");
+        return (
+          Math.round(r.width) === 16 && filled && header?.getAttribute("fill") !== "currentColor"
+        );
+      }),
     );
     // The panel belongs to Chat, and a secondary pane is not about conversations.
     const panelOn = () => page.evaluate(() => !document.querySelector(".sidebar.hidden"));
