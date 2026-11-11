@@ -5,8 +5,16 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.42.4-letta_0.34.38] - 2026-11-11
+
 ### Changed
 - **Nine open reflections folded into the dev playbook**, two of them into a single rule: a mid-flow recheck runs on the shared stack (a second stack cannot coexist — the published port range proves it) and by hand is always scoped, the only unscoped deploy being the one that asks before replacing; a failed deploy can leave the stack up but serving the old build, so the served build is proven before re-running; a `yolo` now expires at the release gate and the tag push always takes its own yes; the sign-in password is never printed or typed into argv, and an ad-hoc signed-in call has a written recipe; a patch plan that stands in for upstream behaviour must name the upstream path it short-circuits; a new *skill* settles dev-harness vs shipped before the flow starts; folds rewrite literal addresses before committing; and an unversioned flow still writes its changelog line, with no gate to catch a missing one.
+
+### Fixed
+- **The nightly live check no longer dies installing a browser it never uses.** A runner that lost
+  DNS mid-install reddened the check before the stack was even started; the browser is now fetched
+  only when the UI check is on, and a run that fails before the stack boots reports once, not three
+  times.
 
 ## [v0.42.3-letta_0.34.38] - 2026-11-10
 

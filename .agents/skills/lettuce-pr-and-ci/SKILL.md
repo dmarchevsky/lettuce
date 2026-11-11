@@ -124,7 +124,10 @@ the runner temp, local mode, **no compose profiles**, so no sidecars and no Code
 image), `build`, `up -d`, waits on `/readyz` — which only answers once the upstream WebSocket is
 connected, so that wait stands in for `deploy-check`'s health assertion — then tears the stack down.
 It runs on PRs, on `main`, and nightly. Measured cold cost of the whole thing: deps 3 s, Chromium
-37 s, both images built 66 s, up 6 s, readyz in seconds.
+37 s, both images built 66 s, up 6 s, readyz in seconds. The Chromium install is gated on `UI_CHECK`
+being on — it is the first step to reach Ubuntu's apt mirrors (the image builds' own apt comes later),
+and a nightly whose runner lost DNS mid-`apt` went red before compose started, for a browser the run
+would never use.
 
 **`ui-check` is behind `env.UI_CHECK: "off"` in that file, and that is a gap, not a decision to
 keep.** A CI stack boots with an empty state dir, so it has no agent, and the UI is about agents —

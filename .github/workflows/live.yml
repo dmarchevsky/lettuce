@@ -52,8 +52,14 @@ jobs:
         run: bun install --frozen-lockfile --ignore-scripts
 
       # ui-check asserts on layout, so it needs a real Chromium. --with-deps
-      # pulls the system libraries headless Chromium wants.
+      # pulls the system libraries headless Chromium wants. Gated on UI_CHECK
+      # because it is the first step to reach Ubuntu's apt mirrors, and an apt
+      # blip there is not the stack's failure: a nightly lost DNS mid-`--with-deps`
+      # and went red before compose had even started (the image builds' own apt
+      # traffic comes later, with the stack as its context), while UI_CHECK was
+      # off and the browser was never going to be used.
       - name: Install Chromium for ui-check
+        if: env.UI_CHECK == 'on'
         run: bunx playwright install --with-deps chromium
 
       # docker/.env is gitignored, so CI writes the smallest thing that boots: state
@@ -156,10 +162,13 @@ jobs:
         run: |
           echo "::notice title=ui-check skipped::A CI stack boots with no agent to drive, so layout is not verified here. Compose boot and the upstream connection are. Flip env.UI_CHECK in this file when a seed path exists (see the comment above)."
 
+      # A failure before `Write compose env` leaves no env for compose to parse,
+      # so the log step must not be a second red X reporting nothing. Teardown
+      # runs on every path and hits the same wall there.
       - name: Logs
         if: failure()
-        run: docker compose -f docker/compose.yml logs --tail=200
+        run: docker compose -f docker/compose.yml logs --tail=200 || echo "::warning::no compose stack to read logs from"
 
       - name: Teardown
         if: always()
-        run: docker compose -f docker/compose.yml down -v --remove-orphans
+        run: docker compose -f docker/compose.yml down -v --remove-orphans || echo "::warning::nothing to tear down"
