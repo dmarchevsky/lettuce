@@ -1,8 +1,13 @@
 # Remote pi worker — implementation plan
 
-Status: **plan complete — spike evidence included; awaiting operator review** (§ 6).
-This document is the deliverable of the "remote pi worker" planning goal: a validated
-plan, not an implementation. No `bff/`, `web/` or `docker/` code ships with this PR.
+> **Shipped, and historical.** Remote Pi landed in v0.7.0 and everything after it is in the
+> CHANGELOG. What still earns its keep here is the spike evidence (§ 3) and the design
+> comparison (§ 4) — they are why the integration is SSH-only, why the transcript is a
+> captured stream rather than a fetched file, and why the tools are BFF-native. The
+> milestones (§ 5) and open questions (§ 6) are a record, not a plan. Where this document
+> and the code disagree, the code is right; the two known moves are that stopping a run now
+> really ends it (v0.42.2, and the note in § 3.4) and that a run reports itself into the
+> conversation instead of being waited on (v0.37.0).
 
 ## 1. Goal and confirmed contract
 
@@ -255,7 +260,7 @@ Sub-decisions, resolved:
    `running | detached | completed | failed` from the capture process + stream tail; the
    viewer polls the captured jsonl. ssh hardening flags per § 2.4.
 
-## 5. Implementation milestones
+## 5. Implementation milestones (all shipped with v0.7.0)
 
 _Drafted against option B (re-cut only if the spike overturns the choice). Each slice is a
 PR per `AGENTS.md` workflow; the operator's container test is the merge gate on each._
@@ -288,7 +293,7 @@ Resolved during the spike and § 4: host = operator's dev machine over loopback 
 and transcripts are collected by capturing the ssh stdout in the BFF; cancellation is
 detach-only for v1.
 
-For the operator to settle before implementation:
+For the operator to settle before implementation (each line now carries its answer):
 
 - **Real distance**: loopback proved the auth/exec path, not a network hop. Should
   milestone 1 be validated against a genuinely remote host before merge?

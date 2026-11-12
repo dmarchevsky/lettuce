@@ -1,9 +1,11 @@
 # Remote Pi follow-up — per-agent settings and the Settings/Agent UI pass
 
-Plan for the branch `fix/pi-follow-up`, written before the work. The first commit on this branch
-was the prod investigation fix (`Features:` log, the Agent → Tools pi flip being dropped).
-**§ 8 records what actually shipped and where it departs from this plan** — read § 8 first, then
-§ 1–5 for the reasoning. Before-shots: `.ui-check/` (`before-pi-global-*`, `before-agent-tools-*`).
+Plan for the branch `fix/pi-follow-up`, written before the work, and **shipped with v0.7.0**
+— so it is history now, not a plan. The first commit on that branch was the prod
+investigation fix (`Features:` log, the Agent → Tools pi flip being dropped).
+**§ 8 records what actually shipped and where it departs from this plan** — read § 8 first,
+then § 1–5 for the reasoning. Where § 1–5 and § 8 disagree, § 8 is right, and the code is
+right over both.
 
 ## 1. What is being asked, and the decisions inside it
 
@@ -146,7 +148,7 @@ but to make the pair impossible to get wrong:
 - Terminology sweep: "Remote pi worker" → "Remote Pi" everywhere it is a label (docs, README,
   `scripts/ui-check.ts` strings); the word "worker" stays in code names and in the mod title.
 
-## 6. Order of work on this branch
+## 6. Order of work on this branch (how it landed)
 
 | Commit | Contents | Gate |
 | --- | --- | --- |
@@ -156,7 +158,8 @@ but to make the pair impossible to get wrong:
 | D | Docs (README, CONFIGURATION), ui-check assertions for the new controls, final screenshots | `verify`, `check-docs` |
 
 `bump:minor` for the branch as a whole (new user-facing capability). One PR, operator container
-test before it is pushed, per `AGENTS.md`.
+test before it is pushed, per `AGENTS.md`. All four commits shipped; the label went `bump:minor`
+as planned.
 
 ## 7. Decisions the operator made
 

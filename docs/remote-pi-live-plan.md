@@ -4,6 +4,11 @@
 > the dispatching conversation, so a blocking wait only held turns open and filled transcripts with
 > poll loops. What replaced it is in the CHANGELOG and `bff/src/pi/service.ts`; the progress truth,
 > the push, and the live UI below all still stand.
+>
+> **Shipped, and historical.** This was the plan behind v0.10.0's Remote Pi progress work; the
+> follow-up pushes arrived in v0.19.0 and the session view replaced the pop-up sheet in v0.37.0.
+> The post-mortem and the progress-truth rules (A1–A8) are the part still worth reading —
+> `bff/src/pi/service.ts` is the current word on anything they describe differently.
 
 Plan for the branch `feat/pi-live`. Written from the prod post-mortem of agent **olla**,
 conversation `local-conv-120` (2026-10-08/09), where a healthy 18 MB run streamed for 26
@@ -170,24 +175,6 @@ C3. **Interactive milestone**: one persistent ssh + `pi --mode rpc` per pi sessi
     interim; rpc is the real thing.
 C4. Correct olla's memory note (`references/remote-pi.md`): there was no queue wedge.
 
-## PR split
+_The branch's PR split and its mockup set are not recorded here: the mockups were worktree
+artifacts and never lived in the repo, and the split is in the merged PR history._
 
-PR-1: A1–A7 (+tests) — backend only, ships `pi_wait`, `force` stop, honest status; the
-transcript is unaffected. PR-2: B0–B6 + A8 (one shippable UI story: Runs tab + card + live
-sheet + chip + push deep link). Mockups ride PR-2's body.
-
-## Mockups (gate 1 artifacts)
-
-`.mockups/pi-live.html` + `.mockups/shot.ts` → `.mockups/png/pi-*.png` (deviceScaleFactor 2,
-real `web/src/styles.css`, app class names):
-
-| png | surface |
-|---|---|
-| `pi-card-running-phone` / `pi-card-running-desktop` | card mid-run: step, events·age, View/Stop |
-| `pi-card-quiet-phone` | warn pill, quiet 7m |
-| `pi-card-done-phone` | completed + last text + artifacts row (C1 preview) |
-| `pi-card-failed-phone` | failed + error; detached variant below |
-| `pi-tab-phone` / `pi-tab-desktop` | the new Runs tab: all three worker lists, live sheet open |
-| `pi-viewer-live-phone` / `pi-viewer-live-desktop` | live sheet at the live edge |
-| `pi-chip-desktop` | topbar chip + live-runs menu |
-| `pi-card-widths-desktop` | card at narrow container (tablet) — truncation check |
