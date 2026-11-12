@@ -21,7 +21,8 @@ narratives in `docs/upstream-notes.md`, pointed at as `docs/upstream-notes.md#<a
 4. **Never recreate `app-server` on its own** — its network namespace holds `bff` and
    `channel-gateway`. Always `docker compose -f docker/compose.yml up -d` unscoped.
 5. **Never push `main` or a tag without asking, every time.** A feature-branch push is routine; a
-   `main`/tag push *is* the release, and only dev-flow's `release` stage may write it. Production deploy
+   `main`/tag push *is* the release, and only dev-flow's `release` stage may write it. A flow's
+   Release? answer (or its yolo) is the ask for its merge and tag. Production deploy
    is the operator's alone — the agent publishes and stops.
 6. **Done means the operator tested it in the container** — see "Definition of done". Typecheck and
    tests passing is not done. A **docs-only** change stops at `bun run check-docs`. **UI changes**
