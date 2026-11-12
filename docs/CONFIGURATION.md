@@ -42,6 +42,26 @@ outside Docker.
 | `LETTA_APP_SERVER_URL` | The app-server's WebSocket URL. Compose sets it to `ws://127.0.0.1:4500` because `bff` joins the app-server's network namespace; you set it yourself only outside Docker. |
 | `LETTA_APP_SERVER_TOKEN` | The capability token an app-server started with `--ws-auth capability-token` demands, sent as `Authorization: Bearer …` on the WebSocket upgrade — the trimmed contents of the `--ws-token-file` it was given. Trimmed; unset or blank means no token, which is the container's own shape (loopback, no auth) and stays the recommendation. See "Remote app-server" under "Without Docker (development)". |
 
+A few more are set in `docker/compose.yml` and are worth knowing about rather
+than setting. Each is a measured value, and changing any of them recreates
+`app-server` — which drops the one upstream connection and every turn in flight.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `LETTA_CODE_LOCAL_PROVIDER_TIMEOUT_MS` | `1800000` (30 min) | How long a call to your model server may take **before any token arrives** — connect, queueing and prompt evaluation. It is not a generation limit: once the stream starts it is unbounded, so a slow model is never cut off mid-answer. Upstream's own default is 5 minutes, which a large prompt on a busy machine walks straight through. |
+| `LETTA_STREAM_STALL_RECONCILE_MS` | `180000` | How long a stream has to go silent before upstream decides it may have stalled and looks into it. Upstream defaults to 60 s, which a cold multi-minute prefill trips over repeatedly and calls a healthy run dead. |
+| `LETTA_STREAM_STALL_STATUS_TIMEOUT_MS` | `15000` | The budget for that lookup itself, so a loaded host answering slowly is not read as a second failure. Upstream defaults to 5 s. |
+| `LETTA_FS_SANDBOX` | `0` | letta-code's bubblewrap filesystem sandbox, **off on purpose**. Measured in this container, it needed privileges that weakened the container-to-host boundary in exchange for a cross-agent boundary that did not hold. In-process file tools keep upstream's own cross-agent guard, which does not depend on this flag; real isolation between agents means one app-server per agent. |
+
+Several others are Compose's own wiring and have no business in
+`docker/.env`: `LETTA_LOCAL_BACKEND_EXPERIMENTAL` and `LETTA_LOCAL_BACKEND_DIR`
+(where conversations live, under `/data`), `USER_CWD` (`/work`), `GH_CONFIG_DIR`,
+`CODEX_HOME` and `CLAUDE_CONFIG_DIR` (worker state on the state root),
+`SIGNIN_DIR` (the password hash, deliberately on its own named volume),
+`PUSH_SUBSCRIPTIONS_FILE`, and `CODING_FEATURES` — which is just
+`COMPOSE_PROFILES` handed to the image build so it knows which coding CLIs to
+install.
+
 ## Modes and profiles
 
 One setting decides which optional containers exist, which features the app
@@ -288,6 +308,7 @@ backend status and a test search.
 | `DDG_MCP_URL` | `http://ddg-mcp:8000/mcp` | empty switches page reading and the fallback off |
 | `DDG_REGION` | `us-en` | results region |
 | `DDG_SAFE_SEARCH` | `OFF` | `STRICT`, `MODERATE` or `OFF` |
+| `DDG_REF_URL_THRESHOLD` | `0` | keep result URLs whole. That server would otherwise hand long URLs back as `ref://` tokens for the client to expand, and the BFF passes results straight to the model. |
 
 Without the profile the tools stay registered and every call fails with the
 backend's error, so switch them off in Settings → Web.
@@ -471,6 +492,7 @@ Agents can run small web apps inside the app-server container. Only ports
 |---|---|---|
 | `AGENT_APP_HOST` | unset | the address people open apps on, e.g. the server's LAN IP. Agents put it in the URLs they hand you; unset, they ask you to fill it in. |
 | `AGENT_APPS_BIND` | `0.0.0.0` | published interface. Use the LAN IP to keep it off other interfaces, or `127.0.0.1` to close it. |
+| `AGENT_APP_PORTS` | `3000-3099` | the range agents are told they may serve on. The published mapping beside it in `docker/compose.yml` is the same literal — widening one means widening the other, and a recreate to match. |
 
 Changing either recreates `app-server`: run
 `docker compose -f docker/compose.yml up -d` unscoped.
@@ -539,6 +561,12 @@ What applies when: pairing approvals and route removals are re-read by the
 gateway per inbound message, so they take effect immediately; account changes
 (token, enable) apply when the wrapper restarts it — about the poll interval,
 not the next message.
+
+The gateway container carries two settings of its own, both fixed in
+`docker/compose.yml`: `LETTA_DISABLE_CRON_SCHEDULER=1`, because the app-server
+owns scheduling and a second scheduler would fight it for the lease, and
+`LETTA_CHANNEL_CREDENTIALS_STORE=file`, because a container has no OS keyring and
+the Settings screen writes and merges that account file directly.
 
 The `letta channels` CLI inside the gateway remains the fallback for anything
 the screen does not model (more than one bot, the other channels):
@@ -664,6 +692,10 @@ Create the tunnel, the public hostname pointing at `app-server:8080` (not
 method and the Access application in the Zero Trust dashboard, then mirror
 that application's policy in `ALLOWED_USERS` by hand. The two lists are not
 kept in sync automatically.
+
+`CLOUDFLARE_TUNNEL_TOKEN` reaches the container as `TUNNEL_TOKEN`, and Compose
+keeps it soft-optional on purpose: an unset token fails `cloudflared` alone, at
+its own startup, rather than breaking `up` and `build` for every other mode.
 
 Two details that bite:
 
