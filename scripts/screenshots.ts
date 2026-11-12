@@ -434,8 +434,9 @@ async function handleHttp(request: Request): Promise<Response> {
     return json({ runs: [] });
   }
   if (pathname.startsWith("/api/pi/runs")) {
-    // The same shape rule for the remote-pi list: `fetchPiRuns` reads `body.runs`,
-    // and `other` is the count of runs on agents other than the open one.
+    // The same shape rule for the remote-pi list, which the header's Runs chip
+    // asks for at boot: `fetchPiRuns` reads `body.runs`, and `other` is the count
+    // of runs on agents other than the open one.
     return json({ runs: [], other: 0 });
   }
   if (pathname === "/api/web-tools/settings") return json({ settings: { enabled: false } });

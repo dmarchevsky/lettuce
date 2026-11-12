@@ -43,13 +43,13 @@ outside Docker.
 | `LETTA_APP_SERVER_TOKEN` | The capability token an app-server started with `--ws-auth capability-token` demands, sent as `Authorization: Bearer …` on the WebSocket upgrade — the trimmed contents of the `--ws-token-file` it was given. Trimmed; unset or blank means no token, which is the container's own shape (loopback, no auth) and stays the recommendation. See "Remote app-server" under "Without Docker (development)". |
 
 A few more are set in `docker/compose.yml` and are worth knowing about rather
-than setting. Each is a measured value, and changing any of them recreates
+than setting. Each is measured or deliberate, and changing any of them recreates
 `app-server` — which drops the one upstream connection and every turn in flight.
 
 | Variable | Default | Effect |
 |---|---|---|
 | `LETTA_CODE_LOCAL_PROVIDER_TIMEOUT_MS` | `1800000` (30 min) | How long a call to your model server may take **before any token arrives** — connect, queueing and prompt evaluation. It is not a generation limit: once the stream starts it is unbounded, so a slow model is never cut off mid-answer. Upstream's own default is 5 minutes, which a large prompt on a busy machine walks straight through. |
-| `LETTA_STREAM_STALL_RECONCILE_MS` | `180000` | How long a stream has to go silent before upstream decides it may have stalled and looks into it. Upstream defaults to 60 s, which a cold multi-minute prefill trips over repeatedly and calls a healthy run dead. |
+| `LETTA_STREAM_STALL_RECONCILE_MS` | `180000` | How long a run's event stream may go silent — the app-server relaying the run to whoever is watching it, not your model's stream — before upstream asks that run's own status endpoint whether it is still alive. Only when that lookup comes back inconclusive does it drop the client read and replay the missed tail; the run itself is never cancelled. Upstream defaults to 60 s, which a cold multi-minute prefill trips over repeatedly. |
 | `LETTA_STREAM_STALL_STATUS_TIMEOUT_MS` | `15000` | The budget for that lookup itself, so a loaded host answering slowly is not read as a second failure. Upstream defaults to 5 s. |
 | `LETTA_FS_SANDBOX` | `0` | letta-code's bubblewrap filesystem sandbox, **off on purpose**. Measured in this container, it needed privileges that weakened the container-to-host boundary in exchange for a cross-agent boundary that did not hold. In-process file tools keep upstream's own cross-agent guard, which does not depend on this flag; real isolation between agents means one app-server per agent. |
 
@@ -308,7 +308,7 @@ backend status and a test search.
 | `DDG_MCP_URL` | `http://ddg-mcp:8000/mcp` | empty switches page reading and the fallback off |
 | `DDG_REGION` | `us-en` | results region |
 | `DDG_SAFE_SEARCH` | `OFF` | `STRICT`, `MODERATE` or `OFF` |
-| `DDG_REF_URL_THRESHOLD` | `0` | keep result URLs whole. That server would otherwise hand long URLs back as `ref://` tokens for the client to expand, and the BFF passes results straight to the model. |
+| `DDG_REF_URL_THRESHOLD` | `0` (its own default is 120 chars) | keep result URLs whole. Above that length the server hands long URLs back as `ref://` tokens for the client to expand, and the BFF passes results straight to the model. |
 
 Without the profile the tools stay registered and every call fails with the
 backend's error, so switch them off in Settings → Web.

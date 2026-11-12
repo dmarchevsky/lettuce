@@ -363,3 +363,20 @@ leave its count at zero and still crash — plus the narrow guard in `bff/src/pr
 drops a transient socket error and exits for anything else. The listener keeps a second thing worth
 having: under bun the rejection reads `…failed to open: [object ErrorEvent]`, and the reason only ever
 appears on the event itself.
+
+## Remote pi status lie (2026-10-09)
+
+**A healthy run reported `events 0` for 26 minutes and an agent killed it.** A remote pi run
+streamed 18 MB of events into its capture while `pi_status` kept answering `events 0`. The agent
+watching it concluded the worker was wedged, force-detached the healthy runs, paid for a duplicate
+planning run, and then wrote a false "queue serialization" lesson into its own memory — the wrong
+conclusion was durable, which is the expensive part.
+
+The cause was custody, not the network: `pi_status` read `meta.eventCount` / `meta.lastEventAt`
+off disk, and the runner persisted that meta only when the `session` header line arrived and again
+at exit. So a send run showed `events 0` and a fresh run `events 1` for its whole life, and nothing
+in the answer said it was stale.
+
+The rule that came out of it: a run's progress is read from the live capture, never from a counter
+persisted lazily beside it, and a status that cannot tell says it cannot tell rather than asserting
+a number.
