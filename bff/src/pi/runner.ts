@@ -2,7 +2,8 @@
  * The ssh runner: what a remote-pi run actually is.
  *
  * One run = one non-interactive `ssh` invocation running `pi --mode json` in
- * the configured workdir (docs/remote-pi-plan.md § 3.2/3.3 spike-proven). The
+ * the configured workdir. pi's JSON mode prints its session header first, so a
+ * run learns its own resumable session id from its own output. The
  * run's stdout jsonl is captured as the durable record the tools poll and the
  * viewer reads; the remote pi keeps its own session file, which the next run
  * resumes with `--session <uuid>`.
