@@ -5,6 +5,8 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.44.0-letta_0.34.56] - 2026-11-12
+
 ### Changed
 - **Nine more open reflections folded into the dev playbook and the UI-verification skill**, the first of
   them a hole rather than a convenience: the playbook wants the release word given after the commits exist
@@ -22,6 +24,11 @@ All notable user-facing changes to lettuce, newest first. Version tags and
   plan folder where the relative depth is known, and which surfaces the app hides at which width — the
   agent rail on a phone, the header face on a desktop.
 - **The README wears its logo and shows today's app.** The pixel lettuce sits above the title; the screenshots are regenerated — desktop chat, phone chat, Settings, two agents wearing glyphs instead of initials — and the stale tasks shot is gone; `docs/CONFIGURATION.md` now documents what `docker/compose.yml` actually sets on the app-server, from the model-server timeout (prefill headroom, not a generation limit) and the stream-stall timers to why the filesystem sandbox is off and which variables are Compose's own wiring. The three Remote Pi plan docs shipped with v0.7.0 and are deleted: by now they described behaviour that has since changed, and the six comments that cited them state the finding instead. The generator behind the images — `bun run screenshots` — works again: the header's Runs chip asks `/api/pi/runs` at boot, the mock answered `{}`, and that `{}` took the whole page down, so every shot came back as a timeout; the fixture answers it now, reads like a used install, prints what the page complained about when a capture fails, and takes its upstream version from `VERSION` so it cannot drift.
+- **The agent runs a newer Letta Code.** 0.34.38 → 0.34.56, eighteen upstream releases. What shows: a long conversation whose summary cannot fit is now reported instead of looping, and nothing reaches for a cloud summariser model a local server cannot serve; stopping a coding worker waits for the real confirmation and stops the worker's own session; a subagent can now be launched naming its runner (a Letta agent, Codex or Claude) and by default inherits the conversation it was spawned from.
+- **An agent can steer a coding worker it dispatched.** The follow-up call behind "give that Codex run another instruction" answered "requires a Cloud backend" and gave up; on this stack it now delivers, so a worker can be redirected mid-run and given a second task after finishing.
+
+### Fixed
+- **A file path is now permission-checked for the file it will actually open.** A tool call naming `~/…` or a relative path used to be judged on the literal string, so a prompt for a path that resolves outside the permitted place could go unasked.
 
 ## [v0.43.0-letta_0.34.38] - 2026-11-11
 
