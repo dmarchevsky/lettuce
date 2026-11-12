@@ -8,6 +8,21 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 ## [v0.44.0-letta_0.34.56] - 2026-11-12
 
 ### Changed
+- **Nine more open reflections folded into the dev playbook and the UI-verification skill**, the first of
+  them a hole rather than a convenience: the playbook wants the release word given after the commits exist
+  but only said so in prose, so it now sets the machine-readable knob that stops a plan-stage `yolo` from
+  answering Release? — and the prose says what the knob does and does not cover, namely that a confirmed
+  answer at the release checkpoint always stands. The rest: a CI watch that reports no checks has not
+  watched anything, and a run stuck in its queue is re-triggered rather than polled; a stage worker's brief
+  must state that compose lifecycle commands are never typed there, that the shared stack belongs to the
+  driver, and that a guarded command stays out of a chain; a scratch browser script must live and run in
+  the worktree, whichever import breaks first; and when the served build already matches the code but the
+  browser shows the old one, the culprit is the browser's own cache, not the container.
+- **The mock-render recipe now carries what it takes to render the truth**: the headless-shell flags that
+  make fine-pointer and hover styling apply (without them a desktop shot silently loses those rules while
+  looking plausible), a required check that the stylesheet link actually resolved, mock files kept in the
+  plan folder where the relative depth is known, and which surfaces the app hides at which width — the
+  agent rail on a phone, the header face on a desktop.
 - **The agent runs a newer Letta Code.** 0.34.38 → 0.34.56, eighteen upstream releases. What shows: a long conversation whose summary cannot fit is now reported instead of looping, and nothing reaches for a cloud summariser model a local server cannot serve; stopping a coding worker waits for the real confirmation and stops the worker's own session; a subagent can now be launched naming its runner (a Letta agent, Codex or Claude) and by default inherits the conversation it was spawned from.
 - **An agent can steer a coding worker it dispatched.** The follow-up call behind "give that Codex run another instruction" answered "requires a Cloud backend" and gave up; on this stack it now delivers, so a worker can be redirected mid-run and given a second task after finishing.
 
