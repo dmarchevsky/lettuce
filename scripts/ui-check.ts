@@ -1136,7 +1136,10 @@ try {
     );
     check(
       "composer has a send button",
-      (await page.locator('.composer-row button[aria-label="Send message"]').count()) === 1,
+      // Two send/stop renderings live in the DOM (`send-in` in the field,
+      // `send-row` in the controls row); CSS shows exactly one per platform,
+      // and the phone's is the row copy — so one is *visible*, not one exists.
+      (await page.locator('.composer button[aria-label="Send message"]:visible').count()) === 1,
     );
     // The composer's one action button is the round glyph button; the box's
     // top border carries the resize grip (drag to pin a height, double-click
@@ -1826,6 +1829,46 @@ try {
       (await page.evaluate(
         () => getComputedStyle(document.querySelector(".composer textarea")!).fontSize,
       )) === "14px",
+    );
+    // The Claude structure as a permanent invariant: the input box is one
+    // line — the visible send/stop shares the textarea's line and stays
+    // inside the field's frame — and the plain settings band sits below that
+    // frame with the model riding its right edge.
+    const composerLayout = await page.evaluate(() => {
+      const vis = (sel: string) => {
+        const el = document.querySelector(sel) as HTMLElement | null;
+        return el && el.offsetParent !== null ? el.getBoundingClientRect() : null;
+      };
+      const actions = [...document.querySelectorAll(".composer .glyph-btn")].filter(
+        (b) => (b as HTMLElement).offsetParent !== null,
+      ).length;
+      const ta = vis(".composer textarea");
+      const send = vis(".composer .glyph-btn");
+      const field = vis(".composer-field");
+      const row = vis(".composer-row");
+      const model = vis(".composer-row .model-btn");
+      return {
+        actions,
+        sameLine: !!ta && !!send && send.top >= ta.top - 1 && send.bottom <= ta.bottom + 1,
+        insideField: !!send && !!field && send.right <= field.right + 1,
+        rowBelowField: !!row && !!field && row.top >= field.bottom - 1,
+        modelRight: !!model && !!row && model.right >= row.right - 12,
+      };
+    });
+    check(
+      "desktop: exactly one send/stop is visible",
+      composerLayout.actions === 1,
+      composerLayout,
+    );
+    check(
+      "desktop: the send shares the textarea's line inside the box",
+      composerLayout.sameLine && composerLayout.insideField,
+      composerLayout,
+    );
+    check(
+      "desktop: the settings band sits below the box, model at its right edge",
+      composerLayout.rowBelowField && composerLayout.modelRight,
+      composerLayout,
     );
     check(
       "the rail carries the all-agents cell",
