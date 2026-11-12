@@ -20,6 +20,9 @@
   --radius: 0;
   --radius-pill: 999px;
   --radius-round: 50%;
+  /* The desktop composer's send/stop: a rounded square is the one shape that
+     reads as “press me” inside the flat input line, so it too is a name. */
+  --radius-send: 10px;
   /* One dimming for a control that cannot be used, wherever it lives. */
   --disabled: 0.45;
   /* Density. These are the DESKTOP numbers — the block at the bottom of this
@@ -1969,8 +1972,10 @@ nav.rail.rail-collapsed {
   flex-shrink: 0;
 }
 
-/* Textarea and the control row share one bordered container, so the whole thing
-   reads as a single input rather than a field with a toolbar bolted under it. */
+/* The phone's composer: textarea and the control row share one bordered
+   container, so the whole thing reads as a single input rather than a field
+   with a toolbar bolted under it. On desktop the box sheds that frame and the
+   field inside it becomes the input — see the fine-pointer block below. */
 .composer-box {
   position: relative;
   display: flex;
@@ -1980,6 +1985,17 @@ nav.rail.rail-collapsed {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+}
+/* The field wrapper (tray + textarea + one send/stop rendering) dissolves on
+   the phone — the box itself stays the input there — and becomes the bordered
+   input box on desktop (see the fine-pointer block below). The other send/stop
+   rendering lives in .composer-row; each platform hides exactly one of the
+   two, so there is never a second tab stop. */
+.composer-field {
+  display: contents;
+}
+.composer-field .send-in {
+  display: none;
 }
 /* The box's top border doubles as the resize grip: drag it up for a taller
    textarea, double-click it to give auto-fit back. Absolutely placed on the
@@ -2067,6 +2083,71 @@ nav.rail.rail-collapsed {
 @media (min-width: 900px) and (pointer: fine) {
   .composer textarea {
     font-size: 14px;
+  }
+  /* Claude structure: the input box is one line — textarea flexing, send/stop
+     at its right edge riding the bottom edge as the box grows — and the
+     settings drop below it as a plain compact band. The box sheds its own
+     frame and becomes layout only; the field wears the border, the fill and
+     the focus ring. */
+  .composer-box {
+    border: 0;
+    background: none;
+    padding: 0;
+    gap: 6px;
+  }
+  .composer-box:focus-within {
+    border-color: transparent;
+    box-shadow: none;
+  }
+  .composer-field {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 4px 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 4px;
+  }
+  .composer-field:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  .composer-field .attach-tray {
+    grid-column: 1 / -1;
+  }
+  .composer-field .send-in {
+    display: grid;
+    /* The chosen send/stop: a rounded square with soft 3D — an ambient drop
+       shadow plus an inner top sheen; :active sinks it into the shadow. */
+    width: 34px;
+    height: 34px;
+    border-radius: var(--radius-send);
+    box-shadow:
+      0 4px 10px rgba(0, 0, 0, 0.45),
+      inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  }
+  .composer-field .send-in:active {
+    transform: translateY(1px);
+    box-shadow:
+      0 2px 5px rgba(0, 0, 0, 0.45),
+      inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  }
+  /* The settings band: no divider, no scroll — tools left, model right. */
+  .composer-box .composer-row {
+    border-top: 0;
+    margin-inline: 0;
+    padding: 0 2px;
+    overflow: visible;
+  }
+  .composer-row .spacer {
+    display: none;
+  }
+  .composer-row .model-btn {
+    margin-left: auto;
+  }
+  .composer-row .send-row {
+    display: none;
   }
 }
 
@@ -2200,8 +2281,9 @@ nav.rail.rail-collapsed {
   font-size: 12px;
 }
 
-/* The composer row's last control is the round action button (`.glyph-btn`),
-   sticky so it stays reachable however far the chips scroll. */
+/* On the phone the composer row's last control is the round action button
+   (`.glyph-btn`), sticky so it stays reachable however far the chips scroll;
+   desktop hides this row copy and puts the verb in the field instead. */
 .composer textarea:disabled {
   opacity: var(--disabled);
 }

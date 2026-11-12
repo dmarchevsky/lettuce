@@ -501,6 +501,64 @@ export function Composer({
   const modeLabel =
     PERMISSION_MODES.find((mode) => mode.id === permissionMode)?.label ?? "Permissions";
 
+  /**
+   * The send/stop action button. It is rendered twice — once in the input
+   * field, once in the controls row — because desktop puts the verb in the
+   * input line while the phone keeps it at the end of the controls row; CSS
+   * shows exactly one of the two per platform (see `.composer-field`).
+   * `where` picks the copy.
+   */
+  const actionButton = (where: "send-in" | "send-row") =>
+    processing ? (
+      hasContent ? (
+        // Text in the box while the agent works: send stays send — it
+        // queues (upstream drains whatever arrives mid-turn) and the
+        // queue chip grows steer / edit / delete actions.
+        <button
+          type="submit"
+          className={`glyph-btn go ${where}`}
+          title="Queue this message"
+          aria-label="Queue this message"
+        >
+          <Icon name="up" />
+        </button>
+      ) : stopping ? (
+        // A second abort while the first is still unwinding is a
+        // guaranteed no-op upstream (`handleAbortMessageInput` returns
+        // early once the turn lifecycle is `cancelling`), so the button
+        // stops offering it and pulses instead.
+        <button
+          type="button"
+          className={`glyph-btn halt pending ${where}`}
+          disabled
+          title="Stopping…"
+          aria-label="Stopping"
+        >
+          <Icon name="stop" />
+        </button>
+      ) : (
+        <button
+          type="button"
+          className={`glyph-btn halt ${where}`}
+          onClick={onAbort}
+          title="Stop"
+          aria-label="Stop generating"
+        >
+          <Icon name="stop" />
+        </button>
+      )
+    ) : (
+      <button
+        type="submit"
+        className={`glyph-btn go ${where}`}
+        disabled={disabled || preparing || !hasContent}
+        title="Send"
+        aria-label="Send message"
+      >
+        <Icon name="up" />
+      </button>
+    );
+
   return (
     <>
       <form
@@ -593,143 +651,151 @@ export function Composer({
           >
             <i />
           </div>
-          {/* Above the textarea so the images you are about to send sit between
-              you and the agent, not under the keyboard. */}
-          {attachments.length > 0 || preparing || attachErrors.length > 0 ? (
-            <div className="attach-tray">
-              {attachments.map((image, index) => (
-                // Two chips may hold the same file name, and the tray only ever
-                // gains or drops at the end.
-                // biome-ignore lint/suspicious/noArrayIndexKey: name is not unique; the tray is append/remove-only
-                <span className="attach-chip" key={`${index}:${image.name}`}>
-                  <img src={image.previewUrl} alt={image.name} />
-                  <button
-                    type="button"
-                    className="attach-remove"
-                    onClick={() => onAttachmentsChange(attachments.filter((_, i) => i !== index))}
-                    title={`Remove ${image.name}`}
-                    aria-label={`Remove ${image.name}`}
+          {/* The field: tray, textarea and the verb form one bordered input
+              box on desktop; on phone the wrapper dissolves (display:
+              contents) and the box itself stays the input. */}
+          <div className="composer-field">
+            {/* Above the textarea so the images you are about to send sit between
+                you and the agent, not under the keyboard. */}
+            {attachments.length > 0 || preparing || attachErrors.length > 0 ? (
+              <div className="attach-tray">
+                {attachments.map((image, index) => (
+                  // Two chips may hold the same file name, and the tray only ever
+                  // gains or drops at the end.
+                  // biome-ignore lint/suspicious/noArrayIndexKey: name is not unique; the tray is append/remove-only
+                  <span className="attach-chip" key={`${index}:${image.name}`}>
+                    <img src={image.previewUrl} alt={image.name} />
+                    <button
+                      type="button"
+                      className="attach-remove"
+                      onClick={() => onAttachmentsChange(attachments.filter((_, i) => i !== index))}
+                      title={`Remove ${image.name}`}
+                      aria-label={`Remove ${image.name}`}
+                    >
+                      <Icon name="close" />
+                    </button>
+                  </span>
+                ))}
+                {preparing ? <span className="attach-note">Adding…</span> : null}
+                {attachments.length > 0 ? (
+                  <span
+                    className="attach-count"
+                    title={`${attachments.length} of ${MAX_IMAGES_PER_MESSAGE} images`}
                   >
-                    <Icon name="close" />
-                  </button>
-                </span>
-              ))}
-              {preparing ? <span className="attach-note">Adding…</span> : null}
-              {attachments.length > 0 ? (
-                <span
-                  className="attach-count"
-                  title={`${attachments.length} of ${MAX_IMAGES_PER_MESSAGE} images`}
-                >
-                  {attachments.length}/{MAX_IMAGES_PER_MESSAGE}
-                </span>
-              ) : null}
-              {attachErrors.map((line) => (
-                <span className="attach-error" key={line} role="alert">
-                  {line}
-                </span>
-              ))}
-            </div>
-          ) : null}
-          <textarea
-            ref={textareaRef}
-            value={value}
-            rows={1}
-            className={manualHeight !== null ? "manual" : undefined}
-            placeholder={disabled ? "Select a conversation" : "Message the agent…"}
-            disabled={disabled}
-            onPaste={(event) => {
-              // A screenshot on the clipboard — the primary mobile attach path,
-              // since phone keyboards paste images here rather than the box.
-              const files = Array.from(event.clipboardData?.files ?? []);
-              if (files.length > 0) {
-                event.preventDefault();
-                void addFiles(files);
-              }
-            }}
-            onChange={(event) => {
-              // Editing a recalled message makes it the draft.
-              cursorRef.current = AT_DRAFT;
-              setValue(event.target.value);
-              remember(event.target.value);
-              setHighlight(0);
-              setDismissed(false);
-              fitToContent(event.target, manualRef.current !== null);
-            }}
-            onKeyDown={(event) => {
-              // An IME mid-composition owns every key; the send button is still
-              // there for anyone who needs it.
-              if (event.nativeEvent.isComposing) return;
+                    {attachments.length}/{MAX_IMAGES_PER_MESSAGE}
+                  </span>
+                ) : null}
+                {attachErrors.map((line) => (
+                  <span className="attach-error" key={line} role="alert">
+                    {line}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            <textarea
+              ref={textareaRef}
+              value={value}
+              rows={1}
+              className={manualHeight !== null ? "manual" : undefined}
+              placeholder={disabled ? "Select a conversation" : "Message the agent…"}
+              disabled={disabled}
+              onPaste={(event) => {
+                // A screenshot on the clipboard — the primary mobile attach path,
+                // since phone keyboards paste images here rather than the box.
+                const files = Array.from(event.clipboardData?.files ?? []);
+                if (files.length > 0) {
+                  event.preventDefault();
+                  void addFiles(files);
+                }
+              }}
+              onChange={(event) => {
+                // Editing a recalled message makes it the draft.
+                cursorRef.current = AT_DRAFT;
+                setValue(event.target.value);
+                remember(event.target.value);
+                setHighlight(0);
+                setDismissed(false);
+                fitToContent(event.target, manualRef.current !== null);
+              }}
+              onKeyDown={(event) => {
+                // An IME mid-composition owns every key; the send button is still
+                // there for anyone who needs it.
+                if (event.nativeEvent.isComposing) return;
 
-              if (active) {
-                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                  event.preventDefault();
-                  const step = event.key === "ArrowDown" ? 1 : -1;
-                  setHighlight((highlighted + step + suggestions.length) % suggestions.length);
-                  return;
-                }
-                if (event.key === "Tab") {
-                  event.preventDefault();
-                  complete(active.id);
-                  return;
-                }
-                if (event.key === "Escape") {
-                  event.preventDefault();
-                  setDismissed(true);
-                  return;
-                }
-                if (event.key === "Enter" && !event.shiftKey && enterSends()) {
-                  // The popover is open, so Enter takes the highlighted command
-                  // rather than sending a half-typed name to the agent.
-                  event.preventDefault();
-                  choose(active);
-                  return;
-                }
-              }
-
-              if (
-                (event.key === "ArrowUp" || event.key === "ArrowDown") &&
-                !event.shiftKey &&
-                !event.altKey &&
-                !event.ctrlKey &&
-                !event.metaKey
-              ) {
-                const target = event.currentTarget;
-                if (
-                  caretAllowsHistory(
-                    event.key,
-                    target.value,
-                    target.selectionStart,
-                    target.selectionEnd,
-                  )
-                ) {
-                  const step =
-                    event.key === "ArrowUp"
-                      ? historyUp(history, cursorRef.current, value)
-                      : historyDown(history, cursorRef.current);
-                  if (step) {
+                if (active) {
+                  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                     event.preventDefault();
-                    cursorRef.current = step.cursor;
-                    recall(step.value);
+                    const step = event.key === "ArrowDown" ? 1 : -1;
+                    setHighlight((highlighted + step + suggestions.length) % suggestions.length);
+                    return;
+                  }
+                  if (event.key === "Tab") {
+                    event.preventDefault();
+                    complete(active.id);
+                    return;
+                  }
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    setDismissed(true);
+                    return;
+                  }
+                  if (event.key === "Enter" && !event.shiftKey && enterSends()) {
+                    // The popover is open, so Enter takes the highlighted command
+                    // rather than sending a half-typed name to the agent.
+                    event.preventDefault();
+                    choose(active);
                     return;
                   }
                 }
-              }
 
-              // Enter sends; Shift+Enter is a newline. On a phone Enter is always a
-              // newline and only the send button sends (see `enterSends`).
-              if (event.key === "Enter" && !event.shiftKey && enterSends()) {
-                event.preventDefault();
-                submit();
-              }
-            }}
-            aria-controls={active ? "composer-suggestions" : undefined}
-            aria-activedescendant={active ? `composer-suggestion-${active.id}` : undefined}
-          />
+                if (
+                  (event.key === "ArrowUp" || event.key === "ArrowDown") &&
+                  !event.shiftKey &&
+                  !event.altKey &&
+                  !event.ctrlKey &&
+                  !event.metaKey
+                ) {
+                  const target = event.currentTarget;
+                  if (
+                    caretAllowsHistory(
+                      event.key,
+                      target.value,
+                      target.selectionStart,
+                      target.selectionEnd,
+                    )
+                  ) {
+                    const step =
+                      event.key === "ArrowUp"
+                        ? historyUp(history, cursorRef.current, value)
+                        : historyDown(history, cursorRef.current);
+                    if (step) {
+                      event.preventDefault();
+                      cursorRef.current = step.cursor;
+                      recall(step.value);
+                      return;
+                    }
+                  }
+                }
+
+                // Enter sends; Shift+Enter is a newline. On a phone Enter is always a
+                // newline and only the send button sends (see `enterSends`).
+                if (event.key === "Enter" && !event.shiftKey && enterSends()) {
+                  event.preventDefault();
+                  submit();
+                }
+              }}
+              aria-controls={active ? "composer-suggestions" : undefined}
+              aria-activedescendant={active ? `composer-suggestion-${active.id}` : undefined}
+            />
+            {actionButton("send-in")}
+          </div>
 
           <div className="composer-row">
-            {/* Every control clusters by the send button, under the thumb; the
-                switcher left this row for the phone bar's first slot, which
-                names the agent with an avatar instead of an anonymous glyph. */}
+            {/* On the phone every control clusters by the send button, under
+                the thumb; the switcher left this row for the phone bar's
+                first slot, which names the agent with an avatar instead of
+                an anonymous glyph. Desktop spreads the same controls into a
+                plain band below the box — tools left, model right. */}
             <span className="spacer" />
 
             {/* The file input is invisible; the button is the label. `accept`
@@ -812,55 +878,7 @@ export function Composer({
               {modelLabel ? <span className="model-name">{modelLabel}</span> : null}
             </button>
 
-            {processing ? (
-              hasContent ? (
-                // Text in the box while the agent works: send stays send — it
-                // queues (upstream drains whatever arrives mid-turn) and the
-                // queue chip grows steer / edit / delete actions.
-                <button
-                  type="submit"
-                  className="glyph-btn go"
-                  title="Queue this message"
-                  aria-label="Queue this message"
-                >
-                  <Icon name="up" />
-                </button>
-              ) : stopping ? (
-                // A second abort while the first is still unwinding is a
-                // guaranteed no-op upstream (`handleAbortMessageInput` returns
-                // early once the turn lifecycle is `cancelling`), so the button
-                // stops offering it and pulses instead.
-                <button
-                  type="button"
-                  className="glyph-btn halt pending"
-                  disabled
-                  title="Stopping…"
-                  aria-label="Stopping"
-                >
-                  <Icon name="stop" />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="glyph-btn halt"
-                  onClick={onAbort}
-                  title="Stop"
-                  aria-label="Stop generating"
-                >
-                  <Icon name="stop" />
-                </button>
-              )
-            ) : (
-              <button
-                type="submit"
-                className="glyph-btn go"
-                disabled={disabled || preparing || !hasContent}
-                title="Send"
-                aria-label="Send message"
-              >
-                <Icon name="up" />
-              </button>
-            )}
+            {actionButton("send-row")}
           </div>
         </div>
       </form>
