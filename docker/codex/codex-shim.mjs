@@ -20,6 +20,7 @@ import { spawn } from "node:child_process";
 import {
   codexHome,
   DISABLED_MESSAGE,
+  isAppServerInvocation,
   isEnabled,
   readShimSettings,
   rewriteLine,
@@ -34,7 +35,7 @@ if (!isEnabled(settings)) {
 }
 
 const args = process.argv.slice(2);
-const rewriting = args[0] === "app-server";
+const rewriting = isAppServerInvocation(args);
 const child = spawn(REAL, args, {
   stdio: [rewriting ? "pipe" : "inherit", "inherit", "inherit"],
 });

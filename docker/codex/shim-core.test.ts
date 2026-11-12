@@ -74,4 +74,24 @@ describe("settings", () => {
     );
     expect(shim.codexHome({ HOME: "/home/x" })).toBe("/home/x/.codex");
   });
+
+  test("app-server is the subcommand whatever precedes it", () => {
+    expect(shim.isAppServerInvocation(["app-server", "--stdio"])).toBe(true);
+    // 0.34.55 can prepend Codex CLI overrides when it proxies a worker's model calls.
+    expect(
+      shim.isAppServerInvocation([
+        "-c",
+        'model_provider="letta_trace"',
+        "-c",
+        "model_providers.letta_trace.supports_websockets=false",
+        "app-server",
+        "--stdio",
+      ]),
+    ).toBe(true);
+    expect(shim.isAppServerInvocation(["--config", "k=v", "app-server"])).toBe(true);
+    // The preflight and a plain turn are not the app-server: their stdin is not JSON-RPC.
+    expect(shim.isAppServerInvocation(["--version"])).toBe(false);
+    expect(shim.isAppServerInvocation(["exec", "-"])).toBe(false);
+    expect(shim.isAppServerInvocation([])).toBe(false);
+  });
 });

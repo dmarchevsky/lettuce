@@ -48,6 +48,9 @@ BEHAVIOR_FILES=(
   "src/utils/frontmatter.ts"
   # The Codex worker path our shim sits in (docker/codex): the turn/start
   # sandbox policy it rewrites and the `codex login status` preflight it must pass.
+  # Also the argv letta-code uses to spawn the app-server — the shim finds its
+  # subcommand in the first non-option argument, and a Codex CLI override
+  # prepended before `app-server` that it cannot read means no sandbox rewrite.
   "src/tools/impl/codex-app-server.ts"
   "src/tools/impl/external-coding-agent.ts"
   # Settings → Telegram (bff/src/channels/) writes upstream's own channel state:
@@ -109,6 +112,14 @@ BEHAVIOR_FILES=(
   # The request-kind header the local backend sends to llama.cpp, and its two call sites.
   "src/backend/dev/pi-request-headers.ts"
   "src/backend/dev/pi-stream-adapter.ts"
+  # What a compaction is summarised with, and what happens when one cannot get under the
+  # pressure threshold: on our local backend a cloud model name can only fail, and a
+  # compaction that loops instead of failing overruns llama.cpp.
+  "src/backend/local/compaction.ts"
+  "src/backend/local/local-backend.ts"
+  # Where a turn's reported usage comes from, including the client-side api_cost_usd the
+  # local backend now fills in (bff/src/session/turn-usage.ts reads this shape).
+  "src/backend/dev/provider-turn-executor.ts"
 )
 
 # The connections serve the catalog bundled in this package: which hosts name
@@ -240,6 +251,11 @@ if [[ $BEHAV_CHANGED -eq 1 ]]; then
   warn "     codex_<thread>/claude_<session> id, and is ownership still judged against the"
   warn "     caller's parent scope? That rule is the whole boundary for what a browser may"
   warn "     send about a child."
+ warn "   * codex-app-server.ts — how does it spawn the app-server now? The shim rewrites"
+ warn "     its stdin only when it reads `app-server` as the subcommand (first non-option argv,"
+ warn "     since upstream can prepend `-c` CLI overrides for tracing); miss that and Codex is"
+ warn "     asked for a bubblewrap sandbox inside the container. Does a worker launch still pass"
+ warn "     the `codex login status` preflight our shim must satisfy?"
 else
   echo "  none"
 fi
