@@ -58,9 +58,12 @@ export const EXTERNAL_SANDBOX_POLICY = Object.freeze({
  * `spawnTransport`), but since 0.34.44 it can prepend Codex CLI overrides —
  * `-c key=value` — when it proxies a worker's model calls for tracing. That
  * feature is Cloud-only (it refuses outside the API backend, and this stack runs
- * the local one), so the naive `args[0]` test works; keyed on the first
+ * the local one), so the naive `args[0]` test works today; keyed on the first
  * non-option argument instead, a Cloud-side flip cannot silently stop the
- * sandbox rewrite and hand Codex a bubblewrap sandbox inside the container.
+ * rewrite, and a turn carrying `dangerFullAccess` would reach Codex as the
+ * declaration that the container is the boundary. Known limit: an option that
+ * takes a separate value (not `-c`/`--config`) would be read as the subcommand —
+ * none of what letta-code or the Codex CLI emits today takes one.
  */
 export function isAppServerInvocation(args) {
   for (let i = 0; i < args.length; i++) {

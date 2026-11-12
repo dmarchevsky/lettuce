@@ -111,49 +111,61 @@ Protocol drift shows up two ways:
      change on our primary provider: a compaction is now distinguishable at the llama.cpp end, and a
      temperature that was silently dropped is not.
 
-   - `src/websocket/listener/control-inputs.ts` — the 0.34.38→56 sync answers the standing question: a
-      browser `abort_message` still takes the old path (return `true`, cancel fire-and-forget, pump the
-      queue at once), so nothing the Stop button does moved. New is a `confirmBackendCancellation` caller
-      — only `subagent_stop` sets it — which awaits the cancellation lease for up to 10 s and **throws**
-      unless the backend reports every run `cancelled`. Stopping a worker settles instead of answering
-      optimistically, and a stop the backend cannot confirm is an error rather than a success.
+   - `src/websocket/listener/control-inputs.ts` — this sync answers the standing question: a browser
+     `abort_message` still takes the old path (return `true`, cancel fire-and-forget, pump the queue at
+     once), so nothing the Stop button does moved. New is a `confirmBackendCancellation` caller — only
+     `subagent_stop` sets it — which awaits the cancellation lease for up to 10 s and **throws** unless
+     the backend reports every run `cancelled`. Stopping a worker settles instead of answering
+     optimistically, and a stop the backend cannot confirm is an error rather than a success.
    - `src/tools/manager.ts` — tool **scopes** were removed (0.34.46): an external tool is owned by the
-      runtime its registering connection holds, not by a scope id, and a client tool call can now
-      auto-background (0.34.50), with a hung foreground one timed out soon after. Dormant for us — the BFF registers
-      no external tools — but `protocol_v2.ts` now exports `ExternalToolCallCancelMessage` in the
-      external-tool union, so a controller that *does* register one must handle a mid-call cancel.
+     runtime its registering connection holds, not by a scope id, and a client tool call can now
+     auto-background (0.34.50), with a hung foreground one timed out soon after. Dormant for us — the BFF
+     registers no external tools — but `protocol_v2.ts` now exports `ExternalToolCallCancelMessage` in
+     the external-tool union, so a controller that *does* register one must handle a mid-call cancel.
    - `src/permissions/checker.ts` — since 0.34.42 path arguments are expanded (`~`, relative-to-cwd)
-      **before** the permission check, so `~/secrets/x` is judged on the file it will really open instead
-      of the literal string. That tightens the boundary our `approval: "ask"` write tools sit inside;
-      it does not move where that boundary is.
+     **before** the permission check, so `~/secrets/x` is judged on the file it will really open instead
+     of the literal string. That tightens the boundary our `approval: "ask"` write tools sit inside; it
+     does not move where that boundary is.
    - `src/tools/impl/codex-app-server.ts` + `external-coding-agent.ts` — the worker path our shims sit
-      in. The Codex transport now spawns through the managed-workload process runner and may **prepend
-      Codex CLI overrides** (`-c key=value`) before `app-server --stdio` when upstream proxies a worker's
-      model calls for tracing (`external-llm-trace-launch.ts`). That proxy is Cloud-only — it returns
-      undefined outside the `api` backend, and this stack sets `LETTA_LOCAL_BACKEND_EXPERIMENTAL` — so it
-      never fires here, but `docker/codex/codex-shim.mjs` since 0.34.44 it reads its subcommand off the first
-      **non-option** argument rather than `args[0]`, so a Cloud-side flip cannot quietly stop the sandbox
-      rewrite. A worker shell also gets `LETTA_PARENT_CONVERSATION_ID` now (0.34.44).
+     in. Since 0.34.44 the spawn may lead with Codex CLI overrides (`-c key=value`) before
+     `app-server --stdio`, when upstream proxies a worker's model calls for tracing
+     (`external-llm-trace-launch.ts`). That proxy is Cloud-only — it returns undefined outside the `api`
+     backend, and this stack sets `LETTA_LOCAL_BACKEND_EXPERIMENTAL` — so it never fires here, but our
+     shim now reads its subcommand off the first **non-option** argument rather than `args[0]`, so a
+     Cloud-side flip cannot quietly stop the sandbox rewrite. A worker shell also gets
+     `LETTA_PARENT_CONVERSATION_ID` now (0.34.44).
+   - `src/tools/impl/send-agent-message.ts` — `SendAgentMessage` finally **works on the local backend**
+     (0.34.50): it refused with "SendAgentMessage requires a Cloud backend." whenever the
+     backend had no environment routing, which is every local install. That is the follow-up and steering call the shipped `delegating-to-codex` and
+     `delegating-to-claude-code` skills tell an agent to use, and the call the BFF's worker policy mod
+     guards, so both the steer-a-running-worker path and its denial path became real here. `toolset-catalog.ts`
+     itself did not change — the tool was already listed; it just could not be served.
    - `src/tools/impl/task.ts` + `src/types/subagent-protocol.ts` — a launch now names its runner with
-      `harness` (`letta` | `claude-code` | `codex`) and may `fork_context` to inherit the parent
-      transcript (0.34.40, by default since 0.34.44); the old `subagent_type` spelling is still translated, so our
-      `subagent_type: "codex"` keeps working. `subagent_stop` gained `conversation`/`client_message_id`
-      and a `cleanup_confirmed` answer, and for a native worker it now really kills the Claude/Codex
-      session — so a browser-driven worker stop may take seconds, not a frame. Fresh preset subagents can
-      run in ephemeral conversations (0.34.49), but `shouldRunSubagentEphemerally` refuses the local
-      backend, so a subagent here still gets its hidden agent.
+     `harness` (`letta` | `claude-code` | `codex`) and may `fork_context` to inherit the parent transcript
+     (0.34.40, by default since 0.34.44); the old `subagent_type` spelling is still translated, so our
+     `subagent_type: "codex"` keeps working. `subagent_stop` gained `conversation`/`client_message_id`
+     and a `cleanup_confirmed` answer, and for a native worker it now really kills the Claude/Codex
+     session — so a browser-driven worker stop may take seconds, not a frame. Fresh preset subagents can
+     run in ephemeral conversations (0.34.49), but `shouldRunSubagentEphemerally` refuses the local
+     backend, so a subagent here still gets its hidden agent.
+   - `src/channels/gateway-core.ts` — the gateway now re-registers a conversation with
+     `mode_is_default: true` beside its default permission mode (0.34.40), so a mode someone chose in
+     that conversation survives re-registration instead of being overwritten by the channel default.
+     Nothing in our tree reads `mode_is_default`; the gateway is upstream's own image, so this lands in
+     a Telegram install by itself.
    - the summarisation default — `DEFAULT_SUMMARIZATION_MODEL` (`letta/auto`) is gone entirely (0.34.45):
-      a compaction with no model of its own now falls back to the agent's own model, or nothing. Upstream
-      stopped defaulting to retired Letta-hosted models at all in the same release, and a local compaction
-      that cannot get under the pressure threshold now raises the matching error type instead of looping
-      or overrunning the server (`src/backend/local/compaction.ts`, 0.34.42). All of it lands on our
-      primary provider, where a cloud summariser name could only ever fail.
+     a compaction with no model of its own now falls back to the agent's own model, or nothing. Upstream
+     stopped defaulting to retired Letta-hosted models at all in the same release, and a local compaction
+     that cannot get under the pressure threshold now raises the matching error type instead of looping
+     or overrunning the server (`src/backend/local/compaction.ts`, 0.34.42). All of it lands on our
+     primary provider, where a cloud summariser name could only ever fail.
 
-   Every contract the skills assert was re-checked against 0.34.56 and did **not** move: `connection-
-   lifecycle.ts`, `listener/lifecycle.ts`, `gateway-supervisor.ts`, the channel state writers, the mods
-   paths and engine, `agent/skills.ts`, the MCP settings writers, `utils/settings-path.ts`,
-   `toolset-catalog.ts` and `background-process-protocol.ts`. A range that moves none of them still needs
-   saying, or the next sync reads the silence as an unread gap.
+   Everything else the skills assert was re-checked against 0.34.56 and did **not** move: `connection-
+   lifecycle.ts`, `listener/lifecycle.ts`, `gateway-supervisor.ts`, the channel state writers
+   (accounts, credential store, routing, pairing, access control), the mods paths and engine,
+   `agent/skills.ts`, the MCP settings writers, `utils/settings-path.ts`, `toolset-catalog.ts` and
+   `background-process-protocol.ts`. A range that moves none of them still needs saying, or the next sync
+   reads the silence as an unread gap.
 
 ### Version pinning
 

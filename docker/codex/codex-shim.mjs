@@ -4,12 +4,14 @@
  * lives under /opt/codex.
  *
  * letta-code starts Codex subagent workers as `codex app-server --stdio` and
- * asks every turn for a `workspaceWrite` sandbox. Codex implements that with
- * bubblewrap, which needs user namespaces and mounts that Docker's default
- * seccomp and AppArmor profiles deny — and relaxing those profiles is the
- * trade-off this stack already rejected (CLAUDE.md, sandbox section). So this
- * shim declares the container as the sandbox (`externalSandbox`) and changes
- * nothing else. No fork delta: letta-code finds `codex` on PATH.
+ * sends a sandbox policy on every turn. It used to ask for `workspaceWrite`,
+ * which Codex builds with bubblewrap — needing user namespaces and mounts that
+ * Docker's default seccomp and AppArmor profiles deny, and relaxing those
+ * profiles is the trade-off this stack already rejected (AGENTS.md, sandbox
+ * section). Since 0.34.14 it asks for `dangerFullAccess` instead, so the shim's
+ * job is no longer rescuing a refused sandbox but keeping the policy ours: it
+ * declares the container as the sandbox (`externalSandbox`) and changes nothing
+ * else. No fork delta: letta-code finds `codex` on PATH.
  *
  * It is also the on/off switch: with workers disabled in Settings → Codex,
  * every invocation — including letta-code's `codex --version` preflight —

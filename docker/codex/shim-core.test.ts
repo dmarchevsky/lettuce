@@ -89,6 +89,9 @@ describe("settings", () => {
       ]),
     ).toBe(true);
     expect(shim.isAppServerInvocation(["--config", "k=v", "app-server"])).toBe(true);
+    // The named limit: an option that takes a separate value is read as the subcommand.
+    // No upstream or Codex invocation does this today (`-c k=v` is the only such flag upstream emits).
+    expect(shim.isAppServerInvocation(["--sandbox", "workspace-write", "app-server"])).toBe(false);
     // The preflight and a plain turn are not the app-server: their stdin is not JSON-RPC.
     expect(shim.isAppServerInvocation(["--version"])).toBe(false);
     expect(shim.isAppServerInvocation(["exec", "-"])).toBe(false);

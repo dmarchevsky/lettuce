@@ -30,6 +30,10 @@ Loaded from `AGENTS.md`. letta-code spawns the real CLIs; a shim makes them fit 
     docs/upstream-notes.md#codex-spike-findings-2026-09-27-codex-01571-measured-in-the-container.
   - **The preflight is `codex --version`** (since 0.33.3). With workers disabled the shim fails
     it, so the task reports "Codex executable is not ready: <our disabled message>".
+  - **The spawn is not always `app-server` first.** Since 0.34.44 letta-code can prepend Codex CLI
+    overrides (`-c key=value`) when it proxies a worker's model calls for tracing — a Cloud-only path
+    that cannot fire on the local backend — so the shim finds its subcommand in the first **non-option**
+    argument (`isAppServerInvocation`), not `argv[1]`. Miss that and the sandbox rewrite stops silently.
   - **Configuration is Settings → Codex workers, owned by the BFF** (`bff/src/codex/`). It
     stores `lettuce.json` in `CODEX_HOME=/root/.letta/codex` (persisted, so threads survive
     recreates and `SendAgentMessage` follow-ups can resume them) and renders `config.toml`

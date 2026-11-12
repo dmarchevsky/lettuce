@@ -62,6 +62,10 @@ BEHAVIOR_FILES=(
   "src/channels/routing.ts"
   "src/channels/routing-store.ts"
   "src/channels/pairing.ts"
+  # Where a channel gateway re-registers a conversation: it carries the channel's default
+  # permission mode, and whether that mode is a default or an explicit choice decides if a
+  # mode someone picked in the conversation survives re-registration.
+  "src/channels/gateway-core.ts"
   "src/channels/access-control.ts"
   "src/cli/subcommands/channel-gateway.ts"
   # The shared MCP list (bff/src/mcp) is a settings file `letta mcp` reads with
@@ -197,6 +201,13 @@ fi
 say "Behavioral drift — invariants types cannot check"
 BEHAV_CHANGED=0
 for f in "${BEHAVIOR_FILES[@]}"; do
+  # A path that does not exist at the target diffs clean, so a typo here is invisible: it reads
+  # as "this invariant did not move" when nothing was read at all.
+  if ! git cat-file -e "$TARGET:$f" 2>/dev/null; then
+    warn "  MISSING from upstream at $REF: $f — did it move? Fix this list, do not delete the line."
+    BEHAV_CHANGED=1
+    continue
+  fi
   if ! git diff --quiet "$CURRENT" "$TARGET" -- "$f"; then
     BEHAV_CHANGED=1
     warn "  changed: $f  ($(git diff --shortstat "$CURRENT" "$TARGET" -- "$f" | xargs))"
@@ -251,11 +262,11 @@ if [[ $BEHAV_CHANGED -eq 1 ]]; then
   warn "     codex_<thread>/claude_<session> id, and is ownership still judged against the"
   warn "     caller's parent scope? That rule is the whole boundary for what a browser may"
   warn "     send about a child."
- warn "   * codex-app-server.ts — how does it spawn the app-server now? The shim rewrites"
- warn "     its stdin only when it reads `app-server` as the subcommand (first non-option argv,"
- warn "     since upstream can prepend `-c` CLI overrides for tracing); miss that and Codex is"
- warn "     asked for a bubblewrap sandbox inside the container. Does a worker launch still pass"
- warn "     the `codex login status` preflight our shim must satisfy?"
+ warn "   * codex-app-server.ts — how does it spawn the app-server now? The shim rewrites its"
+ warn "     stdin only when it reads `app-server` as the subcommand (first non-option argv, since"
+ warn "     upstream can prepend `-c` CLI overrides for tracing); miss that and the sandbox rewrite"
+ warn "     stops silently, so a turn's own `dangerFullAccess` reaches Codex instead of our"
+ warn "     `externalSandbox`. Does a worker launch still pass the preflight our shim must satisfy?"
 else
   echo "  none"
 fi
