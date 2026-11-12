@@ -382,8 +382,11 @@ async function handleHttp(request: Request): Promise<Response> {
       pinned: [],
       archived: [],
       avatars: {
-        [AGENT_ASSISTANT]: { glyph: "🥬", tint: "#7aa2f7" },
-        [AGENT_RESEARCH]: { glyph: "🦊", tint: "#bb9af7" },
+        // Bold silhouettes on a tint they contrast with: at the rail's ~13px a
+        // pale glyph on a pale tint reads as a letter, which is the whole thing
+        // these faces exist to avoid.
+        [AGENT_ASSISTANT]: { glyph: "🥬", tint: "#db4b4b" },
+        [AGENT_RESEARCH]: { glyph: "📚", tint: "#e0af68" },
       },
     });
   }
