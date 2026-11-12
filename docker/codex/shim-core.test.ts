@@ -77,7 +77,7 @@ describe("settings", () => {
 
   test("app-server is the subcommand whatever precedes it", () => {
     expect(shim.isAppServerInvocation(["app-server", "--stdio"])).toBe(true);
-    // 0.34.55 can prepend Codex CLI overrides when it proxies a worker's model calls.
+    // 0.34.44 can prepend Codex CLI overrides when it proxies a worker's model calls.
     expect(
       shim.isAppServerInvocation([
         "-c",

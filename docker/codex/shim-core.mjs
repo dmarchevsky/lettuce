@@ -55,7 +55,7 @@ export const EXTERNAL_SANDBOX_POLICY = Object.freeze({
  * one whose stdin is JSON-RPC and therefore the only one to rewrite.
  *
  * letta-code puts `app-server` first today (`tools/impl/codex-app-server.ts`,
- * `spawnTransport`), but since 0.34.55 it can prepend Codex CLI overrides —
+ * `spawnTransport`), but since 0.34.44 it can prepend Codex CLI overrides —
  * `-c key=value` — when it proxies a worker's model calls for tracing. That
  * feature is Cloud-only (it refuses outside the API backend, and this stack runs
  * the local one), so the naive `args[0]` test works; keyed on the first

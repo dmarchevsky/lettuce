@@ -117,12 +117,12 @@ Protocol drift shows up two ways:
       — only `subagent_stop` sets it — which awaits the cancellation lease for up to 10 s and **throws**
       unless the backend reports every run `cancelled`. Stopping a worker settles instead of answering
       optimistically, and a stop the backend cannot confirm is an error rather than a success.
-   - `src/tools/manager.ts` — tool **scopes** were removed (0.34.45): an external tool is owned by the
+   - `src/tools/manager.ts` — tool **scopes** were removed (0.34.46): an external tool is owned by the
       runtime its registering connection holds, not by a scope id, and a client tool call can now
-      auto-background, with a hung foreground one timed out (0.34.52). Dormant for us — the BFF registers
+      auto-background (0.34.50), with a hung foreground one timed out soon after. Dormant for us — the BFF registers
       no external tools — but `protocol_v2.ts` now exports `ExternalToolCallCancelMessage` in the
       external-tool union, so a controller that *does* register one must handle a mid-call cancel.
-   - `src/permissions/checker.ts` — since 0.34.43 path arguments are expanded (`~`, relative-to-cwd)
+   - `src/permissions/checker.ts` — since 0.34.42 path arguments are expanded (`~`, relative-to-cwd)
       **before** the permission check, so `~/secrets/x` is judged on the file it will really open instead
       of the literal string. That tightens the boundary our `approval: "ask"` write tools sit inside;
       it does not move where that boundary is.
@@ -131,12 +131,12 @@ Protocol drift shows up two ways:
       Codex CLI overrides** (`-c key=value`) before `app-server --stdio` when upstream proxies a worker's
       model calls for tracing (`external-llm-trace-launch.ts`). That proxy is Cloud-only — it returns
       undefined outside the `api` backend, and this stack sets `LETTA_LOCAL_BACKEND_EXPERIMENTAL` — so it
-      never fires here, but `docker/codex/codex-shim.mjs` now reads its subcommand off the first
+      never fires here, but `docker/codex/codex-shim.mjs` since 0.34.44 it reads its subcommand off the first
       **non-option** argument rather than `args[0]`, so a Cloud-side flip cannot quietly stop the sandbox
-      rewrite. A worker shell also gets `LETTA_PARENT_CONVERSATION_ID` now (0.34.55).
+      rewrite. A worker shell also gets `LETTA_PARENT_CONVERSATION_ID` now (0.34.44).
    - `src/tools/impl/task.ts` + `src/types/subagent-protocol.ts` — a launch now names its runner with
       `harness` (`letta` | `claude-code` | `codex`) and may `fork_context` to inherit the parent
-      transcript (0.34.40→44); the old `subagent_type` spelling is still translated, so our
+      transcript (0.34.40, by default since 0.34.44); the old `subagent_type` spelling is still translated, so our
       `subagent_type: "codex"` keeps working. `subagent_stop` gained `conversation`/`client_message_id`
       and a `cleanup_confirmed` answer, and for a native worker it now really kills the Claude/Codex
       session — so a browser-driven worker stop may take seconds, not a frame. Fresh preset subagents can
@@ -146,7 +146,7 @@ Protocol drift shows up two ways:
       a compaction with no model of its own now falls back to the agent's own model, or nothing. Upstream
       stopped defaulting to retired Letta-hosted models at all in the same release, and a local compaction
       that cannot get under the pressure threshold now raises the matching error type instead of looping
-      or overrunning the server (`src/backend/local/compaction.ts`, 0.34.43). All of it lands on our
+      or overrunning the server (`src/backend/local/compaction.ts`, 0.34.42). All of it lands on our
       primary provider, where a cloud summariser name could only ever fail.
 
    Every contract the skills assert was re-checked against 0.34.56 and did **not** move: `connection-
