@@ -59,7 +59,7 @@ function isDirty(draft: Draft, settings: PiSettings): boolean {
 
 /**
  * Settings → Remote Pi: where agents reach a pi installed on another host, over
- * SSH only (see bff/src/pi/ and docs/remote-pi-plan.md).
+ * SSH only (see `bff/src/pi/`).
  *
  * Two things shape this form. The switch gates the fields, because a form you
  * can fill in while it cannot be used is a form whose mistakes are discovered

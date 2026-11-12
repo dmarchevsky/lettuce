@@ -174,7 +174,7 @@ const PI_QUIET_MS = 60_000;
  * not fan out one ssh per status call. */
 const PI_LIVENESS_TTL_MS = 45_000;
 
-/** Retention (docs/remote-pi-live-plan.md A8): the capture is the only durable
+/** Retention: the capture is the only durable
  * record of what the remote pi did, so sweep generously — newest kept, plus
  * anything younger than the age floor. */
 const PI_RUN_KEEP = 300;

@@ -1,10 +1,16 @@
+<p align="center">
+  <img src="lettuce.png" width="150" alt="Lettuce, a pixel-art lettuce in a red cape">
+</p>
+
 # Lettuce
 
 A self-hosted personal AI assistant you can actually live in. Agents keep real
 memory, run scheduled tasks, use your tools, and work from your phone — with
 your model running on your own machine and your data never leaving it.
 
-![Desktop](docs/images/desktop-chat.png)
+<p align="center">
+  <img src="docs/images/desktop-chat.png" width="900" alt="A conversation on desktop">
+</p>
 
 ## What this is
 
@@ -57,7 +63,7 @@ before exposing anything.
 - **Multiple agents**, each with its own persona, model, tools, secrets and
   workspace. Pin, archive, rename and delete from the agent's face — right-click on
   desktop, the switcher on a phone. Give one a face of its own too: any emoji (or a
-  letter) on any of six colours, in Agent → General.
+  letter) on any of sixteen colours, in Agent → General.
 - **Per-agent secrets** — key/value pairs the agent can use without them
   appearing in its instructions.
 
@@ -258,9 +264,13 @@ Back that one directory up and you have everything.
 |---|---|
 | ![Desktop chat](docs/images/desktop-chat.png) | ![Mobile chat](docs/images/mobile-chat.png) |
 
-| Settings | Scheduled tasks |
-|---|---|
-| ![Settings](docs/images/desktop-settings.png) | ![Tasks](docs/images/mobile-tasks.png) |
+| Settings |
+|---|
+| ![Settings](docs/images/desktop-settings.png) |
+
+These are generated, not photographs: `bun run screenshots` drives the real UI
+against a synthetic upstream, so no one's agents, conversations or address can
+ride along in a published image.
 
 ## Development
 
