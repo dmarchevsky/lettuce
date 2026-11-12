@@ -40,7 +40,8 @@ maintainerCanModify with a PR comment saying so — never by rebasing it.
 the plugin runs the remaining gates back to back without asking — the merge and the tag push included.
 AGENTS.md hard rule 5 is satisfied by that answer: a yolo, or a Release? answer, is the ask for
 *that flow's* tag, so the release stage pushes it without a second question — **except** Release? itself,
-which this playbook withholds from a standing yolo (`release.yolo = until-release`; see `## release`).
+which this playbook withholds from a standing yolo (the `release.yolo` knob in `## release` says exactly how
+far it reaches and what still overrides it).
 What a yolo does not buy is
 anything outside its own flow (another flow's tag, a prod deploy), and it does not cover a version that
 changed after it was given — if the derived version differs from the one stated when the yolo or
@@ -126,12 +127,12 @@ the worktree, or the state-dir default lands inside `.dev-flow/<slug>/`. It read
 `docker/.env` of its own and a
 relative `../../` breaks the moment `worktreeDir` changes depth. A scratch browser script is a worktree file too:
 it lives **and runs** inside the worktree (`…/worktree/scripts/scratch.ts`), because that is what makes `bun`
-resolve *this* worktree's Playwright *and* the sibling `./harness.ts` helpers. The symptom depends on where you
-left it and none of them read as a cwd problem: `/tmp` dies with `ERR_MODULE_NOT_FOUND: playwright`, `$TMPDIR`
-dies with `Cannot find module './harness.ts'` unless you import the worktree path by hand
-(`../worktree/scripts/harness.ts`), and the flow dir or the main checkout fails with `Executable doesn't exist
-at ~/.cache/ms-playwright/chromium_headless_shell-<other>/…` — which reads like a machine problem and is the
-same cwd problem. `PLAYWRIGHT_CHROMIUM` is the override for the last one only.
+resolve *this* worktree's Playwright *and* the sibling `./harness.ts` helpers. Anywhere else it cannot resolve
+one of the two, and which import fails first decides the message — `ERR_MODULE_NOT_FOUND: playwright` from a
+temp dir, `Cannot find module './harness.ts'` unless you import the worktree path by hand
+(`../worktree/scripts/harness.ts`), or `Executable doesn't exist at
+~/.cache/ms-playwright/chromium_headless_shell-<other>/…` from the flow dir or the main checkout, which reads
+like a machine problem and is the same cwd problem. `PLAYWRIGHT_CHROMIUM` is the override for the last one only.
 A failed `setup` fails `flow approve`
 and runs again on the next one; a `--docs` flow skips it.
 
@@ -205,17 +206,20 @@ plainly that a human pass on the sign-in path is still owed. `flow verify` deplo
 is not that pass and never counts as one.
 
 **A `flow_stage` worker gets three more lines in its brief, because it has no operator to ask.**
-- **Never type a `docker compose` lifecycle command.** The compose file pins `name: lettuce`, so a
-  `down -v` typed in a copy of the file still tears down the real one-per-machine stack and its named
-  volumes. Prove compose interpolation with `docker compose config` in a scratch directory and nothing
-  else. (A review worker told to "run any probe that proves a claim" reached for exactly this; the
-  `confirm` guard was the only thing between it and an empty stack.)
+- **Never type a compose lifecycle command — `down`, `stop`, `kill`, `rm`, `restart`.** The compose file pins
+  `name: lettuce`, so a `down -v` typed in a copy of the file still tears down the real one-per-machine stack
+  and its named volumes. Prove compose interpolation with `docker compose config` in a scratch directory and
+  nothing else. (A review worker told to "run any probe that proves a claim" reached for exactly this; the
+  `confirm` guard was the only thing between it and an empty stack. The driver deploys; the worker does not —
+  these rules bind workers, not the sanctioned `flow verify` path.)
 - **Stack ownership belongs to the driver.** A read-only reviewer runs static probes and, for UI work,
   renders mockups — it does not deploy, rebuild or `up -d` while a deploy is under review. Say it in the
   brief: a worker that infers the rule mid-run is one bad guess away from competing for the environment.
 - **Keep guarded commands out of chains.** A refusal takes the whole command down with it, so a blocked
   `docker …` also kills the read-only `grep` chained after it, and the worker reports a probe it never
-  ran. One guarded command per call, or none. When the branch edits `scripts/ui-check.ts` itself, the owed item
+  ran. One guarded command per call, or none.
+
+When the branch edits `scripts/ui-check.ts` itself, the owed item
 is narrower: **the operator runs `bun run ui-check` once** during the container test — a click-through does
 not execute the suite and CI's `live.yml` runs with `UI_CHECK=off`, so a new assertion would otherwise ship
 never-run.
@@ -294,12 +298,13 @@ merge = merge
 yolo = until-release
 ```
 
-**`yolo = until-release` is the machine-readable half of the paragraph above.** This playbook wants the
-release word spoken *after* the commits exist, so a yolo given at plan or verify never answers Release?:
-`flow release --yolo --confirmed` is refused and the gate asks for the word. Prose alone does not hold
-here — the block used to carry only `merge = merge`, so a plan-stage yolo merged a version-bump branch
-under `--yolo` fourteen minutes before the operator said Release?. A yolo answered **at** the release
-checkpoint is still that word and still passes.
+**`yolo = until-release` is the machine-readable half of the yolo rule in `## global`,** and it is weaker
+than it sounds: a **bare** `flow release` with a standing yolo comes back `NEEDS-OPERATOR`, but `--confirmed`
+always stands as the operator's own answer at that checkpoint. So the agent-side rule is: never replay a
+plan- or verify-stage yolo onto `flow release` as `--yolo --confirmed` — run it bare, let it refuse, then ask
+**Release?** in chat and pass only `--confirmed`. Prose alone did not hold here: the block used to carry only
+`merge = merge`, so a plan-stage yolo merged a version-bump branch under `--yolo` fourteen minutes before the
+operator said the word. A yolo answered **at** the release checkpoint is that word and passes.
 
 Publish only — the preparation happened above. Push the branch, open the PR from
 `.github/pull_request_template.md`, wait for `ci` green, **merge it yourself**

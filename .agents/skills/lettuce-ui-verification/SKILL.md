@@ -30,10 +30,12 @@ feature gate requires rendered mockups in the plan directory and refuses a plan 
      --window-size=<width>,<height> --screenshot=<out>.png "file://<abs path>"
    ```
 
-   **The `--blink-settings` flags are not decoration.** `chrome-headless-shell` reports `pointer: coarse` /
-   `hover: none`, so every rule inside `@media (pointer: fine)` — which is where the desktop layout lives —
-   silently does not apply and a 1280 mockup renders the phone layout. That reads as "the CSS is missing" and
-   costs a long debugging loop chasing CSS that is fine.
+   **The `--blink-settings` flags are not decoration.** `chrome-headless-shell` reports `pointer: none` /
+   `hover: none`, so every rule gated on `(pointer: fine)` or `(hover: hover)` silently does not apply even at
+   desktop width — the desktop composer font and the hover-revealed row actions among them, and the
+   `(pointer: coarse)` phone blocks stay off too. The `min-width: 900px` layout still applies, so the shot looks
+   plausible while quietly missing the fine/hover-gated styling — which reads as "the CSS is missing" and costs
+   a debugging loop chasing CSS that is fine.
 
    **Prove the stylesheet link resolved before trusting a shot.** A white page usually means no stylesheet, and
    the failure is silent: a bisect conclusion drawn from a dead-link render is bogus. Check the resolved `href`
@@ -42,11 +44,13 @@ feature gate requires rendered mockups in the plan directory and refuses a plan 
    `plan/mockups/` where that relative depth is known — never `.dev-flow/<slug>/tmp/`, whose extra level makes
    the `../` point at nothing.
 
-3. **A phone mock of a surface the app hides on phone renders blank until you un-hide it.** `.rail` /
-   `nav.rail` is `display: none` below 900px and `.where-avatar` is shown only from 900px, so a 390 mock of
-   the rail or the phone header needs an explicit `display` override. A standalone mock also has none of the
-   app's `:root`-adjacent sizing rules, so any row keyed off `--rail-row` / `--rail-w` collapses — declare the
-   ancestors' tokens the mock depends on. Two authoring gotchas that produce a quietly empty render: a mock's
+3. **A surface the app hides at that width renders blank until you un-hide it, and the direction is per
+   surface.** `.rail` / `nav.rail` is `display: none` below 900px, so a 390 mock of the rail needs an explicit
+   `display` override; `.where-avatar` (the 44px phone header face) is the mirror image — shown by default and
+   `display: none` from 900px, so it is the **1280** mock of the header that needs the override. Guess the
+   direction and you add a no-op rule to the wrong shot. Size tokens come from the stylesheet's own `:root`, so
+   a mock that links it gets `--rail-w` / `--rail-row` for free — if a row collapses, check the link resolved
+   (step 2) before hand-declaring tokens. Two authoring gotchas that produce a quietly empty render: a mock's
    element ids must match `getElementById` exactly (hyphens vs underscores leave a section blank), and a
    headless DOM dump never shows a top-level `const` in a classic script, so element-id globals are not
    created for script-scoped consts.

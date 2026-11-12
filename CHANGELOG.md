@@ -5,6 +5,23 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Changed
+- **Nine more open reflections folded into the dev playbook and the UI-verification skill**, the first of
+  them a hole rather than a convenience: the playbook wants the release word given after the commits exist
+  but only said so in prose, so it now sets the machine-readable knob that stops a plan-stage `yolo` from
+  answering Release? — and the prose says what the knob does and does not cover, namely that a confirmed
+  answer at the release checkpoint always stands. The rest: a CI watch that reports no checks has not
+  watched anything, and a run stuck in its queue is re-triggered rather than polled; a stage worker's brief
+  must state that compose lifecycle commands are never typed there, that the shared stack belongs to the
+  driver, and that a guarded command stays out of a chain; a scratch browser script must live and run in
+  the worktree, whichever import breaks first; and when the served build already matches the code but the
+  browser shows the old one, the culprit is the browser's own cache, not the container.
+- **The mock-render recipe now carries what it takes to render the truth**: the headless-shell flags that
+  make fine-pointer and hover styling apply (without them a desktop shot silently loses those rules while
+  looking plausible), a required check that the stylesheet link actually resolved, mock files kept in the
+  plan folder where the relative depth is known, and which surfaces the app hides at which width — the
+  agent rail on a phone, the header face on a desktop.
+
 ## [v0.43.0-letta_0.34.38] - 2026-11-11
 
 ### Changed
