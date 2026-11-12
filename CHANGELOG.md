@@ -6,6 +6,21 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 ## [Unreleased]
 
 ### Changed
+- **Nine more open reflections folded into the dev playbook and the UI-verification skill**, the first of
+  them a hole rather than a convenience: the playbook wants the release word given after the commits exist
+  but only said so in prose, so it now sets the machine-readable knob that stops a plan-stage `yolo` from
+  answering Release? — and the prose says what the knob does and does not cover, namely that a confirmed
+  answer at the release checkpoint always stands. The rest: a CI watch that reports no checks has not
+  watched anything, and a run stuck in its queue is re-triggered rather than polled; a stage worker's brief
+  must state that compose lifecycle commands are never typed there, that the shared stack belongs to the
+  driver, and that a guarded command stays out of a chain; a scratch browser script must live and run in
+  the worktree, whichever import breaks first; and when the served build already matches the code but the
+  browser shows the old one, the culprit is the browser's own cache, not the container.
+- **The mock-render recipe now carries what it takes to render the truth**: the headless-shell flags that
+  make fine-pointer and hover styling apply (without them a desktop shot silently loses those rules while
+  looking plausible), a required check that the stylesheet link actually resolved, mock files kept in the
+  plan folder where the relative depth is known, and which surfaces the app hides at which width — the
+  agent rail on a phone, the header face on a desktop.
 - **The README wears its logo and shows today's app.** The pixel lettuce sits above the title; the screenshots are regenerated — desktop chat, phone chat, Settings, two agents wearing glyphs instead of initials — and the stale tasks shot is gone; `docs/CONFIGURATION.md` now documents what `docker/compose.yml` actually sets on the app-server, from the model-server timeout (prefill headroom, not a generation limit) and the stream-stall timers to why the filesystem sandbox is off and which variables are Compose's own wiring. The three Remote Pi plan docs shipped with v0.7.0 and are deleted: by now they described behaviour that has since changed, and the six comments that cited them state the finding instead. The generator behind the images — `bun run screenshots` — works again: the header's Runs chip asks `/api/pi/runs` at boot, the mock answered `{}`, and that `{}` took the whole page down, so every shot came back as a timeout; the fixture answers it now, reads like a used install, prints what the page complained about when a capture fails, and takes its upstream version from `VERSION` so it cannot drift.
 
 ## [v0.43.0-letta_0.34.38] - 2026-11-11

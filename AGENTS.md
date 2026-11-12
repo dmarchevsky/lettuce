@@ -22,10 +22,11 @@ narratives in `docs/upstream-notes.md`, pointed at as `docs/upstream-notes.md#<a
    `channel-gateway`. Always `docker compose -f docker/compose.yml up -d` unscoped.
 5. **Never push `main` or a tag without asking, every time.** A feature-branch push is routine; a
    `main`/tag push *is* the release, and only dev-flow's `release` stage may write it. A flow's
-   Release? answer (or its yolo) is the ask for its merge and tag. Production deploy
+   A Release? answer is that ask, and so is a yolo answered **at** the release checkpoint — a standing
+   yolo from an earlier checkpoint is not. Production deploy
    is the operator's alone — the agent publishes and stops.
 6. **Done means the operator tested it in the container** — see "Definition of done". Typecheck and
-   tests passing is not done. A **docs-only** change stops at `bun run check-docs`. **UI changes**
+   tests are not done. A **docs-only** change stops at `bun run check-docs`. **UI changes**
    carry two more gates — approved target-state mockups (desktop + phone) before implementing, a
    holistic visual pass after: `lettuce-ui-verification`.
 7. **Every change happens in a worktree on a feature branch** — `flow approve` creates it at
@@ -147,13 +148,13 @@ $LETTA_STATE_DIR/
 
 It defaults to `../..` relative to the compose file, which is **a trap in a worktree** — `../..` from
 `.dev-flow/<slug>/worktree/docker/` resolves to `.dev-flow/<slug>`. Prod sets an absolute path in `docker/.env`
-(hard rule 3), and container work always happens from the main checkout.
+(hard rule 3), and container work happens from the main checkout.
 
 Three named volumes remain: `bff-data` (web-push endpoints and the pin/archive lists, rebuilt by
 re-subscribing, plus the uploaded agent faces in `avatars/`, which nothing can rebuild)
-and `google-policy` / `google-creds` (Settings → Google Workspace, named so the app-server cannot mount them by
+and `google-policy` / `google-creds` (Settings → Google Workspace, named so app-server cannot mount them by
 accident through the state tree; losing them means reconnecting Google). Everything precious is under
-that one host directory, so a backup is a single `tar` plus that one directory. Older installs move off the named volumes with
+`LETTA_STATE_DIR`, so a backup is a single `tar` of it. Older installs move off the named volumes with
 `bun run migrate-state`, which copies and verifies and never deletes — the memfs git history is the
 only record of what an agent has learned.
 
@@ -235,7 +236,7 @@ lives in a skill — the table above says which.
   cannot derive one setting's default from another's value. The password hash lives on the `bff-auth`
   **named volume**, never under `LETTA_STATE_DIR` — agent shells mount that tree read-write as uid 0.
 - **There is no agent-to-agent isolation.** What separates agents is letta-code's in-process
-  cross-agent guard (`permissions/cross-agent-guard.ts`), which covers the file tools; shells are
+  cross-agent guard (`permissions/cross-agent-guard.ts`), covering the file tools; shells are
   unconfined within the container. Real isolation would mean one app-server container per agent.
 - **Provider connection state is `connected.is_connected`**, not `connected.connected`.
 - **Settings are split by scope, and the split is the UI's only statement of it.** The **Agent** tab
@@ -381,13 +382,13 @@ Google sidecar only when its own pin or `docker/<name>/` changes. `bun run lint`
 | `git push origin v<x>` | The release-stage tag push, at the merge that just landed on `main`; **ask for confirmation first, every time** |
 
 The obvious ones are not listed: `lint`, `format`, `typecheck`, `test`, `build`, `dev`, `build-info`,
-`screenshots`. `check-docs` asserts every other `package.json` script appears here.
+`screenshots`. `check-docs` asserts every `package.json` script appears here.
 
 ## Project harness
 
 The repo carries its own agent-harness configuration, so the rules above are enforced and not only
 prose. Gate messages cite this file **by section name, never by rule or step number**, so renumbering
-cannot desync them.
+cannot desync a gate.
 
 - `.agents/skills/lettuce-*/SKILL.md` — task-scoped mechanics; pi lists names and descriptions and
   loads a body only when one is read.
