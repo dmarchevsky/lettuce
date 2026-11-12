@@ -19,11 +19,39 @@ feature gate requires rendered mockups in the plan directory and refuses a plan 
    the real stylesheet** — from `plan/mockups/` that is `../../../../web/src/styles.css` — and
    reuses the app's own class names and tokens. Fidelity is then by construction, not by effort —
    colours, type scale, borders, square corners all real.
-2. Render each one at **both widths — phone 390 and desktop 1280** with headless chromium (the command the
-   plan stage prescribes: `--no-sandbox --disable-gpu --hide-scrollbars --window-size=<width>,<height>
-   --screenshot=…`), one section per variant/state, and **embed every PNG in plan.md** so the plan is one
-   reviewable document. A mock that was never rendered is not a mockup.
-3. Name a recommendation and **stop for Approve?** — the gate question is the mockup approval, and the
+2. Render each one at **both widths — phone 390 and desktop 1280** with headless chromium, one section per
+   variant/state, and **embed every PNG in plan.md** so the plan is one reviewable document. A mock that was
+   never rendered is not a mockup. The command is the incantation, and getting one flag wrong silently renders
+   the wrong layout:
+
+   ```bash
+   <chromium-headless-shell> --no-sandbox --disable-gpu --hide-scrollbars \
+     --blink-settings=primaryPointerType=4,availablePointerTypes=4,primaryHoverType=2,availableHoverTypes=2 \
+     --window-size=<width>,<height> --screenshot=<out>.png "file://<abs path>"
+   ```
+
+   **The `--blink-settings` flags are not decoration.** `chrome-headless-shell` reports `pointer: coarse` /
+   `hover: none`, so every rule inside `@media (pointer: fine)` — which is where the desktop layout lives —
+   silently does not apply and a 1280 mockup renders the phone layout. That reads as "the CSS is missing" and
+   costs a long debugging loop chasing CSS that is fine.
+
+   **Prove the stylesheet link resolved before trusting a shot.** A white page usually means no stylesheet, and
+   the failure is silent: a bisect conclusion drawn from a dead-link render is bogus. Check the resolved `href`
+   (print it from the page, or dump the rendered DOM and look for the loaded `<link>`), and keep mock/repro
+   HTML under
+   `plan/mockups/` where that relative depth is known — never `.dev-flow/<slug>/tmp/`, whose extra level makes
+   the `../` point at nothing.
+
+3. **A phone mock of a surface the app hides on phone renders blank until you un-hide it.** `.rail` /
+   `nav.rail` is `display: none` below 900px and `.where-avatar` is shown only from 900px, so a 390 mock of
+   the rail or the phone header needs an explicit `display` override. A standalone mock also has none of the
+   app's `:root`-adjacent sizing rules, so any row keyed off `--rail-row` / `--rail-w` collapses — declare the
+   ancestors' tokens the mock depends on. Two authoring gotchas that produce a quietly empty render: a mock's
+   element ids must match `getElementById` exactly (hyphens vs underscores leave a section blank), and a
+   headless DOM dump never shows a top-level `const` in a classic script, so element-id globals are not
+   created for script-scoped consts.
+
+4. Name a recommendation and **stop for Approve?** — the gate question is the mockup approval, and the
    approved mock is the spec.
 
 Skip mockups only for changes a screenshot of the fix would explain better than a mock (one-line
