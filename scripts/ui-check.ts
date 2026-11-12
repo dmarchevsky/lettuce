@@ -1141,9 +1141,9 @@ try {
       // and the phone's is the row copy — so one is *visible*, not one exists.
       (await page.locator('.composer button[aria-label="Send message"]:visible').count()) === 1,
     );
-    // The composer's one action button is the round glyph button; the box's
-    // top border carries the resize grip (drag to pin a height, double-click
-    // for auto-fit — see `Composer.tsx`).
+    // On the phone the one action button in the row is the round glyph
+    // button; the box's top border carries the resize grip (drag to pin a
+    // height, double-click for auto-fit — see `Composer.tsx`).
     check(
       "composer has one round action button",
       (await page.locator(".composer-row .glyph-btn").count()) === 1,

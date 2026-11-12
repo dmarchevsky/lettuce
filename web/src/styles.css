@@ -1972,8 +1972,10 @@ nav.rail.rail-collapsed {
   flex-shrink: 0;
 }
 
-/* Textarea and the control row share one bordered container, so the whole thing
-   reads as a single input rather than a field with a toolbar bolted under it. */
+/* The phone's composer: textarea and the control row share one bordered
+   container, so the whole thing reads as a single input rather than a field
+   with a toolbar bolted under it. On desktop the box sheds that frame and the
+   field inside it becomes the input — see the fine-pointer block below. */
 .composer-box {
   position: relative;
   display: flex;
@@ -2282,8 +2284,9 @@ nav.rail.rail-collapsed {
   font-size: 12px;
 }
 
-/* The composer row's last control is the round action button (`.glyph-btn`),
-   sticky so it stays reachable however far the chips scroll. */
+/* On the phone the composer row's last control is the round action button
+   (`.glyph-btn`), sticky so it stays reachable however far the chips scroll;
+   desktop hides this row copy and puts the verb in the field instead. */
 .composer textarea:disabled {
   opacity: var(--disabled);
 }

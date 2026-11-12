@@ -791,9 +791,11 @@ export function Composer({
           </div>
 
           <div className="composer-row">
-            {/* Every control clusters by the send button, under the thumb; the
-                switcher left this row for the phone bar's first slot, which
-                names the agent with an avatar instead of an anonymous glyph. */}
+            {/* On the phone every control clusters by the send button, under
+                the thumb; the switcher left this row for the phone bar's
+                first slot, which names the agent with an avatar instead of
+                an anonymous glyph. Desktop spreads the same controls into a
+                plain band below the box — tools left, model right. */}
             <span className="spacer" />
 
             {/* The file input is invisible; the button is the label. `accept`
