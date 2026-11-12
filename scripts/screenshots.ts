@@ -375,7 +375,18 @@ async function handleHttp(request: Request): Promise<Response> {
     // type menu, which no shot opens.
     return json({ types: [], providers: PROVIDERS, connections: {} });
   }
-  if (pathname === "/api/agents/flags") return json({ pinned: [], archived: [] });
+  if (pathname === "/api/agents/flags") {
+    // Faces, so the rail and the header are not two hash-coloured letters: a
+    // chosen glyph and tint are what the real pref store holds.
+    return json({
+      pinned: [],
+      archived: [],
+      avatars: {
+        [AGENT_ASSISTANT]: { glyph: "🥬", tint: "#7aa2f7" },
+        [AGENT_RESEARCH]: { glyph: "🦊", tint: "#bb9af7" },
+      },
+    });
+  }
   if (pathname === "/api/turn-errors") return json({ errors: [] });
   if (pathname === "/api/turn-usage") {
     // The real shape is `TurnUsage` (web/src/lib/usage.ts), and `readTurnUsage`
