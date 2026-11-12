@@ -5,6 +5,14 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.44.0-letta_0.34.56] - 2026-11-12
+
+### Changed
+- **The agent runs a newer Letta Code.** 0.34.38 → 0.34.56, eighteen upstream releases. What shows: a long conversation whose summary cannot fit is now reported instead of looping, and nothing reaches for a cloud summariser model a local server cannot serve; stopping a coding worker waits for the real confirmation and stops the worker's own session; a subagent can now be launched naming its runner (a Letta agent, Codex or Claude) and may inherit the conversation it was spawned from.
+
+### Fixed
+- **A file path is now permission-checked for the file it will actually open.** A tool call naming `~/…` or a relative path used to be judged on the literal string, so a prompt for a path that resolves outside the permitted place could go unasked.
+
 ## [v0.43.0-letta_0.34.38] - 2026-11-11
 
 ### Changed
