@@ -37,9 +37,12 @@ updated by merging `main` into it — that includes a contributor's fork-PR bran
 maintainerCanModify with a PR comment saying so — never by rebasing it.
 
 **What a `yolo` word does.** dev-flow takes yolo literally: every later checkpoint is pre-answered and
-the plugin runs the remaining gates back to back without asking — Release?, the merge and the tag push
-included. AGENTS.md hard rule 5 is satisfied by that answer: a yolo, or a Release? answer, is the ask for
-*that flow's* tag, so the release stage pushes it without a second question. What a yolo does not buy is
+the plugin runs the remaining gates back to back without asking — the merge and the tag push included.
+AGENTS.md hard rule 5 is satisfied by that answer: a yolo, or a Release? answer, is the ask for
+*that flow's* tag, so the release stage pushes it without a second question — **except** Release? itself,
+which this playbook withholds from a standing yolo (the `release.yolo` knob in `## release` says exactly how
+far it reaches and what still overrides it).
+What a yolo does not buy is
 anything outside its own flow (another flow's tag, a prod deploy), and it does not cover a version that
 changed after it was given — if the derived version differs from the one stated when the yolo or
 Release? was answered, state the new one back and wait.
@@ -123,10 +126,13 @@ the worktree, or the state-dir default lands inside `.dev-flow/<slug>/`. It read
 **main** checkout through `git rev-parse --git-common-dir`, because a linked worktree has no
 `docker/.env` of its own and a
 relative `../../` breaks the moment `worktreeDir` changes depth. A scratch browser script is a worktree file too:
-run it **from inside the worktree** (`…/worktree/scripts/scratch.ts`), because that is what makes `bun`
-resolve *this* worktree's Playwright; run from the flow dir or the main checkout it resolves a different
-build and fails with `Executable doesn't exist at ~/.cache/ms-playwright/chromium_headless_shell-<other>/…`,
-which reads like a machine problem and is a cwd problem. `PLAYWRIGHT_CHROMIUM` is the override for either.
+it lives **and runs** inside the worktree (`…/worktree/scripts/scratch.ts`), because that is what makes `bun`
+resolve *this* worktree's Playwright *and* the sibling `./harness.ts` helpers. Anywhere else it cannot resolve
+one of the two, and which import fails first decides the message — `ERR_MODULE_NOT_FOUND: playwright` from a
+temp dir, `Cannot find module './harness.ts'` unless you import the worktree path by hand
+(`../worktree/scripts/harness.ts`), or `Executable doesn't exist at
+~/.cache/ms-playwright/chromium_headless_shell-<other>/…` from the flow dir or the main checkout, which reads
+like a machine problem and is the same cwd problem. `PLAYWRIGHT_CHROMIUM` is the override for the last one only.
 A failed `setup` fails `flow approve`
 and runs again on the next one; a `--docs` flow skips it.
 
@@ -183,6 +189,13 @@ fails the dependency and leaves `bff` in `Created` — never started — while t
 failed to start". The operator's app is silently down. The miss is usually transient (app-server was healthy
 seconds later): say plainly that the stack is down, then re-run `flow verify`. The same deploy has a **second failure shape: up, but serving the old build.** Compose can half-recreate `bff`, `/readyz` answers ok, and the container keeps running the previous flow's bundle under the same `lettuce-bff:<VERSION>` tag — `build:bff` retags the image, a running container never swaps. So after any failed dev, run `servedBuild` and compare it to the worktree HEAD before re-running; when the served sha is the old bundle, recovery is `docker compose -f docker/compose.yml up -d --no-deps --force-recreate bff` — a retag alone changes nothing.
 
+**Stale-UI triage has a client half, and it is the cheap one.** When the served build identity (the `servedBuild`
+sha, or the `assets/index-*.js` hash) already matches the code the operator was told shipped, but their browser
+still shows the old UI, the container is exonerated — what they are looking at is the PWA service worker's
+precache. Ask for a hard reload, or an SW unregister from devtools (expect a second reload before the new
+bundle shows), **before** touching the stack: one session burned three round trips and an unneeded
+`--force-recreate bff` on exactly this. Prove server identity first, then blame the client.
+
 `smoke` and `ui-check` both stop at `LETTUCE_TEST_PASSWORD` when the stack signs in with a password
 (`scripts/harness.ts`), and an agent never stores that password: **it is not a repo file**, and exporting it
 into a shell is the operator's per-machine choice. The one exception is the machine-local file above: where
@@ -190,7 +203,23 @@ into a shell is the operator's per-machine choice. The one exception is the mach
 `LETTUCE_TEST_PASSWORD`, and run `smoke` / `ui-check` yourself. Where it does not exist, an agent that cannot
 run them records **what it probed in the container** instead — in the PR's *What was clicked* — and says
 plainly that a human pass on the sign-in path is still owed. `flow verify` deploying and probing `/readyz`
-is not that pass and never counts as one. When the branch edits `scripts/ui-check.ts` itself, the owed item
+is not that pass and never counts as one.
+
+**A `flow_stage` worker gets three more lines in its brief, because it has no operator to ask.**
+- **Never type a compose lifecycle command — `down`, `stop`, `kill`, `rm`, `restart`.** The compose file pins
+  `name: lettuce`, so a `down -v` typed in a copy of the file still tears down the real one-per-machine stack
+  and its named volumes. Prove compose interpolation with `docker compose config` in a scratch directory and
+  nothing else. (A review worker told to "run any probe that proves a claim" reached for exactly this; the
+  `confirm` guard was the only thing between it and an empty stack. The driver deploys; the worker does not —
+  these rules bind workers, not the sanctioned `flow verify` path.)
+- **Stack ownership belongs to the driver.** A read-only reviewer runs static probes and, for UI work,
+  renders mockups — it does not deploy, rebuild or `up -d` while a deploy is under review. Say it in the
+  brief: a worker that infers the rule mid-run is one bad guess away from competing for the environment.
+- **Keep guarded commands out of chains.** A refusal takes the whole command down with it, so a blocked
+  `docker …` also kills the read-only `grep` chained after it, and the worker reports a probe it never
+  ran. One guarded command per call, or none.
+
+When the branch edits `scripts/ui-check.ts` itself, the owed item
 is narrower: **the operator runs `bun run ui-check` once** during the container test — a click-through does
 not execute the suite and CI's `live.yml` runs with `UI_CHECK=off`, so a new assertion would otherwise ship
 never-run.
@@ -266,7 +295,16 @@ builds, and what CI compares against `VERSION` after the merge. `sync-upstream` 
 
 ```flow
 merge = merge
+yolo = until-release
 ```
+
+**`yolo = until-release` is the machine-readable half of the yolo rule in `## global`,** and it is weaker
+than it sounds: a **bare** `flow release` with a standing yolo comes back `NEEDS-OPERATOR`, but `--confirmed`
+always stands as the operator's own answer at that checkpoint. So the agent-side rule is: never replay a
+plan- or verify-stage yolo onto `flow release` as `--yolo --confirmed` — run it bare, let it refuse, then ask
+**Release?** in chat and pass only `--confirmed`. Prose alone did not hold here: the block used to carry only
+`merge = merge`, so a plan-stage yolo merged a version-bump branch under `--yolo` fourteen minutes before the
+operator said the word. A yolo answered **at** the release checkpoint is that word and passes.
 
 Publish only — the preparation happened above. Push the branch, open the PR from
 `.github/pull_request_template.md`, wait for `ci` green, **merge it yourself**
@@ -277,6 +315,14 @@ the post-merge checks below run **before** it, not after it. Nothing here deploy
 tagged without the operator's **Release?** for that specific change — a standing yes from an earlier
 change is not one. dev-flow refuses `gh pr merge` and tag pushes before `flow release`; after it, the
 merge guard wants the style spelled out (`gh pr merge <n> --merge`).
+
+**A watch that reports no checks has not watched anything.** `gh pr checks <n> --watch` run straight after
+`gh pr create` can exit at once with "no checks reported on the branch" because the runs have not
+registered yet — which reads exactly like nothing-to-wait-for and invites a merge on a false green. Poll
+again (a short sleep, re-run) until checks actually appear, and only then treat a green watch as green. The
+sibling failure is a run stuck in `queued`: `gh run watch` will spend your whole shell timeout on a run
+that never starts, and a run still queued long after later runs finished is a stuck slot, not a backlog —
+re-trigger by pushing a new head commit rather than keep polling.
 
 The tag *is* the publish trigger — pushing it runs `.github/workflows/publish.yml`, which pushes all five
 images to GHCR and retags `latest` — so **`release.artifact` is what proves a release shipped**:
