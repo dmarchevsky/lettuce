@@ -5,6 +5,11 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.43.0-letta_0.34.38] - 2026-11-11
+
+### Changed
+- **The composer on desktop now reads like an input field.** The message box used to be a textarea with a toolbar bolted under it: a strip of buttons across the whole width, costing a line of height while most of that width sat empty. The box is now a single bordered line — your text, with the send/stop button (a rounded square with a soft drop shadow) riding at its inner right, staying at the bottom edge as the box grows — and the per-conversation switches (attach, transcript filters, permission mode, JSON output, model) dropped below it into a plain compact row: tools on the left, the model on the right. The phone keeps the box it has: the same controls stay inside it, sized for thumbs.
+
 ## [v0.42.5-letta_0.34.38] - 2026-11-11
 
 ### Fixed
