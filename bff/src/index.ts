@@ -620,7 +620,7 @@ const webToolsBackends = (): WebToolsBackends => ({
   searxngUrl: config.webTools.searxngUrl,
   ddg: config.webTools.ddgMcpUrl ? ddgCaller(config.webTools.ddgMcpUrl) : null,
 });
-// The remote pi worker (docs/remote-pi-plan.md): settings, keys and captured
+// The remote pi worker: settings, keys and captured
 // run streams are all BFF-local on `bff-data`; the BFF itself is the ssh
 // client, so nothing here crosses the upstream connection.
 /** One in-flight progress chain per remote-pi run; see `onProgress`. */
@@ -1735,7 +1735,7 @@ registerClaudeRoutes(app, {
 // Everything here is BFF-local: settings and keys on `bff-data`, runs captured
 // from the BFF's own ssh spawns. No upstream file channel, no app-server
 // involved — so `pi/routes.ts` holds the handlers and takes the service,
-// the profile token and the mod resync as arguments. See docs/remote-pi-plan.md.
+// the profile token and the mod resync as arguments.
 registerPiRoutes(app, {
   piService,
   piEnabled: config.features.pi,

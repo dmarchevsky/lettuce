@@ -16,8 +16,8 @@
  * decision on 2026-10-06: unattended simplicity over zero-storage custody.)
  *
  * `pathPrepend` is not cosmetic: a non-interactive remote shell gets a minimal
- * PATH that usually misses pi and node entirely (spike finding,
- * docs/remote-pi-plan.md § 3.1), so the dispatch command carries a PATH
+ * PATH that usually misses pi and node entirely (measured before this was
+ * built), so the dispatch command carries a PATH
  * prefix. It is normalized on the way in and on the way out because a trailing
  * slash is a natural thing to type and a *program* can see it: PATH search
  * composes `$dir/pi`, and a launcher that finds its own install directory by

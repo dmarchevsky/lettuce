@@ -1,5 +1,6 @@
 /**
- * Generates the README's desktop and mobile screenshots from synthetic data.
+ * Generates the README's screenshots from synthetic data: desktop chat, phone
+ * chat and the desktop Settings pane.
  *
  * Why a mock upstream rather than the real stack: a README image is public, and
  * every screenshot taken off a live install carries that install's truth — the
@@ -18,7 +19,7 @@
  * Requires: `bun run build` first (serves web/dist), and a Chromium build.
  */
 
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { extname, join } from "node:path";
 import { type Browser, chromium, type Page } from "playwright";
 
@@ -28,6 +29,15 @@ const OUT_DIR = process.argv[2] ?? join(ROOT, "docs", "images");
 
 const DESKTOP = { width: 1280, height: 800 };
 const PHONE = { width: 390, height: 844 };
+
+/**
+ * The upstream release this tree pins, read out of `VERSION` (`v<x.y.z>-letta_<v>`)
+ * so the fixture cannot drift from the stack it is meant to look like.
+ */
+const LETTA_CODE_VERSION =
+  readFileSync(join(ROOT, "VERSION"), "utf8")
+    .match(/-letta_(.+)$/)?.[1]
+    ?.trim() ?? "0.0.0";
 
 const AGENT_ASSISTANT = "agent-01";
 const AGENT_RESEARCH = "agent-02";
@@ -39,7 +49,7 @@ const CONVERSATION_TRIP = "conv-01";
 
 const APP_SERVER_INFO = {
   backend: "local",
-  letta_code_version: "0.33.3",
+  letta_code_version: LETTA_CODE_VERSION,
   protocol_version: 2,
   capabilities: {
     agent_management: true,
@@ -199,16 +209,55 @@ const CRON_TASKS = [
 
 const MODELS = [
   {
-    id: "local/qwen3-32b",
-    handle: "local/qwen3-32b",
+    id: "llama/qwen3-32b",
+    handle: "llama/qwen3-32b",
     label: "Qwen3 32B (local)",
     description: "Served by llama.cpp on this machine",
   },
   {
-    id: "local/llama-3.1-8b",
-    handle: "local/llama-3.1-8b",
+    id: "llama/llama-3.1-8b",
+    handle: "llama/llama-3.1-8b",
     label: "Llama 3.1 8B (local)",
     description: "Fast local model for short turns",
+  },
+  {
+    id: "ollama/gemma3-12b",
+    handle: "ollama/gemma3-12b",
+    label: "Gemma 3 12B (Ollama)",
+    description: "Served by Ollama on this machine",
+  },
+];
+
+/**
+ * Settings → Providers & models shows a configured endpoint, not the empty
+ * state: the shape is `Provider` from `web/src/lib/provider-registry.ts`, and
+ * the README's Settings shot should read as a working install.
+ */
+const PROVIDERS = [
+  {
+    // The provider's name is its handle prefix (`llama` → `llama/qwen3-32b`), so
+    // these model ids are the bare half of the handles in MODELS: claimed by the
+    // row instead of landing under "Other models".
+    prefix: "llama",
+    name: "llama",
+    type: "llama-cpp",
+    api: "openai-completions",
+    scope: "local",
+    baseUrl: "http://host.docker.internal:8080/v1",
+    models: ["qwen3-32b", "llama-3.1-8b"],
+    hasKey: false,
+    headerNames: [],
+  },
+  {
+    prefix: "ollama",
+    name: "ollama",
+    type: "ollama",
+    api: "ollama",
+    scope: "local",
+    baseUrl: "http://host.docker.internal:11434",
+    models: ["gemma3-12b"],
+    hasKey: false,
+    headerNames: [],
   },
 ];
 
@@ -239,6 +288,13 @@ function respondTo(command: Record<string, unknown>): Record<string, unknown> {
         messages: MESSAGES[conversationId] ?? [],
       };
     }
+    case "conversation_retrieve":
+      // What the composer's model button and the model picker mark as current.
+      return {
+        ...base,
+        type: "conversation_retrieve_response",
+        conversation: { id: CONVERSATION_TRIP, model: "llama/qwen3-32b" },
+      };
     case "list_models":
       return {
         ...base,
@@ -313,10 +369,45 @@ async function handleHttp(request: Request): Promise<Response> {
     });
   }
 
-  if (pathname === "/api/agents/flags") return json({ pinned: [], archived: [] });
+  if (pathname === "/api/providers") {
+    // A configured provider, so Settings opens on a working install rather than
+    // on "no providers yet". `types` stays empty: it only fills the Add form's
+    // type menu, which no shot opens.
+    return json({ types: [], providers: PROVIDERS, connections: {} });
+  }
+  if (pathname === "/api/agents/flags") {
+    // Faces, so the rail and the header are not two hash-coloured letters: a
+    // chosen glyph and tint are what the real pref store holds.
+    return json({
+      pinned: [],
+      archived: [],
+      avatars: {
+        // Bold silhouettes on a tint they contrast with: at the rail's ~13px a
+        // pale glyph on a pale tint reads as a letter, which is the whole thing
+        // these faces exist to avoid.
+        [AGENT_ASSISTANT]: { glyph: "🥬", tint: "#db4b4b" },
+        [AGENT_RESEARCH]: { glyph: "📚", tint: "#e0af68" },
+      },
+    });
+  }
   if (pathname === "/api/turn-errors") return json({ errors: [] });
   if (pathname === "/api/turn-usage") {
-    return json({ current: { input_tokens: 18_400, context_window: 128_000 } });
+    // The real shape is `TurnUsage` (web/src/lib/usage.ts), and `readTurnUsage`
+    // refuses anything without numeric promptTokens/completionTokens — so the
+    // header gauge reads a filled context instead of "— / 128k".
+    return json({
+      current: {
+        promptTokens: 14_200,
+        cachedTokens: 4_200,
+        lastPromptTokens: 18_400,
+        lastCachedTokens: 4_200,
+        cacheReported: true,
+        completionTokens: 480,
+        reasoningTokens: 0,
+        steps: 2,
+        contextTokens: 18_400,
+      },
+    });
   }
   if (pathname === "/api/mcp") return json({ servers: [] });
   if (pathname === "/api/skills") return json({ skills: [], errors: [] });
@@ -341,6 +432,12 @@ async function handleHttp(request: Request): Promise<Response> {
     // `runs` must be an array: CodexRunsList calls `.some()` on it directly,
     // so an absent field takes down the whole React tree, not just this panel.
     return json({ runs: [] });
+  }
+  if (pathname.startsWith("/api/pi/runs")) {
+    // The same shape rule for the remote-pi list, which the header's Runs chip
+    // asks for at boot: `fetchPiRuns` reads `body.runs`, and `other` is the count
+    // of runs on agents other than the open one.
+    return json({ runs: [], other: 0 });
   }
   if (pathname === "/api/web-tools/settings") return json({ settings: { enabled: false } });
   if (pathname === "/api/web-tools/status") {
@@ -481,13 +578,27 @@ function chromiumExecutable(): string | undefined {
 
 /** Page errors seen since a page opened, so a crash after load is attributable. */
 const pageErrorsByPage = new WeakMap<Page, string[]>();
+const pageNoiseByPage = new WeakMap<Page, string[]>();
 
 /** Start recording uncaught page errors for `page` from now on. */
 function trackPageErrors(page: Page): string[] {
   const errors: string[] = [];
   pageErrorsByPage.set(page, errors);
+  const noise: string[] = [];
+  pageNoiseByPage.set(page, noise);
   page.on("pageerror", (error) => errors.push(`${error.message}\n${error.stack ?? ""}`));
+  page.on("console", (msg) => {
+    if (msg.type() === "error" || msg.type() === "warning")
+      noise.push(`${msg.type()}: ${msg.text()}`);
+  });
   return errors;
+}
+
+/** Everything the page can say about why it never rendered what was expected. */
+function pageDiagnosis(page: Page): string {
+  const errors = (pageErrorsByPage.get(page) ?? []).join(" | ") || "(none)";
+  const noise = (pageNoiseByPage.get(page) ?? []).slice(0, 8).join(" | ") || "(none)";
+  return `page errors: ${errors}\nconsole: ${noise}`;
 }
 
 async function open(browser: Browser, viewport: { width: number; height: number }): Promise<Page> {
@@ -498,7 +609,16 @@ async function open(browser: Browser, viewport: { width: number; height: number 
   // rather than a fixed sleep so a slow machine cannot capture a half-built view.
   // `.entry` is one transcript row (MessageList.tsx). Waiting on it proves the
   // socket round trip completed, not just that the shell painted.
-  await page.waitForSelector(".messages .entry", { timeout: 15_000 });
+  try {
+    await page.waitForSelector(".messages .entry", { timeout: 15_000 });
+  } catch (error) {
+    // A transcript that never arrives is a fixture that stopped matching the
+    // client, and a bare timeout says nothing about which half moved.
+    const text = await page.evaluate(() => document.body.textContent?.slice(0, 600) ?? "");
+    throw new Error(
+      `${String(error)}\n${pageDiagnosis(page)}\nvisible text: ${text.replace(/\n+/g, " / ")}`,
+    );
+  }
   await page.waitForTimeout(400);
   return page;
 }
@@ -568,13 +688,6 @@ try {
     await page.waitForSelector(".settings-pane", { timeout: 15_000 });
     await page.waitForTimeout(600);
     await shot(page, "desktop-settings", ".settings-pane");
-    await page.close();
-  }
-  {
-    const page = await open(browser, PHONE);
-    await page.locator('.bottombar > button:text-is("Tasks")').click();
-    await page.waitForTimeout(800);
-    await shot(page, "mobile-tasks", '[class*="task"]');
     await page.close();
   }
 } finally {
