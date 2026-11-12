@@ -7,9 +7,10 @@ interface Props {
   /** What the user chose for this agent, if anything (`bff/src/agents/avatar-prefs.ts`). */
   pref?: AvatarPref;
   /**
-   * The surface's own class. Size and shape belong to where the face sits — the
-   * rail is 34px, the switcher 32, the header 22 — so the component brings the
-   * tint and the content and nothing else.
+   * The surface's own class. Size and shape belong to where the face sits, so the
+   * component brings the tint and the content and nothing else — and every surface
+   * that shows a MARK (rail both ways, band, phone header, switcher) sizes it from
+   * one `--avatar-face`, while the picker keeps its own judgment sizes.
    */
   className?: string;
   /** What a surface hangs on the face, like the header's responding dot. */

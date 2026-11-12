@@ -36,18 +36,27 @@
      list has to stop exactly where the bar starts, so the bar stays pressable while
      the list is up — and both sides of that meeting add the inset the same way. */
   --bar-h: 68px;
-  /* The rail is ONE column of rows: a pane, an agent, the New-agent verb, the foot
-     verb and — while Settings is the pane — a section are all the same row: a glyph
-     then a word, left-aligned, `--rail-row` tall. It used to be a column of squares
-     with the agent's name a row in the panel beside it, which is why the column was
-     56px wide and every word in it an abbreviation ("Pi", "Push"). A word needs a
-     column that can hold one; 184px holds every label and section name we ship. */
+  /* The rail is ONE column of rows: a pane, the New-agent verb, the foot verb and —
+     while Settings is the pane — a section are all the same row: a glyph then a word,
+     left-aligned, `--rail-row` tall. The AGENT row is the one exception, 2px taller,
+     because a 28px face with its two corner marks needs the air (see `.rail-agent-row
+     > .rail-agent`). It used to be a column of squares with the agent's name a row in
+     the panel beside it, which is why the column was 56px wide and every word in it an
+     abbreviation ("Pi", "Push"). A word needs a column that can hold one; 184px holds
+     every label and section name we ship. */
   --rail-w: 184px;
   /* Unpinned, the MAIN rail collapses to a glyph strip this wide. The Settings
      rail never collapses — a list of words needs a column that can hold one —
      so the number only ever describes the agent/pane column. */
   --rail-w-collapsed: 56px;
   --rail-row: 30px;
+  /* The agent's IDENTITY FACE: one size everywhere a face marks who you are talking
+     to — the rail in both states, the desktop band, the phone header, the switcher's
+     cards, and the picker's small twin that advertises itself as "what the header
+     will show". It used to be five literals (22 / 28 / 22 / 32 / 32), which is how the
+     rail ended up drawing an agent smaller folded-out than folded-up. The picker's
+     40px preview is NOT this: it exists to judge a face, not to mark one. */
+  --avatar-face: 28px;
   /* The conversation drawer, pinned or peeking — the same box either way. */
   --drawer-w: 270px;
   /* The one padding every list row, task row and .pad shares. */
@@ -285,13 +294,24 @@ pre {
   color: var(--text);
 }
 .rail-agent .agent-avatar {
-  /* Small because it shares the row with its name now: the face is a mark, the
-     word says who. The responding dot and the pushpin hang off it. */
+  /* The shared face: it shares the row with its name, so the face is a mark and the
+     word says who — but it is the SAME mark the folded strip, the band and the
+     switcher draw, so it is their size. The responding dot and the pushpin hang off
+     it, which is what the row's extra 2px of height is for. */
   position: relative;
-  width: 22px;
-  height: 22px;
-  font-size: 10px;
+  width: var(--avatar-face);
+  height: var(--avatar-face);
+  font-size: calc(var(--avatar-face) * 0.46);
   flex: none;
+}
+/* The one row that outgrows `--rail-row`: a 28px face needs air to sit in, and the
+   corner marks hang outside it. Scoped to a row INSIDE `.rail-agent-row` so the New-agent
+   verb, which wears `.rail-agent` for its metrics but has no face, stays at the token —
+   and scoped by selector rather than by source order, so a later rule cannot quietly
+   grow it. The token itself does not move: the pane rows, the drawer and every ⋯ menu
+   read it and none of them asked to grow. */
+.rail-agent-row > .rail-agent {
+  height: 32px;
 }
 .rail-agent .rail-agent-name {
   overflow: hidden;
@@ -380,9 +400,8 @@ nav.rail.rail-collapsed .rail-agent-row > .rail-agent {
   width: 3px;
   background: var(--agent, var(--accent));
 }
-/* No ring: at 22px a 2px outline is proportionally twice what it was on the old
-   38px face and reads as noise, and the lit row plus the agent's own colour bar
-   already answer "this one". */
+/* No ring: at the shared face size a 2px outline reads as noise on a coloured disc,
+   and the lit row plus the agent's own colour bar already answer "this one". */
 .rail-agent.active .agent-avatar {
   outline: none;
 }
@@ -412,10 +431,10 @@ nav.rail.rail-collapsed .rail-agent-row > .rail-agent {
    every tint, the way the responding dot's ring does at the other corner. */
 .rail-agent .agent-avatar .agent-pin {
   position: absolute;
-  top: -4px;
-  right: -5px;
-  width: 13px;
-  height: 13px;
+  top: -2px;
+  right: -4px;
+  width: 16px;
+  height: 16px;
   padding: 2px;
   color: var(--warn);
   background: var(--surface);
@@ -590,25 +609,24 @@ nav.rail.rail-collapsed .rail-agent-row > .rail-agent {
   display: none;
 }
 /* Nothing competes with the words once they go, so the strip grows into its
-   marks — but the FACES lead them: 28px faces in a 36px row (the row grows only
-   while folded), and the pane glyphs settle at 24px, above the expanded rail's
-   16px yet clearly under the faces. The old strip had it inverted: 22px faces
-   behind 28px glyphs, so "where" outranked "who". The operator picked
-   28 / 24 / 36 from a mockup sheet. */
+   marks — but the FACES still lead the pane glyphs: 24px glyphs in a 36px row, above
+   the expanded rail's 16px, and the FACES are `--avatar-face` here exactly as they are
+   in the row, so folding changes the row's air and never an agent's size — and folding
+   still adds air, because the strip's row is taller than an unfolded agent row. The old
+   strip had it inverted — faces smaller than the glyphs behind them, so "where"
+   outranked "who" — and it once drew the same agent at 22px unfolded against 28px folded. */
 /* Scoped to the nav itself: `.app` also wears this class, and `--rail-row` is
    read outside the rail too (the ⋯ menus size themselves by it) — redefining it
    app-wide would resize every menu the moment the rail folds. */
 nav.rail.rail-collapsed {
   --rail-row: 36px;
 }
-.rail-collapsed .rail-agent .agent-avatar {
-  width: 28px;
-  height: 28px;
-  font-size: 12.5px;
-}
-.rail-collapsed .rail-agent .agent-avatar .agent-pin {
-  width: 15px;
-  height: 15px;
+/* The strip wears the same face as the row it folds to (so folding no longer resizes an
+   agent) and keeps its own taller row: the face is the ONLY thing in a folded row, so it
+   gets the room the name used to take. Specificity beats the 32px rule above, and the
+   strip was already 36 before this change, so nothing here moves on its own. */
+.rail-collapsed .rail-agent-row > .rail-agent {
+  height: var(--rail-row);
 }
 .rail-collapsed .rail-item .icon,
 .rail-collapsed .rail-new .icon,
@@ -753,12 +771,12 @@ nav.rail.rail-collapsed {
 }
 .where-avatar-face {
   position: relative;
-  width: 32px;
-  height: 32px;
+  width: var(--avatar-face);
+  height: var(--avatar-face);
   border-radius: var(--radius-round);
   display: grid;
   place-items: center;
-  font-size: 14px;
+  font-size: calc(var(--avatar-face) * 0.46);
   font-weight: 600;
   color: var(--on-accent);
 }
@@ -4018,16 +4036,16 @@ textarea.mono {
   min-width: 0;
 }
 /* The open agent's face in the band, on desktop only (a phone has the fingertip
-   `.where-avatar` button beside the same words). Small on purpose: the rail is a
-   column of 34px faces, and this one labels a line of text, not a row. */
+   `.where-avatar` button beside the same words). It is the rail's face at the rail's
+   size: one identity, one number, whichever column it is standing in. */
 .where-face {
   flex: none;
-  width: 22px;
-  height: 22px;
+  width: var(--avatar-face);
+  height: var(--avatar-face);
   border-radius: var(--radius-round);
   display: grid;
   place-items: center;
-  font-size: 11px;
+  font-size: calc(var(--avatar-face) * 0.46);
   font-weight: 600;
   color: var(--on-accent);
 }
@@ -4435,16 +4453,16 @@ textarea.mono {
 }
 .switcher-avatar {
   flex: none;
-  width: 32px;
-  height: 32px;
-  /* The same face as the rail's, so the same shape: it was a bare square all
-     along, which a letter got away with and a glyph does not. */
+  width: var(--avatar-face);
+  height: var(--avatar-face);
+  /* The same face as the rail's, so the same shape AND the same size: it was a bare
+     square all along, which a letter got away with and a glyph does not. */
   border-radius: var(--radius-round);
   display: grid;
   place-items: center;
   color: var(--on-accent);
   font-weight: 700;
-  font-size: 14px;
+  font-size: calc(var(--avatar-face) * 0.46);
 }
 .switcher-agent-text {
   flex: 1;
@@ -5107,16 +5125,14 @@ textarea.mono {
 
 /* ── Agent avatars ───────────────────────────────────────────────────────── */
 
-/* Round initials on the agent's tint. The rail draws these at 40px and the
-   switcher cards at their own size, so only the shape lives here. */
+/* Round, on the agent's tint, and nothing else: every surface sizes its own face from
+   `--avatar-face` (or, in the picker, from its own judgment size), because a default
+   here is a size a surface silently inherits. */
 .agent-avatar {
   flex: none;
-  width: 22px;
-  height: 22px;
   border-radius: var(--radius-round);
   display: grid;
   place-items: center;
-  font-size: 11px;
   font-weight: 700;
   color: var(--on-accent);
 }
@@ -5222,12 +5238,13 @@ textarea.mono {
   border-radius: inherit;
 }
 
-/* The 22px twin of the preview: what a conversation header will actually show,
-   which is the only way to judge a photo before committing to it. */
+/* The face's twin in the picker: what the header and the rail will actually show,
+   which is the only way to judge a photo before committing to it. So it is the face's
+   size, not a literal that has to be remembered. */
 .avatar-preview-tiny {
-  width: 22px;
-  height: 22px;
-  font-size: 11px;
+  width: var(--avatar-face);
+  height: var(--avatar-face);
+  font-size: calc(var(--avatar-face) * 0.46);
 }
 
 /* The colour is above the tabs and applies to both: a glyph sits on it and an

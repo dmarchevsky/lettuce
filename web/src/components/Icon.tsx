@@ -51,6 +51,7 @@ export type IconName =
   | "bell"
   | "info"
   | "pin"
+  | "pin-solid"
   | "trash"
   | "attach";
 
@@ -91,6 +92,15 @@ const PATHS: Record<IconName, string> = {
   plus: "M12 5v14M5 12h14",
   // A push pin: the head, the collar, the point.
   pin: "M9 4h6M10 4v5l-3 4v1h10v-1l-3-4V4M12 14v6",
+  // The same push pin painted solid — same meaning, different ground. The filled
+  // twin exists for ONE call site: the gold badge on an agent's face, where it sits ON
+  // a saturated tint inside a surface ring and a 12px outline dissolves into the colour
+  // underneath. Everywhere else the pin is small on the page's own background (the
+  // switcher's marker before a pinned name, the ⤇ Pin verb, the rail's fold control),
+  // where the stroke is what keeps it in the app's icon language. So: fill it where it
+  // stands on a face, never where it stands on the page.
+  "pin-solid":
+    "M14.3 3.3c.4 0 .7.3.7.7v4.4l2.6 3.5c.4.5 0 1.3-.7 1.3h-3.4v6c0 .4-.3.7-.7.7h-.4c-.3 0-.6-.2-.7-.5l-1.1-6.2H7.2c-.7 0-1.1-.8-.7-1.3l2.6-3.5V4c0-.4.3-.7.7-.7z",
   trash: "M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3",
   // Clipboard with a tick: background work that reported back.
   task: "M9 4h6v3H9zM8 5H6a1 1 0 00-1 1v13a1 1 0 001 1h12a1 1 0 001-1V6a1 1 0 00-1-1h-2M9 13l2 2 4-4",
@@ -130,7 +140,7 @@ const PATHS: Record<IconName, string> = {
 };
 
 /** Icons painted solid rather than outlined — see the notes on their paths. */
-const FILLED: ReadonlySet<IconName> = new Set<IconName>(["send"]);
+const FILLED: ReadonlySet<IconName> = new Set<IconName>(["send", "pin-solid"]);
 
 interface Props {
   name: IconName;

@@ -5,6 +5,12 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.42.5-letta_0.34.38] - 2026-11-11
+
+### Fixed
+- **Every agent now wears the same face at the same size, everywhere you look for it.** The rail that lists your agents drew each face smaller than every other place that shows the same agent — 22px against 28px folded up and 32px in the switcher — so a photo or an emoji face lost all its detail in exactly the column you scan to pick one, and a plain letter was a speck. One size now, 28px, across the rail in both states, the band above the conversation, the phone's header, the switcher and the avatar picker's preview of what a header will show; only the picker's big preview stays larger, since its job is judging a face rather than marking one. Agent rows grew 2px so the face has air, and the rail folds to its old roomy strip exactly as before.
+- **A pinned agent says so with a pushpin you can read.** The gold mark on the corner of its face was a 10px outline sitting on a coloured disc, which read as a smudge; it is a filled 16px pushpin now. Wherever the pin is a button or a mark on the page's own background — the rail's fold control, the switcher's marker beside a pinned name, the pin verb in an agent's menu — it stays an outline like every other icon.
+
 ## [v0.42.4-letta_0.34.38] - 2026-11-11
 
 ### Changed
