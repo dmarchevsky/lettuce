@@ -2099,9 +2099,6 @@ nav.rail.rail-collapsed {
     border-color: transparent;
     box-shadow: none;
   }
-  .composer-resize {
-    top: 0;
-  }
   .composer-field {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;

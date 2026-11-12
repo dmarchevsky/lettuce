@@ -1842,8 +1842,11 @@ try {
       const actions = [...document.querySelectorAll(".composer .glyph-btn")].filter(
         (b) => (b as HTMLElement).offsetParent !== null,
       ).length;
+      const sendEl = [...document.querySelectorAll(".composer .glyph-btn")].find(
+        (b) => (b as HTMLElement).offsetParent !== null,
+      );
       const ta = vis(".composer textarea");
-      const send = vis(".composer .glyph-btn");
+      const send = sendEl ? sendEl.getBoundingClientRect() : null;
       const field = vis(".composer-field");
       const row = vis(".composer-row");
       const model = vis(".composer-row .model-btn");
