@@ -1849,7 +1849,7 @@ try {
       const model = vis(".composer-row .model-btn");
       return {
         actions,
-        sameLine: !!ta && !!send && send.top >= ta.top - 1 && send.bottom <= ta.bottom + 1,
+        sameLine: !!ta && !!send && send.top <= ta.bottom && send.bottom >= ta.bottom - 2,
         insideField: !!send && !!field && send.right <= field.right + 1,
         rowBelowField: !!row && !!field && row.top >= field.bottom - 1,
         modelRight: !!model && !!row && model.right >= row.right - 12,
@@ -1934,7 +1934,7 @@ try {
       .locator(".conversation-row.active")
       .getAttribute("data-conversation-id");
     await page.locator(".composer textarea").fill("/clear");
-    await page.locator('.composer .glyph-btn[aria-label="Send message"]').click();
+    await page.locator('.composer .glyph-btn[aria-label="Send message"]:visible').click();
     // Wait for the answer rather than sleeping: "new" is a create *and* a list
     // refresh, two app-server round trips, and 800ms was not one on a loaded
     // box — the check failed for being fast, not for being wrong.
