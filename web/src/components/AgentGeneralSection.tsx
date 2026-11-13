@@ -1,4 +1,9 @@
 import { useEffect, useRef, useState } from "react";
+import {
+  fetchAgentStepLimit,
+  parseStepLimitInput,
+  saveAgentStepLimit,
+} from "../lib/agent-step-limit.ts";
 import type { AvatarPref } from "../lib/agent-tint.ts";
 import { errorMessage } from "../lib/errors.ts";
 import type { AgentDraft, AgentsApi } from "../state/use-agents.ts";
@@ -34,6 +39,11 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
   /** The avatar choice, staged like every other field here: Save commits it. */
   const [avatar, setAvatar] = useState<AvatarPref>({});
   const [avatarSaved, setAvatarSaved] = useState<AvatarPref>({});
+  /** The step limit as typed ("" is none), staged like the avatar: Save commits it. */
+  const [stepLimit, setStepLimit] = useState("");
+  const [stepLimitSaved, setStepLimitSaved] = useState("");
+  /** Why the step limit could not be read; its field is disabled until a reload. */
+  const [stepLimitError, setStepLimitError] = useState<string | null>(null);
   const [choosingAvatar, setChoosingAvatar] = useState(false);
   const [deleting, setDeleting] = useState(false);
   /** Only a failed load — a save result is a toast, it does not live on the page. */
@@ -55,8 +65,15 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
     setChoosingAvatar(false);
     setStatus(null);
     void (async () => {
+      // The step limit is a separate BFF setting: its failing to load disables
+      // its own field, never the rest of the form.
+      const limitRequest = fetchAgentStepLimit(agentId).then(
+        (limit) => ({ limit, error: null }),
+        (cause: unknown) => ({ limit: null, error: errorMessage(cause) }),
+      );
       try {
         const detail = await retrieveAgent(agentId);
+        const { limit, error } = await limitRequest;
         if (cancelled) return;
         const loaded = {
           name: detail.name,
@@ -64,10 +81,14 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
           modelHandle: detail.modelHandle,
         };
         const chosen = avatarsRef.current[agentId] ?? {};
+        const limitText = limit === null ? "" : String(limit);
         setDraft(loaded);
         setSaved(loaded);
         setAvatar(chosen);
         setAvatarSaved(chosen);
+        setStepLimit(limitText);
+        setStepLimitSaved(limitText);
+        setStepLimitError(error);
       } catch (cause) {
         if (!cancelled) setStatus(errorMessage(cause));
       } finally {
@@ -91,7 +112,9 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
     (avatar.tint ?? null) !== (avatarSaved.tint ?? null) ||
     (avatar.glyph ?? null) !== (avatarSaved.glyph ?? null) ||
     (avatar.image ?? null) !== (avatarSaved.image ?? null);
-  const dirty = agentFieldsDirty || avatarDirty;
+  const stepLimitValue = parseStepLimitInput(stepLimit);
+  const stepLimitDirty = stepLimit.trim() !== stepLimitSaved;
+  const dirty = agentFieldsDirty || avatarDirty || stepLimitDirty;
 
   /** The model sheet stages a pick instead of applying it, so say that out loud. */
   const modelHint =
@@ -116,6 +139,9 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
           ...draft,
           modelHandle: draft.modelHandle === saved.modelHandle ? null : draft.modelHandle,
         });
+        // Marked saved as each part lands: when a later part fails, a retry
+        // must not send this one (and its model switch) again.
+        setSaved(draft);
       }
       if (avatarDirty) {
         await agents.setAvatar(agentId, {
@@ -123,9 +149,15 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
           glyph: avatar.glyph ?? null,
           image: avatar.image ?? null,
         });
+        setAvatarSaved(avatar);
       }
-      setSaved(draft);
-      setAvatarSaved(avatar);
+      // The step limit is the BFF's too; the watchdog reads it at every step.
+      if (stepLimitDirty && stepLimitValue !== undefined) {
+        const savedLimit = await saveAgentStepLimit(agentId, stepLimitValue);
+        const limitText = savedLimit === null ? "" : String(savedLimit);
+        setStepLimit(limitText);
+        setStepLimitSaved(limitText);
+      }
       toast(agentFieldsDirty ? "Saved — agents see it on their next turn" : "Saved");
     } catch (cause) {
       toast(`Could not save: ${errorMessage(cause)}`, "bad");
@@ -152,6 +184,27 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
         hint={modelHint}
         onChange={(modelHandle) => setDraft({ ...draft, modelHandle })}
       />
+
+      <label className="field">
+        Step limit
+        {/* Text, not `type="number"`: a number input reports a half-typed "5e"
+            or "-" as "", which would read as "no limit" and save as one. */}
+        <input
+          type="text"
+          inputMode="numeric"
+          value={stepLimit}
+          placeholder="No limit"
+          disabled={stepLimitError !== null}
+          onChange={(event) => setStepLimit(event.target.value)}
+        />
+        <span className="small">
+          {stepLimitError !== null
+            ? `Could not load the step limit: ${stepLimitError}`
+            : stepLimitValue === undefined
+              ? "A whole number of 1 or more, or empty for no limit."
+              : "Stops a turn after this many model calls — each tool round-trip is one. Applies to chats, crons and Telegram alike. Empty means no limit."}
+        </span>
+      </label>
 
       <div className="field">
         Avatar
@@ -211,7 +264,7 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
       <button
         type="button"
         className="button"
-        disabled={busy || !dirty || !draft.name.trim()}
+        disabled={busy || !dirty || !draft.name.trim() || stepLimitValue === undefined}
         onClick={() => void save()}
       >
         {busy ? "Saving…" : "Save"}

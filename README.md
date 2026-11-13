@@ -66,6 +66,9 @@ before exposing anything.
   letter) on any of sixteen colours, in Agent → General.
 - **Per-agent secrets** — key/value pairs the agent can use without them
   appearing in its instructions.
+- **Per-agent step limit.** Cap how many model calls one turn may make, in
+  Agent → General, so a looping agent stops instead of running all night. It
+  holds for chats, crons and Telegram alike.
 
 ### Working from your phone
 
