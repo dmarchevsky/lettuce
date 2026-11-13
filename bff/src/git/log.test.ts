@@ -7,6 +7,7 @@ import {
   DEFAULT_LIMIT,
   type GitResult,
   gitArgv,
+  HARDENING,
   LOG_FORMAT,
   logArgs,
   NOT_A_REPOSITORY_STDERR,
@@ -35,17 +36,40 @@ describe("gitArgv", () => {
       "safe.directory=*",
       "-c",
       "core.quotepath=false",
+      ...HARDENING.flatMap((setting) => ["-c", setting]),
       "-C",
       "/work/agent-1/repo",
       "status",
     ]);
+  });
+
+  test("pins every key a repository could use to name a program", () => {
+    // The repository's own config is an agent's to write; a `-c` beats it.
+    const argv = gitArgv("/work/agent-1/repo", ["log"]);
+    for (const setting of [
+      "log.showSignature=false",
+      "gpg.program=/bin/false",
+      "gpg.ssh.program=/bin/false",
+      "gpg.x509.program=/bin/false",
+      "core.fsmonitor=false",
+      "core.hooksPath=/dev/null",
+    ]) {
+      expect(argv[argv.indexOf(setting) - 1]).toBe("-c");
+    }
+    // Global options only count before the subcommand.
+    expect(argv.indexOf("log.showSignature=false")).toBeLessThan(argv.indexOf("-C"));
   });
 });
 
 describe("logArgs", () => {
   test("requests limit + 1 so hasMore needs no second call", () => {
     const args = logArgs({ limit: DEFAULT_LIMIT, skip: 0, pathspec: null });
-    expect(args.slice(0, 3)).toEqual(["log", "--no-color", `--pretty=format:${LOG_FORMAT}`]);
+    expect(args.slice(0, 4)).toEqual([
+      "log",
+      "--no-color",
+      "--no-show-signature",
+      `--pretty=format:${LOG_FORMAT}`,
+    ]);
     const nIndex = args.indexOf("-n");
     expect(args[nIndex + 1]).toBe("51");
     expect(args[args.indexOf("--skip") + 1]).toBe("0");
@@ -63,6 +87,7 @@ describe("logArgs", () => {
     expect(args).toEqual([
       "log",
       "--no-color",
+      "--no-show-signature",
       `--pretty=format:${LOG_FORMAT}`,
       "-n",
       "6",
@@ -90,6 +115,15 @@ describe("showArgs", () => {
     expect(args.indexOf("--end-of-options")).toBe(args.length - 2);
     expect(args[args.length - 1]).toBe("889c5f8");
     expect(args.slice(0, 4)).toEqual(["show", "--no-patch", "--raw", "--numstat"]);
+  });
+
+  test("never verifies a signature or runs a diff driver", () => {
+    const args = showArgs("889c5f8");
+    const end = args.indexOf("--end-of-options");
+    for (const flag of ["--no-show-signature", "--no-ext-diff", "--no-textconv"]) {
+      expect(args.indexOf(flag)).toBeGreaterThan(0);
+      expect(args.indexOf(flag)).toBeLessThan(end);
+    }
   });
 });
 
@@ -143,6 +177,9 @@ describe("classifyGitFailure", () => {
       ).kind,
     ).toBe("bad-object");
     expect(classifyGitFailure("fatal: bad object deadbeef", 128).kind).toBe("bad-object");
+    expect(
+      classifyGitFailure("fatal: cannot change to '/work/a/private': Permission denied", 128).kind,
+    ).toBe("unreadable");
   });
 
   test("anything else keeps git's first stderr line", () => {

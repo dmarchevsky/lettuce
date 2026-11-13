@@ -5,6 +5,13 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Security
+- **Opening Files → History can no longer run a program an agent chose.** History reads a folder's git
+  log inside the app's own container, and git obeyed that folder's settings — which an agent can write —
+  so a prepared repository could start a script there, next to the sign-in secret and the Google
+  connection. Git now ignores every such setting and runs without the privileges to read them, and a
+  repository that points outside its own folder is shown as having no history.
+
 ## [v0.44.1-letta_0.34.56] - 2026-11-13
 
 ### Fixed
