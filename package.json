@@ -37,5 +37,8 @@
     "playwright": "^1.62.1",
     "typescript": "^5.6.0"
   },
-  "trustedDependencies": []
+  "trustedDependencies": [],
+  "overrides": {
+    "hono": "^4.13.18"
+  }
 }

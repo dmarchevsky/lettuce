@@ -289,11 +289,26 @@ test("ssh argv is hardened and the key file is the one identity", () => {
   expect(joined).toContain("-o UserKnownHostsFile=/kh");
   expect(joined).toContain("-p 22");
   expect(args.at(-2)).toBe("worker@pi.example.invalid");
+  // The destination can never be read as an option, whatever it starts with.
+  expect(args.at(-3)).toBe("--");
   // IdentityFile + IdentitiesOnly always: the stored key is THE identity, and
   // no agent that happens to be reachable may substitute another.
   expect(joined).toContain("-o IdentityFile=/k");
   expect(joined).toContain("-o IdentitiesOnly=yes");
   expect(joined).not.toContain("IdentityAgent");
+});
+
+test("a host or user that reads as an ssh option is refused at save", () => {
+  for (const host of ["-oProxyCommand=id", "pi host", "pi;id", "a/b", "$(id)"]) {
+    expect(() => applyPiSettingsUpdate(BASE, { host })).toThrow("hostname");
+  }
+  for (const user of ["-lroot", "wor ker", "a@b", "x;y"]) {
+    expect(() => applyPiSettingsUpdate(BASE, { user })).toThrow("login name");
+  }
+  for (const host of ["pi.example.invalid", "192.0.2.7", "2001:db8::7", "pi_box-2"]) {
+    expect(applyPiSettingsUpdate(BASE, { host }).host).toBe(host);
+  }
+  expect(applyPiSettingsUpdate(BASE, { user: "svc_pi-2" }).user).toBe("svc_pi-2");
 });
 
 // ── runner ───────────────────────────────────────────────────────────────────

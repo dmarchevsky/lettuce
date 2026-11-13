@@ -32,6 +32,14 @@
  *   victim's cookie to this server, and a page served from a remote host can
  *   never have a loopback Origin. Only something already running on this
  *   machine does.
+ *
+ *   With one exception, which is exactly "something already running on this
+ *   machine": an agent's web app. Those are published on ports 3000-3099 with no
+ *   authentication of their own, and cookies are not scoped by port, so a page
+ *   an agent serves at `http://localhost:3005` is *same-site* with the app at
+ *   `http://localhost:8090` and the browser attaches the session cookie to
+ *   whatever it sends here. A loopback Origin on an agent-app port is therefore
+ *   refused unless it is this server's own address.
  */
 
 import type { Access } from "../config.ts";
@@ -86,12 +94,18 @@ export function checkUpgradeOrigin(
     };
   }
 
-  if (isLoopbackHostname(originUrl.hostname)) return { ok: true };
+  if (hostHeader && sameHostAndPort(originUrl, hostHeader)) return { ok: true };
+
+  if (isLoopbackHostname(originUrl.hostname)) {
+    if (isAgentAppPort(originUrl.port)) {
+      return { ok: false, reason: `Origin ${originHeader} is an agent app's port` };
+    }
+    return { ok: true };
+  }
 
   if (!hostHeader) {
     return { ok: false, reason: `no Host header to compare Origin ${originHeader} against` };
   }
-  if (sameHostAndPort(originUrl, hostHeader)) return { ok: true };
 
   return {
     ok: false,
@@ -103,4 +117,17 @@ export function checkUpgradeOrigin(
 export function isLoopbackHostname(hostname: string): boolean {
   const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
   return host === "localhost" || host === "::1" || host.startsWith("127.");
+}
+
+/**
+ * The host ports `docker/compose.yml` publishes for agents' own web apps
+ * (`AGENT_APP_PORTS`). A literal on purpose: the range is a literal in the
+ * compose file's port mapping too, and nothing configures one without the other.
+ */
+const AGENT_APP_PORT_FIRST = 3000;
+const AGENT_APP_PORT_LAST = 3099;
+
+function isAgentAppPort(port: string): boolean {
+  const value = Number(port);
+  return port !== "" && value >= AGENT_APP_PORT_FIRST && value <= AGENT_APP_PORT_LAST;
 }

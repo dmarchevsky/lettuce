@@ -8,7 +8,15 @@
  * system gitconfig out of the picture, `GIT_TERMINAL_PROMPT=0` makes git fail
  * instead of waiting on a prompt that no one will answer, `GIT_CEILING_DIRECTORIES=/`
  * stops repository discovery from climbing out of the container's view of the
- * filesystem, and `HOME=/tmp` keeps git out of any real home directory.
+ * filesystem, and `HOME=/tmp` with `GIT_CONFIG_GLOBAL=/dev/null` keeps git out
+ * of any real home directory and any global config.
+ *
+ * The child also runs **unprivileged** when this process is root (the
+ * container): the repository is agent-authored, git honours its config, and a
+ * config key can name a program to run. `gitArgv` pins the keys known to do
+ * that; dropping to `nobody` is what holds when a key is missed — that uid
+ * cannot read the sign-in hash, the Google token and policy or the remote-pi
+ * key (all root-only files), nor this process's environment.
  */
 
 import {
@@ -56,12 +64,41 @@ function gitEnv(): Record<string, string> {
     GIT_TERMINAL_PROMPT: "0",
     GIT_CEILING_DIRECTORIES: "/",
     HOME: "/tmp",
+    GIT_CONFIG_GLOBAL: "/dev/null",
     PATH: process.env.PATH ?? "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
   };
 }
 
+/** `nobody` on Debian, which is what the image is built from. */
+const UNPRIVILEGED_ID = "65534";
+
+/**
+ * The argv prefix that runs a child as `nobody`, or `[]` when this process is
+ * not root (a bare `bun run dev`, the test suite) and so has nothing to drop.
+ * `null` means root with no `setpriv` to drop with — `checkGitAvailability`
+ * says that out loud once at boot.
+ */
+export function privilegeDrop(
+  uid: number | undefined = process.getuid?.(),
+  setpriv: string | null = Bun.which("setpriv"),
+): string[] | null {
+  if (uid !== 0) return [];
+  if (!setpriv) return null;
+  return [
+    setpriv,
+    `--reuid=${UNPRIVILEGED_ID}`,
+    `--regid=${UNPRIVILEGED_ID}`,
+    "--clear-groups",
+    "--no-new-privs",
+    "--",
+  ];
+}
+
+let dropPrefix: string[] | null | undefined;
+
 const defaultSpawn: GitSpawn = (cmdline) => {
-  const child = Bun.spawn(cmdline, {
+  if (dropPrefix === undefined) dropPrefix = privilegeDrop();
+  const child = Bun.spawn([...(dropPrefix ?? []), ...cmdline], {
     env: gitEnv(),
     stdout: "pipe",
     stderr: "pipe",
@@ -220,10 +257,25 @@ export async function probeRoot(runner: GitRunner, dir: string): Promise<GitResu
 export async function checkGitAvailability(
   runner: GitRunner = runGit,
   log: (message: string) => void = (message) => console.log(message),
+  drop: string[] | null = privilegeDrop(),
 ): Promise<boolean> {
   const result = await runner("/", ["--version"]);
   if (result.ok) {
-    log(`git available: ${result.stdout.trim()}`);
+    log(
+      `git available: ${result.stdout.trim()}${
+        drop === null
+          ? ""
+          : drop.length > 0
+            ? " (runs unprivileged)"
+            : " (not root: nothing to drop)"
+      }`,
+    );
+    if (drop === null) {
+      log(
+        "! setpriv is missing from this image: git runs as root against agent-authored " +
+          "repositories. The pinned config in git/log.ts is then the only guard.",
+      );
+    }
     return true;
   }
   if (result.error.kind === "git-unavailable") {

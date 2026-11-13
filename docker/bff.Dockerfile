@@ -60,18 +60,21 @@ RUN bun scripts/build-info.ts --emit BUILD_INFO --gitmeta ctx/.git --git-sha "$G
 FROM deps AS runtime
 
 # The first apt use in this image. The Files tab's History reads the commit log
-# here (bff/src/git/) — against the BFF's read-only /work mount — because
+# here (bff/src/git/) — against the BFF's own /work mount — because
 # upstream exposes only branch commands and the app-server image ships no git
 # binary. Deliberately unpinned: pinning a Debian package version breaks on
-# every base refresh, and the accepted residual risk is git's object parser
-# running on agent-authored repositories inside this container, mitigated by
-# the read-only mount, argv-only spawns, timeouts and output caps. Only `git`
+# every base refresh, and the accepted residual risk is git running on
+# agent-authored repositories inside this container, mitigated by pinned config
+# overrides, an unprivileged child (`setpriv`, from the base image's util-linux —
+# asserted below so a base change cannot drop it silently), argv-only spawns,
+# timeouts and output caps. Only `git`
 # itself is needed; --no-install-recommends keeps perl manpages etc. out.
 # `openssh-client` is the remote pi worker's transport (bff/src/pi/): the BFF
 # itself is the ssh client, so the app-server image carries nothing for it.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends git openssh-client \
-  && rm -rf /var/lib/apt/lists/*
+  && rm -rf /var/lib/apt/lists/* \
+  && setpriv --reuid=65534 --regid=65534 --clear-groups --no-new-privs -- git --version
 
 COPY tsconfig.base.json ./tsconfig.base.json
 COPY bff/src            ./bff/src

@@ -1,11 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { NOT_A_REPOSITORY_STDERR } from "./log.ts";
+import { chmodSync, existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { logArgs, NOT_A_REPOSITORY_STDERR, showArgs } from "./log.ts";
 import {
   checkGitAvailability,
   type GitChild,
   type GitSpawn,
   MAX_INFLIGHT,
   makeRunner,
+  privilegeDrop,
+  runGit,
 } from "./service.ts";
 
 const encoder = new TextEncoder();
@@ -151,9 +156,23 @@ describe("checkGitAvailability", () => {
       lines.push(message);
     };
     expect(
-      await checkGitAvailability(async () => ({ ok: true, stdout: "git version 2.39.5\n" }), log),
+      await checkGitAvailability(async () => ({ ok: true, stdout: "git version 2.39.5\n" }), log, [
+        "setpriv",
+      ]),
     ).toBe(true);
-    expect(lines).toEqual(["git available: git version 2.39.5"]);
+    expect(lines).toEqual(["git available: git version 2.39.5 (runs unprivileged)"]);
+
+    // Root with nothing to drop privileges with is the one case worth a warning.
+    lines.length = 0;
+    await checkGitAvailability(
+      async () => ({ ok: true, stdout: "git version 2.39.5\n" }),
+      log,
+      null,
+    );
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toContain("setpriv is missing");
+
+    lines.length = 1;
     expect(
       await checkGitAvailability(
         async () => ({ ok: false, error: { kind: "git-unavailable" as const, detail: "x" } }),
@@ -162,5 +181,95 @@ describe("checkGitAvailability", () => {
     ).toBe(false);
     expect(lines.length).toBe(2);
     expect(lines[1]).toContain("NOT available");
+  });
+});
+
+describe("privilegeDrop", () => {
+  test("root drops to nobody through setpriv, with no way back", () => {
+    expect(privilegeDrop(0, "/usr/bin/setpriv")).toEqual([
+      "/usr/bin/setpriv",
+      "--reuid=65534",
+      "--regid=65534",
+      "--clear-groups",
+      "--no-new-privs",
+      "--",
+    ]);
+  });
+
+  test("a non-root process has nothing to drop", () => {
+    expect(privilegeDrop(1000, "/usr/bin/setpriv")).toEqual([]);
+    expect(privilegeDrop(1000, null)).toEqual([]);
+  });
+
+  test("root without setpriv is reported, not papered over", () => {
+    expect(privilegeDrop(0, null)).toBeNull();
+  });
+});
+
+/**
+ * The reproduction, against real git: a repository whose own config names a
+ * program for signature checks, and a commit that carries a signature. Before
+ * the pinned config in `gitArgv`, opening History on it ran that program in this
+ * process's container.
+ */
+describe("a hostile repository", () => {
+  const git = Bun.which("git");
+  const run = (cwd: string, args: string[], stdin?: string): string => {
+    const result = Bun.spawnSync({
+      cmd: ["git", ...args],
+      cwd,
+      stdin: stdin === undefined ? "ignore" : Buffer.from(stdin),
+      env: {
+        PATH: process.env.PATH ?? "",
+        HOME: cwd,
+        GIT_CONFIG_NOSYSTEM: "1",
+        GIT_AUTHOR_NAME: "a",
+        GIT_AUTHOR_EMAIL: "a@example.com",
+        GIT_COMMITTER_NAME: "a",
+        GIT_COMMITTER_EMAIL: "a@example.com",
+      },
+    });
+    if (result.exitCode !== 0) throw new Error(`git ${args[0]}: ${result.stderr.toString()}`);
+    return result.stdout.toString().trim();
+  };
+
+  test.skipIf(!git)("cannot make log or show run the program its config names", async () => {
+    const base = mkdtempSync(join(tmpdir(), "git-hostile-"));
+    const repo = join(base, "repo");
+    const marker = join(base, "RAN");
+    const script = join(base, "pwn.sh");
+    writeFileSync(script, `#!/bin/sh\necho ran > ${marker}\nexit 1\n`);
+    chmodSync(script, 0o755);
+
+    run(base, ["init", "-q", repo]);
+    writeFileSync(join(repo, "a"), "hi\n");
+    run(repo, ["add", "a"]);
+    const tree = run(repo, ["write-tree"]);
+    const commit = run(
+      repo,
+      ["hash-object", "-t", "commit", "-w", "--stdin"],
+      `tree ${tree}\nauthor a <a@example.com> 1700000000 +0000\n` +
+        "committer a <a@example.com> 1700000000 +0000\n" +
+        "gpgsig -----BEGIN PGP SIGNATURE-----\n \n iQEzBAABCAAdFiEE\n -----END PGP SIGNATURE-----\n" +
+        "\nmsg\n",
+    );
+    run(repo, ["update-ref", "HEAD", commit]);
+    run(repo, ["config", "log.showSignature", "true"]);
+    run(repo, ["config", "gpg.program", script]);
+    run(repo, ["config", "core.fsmonitor", script]);
+
+    // The setup is real: git with no pinning does run it.
+    Bun.spawnSync({
+      cmd: ["git", "-C", repo, "log", "-n", "1"],
+      env: { PATH: process.env.PATH ?? "", HOME: base, GIT_CONFIG_NOSYSTEM: "1" },
+    });
+    expect(existsSync(marker)).toBe(true);
+    await Bun.file(marker).delete();
+
+    const log = await runGit(repo, logArgs({ limit: 5, skip: 0, pathspec: null }));
+    expect(log.ok).toBe(true);
+    const show = await runGit(repo, showArgs(commit));
+    expect(show.ok).toBe(true);
+    expect(existsSync(marker)).toBe(false);
   });
 });

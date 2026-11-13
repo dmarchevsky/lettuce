@@ -88,6 +88,7 @@ export async function gitRepoResponse(
     }
     return failureResult(probe.failure);
   }
+  if (!rootContains(deps, probe.root, guard.real)) return foreignRoot();
 
   return { status: 200, json: { repo: true, root: probe.root, branch: probe.branch } };
 }
@@ -116,6 +117,7 @@ export async function gitLogResponse(
     }
     return failureResult(probe.failure);
   }
+  if (!rootContains(deps, probe.root, dir)) return foreignRoot();
 
   const pathspec = pathspecFor(probe.root, dir);
   // The log runs in the repository root, not the open folder: a relative
@@ -172,6 +174,7 @@ export async function gitCommitResponse(
     return failureResult(toplevel.error);
   }
   const root = toplevel.stdout.trim();
+  if (!rootContains(deps, root, dir)) return foreignRoot();
 
   const show = await runner(dir, showArgs(sha));
   if (!show.ok) {
@@ -243,6 +246,32 @@ function guardDirectory(
   return { ok: true, real };
 }
 
+/**
+ * Whether the root git reported is one this request may be answered from: inside
+ * the workspace, and at or above the folder that was asked about.
+ *
+ * git decides the root from the repository's own files, and those are an
+ * agent's to write — `core.worktree`, or a `.git` *file* naming a `gitdir`
+ * elsewhere, moves it anywhere on this container's filesystem. The log then runs
+ * with `-C <root>`, so an unchecked root is a way to read history the workspace
+ * clamp was meant to keep out of reach.
+ */
+function rootContains(deps: GitRouteDeps, reported: string, dir: string): boolean {
+  const workspace = deps.root ?? WORKSPACE_ROOT;
+  const root = normalizePosixPath(reported);
+  if (!reported.startsWith("/")) return false;
+  if (root !== workspace && !root.startsWith(`${workspace}/`)) return false;
+  return dir === root || dir.startsWith(`${root}/`);
+}
+
+/** The answer for a repository whose root is not where the folder is: no history here. */
+function foreignRoot(): GitRouteResult {
+  return {
+    status: 200,
+    json: { repo: false, reason: "This folder's repository points outside the folder." },
+  };
+}
+
 /** Map a git failure that is not the friendly `not-a-repository` case. */
 function failureResult(failure: GitFailure): GitRouteResult {
   switch (failure.kind) {
@@ -256,6 +285,7 @@ function failureResult(failure: GitFailure): GitRouteResult {
     case "bad-object":
       return { status: 404, text: failure.detail };
     case "not-a-repository":
+    case "unreadable":
       return { status: 200, json: { repo: false, reason: failure.detail } };
     default:
       return { status: 502, text: failure.detail };

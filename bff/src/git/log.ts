@@ -39,6 +39,7 @@ export type GitFailureKind =
   | "timed-out"
   | "output-too-large"
   | "busy"
+  | "unreadable"
   | "failed";
 
 export interface GitFailure {
@@ -66,6 +67,11 @@ export function classifyGitFailure(stderr: string, exitCode: number | null): Git
   if (/unknown revision|bad object|bad revision|ambiguous argument|unknown commit/i.test(stderr)) {
     return { kind: "bad-object", detail: firstLine || `Unknown object (exit ${exitCode}).` };
   }
+  // git runs unprivileged (`service.ts`), so a folder only its owner may read is
+  // a fact about that folder, not a failure of ours.
+  if (/permission denied/i.test(stderr)) {
+    return { kind: "unreadable", detail: "History cannot read this folder (permission denied)." };
+  }
   return { kind: "failed", detail: firstLine ? `failed:${firstLine}` : `failed:exit ${exitCode}` };
 }
 
@@ -84,6 +90,13 @@ function firstLineOf(text: string): string {
  *   typically owned by a different uid than this process. The workspace clamp
  *   is applied by us in code; this only silences git's own ownership check.
  * - `core.quotepath=false`: paths come back as raw UTF-8, not octal escapes.
+ * - `HARDENING`: the repository's own `.git/config` is written by an agent and
+ *   git honours it, so every key that names a program git may run is pinned
+ *   here — a command-line `-c` beats the repository file. Without them
+ *   `log.showSignature=true` plus `gpg.program=<script>` and one commit with a
+ *   `gpgsig` header ran that script in this container on a plain History open.
+ *   `service.ts` also drops the child's privileges, because this list can only
+ *   name the keys known today.
  *
  * `--end-of-options` is deliberately NOT here: it is a per-subcommand token
  * (git ≥ 2.24), not a global option — in the global position every git from
@@ -98,11 +111,25 @@ export function gitArgv(dir: string, args: string[]): string[] {
     "safe.directory=*",
     "-c",
     "core.quotepath=false",
+    ...HARDENING.flatMap((setting) => ["-c", setting]),
     "-C",
     dir,
     ...args,
   ];
 }
+
+/** Config keys that could make git execute something a repository names; see `gitArgv`. */
+export const HARDENING: readonly string[] = [
+  "log.showSignature=false",
+  "gpg.program=/bin/false",
+  "gpg.ssh.program=/bin/false",
+  "gpg.x509.program=/bin/false",
+  "core.fsmonitor=false",
+  "core.hooksPath=/dev/null",
+  "core.pager=cat",
+  "core.sshCommand=/bin/false",
+  "protocol.allow=never",
+];
 
 /** The three probe calls that answer "is this a repository, where is its root, what is checked out". */
 export const PROBE_GIT_DIR = ["rev-parse", "--git-dir"];
@@ -127,6 +154,8 @@ export function logArgs({ limit, skip, pathspec }: LogArgs): string[] {
   const args = [
     "log",
     "--no-color",
+    // Belt to `log.showSignature=false` in `gitArgv`: never hand a commit to gpg.
+    "--no-show-signature",
     `--pretty=format:${LOG_FORMAT}`,
     "-n",
     String(limit + 1),
@@ -147,6 +176,11 @@ export function showArgs(sha: string): string[] {
     "--no-patch",
     "--raw",
     "--numstat",
+    // No signature check, no external diff driver, no textconv filter: each is
+    // a program the repository's config gets to name.
+    "--no-show-signature",
+    "--no-ext-diff",
+    "--no-textconv",
     `--format=${SHOW_FORMAT}`,
     // The sha only ever travels after this token.
     "--end-of-options",

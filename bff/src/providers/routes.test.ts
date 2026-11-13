@@ -472,3 +472,54 @@ describe("a connection's model picks", () => {
     expect(hiddenOf(modelCaps)).toEqual({});
   });
 });
+
+describe("POST /api/providers/models — the stored key stays with its endpoint", () => {
+  async function probeWith(body: Record<string, unknown>) {
+    const { app, modelCaps } = await setup();
+    modelCaps.setEndpoint("mine", {
+      name: "mine",
+      type: "openai-compatible",
+      baseUrl: "https://llm.example/v1",
+      apiKey: "stored-secret",
+      headers: { "x-team": "stored-header" },
+      models: ["m"],
+    });
+    const seen: { url: string; headers: Headers }[] = [];
+    const real = globalThis.fetch;
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      seen.push({ url: String(input), headers: new Headers(init?.headers) });
+      return new Response(JSON.stringify({ data: [{ id: "plain" }] }));
+    }) as unknown as typeof fetch;
+    try {
+      await send(app, "POST", "/api/providers/models", {
+        type: "openai-compatible",
+        api: "openai-completions",
+        prefix: "mine",
+        ...body,
+      });
+    } finally {
+      globalThis.fetch = real;
+    }
+    const sent = seen.map((request) => [...request.headers.values()].join(" ")).join(" ");
+    return { seen, sent };
+  }
+
+  test("a blank key falls back to the stored one for the endpoint it was saved for", async () => {
+    const { sent } = await probeWith({ baseUrl: "https://llm.example/v1/" });
+    expect(sent).toContain("stored-secret");
+    expect(sent).toContain("stored-header");
+  });
+
+  test("another address gets neither the stored key nor the stored headers", async () => {
+    const { seen, sent } = await probeWith({ baseUrl: "https://collector.example/v1" });
+    expect(seen.length).toBeGreaterThan(0);
+    expect(sent).not.toContain("stored-secret");
+    expect(sent).not.toContain("stored-header");
+  });
+
+  test("a key typed into the form still goes wherever the form points", async () => {
+    const { sent } = await probeWith({ baseUrl: "https://other.example/v1", apiKey: "typed" });
+    expect(sent).toContain("typed");
+    expect(sent).not.toContain("stored-secret");
+  });
+});

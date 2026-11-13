@@ -5,6 +5,57 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.45.0-letta_0.34.56] - 2026-11-13
+
+### Changed
+- **Signing out, or changing the password, now signs out every device — and upgrading signs you out
+  once.** A session used to stay valid for its full thirty days whatever you did, so a cookie that had
+  leaked could not be taken back. Open tabs on other devices disconnect straight away, and a tab left
+  open no longer outlives its session.
+
+### Fixed
+- **A long answer no longer gets slower as it is written.** Every new word made the app re-read the
+  whole message from the top, so a long reply stuttered more the longer it grew; now only the
+  paragraph still being written is re-read. A finished message looks exactly as it did.
+- **Long conversations scroll and stream more smoothly on desktop and Android.** Past about 150
+  messages the browser stops drawing the ones that are off screen. Nothing is removed — search in page,
+  selecting across messages and anything you expanded all still work — and iPhone, whose browser cannot
+  do this without the text shifting as you scroll, keeps drawing everything as before.
+- **The app no longer freezes for everyone while one slow thing happens.** Deleting a big folder,
+  opening a large file tree, or checking a Remote Pi host that does not answer each stopped every
+  open conversation's stream until it finished — up to fifteen seconds for the host check. They now
+  run in the background.
+- **Downloading a file is lighter and faster.** A download used to be read whole into memory twice and
+  sent through the same connection every agent's replies travel on; it now streams straight from disk.
+- **The app loads faster on a slow connection.** Scripts, styles and data are now sent compressed —
+  the first open downloads roughly a third of what it did — and with several tabs open each streamed
+  update is prepared once instead of once per tab.
+
+### Security
+- **Opening Files → History can no longer run a program an agent chose.** History reads a folder's git
+  log inside the app's own container, and git obeyed that folder's settings — which an agent can write —
+  so a prepared repository could start a script there, next to the sign-in secret and the Google
+  connection. Git now ignores every such setting and runs without the privileges to read them, and a
+  repository that points outside its own folder is shown as having no history.
+- **A web app an agent serves can no longer act on Lettuce through your browser.** Agent apps live on
+  other ports of the same address, which browsers treat as the same site, so a page there could send
+  requests that carried your sign-in — change the password, add a tool server, open the live
+  connection. Anything that changes something must now come from Lettuce's own page. The app also
+  warns in its log when agent apps and Lettuce share a plain-http address, where the browser hands
+  them your sign-in cookie outright; `docs/CONFIGURATION.md` says how to separate them.
+- **Testing a provider no longer sends its saved key to a different address.** Leaving the key blank
+  reuses the stored one only for the address it was saved with; change the address and you type the
+  key again.
+- **Guessing the password is slower and cannot lock you out of trying.** Only one guess is checked at
+  a time, so a burst cannot get ahead of the pause, and sign-in has its own request allowance that
+  other traffic cannot use up.
+- **Smaller holes closed:** a Remote Pi host or user can no longer be read as a command-line option;
+  with sign-in off, a shell inside the stack can no longer ask for the owner's session; a
+  notification endpoint must be a public https address; a file from a Remote Pi run cannot inject
+  response headers through its name; deleting a file re-checks its path at the last moment; and the
+  app's own containers can no longer gain privileges after they start. Hono and the MCP SDK are
+  updated past their published advisories.
+
 ## [v0.44.1-letta_0.34.56] - 2026-11-13
 
 ### Fixed

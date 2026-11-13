@@ -32,7 +32,7 @@ const deps = (over: Record<string, unknown> = {}) => ({
   root,
   remove: (path: string) => {
     removed.push(path);
-    removeWorkspacePath(path);
+    return removeWorkspacePath(path);
   },
   ...over,
 });
@@ -213,10 +213,23 @@ describe("what does get deleted", () => {
     expect(result.status).toBe(404);
   });
 
-  test("the real removal keeps lstat's view of a directory", () => {
-    const dir = join(root, "agent-local-1", "notes");
+  test("the real removal keeps lstat's view of a directory", async () => {
+    const dir = realpathSync(join(root, "agent-local-1", "notes"));
     expect(lstatSync(dir).isDirectory()).toBe(true);
-    removeWorkspacePath(dir);
+    await removeWorkspacePath(dir);
     expect(existsSync(dir)).toBe(false);
+  });
+
+  test("a path that stopped resolving to itself is not removed", async () => {
+    // What the last-moment check is for: between the guard and the removal a
+    // component became a link, so the delete would land somewhere else.
+    const outside = mkdtempSync(join(tmpdir(), "lettuce-delete-outside-"));
+    writeFileSync(join(outside, "keep.md"), "keep", "utf8");
+    const swapped = join(realpathSync(root), "agent-local-1", "notes");
+    rmSync(swapped, { recursive: true });
+    symlinkSync(outside, swapped);
+    await expect(removeWorkspacePath(join(swapped, "keep.md"))).rejects.toThrow("changed");
+    expect(existsSync(join(outside, "keep.md"))).toBe(true);
+    rmSync(outside, { recursive: true, force: true });
   });
 });
