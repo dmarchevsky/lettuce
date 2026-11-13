@@ -96,6 +96,29 @@ export function piChecksFile(paths: PiPaths): string {
   return `${paths.dir}/checks.json`;
 }
 
+/**
+ * One short-lived helper (`ssh-keygen`, `ssh-keyscan`), awaited. These used to be
+ * `spawnSync`: a keyscan against a host that does not answer held the whole
+ * event loop — every browser's stream — for its full fifteen seconds.
+ */
+async function runHelper(
+  cmd: string[],
+  timeoutMs = 15_000,
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  const child = Bun.spawn(cmd, { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+  const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
+  try {
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    return { exitCode, stdout, stderr };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function readOrNull(path: string): Promise<string | null> {
   try {
     return await readFile(path, "utf8");
@@ -303,11 +326,8 @@ export class PiService {
   /** `ssh-keygen -y` on the stored key; lenient (null on anything unusable). */
   private async derivePublicKey(): Promise<string | null> {
     try {
-      const res = Bun.spawnSync({
-        cmd: ["ssh-keygen", "-y", "-f", piKeyFile(this.options.paths)],
-        stdin: "ignore",
-      });
-      const out = res.stdout.toString().trim();
+      const res = await runHelper(["ssh-keygen", "-y", "-f", piKeyFile(this.options.paths)]);
+      const out = res.stdout.trim();
       return res.exitCode === 0 && out.startsWith("ssh-") ? out : null;
     } catch {
       return null;
@@ -325,12 +345,19 @@ export class PiService {
     const keyFile = piKeyFile(this.options.paths);
     const tmp = `${keyFile}.${randomUUID()}.gen`;
     try {
-      const res = Bun.spawnSync({
-        cmd: ["ssh-keygen", "-t", "ed25519", "-N", "", "-C", "lettuce-pi-worker", "-f", tmp],
-        stdin: "ignore",
-      });
+      const res = await runHelper([
+        "ssh-keygen",
+        "-t",
+        "ed25519",
+        "-N",
+        "",
+        "-C",
+        "lettuce-pi-worker",
+        "-f",
+        tmp,
+      ]);
       if (res.exitCode !== 0) {
-        throw new Error(`ssh-keygen failed: ${res.stderr.toString().trim() || res.exitCode}`);
+        throw new Error(`ssh-keygen failed: ${res.stderr.trim() || res.exitCode}`);
       }
       const pem = `${(await readFile(tmp, "utf8")).trimEnd()}\n`;
       const pub = (await readFile(`${tmp}.pub`, "utf8")).trim();
@@ -386,12 +413,13 @@ export class PiService {
     if (!isValidPiHost(host)) {
       throw new InvalidPiSettingsError("`host` must be a hostname or an IP address");
     }
-    const result = Bun.spawnSync({
-      cmd: ["ssh-keyscan", ...(port === 22 ? [] : ["-p", String(port)]), "--", host],
-      timeout: 15_000,
-    });
+    const result = await runHelper([
+      "ssh-keyscan",
+      ...(port === 22 ? [] : ["-p", String(port)]),
+      "--",
+      host,
+    ]);
     const scanned = result.stdout
-      .toString()
       .split("\n")
       .filter((line) => line.trim() && !line.trim().startsWith("#"));
     if (result.exitCode !== 0 || scanned.length === 0) {
@@ -433,9 +461,9 @@ export class PiService {
     const tmp = `${piKnownHostsFile(this.options.paths)}.${randomUUID()}.fp`;
     try {
       await writePrivate(tmp, `${keyLine.trim()}\n`);
-      const res = Bun.spawnSync({ cmd: ["ssh-keygen", "-lf", tmp], stdin: "ignore" });
+      const res = await runHelper(["ssh-keygen", "-lf", tmp]);
       // "256 SHA256:xxxx comment (ED25519)"
-      const match = /SHA256:\S+/.exec(res.stdout.toString());
+      const match = /SHA256:\S+/.exec(res.stdout);
       return res.exitCode === 0 && match ? match[0] : null;
     } catch {
       return null;

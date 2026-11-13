@@ -56,6 +56,7 @@ import { type ClaudeFileIo, reapplyClaudeSettings } from "./claude/service.ts";
 import { AGENT_POLICY_MOD_PATH, renderAgentPolicyMod } from "./codex/policy-mod.ts";
 import { registerCodexRoutes } from "./codex/routes.ts";
 import { type CodexFileIo, reapplyCodexSettings } from "./codex/service.ts";
+import { ResponseCompressor } from "./compress.ts";
 import {
   type BffConfig,
   enabledFeatureNames,
@@ -75,6 +76,7 @@ import {
 import { errorMessage } from "./errors.ts";
 import { contentDisposition } from "./files/content-disposition.ts";
 import { inlineContentType } from "./files/content-type.ts";
+import { guardDownload } from "./files/download.ts";
 import { registerFilesRoutes } from "./files/routes.ts";
 import {
   declaredSizeViolation,
@@ -407,6 +409,19 @@ const agentSkillsDir =
  * that drops this record.
  */
 const shippedSkillsWritten = new Set<string>();
+
+/**
+ * Which skills are ours rather than the operator's, for `/api/skills`. Read once:
+ * the shipped set is baked into the image, and reading the whole tree — every
+ * file's contents, synchronously — on each list was a pause on the event loop
+ * for a set of names that cannot change while the process runs.
+ */
+const managedSkillNames = new Map<string, string>([
+  ...readSkillTree(agentSkillsDir).map(
+    (file) => [file.path.split("/")[0] ?? "", "this app"] as const,
+  ),
+  [MCP_SKILL_NAME, "Settings → MCP"],
+]);
 async function installShippedSkills(): Promise<void> {
   await installAgentSkills(
     readSkillTree(agentSkillsDir),
@@ -578,13 +593,7 @@ const skillCatalog = new SkillCatalog(
       return content;
     },
   }),
-  () =>
-    new Map([
-      ...readSkillTree(agentSkillsDir).map(
-        (file) => [file.path.split("/")[0] ?? "", "this app"] as const,
-      ),
-      [MCP_SKILL_NAME, "Settings → MCP"],
-    ]),
+  () => managedSkillNames,
 );
 
 // The shared MCP list and its skill (see `mcp/`), through the app-server like
@@ -1035,7 +1044,8 @@ function refreshToolsAfterGoogleChange(): void {
 // file that forgot it — every component stats as ENOENT and the guard passes
 // everything. That is fail-open, so say so loudly rather than leaving it to be
 // discovered by an escape.
-if (!existsSync(WORKSPACE_ROOT)) {
+const workspaceMounted = existsSync(WORKSPACE_ROOT);
+if (!workspaceMounted) {
   log(
     `! ${WORKSPACE_ROOT} is not mounted in this process: the symlink guard cannot ` +
       `verify workspace paths and will allow any lexically-in-root path. Mount the ` +
@@ -1872,6 +1882,30 @@ app.get("/api/files/download", async (c) => {
   const symlink = symlinkViolation(path, WORKSPACE_ROOT);
   if (symlink) return c.text(symlink, 400);
 
+  const inline = c.req.query("inline") != null;
+
+  // The bytes are on this process's own mount: stream them from there. Only a
+  // BFF running outside the container (bare `bun run dev`, no mount) still asks
+  // the app-server for them.
+  if (workspaceMounted) {
+    const guard = guardDownload({ maxBytes: MAX_DOWNLOAD_BYTES }, path);
+    if (!guard.ok) return c.text(guard.text, guard.status as 400 | 404 | 413);
+    // `?inline=1` (chat-message links) asks for a viewable response; only PDFs
+    // and raster images actually get one — see `inlineContentType`.
+    const inlineType = inline ? inlineContentType(guard.filename) : null;
+    return new Response(Bun.file(guard.real), {
+      headers: {
+        ...hardened,
+        "content-type": inlineType ?? "application/octet-stream",
+        "content-disposition": contentDisposition(
+          guard.filename,
+          inlineType ? "inline" : "attachment",
+        ),
+        "content-length": String(guard.size),
+      },
+    });
+  }
+
   if (!upstream.isReady()) return c.text("App-server is not connected", 503);
 
   if (downloadsInFlight >= MAX_DOWNLOADS_IN_FLIGHT) {
@@ -1879,7 +1913,7 @@ app.get("/api/files/download", async (c) => {
   }
   downloadsInFlight += 1;
   try {
-    return await readWorkspaceFile(path, c.req.query("inline") != null);
+    return await readWorkspaceFile(path, inline);
   } finally {
     downloadsInFlight -= 1;
   }
@@ -2119,6 +2153,13 @@ const AUTH_REQUIRED_CLOSE_CODE = 4401;
 const bindHostname =
   config.signin === "none" && !process.env.LETTA_HOST_BIND?.trim() ? "127.0.0.1" : "0.0.0.0";
 
+// gzip for the build's text assets and JSON; see `compress.ts`. Downloads and
+// avatars are bytes somebody else already chose the encoding of.
+const compressor = new ResponseCompressor({
+  immutable: (path) => path.startsWith("/assets/"),
+  skip: (path) => path === "/api/files/download" || path.startsWith("/api/avatars"),
+});
+
 const server = Bun.serve<SocketData>({
   port: config.port,
   hostname: bindHostname,
@@ -2169,7 +2210,10 @@ const server = Bun.serve<SocketData>({
 
     // The peer address rides along as Hono's env: the one route that needs it
     // (`GET /auth/login` under SIGNIN=none) has no other way to learn it.
-    return app.fetch(request, { clientAddress: bunServer.requestIP(request)?.address });
+    const response = await app.fetch(request, {
+      clientAddress: bunServer.requestIP(request)?.address,
+    });
+    return compressor.apply(request, url.pathname, response);
   },
 
   websocket: {

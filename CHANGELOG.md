@@ -5,6 +5,17 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Fixed
+- **The app no longer freezes for everyone while one slow thing happens.** Deleting a big folder,
+  opening a large file tree, or checking a Remote Pi host that does not answer each stopped every
+  open conversation's stream until it finished — up to fifteen seconds for the host check. They now
+  run in the background.
+- **Downloading a file is lighter and faster.** A download used to be read whole into memory twice and
+  sent through the same connection every agent's replies travel on; it now streams straight from disk.
+- **The app loads faster on a slow connection.** Scripts, styles and data are now sent compressed —
+  the first open downloads roughly a third of what it did — and with several tabs open each streamed
+  update is prepared once instead of once per tab.
+
 ### Security
 - **Opening Files → History can no longer run a program an agent chose.** History reads a folder's git
   log inside the app's own container, and git obeyed that folder's settings — which an agent can write —

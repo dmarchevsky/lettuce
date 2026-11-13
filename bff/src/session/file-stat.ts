@@ -1,4 +1,4 @@
-import { statSync } from "node:fs";
+import { stat } from "node:fs/promises";
 
 /**
  * Augments `get_tree` entries with real modification times and file sizes, read
@@ -17,23 +17,39 @@ import { statSync } from "node:fs";
  * size is not a measure of what it contains, so showing one would be
  * actively misleading rather than merely absent.
  */
-export function withModifiedTimes<T extends { path: string; type: "file" | "dir" }>(
+export async function withModifiedTimes<T extends { path: string; type: "file" | "dir" }>(
   root: string,
   entries: T[],
-): (T & { modified?: number; size?: number })[] {
-  return entries.map((entry) => {
-    try {
-      const stats = statSync(resolveEntryPath(root, entry.path));
-      return {
-        ...entry,
-        modified: stats.mtimeMs,
-        ...(entry.type === "file" ? { size: stats.size } : {}),
-      };
-    } catch {
-      return entry;
+): Promise<(T & { modified?: number; size?: number })[]> {
+  const result: (T & { modified?: number; size?: number })[] = new Array(entries.length);
+  let next = 0;
+  // Async on purpose, and bounded: a tree is thousands of entries, and the
+  // synchronous version held the event loop — every browser's stream with it —
+  // for the whole walk. A few at a time keeps the thread pool for other work.
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const index = next++;
+      if (index >= entries.length) return;
+      // SAFETY: `index` is below `entries.length`, checked on the line above.
+      const entry = entries[index] as T;
+      try {
+        const stats = await stat(resolveEntryPath(root, entry.path));
+        result[index] = {
+          ...entry,
+          modified: stats.mtimeMs,
+          ...(entry.type === "file" ? { size: stats.size } : {}),
+        };
+      } catch {
+        result[index] = entry;
+      }
     }
-  });
+  };
+  await Promise.all(Array.from({ length: Math.min(STAT_CONCURRENCY, entries.length) }, worker));
+  return result;
 }
+
+/** How many `stat` calls are in flight at once for one tree. */
+const STAT_CONCURRENCY = 16;
 
 /**
  * `get_tree` reports paths relative to the root it was given (see

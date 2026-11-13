@@ -516,15 +516,21 @@ export class SessionRegistry {
         }
         session.pendingRequests.delete(requestId);
 
-        const relayed =
-          pending.path !== undefined && frame.type === "get_tree_response"
-            ? withGetTreeModifiedTimes(frame, pending.path)
-            : frame;
+        const reply = (relayed: WsProtocolMessage): void =>
+          this.sendTo(session.socket, {
+            ...relayed,
+            request_id: pending.originalId,
+          } as unknown as BffServerMessage);
 
-        this.sendTo(session.socket, {
-          ...relayed,
-          request_id: pending.originalId,
-        } as unknown as BffServerMessage);
+        if (pending.path !== undefined && frame.type === "get_tree_response") {
+          // The sizes and times are read off the BFF's own mount, off the event
+          // loop. A correlated reply has no order to keep with other frames, so
+          // it simply goes out when the reads are done — or as it arrived, if
+          // they fail.
+          void withGetTreeModifiedTimes(frame, pending.path).then(reply, () => reply(frame));
+        } else {
+          reply(frame);
+        }
         return;
       }
       // Not a session's response. If we issued the request ourselves, the
@@ -567,13 +573,15 @@ export class SessionRegistry {
       }
     }
     const buffered = this.buffer.append(frame, scopeKey);
-    const payload = { ...frame, [SEQ_FIELD]: buffered.seq };
+    // Serialised once, however many tabs are open: a streaming turn is hundreds
+    // of frames a second, and this used to be one `JSON.stringify` per tab each.
+    const text = JSON.stringify({ ...frame, [SEQ_FIELD]: buffered.seq });
 
     for (const session of this.sessions.values()) {
       if (scopeKey && session.scopes.size > 0 && !session.scopes.has(scopeKey)) {
         continue;
       }
-      this.sendTo(session.socket, payload as unknown as BffServerMessage);
+      this.sendText(session.socket, text);
     }
   }
 
@@ -729,7 +737,8 @@ export class SessionRegistry {
   /** Every session gets the whole set, whatever conversation it has open. */
   private broadcastActivity(): void {
     const message = { type: "__bff_activity" as const, active: this.activity.snapshot() };
-    for (const session of this.sessions.values()) this.sendTo(session.socket, message);
+    const text = JSON.stringify(message);
+    for (const session of this.sessions.values()) this.sendText(session.socket, text);
   }
 
   /**
@@ -756,7 +765,8 @@ export class SessionRegistry {
     }
     if (!payload) return;
     const message: BffServerMessage = { type: "__bff_pi_progress", ...payload };
-    for (const session of targets) this.sendTo(session.socket, message);
+    const text = JSON.stringify(message);
+    for (const session of targets) this.sendText(session.socket, text);
   }
 
   broadcastUpstreamState(state: UpstreamState, info: AppServerInfoResponseMessage | null): void {
@@ -771,13 +781,12 @@ export class SessionRegistry {
       this.pendingStarts.clear();
     }
     if (state !== "connected" && this.activity.clear()) this.broadcastActivity();
-    for (const session of this.sessions.values()) {
-      this.sendTo(session.socket, {
-        type: "__bff_upstream_state",
-        state,
-        app_server_info: info,
-      });
-    }
+    const text = JSON.stringify({
+      type: "__bff_upstream_state",
+      state,
+      app_server_info: info,
+    });
+    for (const session of this.sessions.values()) this.sendText(session.socket, text);
   }
 
   private async handleResume(
@@ -851,8 +860,13 @@ export class SessionRegistry {
   }
 
   private sendTo(socket: SessionSocket, message: BffServerMessage | Record<string, unknown>): void {
+    this.sendText(socket, JSON.stringify(message));
+  }
+
+  /** One already-serialised frame; the fan-outs serialise once and call this per tab. */
+  private sendText(socket: SessionSocket, text: string): void {
     try {
-      socket.send(JSON.stringify(message));
+      socket.send(text);
     } catch {
       // A dead browser socket is routine (backgrounded tab). The close handler
       // unregisters it; nothing upstream is affected.
@@ -861,10 +875,10 @@ export class SessionRegistry {
 }
 
 /** Merge real mtimes and sizes into a `get_tree_response`'s entries; see `file-stat.ts`. */
-function withGetTreeModifiedTimes(
+async function withGetTreeModifiedTimes(
   frame: GetTreeResponseMessage,
   root: string,
-): GetTreeResponseMessage {
+): Promise<GetTreeResponseMessage> {
   if (!frame.entries) return frame;
-  return { ...frame, entries: withModifiedTimes(root, frame.entries) };
+  return { ...frame, entries: await withModifiedTimes(root, frame.entries) };
 }

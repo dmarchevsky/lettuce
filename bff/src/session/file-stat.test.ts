@@ -23,37 +23,49 @@ describe("withModifiedTimes", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  test("attaches a real mtime for an entry that exists", () => {
-    const [entry] = withModifiedTimes(root, [{ path: "notes.md", type: "file" }]);
+  test("attaches a real mtime for an entry that exists", async () => {
+    const [entry] = await withModifiedTimes(root, [{ path: "notes.md", type: "file" }]);
     expect(entry?.modified).toBe(knownMtime.getTime());
   });
 
-  test("attaches a real size for a file", () => {
-    const [entry] = withModifiedTimes(root, [{ path: "notes.md", type: "file" }]);
+  test("attaches a real size for a file", async () => {
+    const [entry] = await withModifiedTimes(root, [{ path: "notes.md", type: "file" }]);
     expect(entry?.size).toBe(content.length);
   });
 
-  test("attaches a modified time but no size for a directory", () => {
-    const [entry] = withModifiedTimes(root, [{ path: "sub", type: "dir" }]);
+  test("attaches a modified time but no size for a directory", async () => {
+    const [entry] = await withModifiedTimes(root, [{ path: "sub", type: "dir" }]);
     expect(entry?.modified).toBe(knownMtime.getTime());
     expect(entry?.size).toBeUndefined();
   });
 
-  test("resolves a root ending in a slash the same as one that doesn't", () => {
-    const [entry] = withModifiedTimes(`${root}/`, [{ path: "notes.md", type: "file" }]);
+  test("resolves a root ending in a slash the same as one that doesn't", async () => {
+    const [entry] = await withModifiedTimes(`${root}/`, [{ path: "notes.md", type: "file" }]);
     expect(entry?.modified).toBe(knownMtime.getTime());
   });
 
-  test("omits modified/size for a path that does not exist, without throwing", () => {
-    const [entry] = withModifiedTimes(root, [{ path: "missing.md", type: "file" }]);
+  test("omits modified/size for a path that does not exist, without throwing", async () => {
+    const [entry] = await withModifiedTimes(root, [{ path: "missing.md", type: "file" }]);
     expect(entry?.modified).toBeUndefined();
     expect(entry?.size).toBeUndefined();
     expect(entry?.path).toBe("missing.md");
   });
 
-  test("leaves every other field untouched", () => {
+  test("leaves every other field untouched", async () => {
     const input = [{ path: "notes.md", type: "file" as const, extra: "kept" }];
-    const [entry] = withModifiedTimes(root, input);
+    const [entry] = await withModifiedTimes(root, input);
     expect(entry).toMatchObject({ path: "notes.md", type: "file", extra: "kept" });
+  });
+
+  test("a large tree keeps its order, whatever order the reads finish in", async () => {
+    const entries = Array.from({ length: 200 }, (_, index) => ({
+      path: index % 2 === 0 ? "notes.md" : `missing-${index}`,
+      type: "file" as const,
+      index,
+    }));
+    const result = await withModifiedTimes(root, entries);
+    expect(result.map((entry) => entry.index)).toEqual(entries.map((entry) => entry.index));
+    expect(result[0]?.size).toBe(content.length);
+    expect(result[1]?.size).toBeUndefined();
   });
 });
