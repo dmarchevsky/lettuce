@@ -5,6 +5,14 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.45.0-letta_0.34.56] - 2026-11-13
+
+### Changed
+- **Signing out, or changing the password, now signs out every device — and upgrading signs you out
+  once.** A session used to stay valid for its full thirty days whatever you did, so a cookie that had
+  leaked could not be taken back. Open tabs on other devices disconnect straight away, and a tab left
+  open no longer outlives its session.
+
 ### Fixed
 - **A long answer no longer gets slower as it is written.** Every new word made the app re-read the
   whole message from the top, so a long reply stuttered more the longer it grew; now only the
@@ -29,10 +37,6 @@ All notable user-facing changes to lettuce, newest first. Version tags and
   so a prepared repository could start a script there, next to the sign-in secret and the Google
   connection. Git now ignores every such setting and runs without the privileges to read them, and a
   repository that points outside its own folder is shown as having no history.
-- **Signing out, or changing the password, now signs out every device — and upgrading signs you out
-  once.** A session used to stay valid for its full thirty days whatever you did, so a cookie that had
-  leaked could not be taken back. Open tabs on other devices disconnect straight away, and a tab left
-  open no longer outlives its session.
 - **A web app an agent serves can no longer act on Lettuce through your browser.** Agent apps live on
   other ports of the same address, which browsers treat as the same site, so a page there could send
   requests that carried your sign-in — change the password, add a tool server, open the live
