@@ -31,6 +31,7 @@ import {
 import { AgentAvatarStore, isAvatarImageId, parseAvatarPref } from "./agents/avatar-prefs.ts";
 import { AgentFacts } from "./agents/facts.ts";
 import { AgentIdList, isAgentId } from "./agents/id-list.ts";
+import { AgentStepLimitStore, parseStepLimit } from "./agents/step-limit.ts";
 import {
   AgentToolAccessStore,
   agentsWhere,
@@ -165,6 +166,7 @@ import {
 import { ContextWatchdog, effectiveContextLimit } from "./session/context-watchdog.ts";
 import { WORKSPACE_ROOT, workspaceViolation } from "./session/protocol.ts";
 import { SessionRegistry, type SessionUser } from "./session/registry.ts";
+import { StepLimitWatchdog } from "./session/step-limit-watchdog.ts";
 import { symlinkViolation } from "./session/symlink-guard.ts";
 import { TurnErrorLog } from "./session/turn-errors.ts";
 import { JsonUsageDisk, TurnUsageLog } from "./session/turn-usage.ts";
@@ -202,6 +204,9 @@ const agentArchive = new AgentIdList(config.archivedAgentsFile, (error) =>
 );
 const agentToolAccess = new AgentToolAccessStore(config.agentToolAccessFile, (error) =>
   log(`Agent tool access persist failed: ${errorMessage(error)}`),
+);
+const agentStepLimits = new AgentStepLimitStore(config.agentStepLimitFile, (error) =>
+  log(`Agent step limit persist failed: ${errorMessage(error)}`),
 );
 const agentAvatars = new AgentAvatarStore(config.avatarPrefsFile, (error) =>
   log(`Agent avatar preferences persist failed: ${errorMessage(error)}`),
@@ -245,9 +250,34 @@ const turnUsage = new TurnUsageLog(
 );
 /** Set just below, once the connection it needs exists. */
 let contextWatchdog: ContextWatchdog | null = null;
+let stepLimitWatchdog: StepLimitWatchdog | null = null;
 
 function log(message: string): void {
   console.log(`[bff] ${new Date().toISOString()} ${message}`);
+}
+
+/** One frame from the app-server, as every BFF consumer and then the browsers see it. */
+function handleFrame(frame: WsProtocolMessage): void {
+  // Before the fan-out: a browser refetches usage when it sees a usage
+  // delta, and must find this step already counted.
+  turnUsage.observe(frame);
+  contextWatchdog?.observe(frame);
+  stepLimitWatchdog?.observe(frame);
+  const sightUpdate = providerSight.observe(frame);
+  // After the mirror saw the whole list: browsers do not get what was unticked.
+  registry.handleUpstreamFrame(filterServedModels(frame, modelCaps.hiddenModels()));
+  turnErrors.observe(frame);
+  turnOutcomeWatcher?.observe(frame, (scopeKey) => registry.isScopeWatched(scopeKey));
+  approvalWatcher?.observe(frame, (scopeKey) => registry.isScopeWatched(scopeKey));
+  if (sightUpdate.modelsMayHaveChanged) {
+    // A relayed connect/disconnect: re-fetch both lists, then re-render.
+    void resyncMods("model list may have changed", {
+      refreshCatalog: false,
+      refreshProviders: true,
+    }).catch(() => {});
+  } else if (sightUpdate.modelsChanged) {
+    void resyncMods("model list changed", { refreshCatalog: false }).catch(() => {});
+  }
 }
 
 // ── The one permanent upstream connection ────────────────────────────────────
@@ -258,25 +288,11 @@ const upstream = new UpstreamConnection({
   url: config.appServerUrl,
   // null/undefined keeps today's container shape: loopback, no auth header at all.
   authToken: config.appServerToken,
-  onFrame: (frame: WsProtocolMessage) => {
-    // Before the fan-out: a browser refetches usage when it sees a usage
-    // delta, and must find this step already counted.
-    turnUsage.observe(frame);
-    contextWatchdog?.observe(frame);
-    const sightUpdate = providerSight.observe(frame);
-    // After the mirror saw the whole list: browsers do not get what was unticked.
-    registry.handleUpstreamFrame(filterServedModels(frame, modelCaps.hiddenModels()));
-    turnErrors.observe(frame);
-    turnOutcomeWatcher?.observe(frame, (scopeKey) => registry.isScopeWatched(scopeKey));
-    approvalWatcher?.observe(frame, (scopeKey) => registry.isScopeWatched(scopeKey));
-    if (sightUpdate.modelsMayHaveChanged) {
-      // A relayed connect/disconnect: re-fetch both lists, then re-render.
-      void resyncMods("model list may have changed", {
-        refreshCatalog: false,
-        refreshProviders: true,
-      }).catch(() => {});
-    } else if (sightUpdate.modelsChanged) {
-      void resyncMods("model list changed", { refreshCatalog: false }).catch(() => {});
+  onFrame: (upstreamFrame: WsProtocolMessage) => {
+    // A turn the step-limit watchdog stopped is reported as upstream's own cap
+    // would report it, so every consumer reads the rewritten finish.
+    for (const frame of stepLimitWatchdog?.translate(upstreamFrame) ?? [upstreamFrame]) {
+      handleFrame(frame);
     }
   },
   onStateChange: (state, info) => {
@@ -342,6 +358,14 @@ const registry = new SessionRegistry(upstream, config.frameBufferSize, log, unde
 contextWatchdog = new ContextWatchdog({
   ratio: config.contextWatchdogRatio,
   usage: turnUsage,
+  upstream,
+  log,
+});
+
+// Stops a turn at its agent's step limit (Agent → General) — see
+// `session/step-limit-watchdog.ts` for why the BFF does it and not letta-code.
+stepLimitWatchdog = new StepLimitWatchdog({
+  limitFor: (agentId) => agentStepLimits.get(agentId),
   upstream,
   log,
 });
@@ -1479,6 +1503,26 @@ app.put("/api/agents/tool-access/:agentId", async (c) => {
     return c.json({ ...agentToolAccess.get(agentId), mods: mods ?? "failed" });
   }
   return c.json({ ...agentToolAccess.get(agentId), mods: "unchanged" });
+});
+
+// Agent → General's step limit. No mod resync: the step-limit watchdog reads
+// the store at every step, so a change applies from the agent's next step.
+app.get("/api/agents/step-limit/:agentId", (c) => {
+  const agentId = c.req.param("agentId");
+  if (!isAgentId(agentId)) return c.text("Not an agent id", 400);
+  return c.json({ limit: agentStepLimits.get(agentId) });
+});
+
+app.put("/api/agents/step-limit/:agentId", async (c) => {
+  const agentId = c.req.param("agentId");
+  if (!isAgentId(agentId)) return c.text("Not an agent id", 400);
+  const body = (await c.req.json().catch(() => null)) as { limit?: unknown } | null;
+  const limit = parseStepLimit(body?.limit);
+  if (limit === undefined) {
+    return c.text("Body must be { limit: positive integer | null }", 400);
+  }
+  agentStepLimits.set(agentId, limit);
+  return c.json({ limit: agentStepLimits.get(agentId) });
 });
 
 // The Tasks tab's read-only cron jobs (`system-cron.ts`), every agent's: the tab
