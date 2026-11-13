@@ -71,6 +71,15 @@ interface ParsedPath {
 }
 
 /**
+ * The entry's raw path, whatever the entry turns out to be. `list_memory` entries are
+ * forwarded unvalidated and there is no error boundary in web/, so a null element or a
+ * row without a path is a missing file, never a thrown render.
+ */
+function pathOf(entry: MemoryPathEntry): string {
+  return typeof entry === "object" && entry !== null ? entry.relative_path : "";
+}
+
+/**
  * One pass over a path, because three callers used to read the same string three ways and a
  * memory is exactly the place a hand-written `../` shows up. `..` pops a segment and `.`
  * vanishes, so a path cannot invent a folder that no file lives under — a tree with a
@@ -83,8 +92,7 @@ interface ParsedPath {
  * away from a path outside the memory.
  */
 function parseMemoryPath(raw: string): ParsedPath | null {
-  // Upstream's entries reach the pane through the BFF unvalidated, and there is no error
-  // boundary in web/ — so a non-string here would blank the app over one odd entry.
+  // Belt against a runtime that is not what the type claims (see `pathOf`).
   if (typeof raw !== "string") return null;
   const stack: string[] = [];
   for (const segment of raw.replace(/\\/g, "/").split("/")) {
@@ -127,7 +135,7 @@ export function buildMemoryTree<T extends MemoryPathEntry>(
   const fileCountUnder = new Map<string, number>();
 
   for (const entry of entries) {
-    const parsed = parseMemoryPath(entry.relative_path);
+    const parsed = parseMemoryPath(pathOf(entry));
     if (!parsed) continue;
     const parent = parsed.dirs[parsed.dirs.length - 1] ?? "";
     const file: MemoryTreeFile<T> = {
@@ -208,7 +216,7 @@ export function filterMemoryPaths<T extends MemoryPathEntry>(
   if (!needle) return [];
   const matches: MemoryMatch<T>[] = [];
   for (const entry of entries) {
-    const parsed = parseMemoryPath(entry.relative_path);
+    const parsed = parseMemoryPath(pathOf(entry));
     if (!parsed) continue;
     const parent = parsed.dirs[parsed.dirs.length - 1] ?? "";
     if (
@@ -226,7 +234,7 @@ export function memoryTreeCounts(entries: readonly MemoryPathEntry[]): MemoryTre
   const folders = new Set<string>();
   let files = 0;
   for (const entry of entries) {
-    const parsed = parseMemoryPath(entry.relative_path);
+    const parsed = parseMemoryPath(pathOf(entry));
     if (!parsed) continue;
     files += 1;
     for (const dir of parsed.dirs) folders.add(dir);

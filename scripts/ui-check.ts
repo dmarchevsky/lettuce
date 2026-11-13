@@ -3513,7 +3513,14 @@ try {
     await page.locator('.section-tabs button:text-is("Memory")').click();
     await page.waitForTimeout(1500);
     // A FILE row, not the first row: the pane leads with folders now, and a folder's only
-    // action is to open itself, so clicking `.first()` would never reach a sheet.
+    // action is to open itself, so clicking `.first()` would never reach a sheet. And
+    // expand first — a memory whose files all live inside folders shows no file row at all
+    // until a folder is open, and counting rows then would SKIP four assertions quietly.
+    const expandAll = page.locator('.pane-bar button:text-is("Expand all")');
+    if (await expandAll.count()) {
+      await expandAll.first().click();
+      await page.waitForTimeout(400);
+    }
     const memoryFiles = await page.locator(".memory-tree li button:not([aria-expanded])").count();
     if (memoryFiles === 0) {
       console.log("  SKIP  document sheet sizing (this agent has no memory files)");

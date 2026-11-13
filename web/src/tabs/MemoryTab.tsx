@@ -168,9 +168,17 @@ export function MemoryTab({ session, agentId }: Props) {
         type="button"
         className="row"
         style={depthStyle(args.depth)}
-        // The path, not just the name: inside a collapsed tree the folder is the part a
-        // screen reader would otherwise never hear.
-        aria-label={args.entry.relative_path}
+        // The path, not just the name — inside a collapsed tree the folder is the part a
+        // screen reader would otherwise never hear. An aria-label replaces the row's whole
+        // visible name, so it says everything the eye gets: path, the in-context fact, the
+        // description.
+        aria-label={[
+          args.entry.relative_path,
+          args.entry.is_system ? "in context" : "",
+          args.entry.description ?? "",
+        ]
+          .filter(Boolean)
+          .join(", ")}
         onClick={() => {
           setOpen(args.entry);
           setDraft(args.entry.content);

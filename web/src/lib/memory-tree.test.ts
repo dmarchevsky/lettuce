@@ -92,8 +92,13 @@ describe("the memory tree", () => {
 
   test("an entry whose path is not a string is no row", () => {
     // The entries reach here through the BFF unvalidated and there is no error boundary,
-    // so this is the difference between a missing row and a blank app.
-    const junk = [{ relative_path: null }, { relative_path: 42 }] as unknown as MemoryPathEntry[];
+    // so this is the difference between a missing row and a blank app. The element itself
+    // can be wrong, not just its field.
+    const junk = [
+      { relative_path: null },
+      { relative_path: 42 },
+      null,
+    ] as unknown as MemoryPathEntry[];
     expect(buildMemoryTree(junk)).toEqual([]);
     expect(memoryTreeCounts(junk)).toEqual({ files: 0, folders: 0 });
     expect(filterMemoryPaths(junk, "anything")).toEqual([]);
