@@ -495,6 +495,12 @@ export class SessionRegistry {
       // response) to sessions that never asked. See
       // `UpstreamConnection.isInternalRequest`.
       if (this.upstream.isInternalRequest(requestId)) return;
+      // A memory chunk nobody claims — the tab went away mid-stream, or the
+      // idle watchdog settled it — stops here too: it carries one agent's
+      // memory contents, so broadcasting or buffering it is the exposure this
+      // whole merge exists to prevent, same reasoning as the `read_file`
+      // comment above.
+      if (frame.type === "list_memory_response") return;
 
       // Otherwise the session that asked has gone away. Fall through: some
       // frames carry a request_id and are still broadcast-worthy, and an
@@ -590,10 +596,6 @@ export class SessionRegistry {
   }
 
   /**
-   * Fold the mod command list out of a device-status frame into the allowlist
-   * input. Only string `id`s count; a malformed payload advertises nothing.
-   */
-  /**
    * Fold one `list_memory_response` chunk into its browser request.
    *
    * Upstream streams a memory listing five entries per frame, all under the
@@ -663,12 +665,17 @@ export class SessionRegistry {
       type: "list_memory_response",
       entries,
       done: true,
+      // The stream never said `total`; the honest number is how far it got.
       total: entries.length,
       success: false,
       error: "The memory listing ended early.",
     });
   }
 
+  /**
+   * Fold the mod command list out of a device-status frame into the allowlist
+   * input. Only string `id`s count; a malformed payload advertises nothing.
+   */
   private rememberAdvertisedMods(frame: WsProtocolMessage): void {
     if (frame.type !== "update_device_status") return;
     const mods = (frame as { device_status?: { mod_commands?: unknown } }).device_status

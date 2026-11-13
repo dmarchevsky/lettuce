@@ -613,7 +613,7 @@ describe("memory listing chunks", () => {
       }) as never;
     const responses = (box: Record<string, unknown>[]) =>
       box.filter((m) => m.type === "list_memory_response");
-    return { registry, sent, otherSent, forwarded, chunk, responses };
+    return { registry, id, sent, otherSent, forwarded, chunk, responses };
   }
 
   test("every chunk arrives as one merged response, to the requester only", () => {
@@ -682,6 +682,49 @@ describe("memory listing chunks", () => {
     expect(mine[0]?.success).toBe(false);
     expect(mine[0]?.error).toBe("memfs unavailable");
     expect(mine[0]?.request_id).toBe("web-1");
+  });
+
+  test("a refusal after partial chunks relays the failure, not the partials", () => {
+    const { registry, sent, chunk, responses } = memorySetup();
+
+    registry.handleUpstreamFrame(chunk([1, 2], false));
+    registry.handleUpstreamFrame(chunk([], true, { success: false, error: "disk gone" }) as never);
+
+    const mine = responses(sent);
+    expect(mine).toHaveLength(1);
+    expect(mine[0]?.success).toBe(false);
+    expect(mine[0]?.error).toBe("disk gone");
+    expect((mine[0] as { entries?: unknown[] }).entries ?? []).toHaveLength(0);
+  });
+
+  test("a chunk orphaned by a departed session reaches nobody", () => {
+    const { registry, id, sent, otherSent, chunk, responses } = memorySetup();
+
+    registry.handleUpstreamFrame(chunk([1, 2], false));
+    registry.remove(id); // the tab went away mid-stream
+    registry.handleUpstreamFrame(chunk([3, 4], true));
+
+    expect(responses(sent)).toHaveLength(0);
+    expect(responses(otherSent)).toHaveLength(0);
+    expect(registry.latestSeq).toBe(0);
+  });
+
+  test("the watchdog of a departed session says nothing", () => {
+    const { registry, id, sent, chunk, responses } = memorySetup();
+    const armed: (() => void)[] = [];
+    const real = globalThis.setTimeout;
+    globalThis.setTimeout = ((fn: () => void) => {
+      armed.push(fn);
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout;
+    try {
+      registry.handleUpstreamFrame(chunk([1, 2], false));
+      registry.remove(id);
+      armed[armed.length - 1]?.();
+      expect(responses(sent)).toHaveLength(0);
+    } finally {
+      globalThis.setTimeout = real;
+    }
   });
 
   test("a stream that never says done fails loudly instead of hanging", () => {
