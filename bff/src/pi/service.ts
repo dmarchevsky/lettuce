@@ -45,6 +45,7 @@ import {
 import {
   applyPiSettingsUpdate,
   InvalidPiSettingsError,
+  isValidPiHost,
   type PiSettings,
   parsePiSettings,
   piCommandWords,
@@ -381,8 +382,12 @@ export class PiService {
     const host = (options.host ?? settings.host).trim();
     const port = options.port ?? settings.port;
     if (!host) throw new Error("set a host first");
+    // The body may name a host that was never saved, so it is checked here too.
+    if (!isValidPiHost(host)) {
+      throw new InvalidPiSettingsError("`host` must be a hostname or an IP address");
+    }
     const result = Bun.spawnSync({
-      cmd: ["ssh-keyscan", ...(port === 22 ? [] : ["-p", String(port)]), host],
+      cmd: ["ssh-keyscan", ...(port === 22 ? [] : ["-p", String(port)]), "--", host],
       timeout: 15_000,
     });
     const scanned = result.stdout

@@ -276,6 +276,12 @@ export function applyPiSettingsUpdate(current: PiSettings, body: unknown): PiSet
   }
   if (typeof r.host === "string") next.host = r.host.trim();
   if (typeof r.user === "string") next.user = r.user.trim();
+  if (next.host && !isValidPiHost(next.host)) {
+    throw new InvalidPiSettingsError("`host` must be a hostname or an IP address");
+  }
+  if (next.user && !isValidPiUser(next.user)) {
+    throw new InvalidPiSettingsError("`user` must be a login name");
+  }
   if ("port" in r) {
     const port = Number(r.port);
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -367,6 +373,28 @@ export function piConfigured(settings: PiSettings): boolean {
     settings.workdir.startsWith("/") &&
     settings.privateKey !== null
   );
+}
+
+/**
+ * What may stand where ssh expects a host or a login name.
+ *
+ * Both end up as one argv element, `user@host`, and ssh reads an element that
+ * starts with `-` as an option: a host of `-oProxyCommand=…` is a command line
+ * on the BFF's side of the connection, in the container that holds the key.
+ * `--` before the destination (`buildSshArgs`) is the mechanical fix; these are
+ * the same statement made where the operator can read the refusal. A name is
+ * letters, digits, dots, hyphens and underscores (plus colons for a bare IPv6
+ * address) and never begins with a hyphen.
+ */
+const PI_HOST = /^[A-Za-z0-9_.:][A-Za-z0-9_.:-]*$/;
+const PI_USER = /^[A-Za-z0-9_.][A-Za-z0-9_.-]*\$?$/;
+
+export function isValidPiHost(host: string): boolean {
+  return host.length <= 253 && PI_HOST.test(host);
+}
+
+export function isValidPiUser(user: string): boolean {
+  return user.length <= 64 && PI_USER.test(user);
 }
 
 /** `user@host`, port implicit when 22 (ssh's own default). */

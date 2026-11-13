@@ -9,13 +9,15 @@
  *
  * `/auth/*` is outside the `requireSession` gate that covers `/api/*`, so the
  * routes that need an identity ask for it themselves. There is no CSRF token:
- * the session cookie is `SameSite=Lax`, which already stops another site's POST
- * from carrying it.
+ * `SameSite=Lax` stops another *site's* POST from carrying the cookie, and
+ * `request-origin.ts` — mounted ahead of these routes — refuses the same-site
+ * kind, which is what an agent app on a sibling port would send.
  */
 
 import type { Context, Hono } from "hono";
 import type { BffConfig } from "../config.ts";
 import { errorMessage } from "../errors.ts";
+import { isLoopback } from "../internal-tools/http.ts";
 import type { RouteEnv } from "../route-env.ts";
 import { hardenedResponse } from "../security-headers.ts";
 import {
@@ -35,6 +37,17 @@ interface SignInRouteDeps {
   lockout: AttemptLockout;
   /** A fresh session for an identity, with the cookie that carries it. */
   mint: (email: string) => { session: SessionPayload; cookie: string };
+  /**
+   * Revoke every session minted so far and drop their sockets: the epoch bump
+   * in `session-epoch.ts`. Called before the caller's own replacement is minted.
+   */
+  revokeSessions: () => void;
+  /**
+   * True when a host port is published to this process (Compose). A real browser
+   * then never arrives on this namespace's own loopback — only something inside
+   * the namespace does, which is an agent's shell.
+   */
+  published: boolean;
   log: (message: string) => void;
   /** Carried on the redirects and pages this family builds by hand. */
   hardened: Record<string, string>;
@@ -104,7 +117,7 @@ export function registerSignInRoutes<Env extends RouteEnv>(
   app: Hono<Env>,
   deps: SignInRouteDeps,
 ): void {
-  const { config, passwords, lockout, mint, log, hardened } = deps;
+  const { config, passwords, lockout, mint, revokeSessions, published, log, hardened } = deps;
 
   const passwordOnly = (c: Context): Response | null =>
     config.signin === "password"
@@ -129,6 +142,16 @@ export function registerSignInRoutes<Env extends RouteEnv>(
   // credential instead of pretending a GET can produce one.
   app.get("/auth/login", (c) => {
     if (config.signin === "none") {
+      // `SIGNIN=none` hands the owner's session to whoever asks, and the boot
+      // rule keeps the *host* port on loopback so only this machine's browser
+      // can. The namespace's own loopback is a different place: the app-server
+      // shares it, so an agent's `curl localhost` would otherwise be handed the
+      // same session and with it every route an agent's tools do not reach.
+      const address = (c.env as { clientAddress?: string } | undefined)?.clientAddress;
+      if (published && isLoopback(address)) {
+        log("Refused a session to a caller inside the container's own network namespace.");
+        return c.text("Open this instance from a browser on the host.", 403);
+      }
       log(`Sign-in is off — issued a session to a visitor (machine-local instance).`);
       const { cookie } = mint(OWNER_IDENTITY);
       return hardenedResponse(hardened, null, { location: "/", "set-cookie": cookie }, 302);
@@ -156,7 +179,18 @@ export function registerSignInRoutes<Env extends RouteEnv>(
     if (posted instanceof Response) return posted;
 
     const password = field(posted, "password");
-    if (await passwords.verify(password)) {
+    // One guess at a time. The lockout counts failures *after* each verify, so
+    // a burst of parallel posts would otherwise all be let in before the first
+    // one is counted, and five attempts per pause becomes however many fit in
+    // one scrypt.
+    if (!lockout.begin()) return paused(c, 1);
+    let matched: boolean;
+    try {
+      matched = await passwords.verify(password);
+    } finally {
+      lockout.end();
+    }
+    if (matched) {
       lockout.recordSuccess();
       const { cookie } = mint(OWNER_IDENTITY);
       c.header("set-cookie", cookie);
@@ -228,7 +262,13 @@ export function registerSignInRoutes<Env extends RouteEnv>(
     }
 
     await passwords.setPassword(next);
-    log("Sign-in password changed.");
+    // A password is changed because the old one, or a session made with it, may
+    // be in the wrong hands — so every existing session ends here, and the
+    // device that made the change gets a fresh one in the same response.
+    revokeSessions();
+    const { cookie } = mint(OWNER_IDENTITY);
+    c.header("set-cookie", cookie);
+    log("Sign-in password changed — every other device is signed out.");
     return c.json({ ok: true });
   });
 }

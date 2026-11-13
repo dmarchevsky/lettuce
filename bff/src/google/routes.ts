@@ -13,6 +13,7 @@
  */
 
 import type { Context, Hono } from "hono";
+import { startedElsewhere } from "../auth/request-origin.ts";
 import { errorMessage } from "../errors.ts";
 import { resultPage } from "../html-page.ts";
 import type { RouteEnv } from "../route-env.ts";
@@ -129,6 +130,10 @@ export function registerGoogleRoutes<Env extends RouteEnv>(
   app.get("/api/google/reconnect", async (c) => {
     const settingsPage = googleSettingsUrl(publicOrigin);
     if (!c.get("session") || !writesAllowed) return c.redirect(settingsPage, 302);
+    // Starting a connect mints OAuth state, so another origin's page — an agent
+    // app on a sibling port, or any site — does not get to do it by navigating
+    // the owner's browser here. Settings has the same button one tap away.
+    if (startedElsewhere(c.req.raw.headers)) return c.redirect(settingsPage, 302);
     try {
       return c.redirect(await googleService.startConnect(), 302);
     } catch {

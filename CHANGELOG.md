@@ -11,6 +11,28 @@ All notable user-facing changes to lettuce, newest first. Version tags and
   so a prepared repository could start a script there, next to the sign-in secret and the Google
   connection. Git now ignores every such setting and runs without the privileges to read them, and a
   repository that points outside its own folder is shown as having no history.
+- **Signing out, or changing the password, now signs out every device — and upgrading signs you out
+  once.** A session used to stay valid for its full thirty days whatever you did, so a cookie that had
+  leaked could not be taken back. Open tabs on other devices disconnect straight away, and a tab left
+  open no longer outlives its session.
+- **A web app an agent serves can no longer act on Lettuce through your browser.** Agent apps live on
+  other ports of the same address, which browsers treat as the same site, so a page there could send
+  requests that carried your sign-in — change the password, add a tool server, open the live
+  connection. Anything that changes something must now come from Lettuce's own page. The app also
+  warns in its log when agent apps and Lettuce share a plain-http address, where the browser hands
+  them your sign-in cookie outright; `docs/CONFIGURATION.md` says how to separate them.
+- **Testing a provider no longer sends its saved key to a different address.** Leaving the key blank
+  reuses the stored one only for the address it was saved with; change the address and you type the
+  key again.
+- **Guessing the password is slower and cannot lock you out of trying.** Only one guess is checked at
+  a time, so a burst cannot get ahead of the pause, and sign-in has its own request allowance that
+  other traffic cannot use up.
+- **Smaller holes closed:** a Remote Pi host or user can no longer be read as a command-line option;
+  with sign-in off, a shell inside the stack can no longer ask for the owner's session; a
+  notification endpoint must be a public https address; a file from a Remote Pi run cannot inject
+  response headers through its name; deleting a file re-checks its path at the last moment; and the
+  app's own containers can no longer gain privileges after they start. Hono and the MCP SDK are
+  updated past their published advisories.
 
 ## [v0.44.1-letta_0.34.56] - 2026-11-13
 

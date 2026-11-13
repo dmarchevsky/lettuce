@@ -29,6 +29,14 @@ const GLOBAL: PiSettings = {
 const fileIn = () => join(mkdtempSync(join(tmpdir(), "pi-agents-")), "agents.json");
 
 describe("parsePiAgentSettings", () => {
+  test("an own host or user that reads as an ssh option is refused", () => {
+    expect(parsePiAgentSettings({ mode: "own", host: "-oProxyCommand=id" })).toBeNull();
+    expect(parsePiAgentSettings({ mode: "own", user: "-lroot" })).toBeNull();
+    expect(parsePiAgentSettings({ mode: "own", host: "192.0.2.7", user: "w" })?.host).toBe(
+      "192.0.2.7",
+    );
+  });
+
   test("nothing but defaults is the same as saying nothing", () => {
     expect(parsePiAgentSettings({})).toEqual(DEFAULT_PI_AGENT_SETTINGS);
     expect(isDefaultPiAgentSettings(DEFAULT_PI_AGENT_SETTINGS)).toBe(true);

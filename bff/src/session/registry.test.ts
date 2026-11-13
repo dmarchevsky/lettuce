@@ -754,3 +754,44 @@ describe("memory listing chunks", () => {
     }
   });
 });
+
+describe("closing browser sockets", () => {
+  function tab(registry: SessionRegistry, exp?: number) {
+    const closes: Array<{ code?: number; reason?: string }> = [];
+    registry.add(
+      { send: () => {}, close: (code, reason) => closes.push({ code, reason }) },
+      { email: "someone@example.com", ...(exp === undefined ? {} : { exp }) },
+    );
+    return closes;
+  }
+
+  test("closeAll drops every tab — what a revoked session epoch asks for", () => {
+    const registry = new SessionRegistry(fakeUpstream, 100, () => {});
+    const first = tab(registry);
+    const second = tab(registry, 2_000);
+    expect(registry.closeAll(4000, "Sessions revoked")).toBe(2);
+    expect(first).toEqual([{ code: 4000, reason: "Sessions revoked" }]);
+    expect(second).toHaveLength(1);
+  });
+
+  test("closeExpired drops only the tabs whose session has run out", () => {
+    const registry = new SessionRegistry(fakeUpstream, 100, () => {});
+    const expired = tab(registry, 1_000);
+    const live = tab(registry, 2_000);
+    const unbounded = tab(registry);
+    expect(registry.closeExpired(1_500, 4401, "Session expired")).toBe(1);
+    expect(expired).toEqual([{ code: 4401, reason: "Session expired" }]);
+    expect(live).toEqual([]);
+    expect(unbounded).toEqual([]);
+  });
+
+  test("the hello frame does not echo the session's expiry to the page", () => {
+    const registry = new SessionRegistry(fakeUpstream, 100, () => {});
+    const sent: string[] = [];
+    registry.add(
+      { send: (data) => sent.push(data), close: () => {} },
+      { email: "someone@example.com", exp: 5 },
+    );
+    expect(JSON.parse(sent[0] ?? "{}").user).toEqual({ email: "someone@example.com" });
+  });
+});

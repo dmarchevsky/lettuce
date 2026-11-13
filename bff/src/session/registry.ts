@@ -43,6 +43,12 @@ export interface SessionSocket {
 
 export interface SessionUser {
   email: string;
+  /**
+   * When the session that opened this socket expires, in Unix seconds. A socket
+   * is authenticated once, at its upgrade, so without this an open tab outlives
+   * its cookie for as long as it stays open. Absent means never swept.
+   */
+  exp?: number;
 }
 
 /** One in-flight browser request awaiting its id-translated response. */
@@ -228,7 +234,7 @@ export class SessionRegistry {
     this.sendTo(socket, {
       type: "__bff_hello",
       session_id: id,
-      user,
+      user: { email: user.email },
       upstream: this.upstream.getState(),
       app_server_info: this.upstream.getInfo(),
       latest_seq: this.buffer.latestSeq,
@@ -248,6 +254,38 @@ export class SessionRegistry {
     for (const pending of session.pendingRequests.values()) clearTimeout(pending.memory?.timer);
     this.sessions.delete(sessionId);
     this.log(`Session ${sessionId} closed (${this.sessions.size} active)`);
+  }
+
+  /**
+   * Close every browser socket. Browser side only, like `remove`: the upstream
+   * connection and everything running on it are untouched. The sockets' own
+   * close handlers do the bookkeeping.
+   */
+  closeAll(code: number, reason: string): number {
+    return this.closeWhere(() => true, code, reason);
+  }
+
+  /** Close the sockets whose session has run out; see `SessionUser.exp`. */
+  closeExpired(nowSeconds: number, code: number, reason: string): number {
+    return this.closeWhere(
+      (user) => user.exp !== undefined && user.exp <= nowSeconds,
+      code,
+      reason,
+    );
+  }
+
+  private closeWhere(match: (user: SessionUser) => boolean, code: number, reason: string): number {
+    let closed = 0;
+    for (const session of [...this.sessions.values()]) {
+      if (!match(session.user)) continue;
+      try {
+        session.socket.close(code, reason);
+      } catch {
+        // Already gone; its close handler has run or is about to.
+      }
+      closed += 1;
+    }
+    return closed;
   }
 
   /** Conversations with a turn in progress, across the whole app-server. */

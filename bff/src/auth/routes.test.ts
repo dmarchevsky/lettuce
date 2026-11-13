@@ -13,7 +13,14 @@ type TestEnv = { Variables: { session?: { email: string } | null } };
 async function setup(
   signin: Signin = "password",
   session: { email: string } | null = null,
-): Promise<{ app: Hono<TestEnv>; passwords: PasswordStore; lockout: AttemptLockout }> {
+  published = false,
+): Promise<{
+  app: Hono<TestEnv>;
+  passwords: PasswordStore;
+  lockout: AttemptLockout;
+  revoked: { count: number };
+}> {
+  const revoked = { count: 0 };
   const passwords = new PasswordStore(await mkdtemp(join(tmpdir(), "lettuce-signin-routes-")));
   const lockout = new AttemptLockout();
   const app = new Hono<TestEnv>();
@@ -29,10 +36,14 @@ async function setup(
       session: { email, exp: 9_999_999_999 } as SessionPayload,
       cookie: `cookie-for-${email}`,
     }),
+    revokeSessions: () => {
+      revoked.count += 1;
+    },
+    published,
     log: () => {},
     hardened: {},
   });
-  return { app, passwords, lockout };
+  return { app, passwords, lockout, revoked };
 }
 
 function post(app: Hono<TestEnv>, path: string, body: unknown): Promise<Response> {
@@ -158,7 +169,57 @@ describe("POST /auth/change-password", () => {
   });
 });
 
+describe("revoking sessions", () => {
+  test("a password change ends every session and re-issues the caller's", async () => {
+    const { app, passwords, revoked } = await setup("password", { email: OWNER_IDENTITY });
+    await passwords.setPassword(GOOD);
+
+    await post(app, "/auth/change-password", { current: "wrong", next: OTHER });
+    expect(revoked.count).toBe(0);
+
+    const ok = await post(app, "/auth/change-password", { current: GOOD, next: OTHER });
+    expect(revoked.count).toBe(1);
+    expect(ok.headers.get("set-cookie")).toContain(`cookie-for-${OWNER_IDENTITY}`);
+  });
+});
+
+describe("guessing in parallel", () => {
+  test("only one guess is checked at a time, so a burst cannot outrun the count", async () => {
+    const { app, passwords } = await setup();
+    await passwords.setPassword(GOOD);
+    const responses = await Promise.all(
+      Array.from({ length: 12 }, () => post(app, "/auth/login", { password: "wrong" })),
+    );
+    const statuses = responses.map((response) => response.status);
+    // One reached the hash and was told it was wrong; the rest were turned away
+    // without a verify, where before all twelve were verified.
+    expect(statuses.filter((status) => status === 401)).toHaveLength(1);
+    expect(statuses.filter((status) => status === 429)).toHaveLength(11);
+    // And the slot is released: the right password still works afterwards.
+    expect((await post(app, "/auth/login", { password: GOOD })).status).toBe(200);
+  });
+});
+
 describe("GET /auth/login", () => {
+  test("SIGNIN=none under Compose refuses a caller on the namespace's own loopback", async () => {
+    // Agent shells share the BFF's network namespace; a browser on the host
+    // arrives through the published port and never from 127.0.0.1.
+    const { app } = await setup("none", null, true);
+    const inside = await app.request("/auth/login", {}, { clientAddress: "127.0.0.1" });
+    expect(inside.status).toBe(403);
+    expect(inside.headers.get("set-cookie")).toBeNull();
+    const mapped = await app.request("/auth/login", {}, { clientAddress: "::ffff:127.0.0.1" });
+    expect(mapped.status).toBe(403);
+    const browser = await app.request("/auth/login", {}, { clientAddress: "192.0.2.1" });
+    expect(browser.status).toBe(302);
+
+    // A bare `bun run dev` publishes nothing: loopback is the browser there.
+    const dev = await setup("none", null, false);
+    expect((await dev.app.request("/auth/login", {}, { clientAddress: "127.0.0.1" })).status).toBe(
+      302,
+    );
+  });
+
   test("SIGNIN=none hands out the owner's session", async () => {
     const { app } = await setup("none");
     const response = await app.request("/auth/login");

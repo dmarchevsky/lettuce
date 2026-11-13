@@ -160,6 +160,7 @@ export class AttemptLockout {
   private failures = 0;
   private locks = 0;
   private lockedUntilMs = 0;
+  private verifying = false;
 
   constructor(private readonly now: () => number = Date.now) {}
 
@@ -167,6 +168,21 @@ export class AttemptLockout {
   waitSeconds(): number {
     const left = this.lockedUntilMs - this.now();
     return left > 0 ? Math.ceil(left / 1000) : 0;
+  }
+
+  /**
+   * Claim the single verify slot; false when a guess is already being checked.
+   * Failures are counted after a verify finishes, so without this every post
+   * that arrives during one scrypt run is admitted before any of them counts.
+   */
+  begin(): boolean {
+    if (this.verifying) return false;
+    this.verifying = true;
+    return true;
+  }
+
+  end(): void {
+    this.verifying = false;
   }
 
   /** Attempts left before the next pause, for the error message. */

@@ -183,5 +183,14 @@ function parentOf(path: string): string {
 
 /** The default removal: recursive (a folder takes its contents), never silent. */
 export function removeWorkspacePath(path: string): void {
+  // `path` is the real path the guard resolved. Agents write this tree while
+  // the guard runs, so ask once more immediately before removing: if a
+  // component has since become a link, the path no longer resolves to itself
+  // and the delete would follow it out of the workspace. This narrows the
+  // window to the call below; closing it needs `openat`, which Bun does not
+  // expose.
+  if (realpathSync(path) !== path) {
+    throw new Error("The path changed while it was being deleted — nothing was removed.");
+  }
   rmSync(path, { recursive: true, force: false });
 }

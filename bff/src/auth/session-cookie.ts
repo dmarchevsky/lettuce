@@ -16,6 +16,13 @@ export interface SessionPayload {
    * Absent means older than this check, which is also a refusal.
    */
   via: Signin;
+  /**
+   * The session epoch this cookie was minted under (`session-epoch.ts`). Signing
+   * out or changing the password moves the epoch on, and every cookie still
+   * carrying the old number is refused. Absent means older than this check,
+   * which is a refusal too.
+   */
+  epoch: number;
 }
 
 function b64url(input: Buffer | string): string {
@@ -40,7 +47,12 @@ export function encodeSession(payload: SessionPayload, secret: string): string {
   return `${body}.${sign(body, secret)}`;
 }
 
-export function decodeSession(token: string, secret: string, via: Signin): SessionPayload | null {
+export function decodeSession(
+  token: string,
+  secret: string,
+  via: Signin,
+  epoch: number,
+): SessionPayload | null {
   const dot = token.lastIndexOf(".");
   if (dot <= 0) return null;
 
@@ -73,6 +85,7 @@ export function decodeSession(token: string, secret: string, via: Signin): Sessi
   const session = payload as SessionPayload;
   if (session.exp * 1000 < Date.now()) return null;
   if (session.via !== via) return null;
+  if (session.epoch !== epoch) return null;
   return session;
 }
 

@@ -264,6 +264,10 @@ services:
       start_period: 20s
 
   bff:
+    # Nothing in this container needs a setuid binary to raise its privileges, so
+    # none can: a process that gets a foothold here stays what it started as.
+    security_opt:
+      - no-new-privileges:true
     build:
       # This repo's root — see the note at the top of this file. `.dockerignore`
       # there keeps node_modules and the git objects out of the context; under a
@@ -342,6 +346,10 @@ services:
       # The host interface the port above is published on, so the BFF can refuse
       # a wide bind it cannot otherwise see. Same variable, two names.
       LETTA_HOST_BIND: ${BFF_BIND:-127.0.0.1}
+      # Only so the BFF can warn at boot when agent apps and the app itself share
+      # a plain-http host: cookies are not scoped by port, so the session cookie
+      # is then sent to every agent app the owner opens. See docs/CONFIGURATION.md.
+      AGENT_APP_HOST: ${AGENT_APP_HOST:-}
       # Where the `SIGNIN=password` hash lives. A named volume on purpose: it
       # must not sit under LETTA_STATE_DIR, which the app-server that runs agent
       # shells mounts read-write as root.
@@ -531,6 +539,8 @@ services:
   #   docker compose -f docker/compose.yml --profile search rm -sf searxng ddg-mcp
   searxng:
     profiles: ["search"]
+    security_opt:
+      - no-new-privileges:true
     build:
       context: searxng
       args:
@@ -548,6 +558,8 @@ services:
   # can reach it, and it has no auth.
   ddg-mcp:
     profiles: ["search"]
+    security_opt:
+      - no-new-privileges:true
     build:
       context: ddg-mcp
       args:
@@ -579,6 +591,8 @@ services:
   #   docker compose -f docker/compose.yml --profile google rm -sf google-mcp
   google-mcp:
     profiles: ["google"]
+    security_opt:
+      - no-new-privileges:true
     build:
       context: google-mcp
       args:
@@ -616,6 +630,8 @@ services:
     image: cloudflare/cloudflared:${CLOUDFLARED_VERSION:-2026.10.4}
     command: tunnel --no-autoupdate run
     profiles: ["cloudflared"]
+    security_opt:
+      - no-new-privileges:true
     environment:
       TZ: ${TZ:-America/Los_Angeles}
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}

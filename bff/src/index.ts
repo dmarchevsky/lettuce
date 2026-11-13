@@ -37,8 +37,9 @@ import {
   inheritAccess,
   parseToolAccess,
 } from "./agents/tool-access.ts";
-import { checkUpgradeOrigin } from "./auth/origin.ts";
+import { checkUpgradeOrigin, isLoopbackHostname } from "./auth/origin.ts";
 import { AttemptLockout, PasswordStore } from "./auth/password.ts";
+import { checkRequestOrigin } from "./auth/request-origin.ts";
 import { resolveSession } from "./auth/resolve-session.ts";
 import { registerSignInRoutes } from "./auth/routes.ts";
 import {
@@ -47,6 +48,7 @@ import {
   encodeSession,
   type SessionPayload,
 } from "./auth/session-cookie.ts";
+import { SessionEpoch } from "./auth/session-epoch.ts";
 import { GoogleSignIn, registerGoogleSignInRoutes } from "./auth/signin-google.ts";
 import { registerTelegramRoutes } from "./channels/routes.ts";
 import { registerClaudeRoutes } from "./claude/routes.ts";
@@ -1082,7 +1084,25 @@ app.get("/versionz", (c) => c.text(`${uiVersion}\n`));
 // (rather than one dedicated login route) so it also covers plain XHRs like
 // `/api/status`, not just top-level navigations. The `/ws` upgrade, which runs
 // before Hono, resolves through the same function.
-const sessionDeps = { config, mint: mintSession, log };
+const sessionEpoch = new SessionEpoch(config.signinDir, log);
+const sessionDeps = { config, mint: mintSession, log, epoch: () => sessionEpoch.current() };
+
+// A state-changing request must come from this app's own origin — see
+// `auth/request-origin.ts` for why `SameSite=Lax` alone does not say that.
+// Ahead of the session middleware, so a forged request is refused before a
+// Cloudflare Access JWT can mint anything for it.
+const refuseForeignOrigin = async (c: Context, next: () => Promise<void>) => {
+  const origin = checkRequestOrigin(c.req.raw, config.access, config.publicOrigin);
+  if (!origin.ok) {
+    log(`Refused ${c.req.method} ${c.req.path}: ${origin.reason}`);
+    return c.text("Forbidden origin", 403);
+  }
+  await next();
+};
+app.use("/api/*", refuseForeignOrigin);
+app.use("/push/*", refuseForeignOrigin);
+app.use("/auth/*", refuseForeignOrigin);
+
 app.use("*", async (c, next) => {
   const resolved = await resolveSession(c.req.raw, sessionDeps);
   if (resolved?.setCookie) c.header("set-cookie", resolved.setCookie, { append: true });
@@ -1101,9 +1121,9 @@ app.use("*", async (c, next) => {
 // everyone else. Health probes sit outside these prefixes, so an orchestrator's
 // polling never counts against a user's bucket.
 const httpLimiter = new HttpRateLimiter(DEFAULT_HTTP_CAPACITY, DEFAULT_HTTP_REFILL_PER_SECOND);
-const throttle = async (c: Context, next: () => Promise<void>) => {
+const throttleAs = (anonymousBucket: string) => async (c: Context, next: () => Promise<void>) => {
   const session = c.get("session");
-  const retryAfter = httpLimiter.take(session ? session.email : "__anonymous__");
+  const retryAfter = httpLimiter.take(session ? session.email : anonymousBucket);
   if (retryAfter !== null) {
     return c.text("Too many requests", {
       status: 429,
@@ -1112,13 +1132,16 @@ const throttle = async (c: Context, next: () => Promise<void>) => {
   }
   await next();
 };
+const throttle = throttleAs("__anonymous__");
 app.use("/api/*", throttle);
 app.use("/push/*", throttle);
-// Credential attempts belong to the anonymous bucket until they succeed, so
-// without this the volume limit would cover every route except the one worth
-// flooding. `AttemptLockout` in `auth/password.ts` is the slower, password-aware
-// half of the same story.
-app.use("/auth/*", throttle);
+// Credential attempts are anonymous until they succeed, so without a limit here
+// the volume cap would cover every route except the one worth flooding.
+// `AttemptLockout` in `auth/password.ts` is the slower, password-aware half of
+// the same story. Its own bucket, because `/api/status` is anonymous and
+// polled: sharing one would let anybody who can reach the port keep the owner
+// from signing in just by asking for the status page fast enough.
+app.use("/auth/*", throttleAs("__anonymous_auth__"));
 
 // The session gate for everything under `/api` and `/push`. Thirty-four handlers
 // used to begin with the same hand-written check, which means a route that forgot
@@ -1205,6 +1228,8 @@ registerSignInRoutes(app, {
   passwords,
   lockout,
   mint: mintSession,
+  revokeSessions,
+  published: Boolean(process.env.LETTA_HOST_BIND?.trim()),
   log,
   hardened,
 });
@@ -1227,7 +1252,11 @@ registerGoogleSignInRoutes(app, {
   hardened,
 });
 
+// One owner, so signing out means signing out: every device's cookie stops
+// working, not only the one in this browser's jar. Only a real session gets to
+// do that — an anonymous post still has its own (already useless) cookie cleared.
 app.post("/auth/logout", (c) => {
+  if (c.get("session")) revokeSessions();
   c.header("set-cookie", clearSessionCookie(secureCookies));
   return c.json({ ok: true });
 });
@@ -2044,10 +2073,26 @@ function mintSession(email: string): { session: SessionPayload; cookie: string }
     email,
     exp: Math.floor(Date.now() / 1000) + config.sessionTtlSeconds,
     via: config.signin,
+    epoch: sessionEpoch.current(),
   };
   const token = encodeSession(session, config.sessionSecret);
   return { session, cookie: buildSessionCookie(token, config.sessionTtlSeconds, secureCookies) };
 }
+
+/**
+ * End every session minted so far. The epoch bump is what refuses the cookies;
+ * the open sockets were authenticated once, at their upgrade, so they are
+ * dropped too — with an ordinary close, so each client reconnects and is judged
+ * on the cookie it holds now: the device that just changed the password comes
+ * straight back, every other one is told it is signed out.
+ */
+function revokeSessions(): void {
+  sessionEpoch.bump();
+  registry.closeAll(SESSIONS_REVOKED_CLOSE_CODE, "Sessions revoked");
+}
+
+/** An application close code the client treats like any dropped link: reconnect. */
+const SESSIONS_REVOKED_CLOSE_CODE = 4000;
 
 // ── WebSocket ────────────────────────────────────────────────────────────────
 interface SocketData {
@@ -2105,7 +2150,7 @@ const server = Bun.serve<SocketData>({
       const upgraded = bunServer.upgrade(request, {
         ...(resolved?.setCookie ? { headers: { "set-cookie": resolved.setCookie } } : {}),
         data: {
-          user: resolved ? { email: resolved.session.email } : null,
+          user: resolved ? { email: resolved.session.email, exp: resolved.session.exp } : null,
           sessionId: "",
         } satisfies SocketData,
       });
@@ -2122,7 +2167,9 @@ const server = Bun.serve<SocketData>({
     );
     if (internal) return internal;
 
-    return app.fetch(request);
+    // The peer address rides along as Hono's env: the one route that needs it
+    // (`GET /auth/login` under SIGNIN=none) has no other way to learn it.
+    return app.fetch(request, { clientAddress: bunServer.requestIP(request)?.address });
   },
 
   websocket: {
@@ -2157,6 +2204,12 @@ const server = Bun.serve<SocketData>({
   },
 });
 
+// A socket is authenticated at its upgrade and never again, so an open tab would
+// otherwise outlive its 30-day session for as long as it stayed open.
+setInterval(() => {
+  registry.closeExpired(Math.floor(Date.now() / 1000), AUTH_REQUIRED_CLOSE_CODE, "Session expired");
+}, 60_000).unref();
+
 log(`Access: ${config.access === "cloudflared" ? "Cloudflare Tunnel" : "direct"}`);
 log(`Sign-in: ${signinLabel(config.signin)}`);
 const featureNames = enabledFeatureNames(config.features);
@@ -2182,6 +2235,25 @@ if (!signinHasAddress(config.signin) && config.allowedUsers.length > 0) {
   log(
     `NOTE: ALLOWED_USERS is set, but SIGNIN=${config.signin} has no address to check — it is unused.`,
   );
+}
+
+// Cookies are scoped by host, not by port, and a `Secure` cookie is the only kind
+// plain http never carries. So when the app is served over http on the host
+// agent apps are opened on, the browser attaches the session cookie to every
+// request it makes to an agent's app — and the agent reads it off its own server.
+{
+  const publicUrl = new URL(config.publicOrigin);
+  const appHost = process.env.AGENT_APP_HOST?.trim().toLowerCase() ?? "";
+  const shared = appHost
+    ? appHost === publicUrl.hostname.toLowerCase()
+    : isLoopbackHostname(publicUrl.hostname);
+  if (publicUrl.protocol === "http:" && shared && config.signin !== "none") {
+    log(
+      `! Agent apps (ports 3000-3099) are opened on ${appHost || publicUrl.hostname}, the same ` +
+        "plain-http host as this app, so the browser sends your session cookie to them. " +
+        "Give them their own hostname (AGENT_APP_HOST) or serve this app over https.",
+    );
+  }
 }
 
 if (config.signin === "none") {
