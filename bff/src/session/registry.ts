@@ -45,6 +45,24 @@ export interface SessionUser {
   email: string;
 }
 
+/** One in-flight browser request awaiting its id-translated response. */
+interface PendingRequest {
+  originalId: string;
+  /** Remembered only for `get_tree`; see `Session.pendingRequests`. */
+  path?: string;
+  /** Set only for `list_memory`; see `mergeMemoryChunk`. */
+  memory?: MemoryAccumulator;
+}
+
+/** The chunks of a chunked `list_memory` stream, collected until `done`. */
+interface MemoryAccumulator {
+  entries: unknown[];
+  /** The newest chunk's non-entry fields (the memfs flags, `total`). */
+  tail: Record<string, unknown>;
+  /** Inter-chunk watchdog; armed by the first non-final chunk. */
+  timer?: ReturnType<typeof setTimeout>;
+}
+
 interface Session {
   id: string;
   user: SessionUser;
@@ -56,7 +74,7 @@ interface Session {
    * `path` is remembered only for `get_tree` requests, so the response
    * handler can resolve entries' absolute paths for a modified/size stat.
    */
-  pendingRequests: Map<string, { originalId: string; path?: string }>;
+  pendingRequests: Map<string, PendingRequest>;
   /**
    * What this session has on screen — the only input to push suppression.
    * Deliberately separate from `scopes` above: that set drives replay and frame
@@ -91,6 +109,16 @@ const RATE_LIMIT_MAX_COMMANDS = 120;
  * translation it would have needed, which is what an orphaned answer is anyway.
  */
 const MAX_PENDING_PER_SESSION = 500;
+
+/**
+ * Inter-chunk wait for a chunked `list_memory` stream.
+ *
+ * Upstream sends its chunks back-to-back, so only an aborted stream can sit
+ * here out the wait (its loop bails silently when a send fails, sending no
+ * error frame) — and then the tab should hear "ended early", not spend its own
+ * 30 s request timeout wondering. Kept well under that.
+ */
+const MEMORY_LIST_IDLE_MS = 15_000;
 
 /**
  * Ceiling on the forwarded starts awaiting their answer across all sessions.
@@ -217,6 +245,7 @@ export class SessionRegistry {
   remove(sessionId: string): void {
     const session = this.sessions.get(sessionId);
     if (!session) return;
+    for (const pending of session.pendingRequests.values()) clearTimeout(pending.memory?.timer);
     this.sessions.delete(sessionId);
     this.log(`Session ${sessionId} closed (${this.sessions.size} active)`);
   }
@@ -369,6 +398,9 @@ export class SessionRegistry {
         ...(command.type === "get_tree" && typeof command.path === "string"
           ? { path: command.path }
           : {}),
+        ...(command.type === "list_memory"
+          ? { memory: { entries: [], tail: {} as Record<string, unknown> } }
+          : {}),
       });
       // What it was for, so its response can settle or forget the entry.
       if (repeatStart) {
@@ -382,6 +414,7 @@ export class SessionRegistry {
       while (session.pendingRequests.size > MAX_PENDING_PER_SESSION) {
         const oldest = session.pendingRequests.keys().next();
         if (oldest.done) break;
+        clearTimeout(session.pendingRequests.get(oldest.value)?.memory?.timer);
         session.pendingRequests.delete(oldest.value);
       }
       outbound.request_id = bffRequestId;
@@ -430,6 +463,19 @@ export class SessionRegistry {
       for (const session of this.sessions.values()) {
         const pending = session.pendingRequests.get(requestId);
         if (pending === undefined) continue;
+        // A memory listing arrives as a chunk stream under one id; collect it
+        // here instead of settling on the first chunk (see `mergeMemoryChunk`).
+        if (pending.memory !== undefined && frame.type === "list_memory_response") {
+          this.mergeMemoryChunk(
+            session,
+            requestId,
+            pending,
+            // SAFETY: a frame arriving from the app-server is JSON-decoded; the
+            // wire shape of `list_memory_response` is a plain field bag.
+            frame as unknown as Record<string, unknown>,
+          );
+          return;
+        }
         session.pendingRequests.delete(requestId);
 
         const relayed =
@@ -547,6 +593,82 @@ export class SessionRegistry {
    * Fold the mod command list out of a device-status frame into the allowlist
    * input. Only string `id`s count; a malformed payload advertises nothing.
    */
+  /**
+   * Fold one `list_memory_response` chunk into its browser request.
+   *
+   * Upstream streams a memory listing five entries per frame, all under the
+   * same request id, `done: true` only on the last (letta-code
+   * `src/websocket/listener/commands/memory.ts`, `CHUNK_SIZE`). The SPA's
+   * contract is one request, one response — and chunks left over from a
+   * request settled on the first frame used to fall through to the unsolicited
+   * path, broadcasting a whole agent's memory to every open tab and into the
+   * replay buffer. So the request stays pending until the stream says it is
+   * done, and then exactly one merged frame is relayed.
+   */
+  private mergeMemoryChunk(
+    session: Session,
+    requestId: string,
+    pending: PendingRequest,
+    frame: Record<string, unknown>,
+  ): void {
+    const acc = pending.memory as MemoryAccumulator;
+    if (frame.success === false) {
+      this.settleMemoryListing(session, requestId, pending, frame);
+      return;
+    }
+    const tail = { ...frame };
+    delete tail.entries;
+    delete tail.request_id;
+    acc.tail = tail;
+    const chunk = Array.isArray(frame.entries) ? frame.entries : [];
+    if (frame.done !== true) {
+      acc.entries.push(...chunk);
+      clearTimeout(acc.timer);
+      acc.timer = setTimeout(
+        () => this.failMemoryListing(session.id, requestId),
+        MEMORY_LIST_IDLE_MS,
+      );
+      acc.timer.unref?.();
+      return;
+    }
+    const entries = [...acc.entries, ...chunk];
+    this.settleMemoryListing(session, requestId, pending, {
+      ...tail,
+      entries,
+      done: true,
+      total: typeof frame.total === "number" ? frame.total : entries.length,
+    });
+  }
+
+  /** Relay a memory listing's final frame to its browser and stop pending. */
+  private settleMemoryListing(
+    session: Session,
+    requestId: string,
+    pending: PendingRequest,
+    response: Record<string, unknown>,
+  ): void {
+    clearTimeout(pending.memory?.timer);
+    session.pendingRequests.delete(requestId);
+    this.sendTo(session.socket, { ...response, request_id: pending.originalId });
+  }
+
+  /** The idle watchdog: settle the listing as failed unless it is still ours. */
+  private failMemoryListing(sessionId: string, requestId: string): void {
+    const session = this.sessions.get(sessionId);
+    const pending = session?.pendingRequests.get(requestId);
+    if (!session || pending?.memory === undefined) return;
+    const { entries, tail } = pending.memory;
+    this.settleMemoryListing(session, requestId, pending, {
+      ...tail,
+      type: "list_memory_response",
+      entries,
+      done: true,
+      total: entries.length,
+      success: false,
+      error: "The memory listing ended early.",
+    });
+  }
+
   private rememberAdvertisedMods(frame: WsProtocolMessage): void {
     if (frame.type !== "update_device_status") return;
     const mods = (frame as { device_status?: { mod_commands?: unknown } }).device_status
