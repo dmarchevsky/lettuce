@@ -555,3 +555,202 @@ describe("repeat runtime_start", () => {
     expect(sent.some((m) => m.type === "runtime_start_response")).toBe(true);
   });
 });
+
+/**
+ * Upstream streams `list_memory` five entries per frame, all under one
+ * request id, `done: true` only on the last (letta-code
+ * `src/websocket/listener/commands/memory.ts`). The SPA resolves its request
+ * on the first frame it sees, so the merge here is what keeps the Memory tab
+ * from presenting the first five files as the whole list — and what keeps the
+ * leftover chunks out of the broadcast path, which used to hand every open
+ * tab a whole agent's memory and stuff the replay buffer with it.
+ */
+describe("memory listing chunks", () => {
+  function memorySetup() {
+    const forwarded: Record<string, unknown>[] = [];
+    const sent: Record<string, unknown>[] = [];
+    const otherSent: Record<string, unknown>[] = [];
+    const upstream = {
+      getState: () => "connected",
+      getInfo: () => null,
+      isReady: () => true,
+      send: (frame: Record<string, unknown>) => forwarded.push(frame),
+      isInternalRequest: () => false,
+      getGeneration: () => 1,
+    } as unknown as UpstreamConnection;
+    const registry = new SessionRegistry(upstream, 100, () => {});
+    const socket: SessionSocket = { send: (raw) => sent.push(JSON.parse(raw)), close: () => {} };
+    const other: SessionSocket = {
+      send: (raw) => otherSent.push(JSON.parse(raw)),
+      close: () => {},
+    };
+    const id = registry.add(socket, { email: "someone@example.com" });
+    registry.add(other, { email: "other@example.com" });
+    registry.handleSessionMessage(
+      id,
+      JSON.stringify({ type: "list_memory", request_id: "web-1", agent_id: "agent-1" }),
+    );
+    const bffId = forwarded[0]?.request_id as string;
+    expect(typeof bffId).toBe("string");
+    const entry = (i: number) => ({
+      relative_path: `notes/${i}.md`,
+      content: `# ${i}`,
+      size: 3,
+      is_system: false,
+      description: null,
+    });
+    const chunk = (ids: number[], done: boolean, extra: Record<string, unknown> = {}) =>
+      ({
+        type: "list_memory_response",
+        request_id: bffId,
+        entries: ids.map(entry),
+        done,
+        total: 6,
+        success: true,
+        memfs_enabled: true,
+        memfs_initialized: true,
+        ...extra,
+      }) as never;
+    const responses = (box: Record<string, unknown>[]) =>
+      box.filter((m) => m.type === "list_memory_response");
+    return { registry, id, sent, otherSent, forwarded, chunk, responses };
+  }
+
+  test("every chunk arrives as one merged response, to the requester only", () => {
+    const { registry, sent, otherSent, chunk, responses } = memorySetup();
+
+    registry.handleUpstreamFrame(chunk([1, 2], false));
+    registry.handleUpstreamFrame(chunk([3, 4], false));
+    expect(responses(sent)).toHaveLength(0);
+    expect(responses(otherSent)).toHaveLength(0);
+
+    registry.handleUpstreamFrame(chunk([5, 6], true));
+
+    const mine = responses(sent);
+    expect(mine).toHaveLength(1);
+    const merged = mine[0] as Record<string, unknown>;
+    expect(merged.request_id).toBe("web-1");
+    expect((merged.entries as { relative_path: string }[]).map((e) => e.relative_path)).toEqual([
+      "notes/1.md",
+      "notes/2.md",
+      "notes/3.md",
+      "notes/4.md",
+      "notes/5.md",
+      "notes/6.md",
+    ]);
+    expect(merged.done).toBe(true);
+    expect(merged.total).toBe(6);
+    expect(merged.success).toBe(true);
+    expect(merged.memfs_enabled).toBe(true);
+    // The other session never sees another agent's memory, and nothing was
+    // sequenced into the replay buffer either.
+    expect(responses(otherSent)).toHaveLength(0);
+    expect(registry.latestSeq).toBe(0);
+  });
+
+  test("a listing that fits in one frame answers once, unchanged", () => {
+    const { registry, sent, chunk, responses } = memorySetup();
+
+    registry.handleUpstreamFrame(chunk([1], true));
+
+    const mine = responses(sent);
+    expect(mine).toHaveLength(1);
+    expect((mine[0] as { request_id: string }).request_id).toBe("web-1");
+    expect((mine[0] as { entries: unknown[] }).entries).toHaveLength(1);
+  });
+
+  test("an empty listing answers once with nothing", () => {
+    const { registry, sent, chunk, responses } = memorySetup();
+
+    registry.handleUpstreamFrame(chunk([], true));
+
+    const mine = responses(sent);
+    expect(mine).toHaveLength(1);
+    expect((mine[0] as { entries: unknown[] }).entries).toHaveLength(0);
+    expect(mine[0]?.success).toBe(true);
+  });
+
+  test("a refusal settles the listing immediately", () => {
+    const { registry, sent, chunk, responses } = memorySetup();
+
+    registry.handleUpstreamFrame(
+      chunk([], false, { success: false, error: "memfs unavailable", total: 0 }) as never,
+    );
+
+    const mine = responses(sent);
+    expect(mine).toHaveLength(1);
+    expect(mine[0]?.success).toBe(false);
+    expect(mine[0]?.error).toBe("memfs unavailable");
+    expect(mine[0]?.request_id).toBe("web-1");
+  });
+
+  test("a refusal after partial chunks relays the failure, not the partials", () => {
+    const { registry, sent, chunk, responses } = memorySetup();
+
+    registry.handleUpstreamFrame(chunk([1, 2], false));
+    registry.handleUpstreamFrame(chunk([], true, { success: false, error: "disk gone" }) as never);
+
+    const mine = responses(sent);
+    expect(mine).toHaveLength(1);
+    expect(mine[0]?.success).toBe(false);
+    expect(mine[0]?.error).toBe("disk gone");
+    expect((mine[0] as { entries?: unknown[] }).entries ?? []).toHaveLength(0);
+  });
+
+  test("a chunk orphaned by a departed session reaches nobody", () => {
+    const { registry, id, sent, otherSent, chunk, responses } = memorySetup();
+
+    registry.handleUpstreamFrame(chunk([1, 2], false));
+    registry.remove(id); // the tab went away mid-stream
+    registry.handleUpstreamFrame(chunk([3, 4], true));
+
+    expect(responses(sent)).toHaveLength(0);
+    expect(responses(otherSent)).toHaveLength(0);
+    expect(registry.latestSeq).toBe(0);
+  });
+
+  test("the watchdog of a departed session says nothing", () => {
+    const { registry, id, sent, chunk, responses } = memorySetup();
+    const armed: (() => void)[] = [];
+    const real = globalThis.setTimeout;
+    globalThis.setTimeout = ((fn: () => void) => {
+      armed.push(fn);
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout;
+    try {
+      registry.handleUpstreamFrame(chunk([1, 2], false));
+      registry.remove(id);
+      armed[armed.length - 1]?.();
+      expect(responses(sent)).toHaveLength(0);
+    } finally {
+      globalThis.setTimeout = real;
+    }
+  });
+
+  test("a stream that never says done fails loudly instead of hanging", () => {
+    const { registry, sent, chunk, responses } = memorySetup();
+    const armed: (() => void)[] = [];
+    const real = globalThis.setTimeout;
+    globalThis.setTimeout = ((fn: () => void) => {
+      armed.push(fn);
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout;
+    try {
+      registry.handleUpstreamFrame(chunk([1, 2], false));
+      expect(responses(sent)).toHaveLength(0);
+      expect(armed.length).toBeGreaterThan(0);
+      armed[armed.length - 1]?.();
+
+      const mine = responses(sent);
+      expect(mine).toHaveLength(1);
+      expect(mine[0]?.success).toBe(false);
+      expect(String(mine[0]?.error)).toContain("ended early");
+      expect(mine[0]?.request_id).toBe("web-1");
+      // What did arrive is still handed over, so the tab is not left emptier
+      // than the stream got.
+      expect((mine[0] as { entries: unknown[] }).entries).toHaveLength(2);
+    } finally {
+      globalThis.setTimeout = real;
+    }
+  });
+});

@@ -5,6 +5,12 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.44.1-letta_0.34.56] - 2026-11-13
+
+### Fixed
+- **The Memory tab now lists every memory file, not just the first few.** An agent with a large memory
+  showed a handful of blocks and the rest looked lost, though the files were always there.
+
 ## [v0.44.0-letta_0.34.56] - 2026-11-12
 
 ### Changed
