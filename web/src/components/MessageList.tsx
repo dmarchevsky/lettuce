@@ -440,7 +440,13 @@ const MessageItem = memo(function MessageItem({
   }, [scan, note]);
 
   const md = (text: string) => (
-    <Markdown text={text} cwd={cwd} resolve={fileLinks.resolve} onOpenFile={onOpenFile} />
+    <Markdown
+      text={text}
+      cwd={cwd}
+      resolve={fileLinks.resolve}
+      onOpenFile={onOpenFile}
+      streaming={Boolean(entry.streaming)}
+    />
   );
 
   if (narration) {

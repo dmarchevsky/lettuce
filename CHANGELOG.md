@@ -6,6 +6,13 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 ## [Unreleased]
 
 ### Fixed
+- **A long answer no longer gets slower as it is written.** Every new word made the app re-read the
+  whole message from the top, so a long reply stuttered more the longer it grew; now only the
+  paragraph still being written is re-read. A finished message looks exactly as it did.
+- **Long conversations scroll and stream more smoothly on desktop and Android.** Past about 150
+  messages the browser stops drawing the ones that are off screen. Nothing is removed — search in page,
+  selecting across messages and anything you expanded all still work — and iPhone, whose browser cannot
+  do this without the text shifting as you scroll, keeps drawing everything as before.
 - **The app no longer freezes for everyone while one slow thing happens.** Deleting a big folder,
   opening a large file tree, or checking a Remote Pi host that does not answer each stopped every
   open conversation's stream until it finished — up to fifteen seconds for the host check. They now
