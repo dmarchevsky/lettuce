@@ -3507,16 +3507,18 @@ try {
 
     // A document sheet must actually be bigger than a form sheet, and must give
     // its height to the content: the memory editor used to scroll inside a
-    // scrolling body, so a 5KB block showed about a dozen lines.
+    // scrolling body, so a 5KB file showed about a dozen lines.
     await openTab(page, "Agent");
     await page.waitForTimeout(400);
     await page.locator('.section-tabs button:text-is("Memory")').click();
     await page.waitForTimeout(1500);
-    const memoryBlocks = await page.locator(".pane .list > li button").count();
-    if (memoryBlocks === 0) {
-      console.log("  SKIP  document sheet sizing (this agent has no memory blocks)");
+    // A FILE row, not the first row: the pane leads with folders now, and a folder's only
+    // action is to open itself, so clicking `.first()` would never reach a sheet.
+    const memoryFiles = await page.locator(".memory-tree li button:not([aria-expanded])").count();
+    if (memoryFiles === 0) {
+      console.log("  SKIP  document sheet sizing (this agent has no memory files)");
     } else {
-      await page.locator(".pane .list > li button").first().click();
+      await page.locator(".memory-tree li button:not([aria-expanded])").first().click();
       await page.waitForTimeout(600);
       const doc = await page.evaluate(() => {
         const panel = document.querySelector(".sheet-panel.fill");

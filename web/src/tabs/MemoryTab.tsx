@@ -168,6 +168,9 @@ export function MemoryTab({ session, agentId }: Props) {
         type="button"
         className="row"
         style={depthStyle(args.depth)}
+        // The path, not just the name: inside a collapsed tree the folder is the part a
+        // screen reader would otherwise never hear.
+        aria-label={args.entry.relative_path}
         onClick={() => {
           setOpen(args.entry);
           setDraft(args.entry.content);
@@ -182,7 +185,7 @@ export function MemoryTab({ session, agentId }: Props) {
           <span className="memory-row-title">
             <strong>{args.name}</strong>
             {/* The fact a per-row control used to hint at, said once in
-                words: system blocks are composed into the agent's context
+                words: a system file is composed into the agent's context
                 on every turn. */}
             {args.entry.is_system ? <span className="tag">In context</span> : null}
           </span>
@@ -211,7 +214,7 @@ export function MemoryTab({ session, agentId }: Props) {
     );
   }
 
-  const hasMemory = entries.length > 0;
+  const hasMemory = counts.files > 0;
 
   return (
     <div className="pane">
@@ -224,17 +227,15 @@ export function MemoryTab({ session, agentId }: Props) {
                 ? `${matches.length} ${matches.length === 1 ? "match" : "matches"}`
                 : `${counts.files} files · ${counts.folders} ${counts.folders === 1 ? "folder" : "folders"}`}
             </span>
-            <span className="memory-bar-links">
-              {searching ? (
-                <button type="button" className="link" onClick={() => setQuery("")}>
-                  Clear
-                </button>
-              ) : (
-                <button type="button" className="link" onClick={toggleAll}>
-                  {allOpen ? "Collapse all" : "Expand all"}
-                </button>
-              )}
-            </span>
+            {searching ? (
+              <button type="button" className="link" onClick={() => setQuery("")}>
+                Clear
+              </button>
+            ) : (
+              <button type="button" className="link" onClick={toggleAll}>
+                {allOpen ? "Collapse all" : "Expand all"}
+              </button>
+            )}
           </>
         ) : null}
         <span className="spacer" />
@@ -269,9 +270,9 @@ export function MemoryTab({ session, agentId }: Props) {
           <p className="muted pad">No memory files match “{query.trim()}”.</p>
         ) : (
           <ul className="list memory-tree">
-            {matches.map((match) =>
+            {matches.map((match, index) =>
               fileRow({
-                key: `m:${match.path}`,
+                key: `m:${match.path}:${index}`,
                 name: match.name,
                 entry: match.entry,
                 depth: 0,
@@ -282,7 +283,7 @@ export function MemoryTab({ session, agentId }: Props) {
         )
       ) : (
         <ul className="list memory-tree">
-          {visible.map((row) =>
+          {visible.map((row, index) =>
             row.kind === "dir" ? (
               <li key={`d:${row.path}`}>
                 <button
@@ -304,7 +305,12 @@ export function MemoryTab({ session, agentId }: Props) {
                 </button>
               </li>
             ) : (
-              fileRow({ key: `f:${row.path}`, name: row.name, entry: row.entry, depth: row.depth })
+              fileRow({
+                key: `f:${row.path}:${index}`,
+                name: row.name,
+                entry: row.entry,
+                depth: row.depth,
+              })
             ),
           )}
         </ul>
@@ -334,7 +340,7 @@ export function MemoryTab({ session, agentId }: Props) {
             </>
           }
         >
-          {open.is_system ? <p className="muted small">System block — edit with care.</p> : null}
+          {open.is_system ? <p className="muted small">System file — edit with care.</p> : null}
 
           <textarea
             className="memory-editor"

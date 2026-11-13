@@ -83,6 +83,9 @@ interface ParsedPath {
  * away from a path outside the memory.
  */
 function parseMemoryPath(raw: string): ParsedPath | null {
+  // Upstream's entries reach the pane through the BFF unvalidated, and there is no error
+  // boundary in web/ — so a non-string here would blank the app over one odd entry.
+  if (typeof raw !== "string") return null;
   const stack: string[] = [];
   for (const segment of raw.replace(/\\/g, "/").split("/")) {
     if (!segment || segment === ".") continue;

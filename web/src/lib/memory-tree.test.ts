@@ -90,6 +90,15 @@ describe("the memory tree", () => {
     expect(buildMemoryTree(paths("../escape.md", "", "."))).toEqual([]);
   });
 
+  test("an entry whose path is not a string is no row", () => {
+    // The entries reach here through the BFF unvalidated and there is no error boundary,
+    // so this is the difference between a missing row and a blank app.
+    const junk = [{ relative_path: null }, { relative_path: 42 }] as unknown as MemoryPathEntry[];
+    expect(buildMemoryTree(junk)).toEqual([]);
+    expect(memoryTreeCounts(junk)).toEqual({ files: 0, folders: 0 });
+    expect(filterMemoryPaths(junk, "anything")).toEqual([]);
+  });
+
   test("every directory path is listed for expand-all", () => {
     expect(memoryTreeDirs(buildMemoryTree(paths("a/b/c.md")))).toEqual(["a", "a/b"]);
   });
@@ -134,6 +143,14 @@ describe("the memory filter", () => {
     expect(filterMemoryPaths(entries, "reference").map((match) => match.path)).toEqual([
       "reference/other.md",
       "reference/slack-api-notes.md",
+    ]);
+  });
+
+  test("one folder word reaches files several levels down", () => {
+    const deep = paths("projects/tools/slack.md", "projects/tools/deep/deeper/note.md");
+    expect(filterMemoryPaths(deep, "tools").map((match) => match.path)).toEqual([
+      "projects/tools/deep/deeper/note.md",
+      "projects/tools/slack.md",
     ]);
   });
 

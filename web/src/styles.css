@@ -3829,6 +3829,11 @@ p.warning code,
   color: var(--muted);
   font-size: 12px;
 }
+/* A name with nothing in it to break on — a long snake_case note — would truncate at the
+   deepest indent on a phone, where the tail is exactly the part that names the file. */
+.memory-row-title strong {
+  overflow-wrap: anywhere;
+}
 .one-line {
   display: block;
   overflow: hidden;
