@@ -5,6 +5,15 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Changed
+- **The Memory tab opens as folders, not as one long list of paths.** An agent that has been working
+  a while holds hundreds of memory files, listed flat with the whole path as the row, so finding one
+  meant reading all of them. Memory now opens as the tree it is: folders you open, each showing how
+  many files it holds, the files at the top still in view, and one box that filters names and folder
+  paths at once and says how many matched. A file still opens the same editor with its history, and
+  the bar counts `files · folders`, which is what they always were.
+
+
 ## [v0.45.0-letta_0.34.56] - 2026-11-13
 
 ### Changed
