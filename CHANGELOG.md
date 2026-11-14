@@ -5,6 +5,10 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Added
+- **Give an agent a model call limit in Agent → General.** A turn stops after that many model calls, in
+  chats, crons and Telegram alike, and says "Model call limit reached".
+
 ### Changed
 - **The Memory tab opens as folders, not as one long list of paths.** An agent that has been working
   a while holds hundreds of memory files, listed flat with the whole path as the row, so finding one

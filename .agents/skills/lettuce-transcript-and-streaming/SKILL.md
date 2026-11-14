@@ -1,6 +1,6 @@
 ---
 name: lettuce-transcript-and-streaming
-description: 'lettuce wire-shape mechanics the UI depends on: tool_return_message''s two shapes and why returns are keyed return:<tool_call_id>, every tool call arriving as approval_request_message, asynchronous AskUserQuestion receipts and the question card, blank/narration text folding in groupTranscript, provider errors arriving as JSON, why Stop cannot cancel a local generation, and the live-only data the BFF keeps because upstream stores it nowhere: turn errors, token usage (prompt_tokens is net of the prompt cache), turn-push settling, and signed-out vs offline link state. Read before touching web/src/lib/messages.ts, web/src/components QuestionCard/ApprovalSheet, bff/src/session/turn-errors.ts or turn-usage.ts, bff/src/push/turn-watcher.ts, web/src/lib/auth-probe.ts, or use-conversation.ts.'
+description: 'lettuce wire-shape mechanics the UI depends on: tool_return_message''s two shapes and why returns are keyed return:<tool_call_id>, every tool call arriving as approval_request_message, asynchronous AskUserQuestion receipts and the question card, blank/narration text folding in groupTranscript, provider errors arriving as JSON, why Stop cannot cancel a local generation, and the live-only data the BFF keeps because upstream stores it nowhere: turn errors, token usage (prompt_tokens is net of the prompt cache), turn-push settling, the BFF-enforced per-agent model call limit (step limit), and signed-out vs offline link state. Read before touching web/src/lib/messages.ts, web/src/components QuestionCard/ApprovalSheet, bff/src/session/turn-errors.ts, turn-usage.ts or step-limit-watchdog.ts, bff/src/push/turn-watcher.ts, web/src/lib/auth-probe.ts, or use-conversation.ts.'
 ---
 
 # Transcript shapes, approvals, questions, stop
@@ -98,6 +98,27 @@ usage delta and `turn_finished`, and it observes frames **before** the fan-out s
 always finds the step. Note the split pi-ai makes: `prompt_tokens` is **net of the prompt
 cache**, which comes as `cached_input_tokens` (llama.cpp's slot cache) — an 85k context behind
 a 790-token prompt is a cache hit, not a bug.
+
+**The per-agent step limit is the BFF's, not letta-code's `max_turns`.** Upstream's cap
+(`execution_settings.max_turns` on `runtime_start`) rides the runtime a browser opens, so cron and
+Telegram turns would run uncapped; it also pins runtimes the BFF's one connection stays subscribed to,
+and replaces the shell's `MEMORY_DIR`. `bff/src/session/step-limit-watchdog.ts` keeps its **own** step
+count — `turn-usage.ts` forgets the turn in flight at every compaction, and a turn long enough to compact
+is the one a limit is for — and, at the agent's limit (`bff/src/agents/step-limit.ts`, Agent → General's
+**Model call limit**; "steps" there would clash with the transcript fold's "N steps", which counts items),
+sends `abort_message` with the turn's `run_id` when the stream showed one, but only when that step asked
+for a tool (a step's `approval_request_message` precedes its `usage_statistics`), so a final answer is
+never stopped. `abort_message` is the user's Stop, so the watchdog undoes what upstream's own cap does not
+do: it parks queued user messages (a `resume_queue` follows the stopped turn's finish) and emits an
+"Interrupted" status (dropped for that run). Once the app-server confirms the abort (`aborted: true`), the
+`cancelled` `turn_finished` is rewritten to `max_steps` with an error, preceded by an injected terminal
+`loop_error` delta, **before any consumer sees it** (`translate`, first thing in `onFrame`): the
+transcript, the turn errors and the push read it like upstream's own cap. A user's Stop that landed first
+is not rewritten. The abort shares Stop's limit: a model call already running finishes its prefill first.
+And **the model is told the user interrupted it**: the capped step's tool calls persist as "Interrupted by
+user", and upstream sends `interrupt_recovery_alert.txt` ("The user interrupted the active stream",
+`turn-setup.ts`) after those results and ahead of the conversation's next input, where its own cap denies them with "Maximum turns limit
+reached". `abort_message` carries no reason, so this is a known limit of the approach, not ours to fix.
 
 **A turn push waits for the agent to be done, not for `turn_finished`.** One request often
 spans several turns and `turn_finished` fires for each. `bff/src/push/turn-watcher.ts` holds a
