@@ -21,6 +21,13 @@ interface MemoryEntry {
   description: string | null;
   content: string;
   size: number;
+  /**
+   * The files this one links to with `[[wiki links]]`, resolved by upstream to
+   * paths that exist (letta-code `websocket/listener/commands/memory.ts`). Only
+   * present because the request below asks for it; a link whose target is gone
+   * is simply absent, not flagged.
+   */
+  references?: string[];
 }
 
 interface Commit {
@@ -67,7 +74,7 @@ export function MemoryTab({ session, agentId }: Props) {
         success?: boolean;
         error?: string;
         memfs_enabled?: boolean;
-      }>("list_memory", { agent_id: agentId });
+      }>("list_memory", { agent_id: agentId, include_references: true });
       if (response?.success === false) {
         setStatus(response.error ?? "Could not list memory");
         return;
