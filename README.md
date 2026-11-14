@@ -55,8 +55,8 @@ before exposing anything.
 
 ### Memory and agents
 
-- **Versioned memory store** per agent, browsable in the Memory tab, with the
-  history of what changed.
+- **Versioned memory store** per agent, browsable in the Memory tab as a folder
+  tree with a filter over it, with the history of what changed.
 - **Automatic reflection.** Periodically the agent reviews recent conversation
   and folds what matters into memory. Trigger it by step count or on context
   compaction, or turn it off; merging is automatic or instruction-driven.

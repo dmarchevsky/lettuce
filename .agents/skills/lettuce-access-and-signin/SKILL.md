@@ -63,6 +63,33 @@ could not ask for a password and a tunneled one could not ask for anything but A
   field fails the same way, which is why an upgrade from the bypass signs everyone out. The web UI
   keys its warning pill off `signin === "none"` (`AuthPill`), the only method where the session is a
   formality.
+- **Sessions are revocable through one counter, the session epoch** (`auth/session-epoch.ts`, a
+  `session-epoch` file in `config.signinDir` beside the hash, for the same agent-cannot-write reason).
+  `SessionPayload` also carries `epoch`; `decodeSession` takes the current one as its fourth argument
+  and refuses any other, absent included — so the release that added it signed everyone out once.
+  `revokeSessions()` in `index.ts` bumps it and `registry.closeAll(4000, …)`s the browser sockets:
+  called by `POST /auth/logout` (only with a session) and by `/auth/change-password`, which re-mints
+  the caller's cookie in the same response. The close is an ordinary one on purpose — each client
+  reconnects and is judged on the cookie it holds *now*, so the device that changed the password
+  comes back and the others get 4401. A once-a-minute sweep (`registry.closeExpired`) drops sockets
+  whose session `exp` passed; a socket is otherwise authenticated only at its upgrade.
+- **A state-changing request must come from the app's own origin** (`auth/request-origin.ts`,
+  mounted on `/api/*`, `/push/*`, `/auth/*` *ahead of* the session middleware). `SameSite=Lax` is
+  per-site and a site ignores ports, so an agent app at `:3005` is same-site with the app and its
+  page's POST carries the cookie. Non-GET/HEAD/OPTIONS: `Origin` present → `checkUpgradeOrigin`;
+  absent → `Sec-Fetch-Site` must not be `same-site`/`cross-site`; neither header → not a browser,
+  allowed (smoke, `deploy-check`, curl). `checkUpgradeOrigin` itself refuses a **loopback Origin on
+  an agent-app port (3000-3099)** unless it equals the request's own `Host` — the loopback allowance
+  exists for the Vite dev server and used to let `http://localhost:3005` open `/ws` as the owner.
+  `GET /api/google/reconnect` only starts a connect when `Sec-Fetch-Site` is not foreign.
+- **`GET /auth/login` under `SIGNIN=none` refuses a loopback peer when a host port is published**
+  (`LETTA_HOST_BIND` set). A host browser arrives through the published port, never on the
+  namespace's `127.0.0.1`; an agent's `curl localhost:8080` does. The peer address reaches Hono as
+  `c.env.clientAddress`, passed by `app.fetch(request, {clientAddress})` in `Bun.serve`.
+- **One password verify at a time** (`AttemptLockout.begin()/end()`): failures are counted after a
+  verify, so parallel posts used to all be admitted before the first counted. `/auth/*` has its own
+  anonymous limiter bucket (`__anonymous_auth__`) so a flood of the anonymous, polled `/api/status`
+  cannot 429 the owner's sign-in.
 - **`/auth/*` is throttled by the same `HttpRateLimiter` as the API**, per identity, and
   `ANONYMOUS_API_PATHS` does not need the Google login callback added — it lives under `/auth`, which
   `requireSession` never gated.

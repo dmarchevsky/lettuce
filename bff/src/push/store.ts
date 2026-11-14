@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { isLoopbackHostname } from "../auth/origin.ts";
 
 /** Per-device opt-in for each push trigger. All default true — see `mergePreferences`. */
 export interface PushPreferences {
@@ -36,12 +37,27 @@ export interface PushSubscriptionRecord {
   preferences: PushPreferences;
 }
 
+/**
+ * A push service is a public HTTPS endpoint, always: that is what every browser
+ * hands out. The BFF later POSTs to whatever is stored here, from inside the
+ * stack's network, so anything else — plain http, a sidecar's name, a loopback
+ * port — is a request the browser never asked for.
+ */
+function isPushServiceUrl(endpoint: string): boolean {
+  try {
+    const url = new URL(endpoint);
+    return url.protocol === "https:" && !isLoopbackHostname(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
 function isValidSubscription(
   value: unknown,
 ): value is Omit<PushSubscriptionRecord, "email" | "createdAt" | "preferences"> {
   if (!value || typeof value !== "object") return false;
   const sub = value as { endpoint?: unknown; keys?: unknown };
-  if (typeof sub.endpoint !== "string" || !sub.endpoint) return false;
+  if (typeof sub.endpoint !== "string" || !isPushServiceUrl(sub.endpoint)) return false;
   if (!sub.keys || typeof sub.keys !== "object") return false;
   const keys = sub.keys as { p256dh?: unknown; auth?: unknown };
   return typeof keys.p256dh === "string" && typeof keys.auth === "string";

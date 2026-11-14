@@ -23,6 +23,23 @@ const subscription = {
   keys: { p256dh: "key1", auth: "key2" },
 };
 
+describe("PushSubscriptionStore endpoints", () => {
+  test("only a public https push service is stored: the BFF posts to it later", () => {
+    const store = new PushSubscriptionStore(tempFile());
+    const keys = subscription.keys;
+    for (const endpoint of [
+      "http://push.example/abc",
+      "http://searxng:8080/",
+      "https://localhost:8080/internal/tools/x",
+      "https://127.0.0.1/",
+      "file:///etc/passwd",
+      "not a url",
+    ]) {
+      expect(() => store.add({ endpoint, keys }, "me@example.com")).toThrow("Malformed");
+    }
+  });
+});
+
 describe("PushSubscriptionStore preferences", () => {
   test("a fresh subscription defaults every preference to true", () => {
     const store = new PushSubscriptionStore(tempFile());

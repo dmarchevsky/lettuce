@@ -12,6 +12,7 @@
 import type { Hono } from "hono";
 import { isAgentId } from "../agents/id-list.ts";
 import { errorMessage } from "../errors.ts";
+import { contentDisposition } from "../files/content-disposition.ts";
 import type { RouteEnv } from "../route-env.ts";
 import { parseAgentScope } from "../runs/attribution.ts";
 import { hardenedResponse } from "../security-headers.ts";
@@ -304,7 +305,8 @@ export function registerPiRoutes<Env extends RouteEnv>(app: Hono<Env>, deps: PiR
     return hardenedResponse(hardened, bytes, {
       "content-type": PI_FILE_TYPES[ext] ?? "application/octet-stream",
       "x-content-type-options": "nosniff",
-      "content-disposition": `inline; filename="${c.req.param("name")}"`,
+      // The name is whatever the remote run called its file.
+      "content-disposition": contentDisposition(c.req.param("name"), "inline"),
       "cache-control": "private, max-age=300",
     });
   });

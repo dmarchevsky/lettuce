@@ -21,7 +21,8 @@
  * whole guard chain is testable without a Hono app. `index.ts` mounts it.
  */
 
-import { lstatSync, realpathSync, rmSync, type Stats } from "node:fs";
+import { lstatSync, realpathSync, type Stats } from "node:fs";
+import { realpath, rm } from "node:fs/promises";
 import { normalizePosixPath, WORKSPACE_ROOT } from "../session/protocol.ts";
 import { symlinkViolation } from "../session/symlink-guard.ts";
 
@@ -33,7 +34,7 @@ export interface DeleteRouteDeps {
   realpath?: (path: string) => string;
   lstat?: (path: string) => Stats;
   /** The removal itself; tests replace it to prove a guard refused before anything was deleted. */
-  remove?: (path: string) => void;
+  remove?: (path: string) => void | Promise<void>;
 }
 
 export interface DeleteRouteResult {
@@ -63,7 +64,7 @@ export async function deleteWorkspaceEntry(
   if (!guard.ok) return guard.result;
 
   try {
-    (deps.remove ?? removeWorkspacePath)(guard.real);
+    await (deps.remove ?? removeWorkspacePath)(guard.real);
   } catch (error) {
     // A removal that fails after every check passed is a filesystem fact we do
     // not argue with (permission, busy, vanished mid-race) — reported, not retried.
@@ -182,6 +183,17 @@ function parentOf(path: string): string {
 }
 
 /** The default removal: recursive (a folder takes its contents), never silent. */
-export function removeWorkspacePath(path: string): void {
-  rmSync(path, { recursive: true, force: false });
+export async function removeWorkspacePath(path: string): Promise<void> {
+  // `path` is the real path the guard resolved. Agents write this tree while
+  // the guard runs, so ask once more immediately before removing: if a
+  // component has since become a link, the path no longer resolves to itself
+  // and the delete would follow it out of the workspace. This narrows the
+  // window to the call below; closing it needs `openat`, which Bun does not
+  // expose.
+  if ((await realpath(path)) !== path) {
+    throw new Error("The path changed while it was being deleted — nothing was removed.");
+  }
+  // Asynchronous: a `node_modules` is tens of thousands of unlinks, and the
+  // synchronous call froze every browser's stream until the last one.
+  await rm(path, { recursive: true, force: false });
 }

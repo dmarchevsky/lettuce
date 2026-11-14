@@ -22,6 +22,12 @@ Loaded from `AGENTS.md`. Timeouts, ports, and the two things that break spawns.
   Internals walkthrough (`DEFAULT_LOCAL_PROVIDER_TIMEOUT_MS`, `fetchWithTimeout`, the dead
   `createLocalProviderFetch`): docs/upstream-notes.md#llm-timeout-internals.
 
+- **Agent apps share the app's cookies when they share its plain-http host.** Cookies are not
+  port-scoped, so `http://<host>:8090` and `http://<host>:3005` exchange the session cookie; the BFF
+  gets `AGENT_APP_HOST` too (compose) only to warn at boot when it equals `PUBLIC_ORIGIN`'s host
+  over http (or is unset with a loopback origin). The fix is the operator's: a second hostname, or
+  https. The request-origin check (`lettuce-access-and-signin`) stops the forged-request half
+  regardless; nothing in the BFF can stop the browser sending the cookie.
 - **Agent web apps: ports 3000-3099, taught by a skill.** A server an agent starts runs inside
   the app-server container, reachable from the LAN only on the published range 3000-3099
   (`AGENT_APPS_BIND`, default `0.0.0.0`). Agents learn it from the global skill

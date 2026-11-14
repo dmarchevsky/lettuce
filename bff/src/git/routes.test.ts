@@ -147,6 +147,53 @@ describe("GET /api/git/repo handler", () => {
     expect(calls).toEqual([PROBE_GIT_DIR, PROBE_TOPLEVEL, PROBE_BRANCH]);
   });
 
+  test("a root git places outside the workspace is not a repository here", async () => {
+    // `core.worktree`, or a `.git` file naming a gitdir elsewhere, is an agent's
+    // to write — and the log would then run with `-C` on whatever it names.
+    for (const foreign of ["/root/.letta", `${root}-elsewhere`, join(repoDir, "deeper")]) {
+      const runner = scriptedRunner(
+        (args) =>
+          args.join(" ") === "rev-parse --show-toplevel" ? okRes(`${foreign}\n`) : repoAnswer(args),
+        [],
+      );
+      const calls: string[][] = [];
+      const repo = await gitRepoResponse({ ...session, runner, root }, { path: repoDir });
+      expect(repo.json).toMatchObject({ repo: false });
+      const log = await gitLogResponse(
+        {
+          ...session,
+          root,
+          runner: scriptedRunner(
+            (args) =>
+              args.join(" ") === "rev-parse --show-toplevel"
+                ? okRes(`${foreign}\n`)
+                : repoAnswer(args),
+            calls,
+          ),
+        },
+        { path: repoDir },
+      );
+      expect(log.json).toMatchObject({ repo: false });
+      expect(calls.some((args) => args[0] === "log")).toBe(false);
+      const commit = await gitCommitResponse(
+        {
+          ...session,
+          root,
+          runner: scriptedRunner(
+            (args) =>
+              args.join(" ") === "rev-parse --show-toplevel"
+                ? okRes(`${foreign}\n`)
+                : repoAnswer(args),
+            calls,
+          ),
+        },
+        { path: repoDir, sha: "a".repeat(40) },
+      );
+      expect(commit.json).toMatchObject({ repo: false });
+      expect(calls.some((args) => args[0] === "show")).toBe(false);
+    }
+  });
+
   test("a subfolder reports the repository above it", async () => {
     const calls: string[][] = [];
     const result = await gitRepoResponse(

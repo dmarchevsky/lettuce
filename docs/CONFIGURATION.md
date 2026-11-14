@@ -23,14 +23,20 @@ it, and the full deployment walkthroughs. The engineering guide
 | Variable | What it is |
 |---|---|
 | `PUBLIC_ORIGIN` | The origin people actually open the app on. Not cosmetic: the session cookie's `Secure` flag, the CSP's websocket allowance and the Google OAuth redirect are all derived from it. A trailing `/` is stripped. |
-| `SESSION_SECRET` | Signs the session cookie (HMAC-SHA256 over `{email, exp}`). Generate with `openssl rand -hex 32`. |
+| `SESSION_SECRET` | Signs the session cookie (HMAC-SHA256 over `{email, exp, via, epoch}`). Generate with `openssl rand -hex 32`. |
 | `LETTA_STATE_DIR` | Absolute path anchoring `letta-home/`, `letta-data/`, `workspaces/` and `tools/`. |
 
 `SESSION_SECRET` is checked at boot and the BFF **refuses to start** if it is
 shorter than 32 characters, one character repeated, or a short pattern tiled
 to reach the minimum. That is the floor, not the recommendation: a guessable
-secret lets anyone forge a session for any address in `ALLOWED_USERS`, and
-there is no server-side session store to invalidate one against afterwards.
+secret lets anyone forge a session for any address in `ALLOWED_USERS`.
+
+There is no server-side session store, but sessions can be taken back: every
+cookie carries a **session epoch**, a counter kept beside the password hash on
+the `bff-auth` volume. **Signing out, or changing the password, signs out every
+device** — the counter moves on, every cookie carrying the old number is refused,
+and open tabs are disconnected. Rotating `SESSION_SECRET` does the same from the
+host.
 `LETTA_APP_SERVER_URL` is also required by the BFF, but
 `docker/compose.yml` sets it; you only override it when running the BFF
 outside Docker.
@@ -495,6 +501,18 @@ Agents can run small web apps inside the app-server container. Only ports
 | `AGENT_APPS_BIND` | `0.0.0.0` | published interface. Use the LAN IP to keep it off other interfaces, or `127.0.0.1` to close it. |
 | `AGENT_APP_PORTS` | `3000-3099` | the range agents are told they may serve on. The published mapping beside it in `docker/compose.yml` is the same literal — widening one means widening the other, and a recreate to match. |
 
+**Give the apps a different hostname from the app itself, or serve the app over
+https.** Cookies are scoped by host, not by port: with the app at
+`http://<host>:8090` and an agent's app at `http://<host>:3005`, the browser
+sends your session cookie to the agent's app, and the agent that wrote it can
+read the cookie off its own server. Set `AGENT_APP_HOST` to a name or address
+that is not the host in `PUBLIC_ORIGIN` (a second DNS name, or the bare IP when
+the app is opened by name), or put the app behind https — a `Secure` cookie is
+never sent over plain http. The BFF logs a warning at boot when the two share a
+plain-http host. Separately, a request that would change something is refused
+unless it comes from the app's own origin, so a page on an agent's port cannot
+act on the app through your browser even while the cookie is shared.
+
 Changing either recreates `app-server`: run
 `docker compose -f docker/compose.yml up -d` unscoped.
 
@@ -852,7 +870,12 @@ inside it, and the agent in that process can run shells.
   where the two halves disagree.
 - **The session secret is the whole trust anchor.** There is no server-side
   session store, so a leaked secret forges sessions until it is rotated.
-  Hence the boot-time strength check.
+  Hence the boot-time strength check. A leaked *cookie* is cheaper to answer:
+  sign out, and the session epoch retires every cookie minted before it.
+- **State-changing requests must come from the app's own origin.** `SameSite=Lax`
+  stops another site; the `Origin` / `Sec-Fetch-Site` check stops a page on a
+  sibling port of the same host, which is where agent apps live. A client that
+  sends neither header (curl, the smoke suite) is not a browser and passes.
 - **HSTS is sent only on an `https` `PUBLIC_ORIGIN`.** Pinning a host whose
   TLS may not work yet would lock the operator out for a year.
 - **Agent tokens are not equally protected.** The GitHub token under

@@ -663,6 +663,29 @@ function promoteChannelSends(entries: TranscriptEntry[]): TranscriptEntry[] {
   return out;
 }
 
+function byArrival(a: TranscriptEntry, b: TranscriptEntry): number {
+  if (a.seenAt !== b.seenAt) return a.seenAt - b.seenAt;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/**
+ * `entries` ordered by arrival, sorting only when it is not already.
+ *
+ * This runs on every streamed frame, and the map it is read from is filled in
+ * arrival order: a live turn only ever appends. One pass that confirms the order
+ * is cheaper than a sort that rediscovers it, and the sort still runs for the
+ * cases that do reorder — a page of older history merged in, a replayed frame.
+ */
+export function inArrivalOrder(entries: TranscriptEntry[]): TranscriptEntry[] {
+  for (let i = 1; i < entries.length; i++) {
+    // SAFETY: both indices are inside the array by the loop bounds.
+    if (byArrival(entries[i - 1] as TranscriptEntry, entries[i] as TranscriptEntry) > 0) {
+      return entries.sort(byArrival);
+    }
+  }
+  return entries;
+}
+
 /**
  * The transcript as a render-ready list, ordered by arrival.
  *
@@ -679,11 +702,7 @@ export function sortedEntries(transcript: Transcript): TranscriptEntry[] {
     promoteQuestions(
       promoteChannelSends(
         nameToolReturns(
-          [...transcript.values()]
-            .sort((a, b) => {
-              if (a.seenAt !== b.seenAt) return a.seenAt - b.seenAt;
-              return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-            })
+          inArrivalOrder([...transcript.values()])
             .map((entry) => (entry.streaming ? { ...entry } : entry))
             // After copying, so an extracted block keeps its parent's position and a
             // settled entry keeps its identity.

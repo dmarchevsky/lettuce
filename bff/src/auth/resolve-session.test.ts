@@ -16,14 +16,15 @@ function config(signin: BffConfig["signin"]): BffConfig {
   } as unknown as BffConfig;
 }
 
-function deps(signin: BffConfig["signin"], email: string | Error): ResolveSessionDeps {
+function deps(signin: BffConfig["signin"], email: string | Error, epoch = 0): ResolveSessionDeps {
   return {
     config: config(signin),
     mint: (who) => ({
-      session: { email: who, exp: 9_999_999_999, via: signin },
+      session: { email: who, exp: 9_999_999_999, via: signin, epoch: 0 },
       cookie: `minted-for-${who}`,
     }),
     log: () => {},
+    epoch: () => epoch,
     verify: async () => {
       if (email instanceof Error) throw email;
       return { email };
@@ -36,8 +37,8 @@ function request(headers: Record<string, string>): Request {
 }
 
 const now = Math.floor(Date.now() / 1000);
-const validCookie = `${SESSION_COOKIE}=${encodeSession({ email: "me@example.com", exp: now + 3600, via: "cf-access" }, SECRET)}`;
-const expiredCookie = `${SESSION_COOKIE}=${encodeSession({ email: "me@example.com", exp: now - 10, via: "cf-access" }, SECRET)}`;
+const validCookie = `${SESSION_COOKIE}=${encodeSession({ email: "me@example.com", exp: now + 3600, via: "cf-access", epoch: 0 }, SECRET)}`;
+const expiredCookie = `${SESSION_COOKIE}=${encodeSession({ email: "me@example.com", exp: now - 10, via: "cf-access", epoch: 0 }, SECRET)}`;
 
 describe("resolveSession", () => {
   test("a valid cookie wins, and nothing is minted", async () => {
@@ -86,7 +87,7 @@ describe("resolveSession", () => {
     // signature-valid cookie to any visitor, and tightening the method has to
     // retire those sessions rather than honour them for another 30 days.
     const fromNone = `${SESSION_COOKIE}=${encodeSession(
-      { email: "me@example.com", exp: now + 3600, via: "none" },
+      { email: "me@example.com", exp: now + 3600, via: "none", epoch: 0 },
       SECRET,
     )}`;
     expect(
@@ -95,6 +96,22 @@ describe("resolveSession", () => {
     // And one predating the field entirely: correctly signed, no `via` at all.
     const before = `${SESSION_COOKIE}=${encodeSession(
       { email: "me@example.com", exp: now + 3600 } as SessionPayload,
+      SECRET,
+    )}`;
+    expect(
+      await resolveSession(request({ cookie: before }), deps("password", "x@e.com")),
+    ).toBeNull();
+  });
+
+  test("a cookie from before the epoch moved on is signed out", async () => {
+    // Signing out or changing the password bumps the epoch; the cookie a second
+    // device still holds is correctly signed, unexpired, and no longer a session.
+    expect(
+      await resolveSession(request({ cookie: validCookie }), deps("cf-access", "x@e.com", 1)),
+    ).toBeNull();
+    // One minted before the field existed carries no epoch at all.
+    const before = `${SESSION_COOKIE}=${encodeSession(
+      { email: "me@example.com", exp: now + 3600, via: "password" } as SessionPayload,
       SECRET,
     )}`;
     expect(

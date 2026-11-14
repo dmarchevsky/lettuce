@@ -318,6 +318,9 @@ export function buildSshArgs(
     "ConnectTimeout=10",
     "-o",
     "ServerAliveInterval=15",
+    // Everything after this is the destination and the command, whatever it
+    // starts with — see `isValidPiHost`.
+    "--",
     piTarget(settings),
     remoteCommand,
   ];

@@ -19,6 +19,8 @@ export interface ResolveSessionDeps {
   /** Build a fresh session and its cookie for `email`. */
   mint: (email: string) => { session: SessionPayload; cookie: string };
   log: (message: string) => void;
+  /** The current session epoch; a cookie minted under another one is refused. */
+  epoch: () => number;
   /** Injectable for tests. */
   verify?: typeof verifyAccessJwt;
 }
@@ -42,7 +44,9 @@ export async function resolveSession(
   // `config.signin` is part of the check, not just of the minting below: a
   // signature this valid only proves the cookie came from us, and the method that
   // issued it is the half that says what it proves.
-  const existing = token ? decodeSession(token, config.sessionSecret, config.signin) : null;
+  const existing = token
+    ? decodeSession(token, config.sessionSecret, config.signin, deps.epoch())
+    : null;
   if (existing) return { session: existing };
 
   // Only the method that reads Cloudflare's header looks at it. A stray

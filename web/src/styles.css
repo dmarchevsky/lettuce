@@ -3802,6 +3802,38 @@ p.warning code,
   flex: none;
   white-space: nowrap;
 }
+/* The Memory pane's tree. Upstream lists memory flat, so the folders are derived from the
+   paths (web/src/lib/memory-tree.ts) and these are the only rules that make them visible.
+   The filter box takes the pane's own gutter, because `.field` was built for a sheet, where
+   the sheet's body already spaces it. */
+.memory-filter {
+  padding: 10px 12px 0;
+}
+.memory-filter .filter-field {
+  margin-bottom: 0;
+}
+/* Depth comes in as `--d` on the row, so nesting is data, not a nest of rules. */
+.memory-tree .row {
+  padding-left: calc(var(--pad-row-x) + 14px * var(--d, 0));
+}
+/* Every row without a chevron still reserves its slot, or a file inside a folder starts
+   left of its own folder's name and the indent reads backwards — the one thing a tree
+   may not do, and the one thing a mock caught that the markup did not. */
+.memory-tree .slot {
+  width: 1em;
+  flex: none;
+}
+/* A filter match shows its folder rather than nothing: in a flat match list it is the only
+   thing that tells two same-named files in different folders apart. */
+.memory-row-path {
+  color: var(--muted);
+  font-size: 12px;
+}
+/* A name with nothing in it to break on — a long snake_case note — would truncate at the
+   deepest indent on a phone, where the tail is exactly the part that names the file. */
+.memory-row-title strong {
+  overflow-wrap: anywhere;
+}
 .one-line {
   display: block;
   overflow: hidden;

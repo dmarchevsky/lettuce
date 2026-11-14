@@ -123,4 +123,27 @@ describe("checkUpgradeOrigin loopback allowance (local dev proxy)", () => {
       ).ok,
     ).toBe(false);
   });
+
+  test("a loopback Origin on an agent app's port is not this app", () => {
+    // Agent apps are published on 3000-3099 with no sign-in of their own, and a
+    // page one of them serves is same-site with the app on this machine.
+    expect(
+      checkUpgradeOrigin("http://localhost:3005", "lan", "http://localhost:8090", "localhost:8090")
+        .ok,
+    ).toBe(false);
+    expect(
+      checkUpgradeOrigin("http://127.0.0.1:3099", "lan", "http://localhost:8090", "localhost:8090")
+        .ok,
+    ).toBe(false);
+    // The Vite dev server still gets through, and so does this server itself
+    // when it is the one listening in that range.
+    expect(
+      checkUpgradeOrigin("http://localhost:5173", "lan", "http://localhost:8090", "localhost:8090")
+        .ok,
+    ).toBe(true);
+    expect(
+      checkUpgradeOrigin("http://localhost:3000", "lan", "http://localhost:8090", "localhost:3000")
+        .ok,
+    ).toBe(true);
+  });
 });

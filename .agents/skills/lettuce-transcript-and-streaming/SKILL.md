@@ -141,3 +141,21 @@ browser as close code 1006 with no HTTP status, identical to a dropped network. 
   signed out → link state `signed-out`, and `use-session.ts` reloads the page once (top-level
   navigation is the only way through Access's login), at most every 5 minutes; after that the
   pill is a "Sign in again" button. A network error keeps the ordinary backoff.
+
+## Rendering cost while streaming
+
+- **A streaming bubble parses only its unsettled tail.** `Markdown` takes `streaming`; while true it
+  cuts the text at `settledPrefixLength` (`web/src/lib/markdown-stream.ts`) and renders two memoised
+  `MarkdownBlocks` inside one `.md`, so the settled half keeps the same string — and skips the parse —
+  until the cut moves. The cut refuses a code fence's inside and anything that could be one construct
+  across a blank line (list items, quote lines, table rows, indented continuations). A settled
+  message is parsed whole, so a wrong cut can only ever be a transient while streaming; both runs are
+  siblings in one wrapper because `.md > :first-child/:last-child` reset margins.
+- **Past 150 rows off-screen rows are not rendered** — `.messages.long` sets `content-visibility: auto`
+  on its direct children, CSS only, inside `@supports (overflow-anchor: auto)` so Safari (no scroll
+  anchoring: rows resizing above the viewport would slide the text) is untouched. A skipped row
+  *contains* its fixed-position descendants, so the rule excludes any row that `:has()` an open
+  `.sheet`, `.sheet-scrim` or `.lightbox` — a new overlay rendered inside a transcript row must carry
+  one of those classes or be added to that selector. JS windowing was rejected: `MessageItem` keeps
+  its expanded/sheet state locally and unmounting loses it, along with find-in-page.
+- `sortedEntries` sorts only when `inArrivalOrder` finds the map out of order.

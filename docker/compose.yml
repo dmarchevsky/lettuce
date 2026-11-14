@@ -102,7 +102,7 @@ services:
         CODING_FEATURES: ${COMPOSE_PROFILES:-}
     # Tagged by release, not by pins: what is inside is what the tag's commit
     # built, and /opt/lettuce/features plus Settings → About report the CLIs.
-    image: ${LETTA_IMAGE_NS:-}lettuce-app-server:${LETTA_IMAGE_TAG:-v0.44.1-letta_0.34.56}
+    image: ${LETTA_IMAGE_NS:-}lettuce-app-server:${LETTA_IMAGE_TAG:-v0.45.0-letta_0.34.56}
     # An init process as PID 1, so exited orphans are reaped. Without it PID 1
     # is `node … letta server`, which waits only on children it spawned: every
     # process an agent shell backgrounds (`&`, nohup, servers) and outlives is
@@ -264,6 +264,10 @@ services:
       start_period: 20s
 
   bff:
+    # Nothing in this container needs a setuid binary to raise its privileges, so
+    # none can: a process that gets a foothold here stays what it started as.
+    security_opt:
+      - no-new-privileges:true
     build:
       # This repo's root — see the note at the top of this file. `.dockerignore`
       # there keeps node_modules and the git objects out of the context; under a
@@ -278,7 +282,7 @@ services:
       # and `bun run build:bff` passes it from the host checkout.
       args:
         GIT_SHA: ${GIT_SHA:-}
-    image: ${LETTA_IMAGE_NS:-}lettuce-bff:${LETTA_IMAGE_TAG:-v0.44.1-letta_0.34.56}
+    image: ${LETTA_IMAGE_NS:-}lettuce-bff:${LETTA_IMAGE_TAG:-v0.45.0-letta_0.34.56}
     depends_on:
       app-server:
         condition: service_healthy
@@ -342,6 +346,10 @@ services:
       # The host interface the port above is published on, so the BFF can refuse
       # a wide bind it cannot otherwise see. Same variable, two names.
       LETTA_HOST_BIND: ${BFF_BIND:-127.0.0.1}
+      # Only so the BFF can warn at boot when agent apps and the app itself share
+      # a plain-http host: cookies are not scoped by port, so the session cookie
+      # is then sent to every agent app the owner opens. See docs/CONFIGURATION.md.
+      AGENT_APP_HOST: ${AGENT_APP_HOST:-}
       # Where the `SIGNIN=password` hash lives. A named volume on purpose: it
       # must not sit under LETTA_STATE_DIR, which the app-server that runs agent
       # shells mounts read-write as root.
@@ -531,11 +539,13 @@ services:
   #   docker compose -f docker/compose.yml --profile search rm -sf searxng ddg-mcp
   searxng:
     profiles: ["search"]
+    security_opt:
+      - no-new-privileges:true
     build:
       context: searxng
       args:
         SEARXNG_VERSION: ${SEARXNG_VERSION:-2026.10.23-629368e40}
-    image: ${LETTA_IMAGE_NS:-}lettuce-searxng:${LETTA_IMAGE_TAG:-v0.44.1-letta_0.34.56}
+    image: ${LETTA_IMAGE_NS:-}lettuce-searxng:${LETTA_IMAGE_TAG:-v0.45.0-letta_0.34.56}
     environment:
       TZ: ${TZ:-America/Los_Angeles}
     restart: unless-stopped
@@ -548,11 +558,13 @@ services:
   # can reach it, and it has no auth.
   ddg-mcp:
     profiles: ["search"]
+    security_opt:
+      - no-new-privileges:true
     build:
       context: ddg-mcp
       args:
         DDG_MCP_VERSION: ${DDG_MCP_VERSION:-0.7.0}
-    image: ${LETTA_IMAGE_NS:-}lettuce-ddg-mcp:${LETTA_IMAGE_TAG:-v0.44.1-letta_0.34.56}
+    image: ${LETTA_IMAGE_NS:-}lettuce-ddg-mcp:${LETTA_IMAGE_TAG:-v0.45.0-letta_0.34.56}
     environment:
       TZ: ${TZ:-America/Los_Angeles}
       DDG_REGION: ${DDG_REGION:-us-en}
@@ -579,11 +591,13 @@ services:
   #   docker compose -f docker/compose.yml --profile google rm -sf google-mcp
   google-mcp:
     profiles: ["google"]
+    security_opt:
+      - no-new-privileges:true
     build:
       context: google-mcp
       args:
         WORKSPACE_MCP_VERSION: ${WORKSPACE_MCP_VERSION:-2.1.0}
-    image: ${LETTA_IMAGE_NS:-}lettuce-google-mcp:${LETTA_IMAGE_TAG:-v0.44.1-letta_0.34.56}
+    image: ${LETTA_IMAGE_NS:-}lettuce-google-mcp:${LETTA_IMAGE_TAG:-v0.45.0-letta_0.34.56}
     environment:
       TZ: ${TZ:-America/Los_Angeles}
     volumes:
@@ -616,6 +630,8 @@ services:
     image: cloudflare/cloudflared:${CLOUDFLARED_VERSION:-2026.10.4}
     command: tunnel --no-autoupdate run
     profiles: ["cloudflared"]
+    security_opt:
+      - no-new-privileges:true
     environment:
       TZ: ${TZ:-America/Los_Angeles}
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}

@@ -23,7 +23,13 @@
 
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { isAgentId } from "../agents/id-list.ts";
-import { normalizePathPrepend, type PiSettings, parsePiCommand } from "./settings.ts";
+import {
+  isValidPiHost,
+  isValidPiUser,
+  normalizePathPrepend,
+  type PiSettings,
+  parsePiCommand,
+} from "./settings.ts";
 
 export interface PiAgentSettings {
   /** "global" inherits everything; "own" fills the fields below over it. */
@@ -78,6 +84,8 @@ export function parsePiAgentSettings(value: unknown): PiAgentSettings | null {
     command === null
   )
     return null;
+  // Same rule as the shared settings: neither may read as an ssh option.
+  if ((host && !isValidPiHost(host)) || (user && !isValidPiUser(user))) return null;
   const rawPort = r.port;
   let port: number | null = null;
   if (typeof rawPort === "number" && Number.isFinite(rawPort)) {

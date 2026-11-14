@@ -416,8 +416,16 @@ export function registerProviderRoutes<Env extends RouteEnv>(
     const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
     const typed = typeof body?.apiKey === "string" ? body.apiKey.trim() : "";
     const prefix = slugifyName(body?.prefix);
-    const key = typed || (prefix ? (modelCaps.endpoints()[prefix]?.apiKey ?? "") : "");
-    const stored = (prefix ? modelCaps.endpoints()[prefix]?.headers : undefined) ?? {};
+    const baseUrl = typeof body?.baseUrl === "string" ? body.baseUrl : "";
+    // The stored key and headers go only where they were saved for. The probe's
+    // URL comes from the request, so falling back unconditionally would post a
+    // provider's secret to whatever address the form — or a forged request —
+    // names. Changing the URL in the form means typing the key again.
+    const saved = prefix ? modelCaps.endpoints()[prefix] : undefined;
+    const savedUrl = saved?.baseUrl ?? providerType(saved?.type)?.baseUrl ?? "";
+    const trusted = saved !== undefined && sameEndpoint(baseUrl, savedUrl);
+    const key = typed || (trusted ? (saved?.apiKey ?? "") : "");
+    const stored = (trusted ? saved?.headers : undefined) ?? {};
     let headers = stored;
     if (body?.headers !== undefined && body.headers !== null) {
       try {
@@ -429,11 +437,25 @@ export function registerProviderRoutes<Env extends RouteEnv>(
     }
     return {
       api: typeof body?.api === "string" ? body.api : "openai-completions",
-      baseUrl: typeof body?.baseUrl === "string" ? body.baseUrl : "",
+      baseUrl,
       key,
       headers,
       connection: Boolean(providerType(body?.type)?.connection) && !storedProvider(prefix),
     };
+  }
+
+  /** Whether two base URLs name the same endpoint: scheme, host, port and path. */
+  function sameEndpoint(left: string, right: string): boolean {
+    const canonical = (value: string): string | null => {
+      try {
+        const url = new URL(value.trim());
+        return `${url.protocol}//${url.host}${url.pathname.replace(/\/+$/, "")}`;
+      } catch {
+        return null;
+      }
+    };
+    const a = canonical(left);
+    return a !== null && a === canonical(right);
   }
 
   /**

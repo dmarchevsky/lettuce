@@ -1,8 +1,9 @@
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { downloadUrl } from "../lib/download.ts";
 import { remarkFilePaths } from "../lib/file-links.ts";
+import { settledPrefixLength } from "../lib/markdown-stream.ts";
 import { WORKSPACE_ROOT } from "../lib/workspace.ts";
 
 /**
@@ -32,19 +33,43 @@ export function fileLinkTarget(path: string): "browser" | "viewer" {
   return /\.pdf$/i.test(path) ? "browser" : "viewer";
 }
 
-export function Markdown({
-  text,
-  cwd,
-  resolve,
-  onOpenFile,
-}: {
+interface MarkdownProps {
   text: string;
   cwd?: string | null;
   /** Relative-token → absolute path, from `useFileLinks`. */
   resolve?: (token: string) => string | null;
   /** Open a workspace file in the app instead of the browser. */
   onOpenFile?: (path: string) => void;
-}) {
+  /**
+   * The text is still arriving. Everything above the last finished block is
+   * then parsed once and kept, and only the part still changing is parsed per
+   * frame — see `settledPrefixLength`.
+   */
+  streaming?: boolean;
+}
+
+export function Markdown({ text, streaming = false, ...rest }: MarkdownProps) {
+  const cut = streaming ? settledPrefixLength(text) : 0;
+  return (
+    <div className="md">
+      {cut > 0 ? <MarkdownBlocks text={text.slice(0, cut)} {...rest} /> : null}
+      <MarkdownBlocks text={cut > 0 ? text.slice(cut) : text} {...rest} />
+    </div>
+  );
+}
+
+/**
+ * One run of markdown as elements, with no wrapper of its own — so two runs in
+ * one `.md` are siblings in the same flow, exactly as one parse would leave
+ * them. Memoised: the settled half of a streaming message gets the same string
+ * every frame until the cut moves.
+ */
+const MarkdownBlocks = memo(function MarkdownBlocks({
+  text,
+  cwd,
+  resolve,
+  onOpenFile,
+}: Omit<MarkdownProps, "streaming">) {
   /**
    * Model output is markdown, so render it as such.
    *
@@ -110,13 +135,11 @@ export function Markdown({
   );
 
   return (
-    <div className="md">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm, [remarkFilePaths, { cwd: cwd ?? null, resolve }]]}
-        components={components}
-      >
-        {text}
-      </ReactMarkdown>
-    </div>
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm, [remarkFilePaths, { cwd: cwd ?? null, resolve }]]}
+      components={components}
+    >
+      {text}
+    </ReactMarkdown>
   );
-}
+});
