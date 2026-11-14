@@ -119,7 +119,9 @@ export function AgentTab({
       ) : null}
       {/* The agent's own memory — persona.md and the rest — lives here, not in
           the tab strip: it is per-agent through and through. */}
-      {section === "memory" ? <MemoryTab session={session} agentId={agentId} /> : null}
+      {section === "memory" ? (
+        <MemoryTab key={agentId} session={session} agentId={agentId} />
+      ) : null}
     </div>
   );
 }
