@@ -39,10 +39,10 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
   /** The avatar choice, staged like every other field here: Save commits it. */
   const [avatar, setAvatar] = useState<AvatarPref>({});
   const [avatarSaved, setAvatarSaved] = useState<AvatarPref>({});
-  /** The step limit as typed ("" is none), staged like the avatar: Save commits it. */
+  /** The model call limit as typed ("" is none), staged like the avatar: Save commits it. */
   const [stepLimit, setStepLimit] = useState("");
   const [stepLimitSaved, setStepLimitSaved] = useState("");
-  /** Why the step limit could not be read; its field is disabled until a reload. */
+  /** Why the model call limit could not be read; its field is disabled until a reload. */
   const [stepLimitError, setStepLimitError] = useState<string | null>(null);
   const [choosingAvatar, setChoosingAvatar] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -65,7 +65,7 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
     setChoosingAvatar(false);
     setStatus(null);
     void (async () => {
-      // The step limit is a separate BFF setting: its failing to load disables
+      // The model call limit is a separate BFF setting: its failing to load disables
       // its own field, never the rest of the form.
       const limitRequest = fetchAgentStepLimit(agentId).then(
         (limit) => ({ limit, error: null }),
@@ -151,7 +151,7 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
         });
         setAvatarSaved(avatar);
       }
-      // The step limit is the BFF's too; the watchdog reads it at every step.
+      // The model call limit is the BFF's too; the watchdog reads it at every step.
       if (stepLimitDirty && stepLimitValue !== undefined) {
         const savedLimit = await saveAgentStepLimit(agentId, stepLimitValue);
         const limitText = savedLimit === null ? "" : String(savedLimit);
@@ -186,7 +186,7 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
       />
 
       <label className="field">
-        Step limit
+        Model call limit
         {/* Text, not `type="number"`: a number input reports a half-typed "5e"
             or "-" as "", which would read as "no limit" and save as one. */}
         <input
@@ -199,10 +199,10 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
         />
         <span className="small">
           {stepLimitError !== null
-            ? `Could not load the step limit: ${stepLimitError}`
+            ? `Could not load the model call limit: ${stepLimitError}`
             : stepLimitValue === undefined
               ? "A whole number of 1 or more, or empty for no limit."
-              : "Stops a turn after this many model calls — each tool round-trip is one. Applies to chats, crons and Telegram alike. Empty means no limit."}
+              : "Stops a turn after this many model calls (each tool round-trip is one), in chats, crons and Telegram alike. Empty means no limit."}
         </span>
       </label>
 

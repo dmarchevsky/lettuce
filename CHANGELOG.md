@@ -6,8 +6,8 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 ## [Unreleased]
 
 ### Added
-- **Give an agent a step limit in Agent → General.** A turn stops after that many model calls, in chats,
-  crons and Telegram alike, and says "Step limit reached".
+- **Give an agent a model call limit in Agent → General.** A turn stops after that many model calls, in
+  chats, crons and Telegram alike, and says "Model call limit reached".
 
 ## [v0.44.1-letta_0.34.56] - 2026-11-13
 
