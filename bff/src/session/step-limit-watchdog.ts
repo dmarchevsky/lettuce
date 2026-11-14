@@ -82,7 +82,7 @@ interface ScopeState {
 }
 
 export function stepLimitMessage(steps: number, limit: number): string {
-  return `Step limit reached (${steps}/${limit} steps)`;
+  return `Model call limit reached (${steps}/${limit} calls)`;
 }
 
 type Delta = {

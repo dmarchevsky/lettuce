@@ -168,7 +168,7 @@ describe("StepLimitWatchdog", () => {
     await settle();
     const out = feed(finished("cancelled"));
     const message = stepLimitMessage(2, 2);
-    expect(message).toBe("Step limit reached (2/2 steps)");
+    expect(message).toBe("Model call limit reached (2/2 calls)");
     expect(out).toHaveLength(2);
     expect(out[0]).toMatchObject({
       type: "stream_delta",
