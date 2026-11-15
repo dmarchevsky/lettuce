@@ -275,3 +275,58 @@ export function folderColor(folder: string): string {
   const hue = FOLDER_HUES[Math.abs(hash) % FOLDER_HUES.length] ?? 210;
   return `hsl(${hue} 68% 62%)`;
 }
+
+/** Rough rendered width of a label at the graph's font size — enough to judge collisions. */
+function labelWidth(text: string): number {
+  return text.length * 5.8;
+}
+
+interface Box {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+function overlaps(a: Box, b: Box): boolean {
+  return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+}
+
+/**
+ * Which labels fit. Every candidate wants the same strip of screen under its
+ * node, and a name painted over another name is worse than no name: the hub
+ * stays labelled and the quieter file goes unlabelled until the reader zooms.
+ * Greedy in hub order, because the point of the picture is the hubs.
+ */
+export function placeLabels(
+  graph: MemoryGraph,
+  positions: ReadonlyMap<string, Point>,
+  candidates: ReadonlySet<string>,
+  width: number,
+): Set<string> {
+  const placed = new Set<string>();
+  const boxes: Box[] = [];
+  const order = [...graph.nodes]
+    .filter((node) => candidates.has(node.path) && positions.has(node.path))
+    .sort((a, b) => b.degree - a.degree || a.path.localeCompare(b.path));
+  for (const node of order) {
+    const point = positions.get(node.path);
+    if (!point) continue;
+    const text = nodeLabel(node.path);
+    const half = labelWidth(text) / 2;
+    const centre = Math.min(
+      Math.max(point.x, Math.min(half, width / 2)),
+      width - Math.min(half, width / 2),
+    );
+    const box: Box = {
+      left: centre - half,
+      right: centre + half,
+      top: point.y,
+      bottom: point.y + nodeRadius(node.degree) + 20,
+    };
+    if (boxes.some((other) => overlaps(box, other))) continue;
+    boxes.push(box);
+    placed.add(node.path);
+  }
+  return placed;
+}

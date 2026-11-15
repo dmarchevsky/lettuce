@@ -7,6 +7,7 @@ import {
   nodeLabel,
   nodeRadius,
   type Point,
+  placeLabels,
   scatterRing,
 } from "../lib/memory-graph.ts";
 
@@ -211,12 +212,20 @@ export function MemoryGraph({ graph, unlinked, showUnlinked, openPath, onOpen }:
     if (hit) onOpen(hit);
   };
 
+  // Which files get a name: the hubs (or everything, once zoomed in), thinned to
+  // the ones with room for their own label, plus whatever the reader is pointing
+  // at or has open — those two are always named, however crowded.
   const labels = useMemo(() => {
-    const named = labelSet(graph, view.k > 1.8 ? 1 : view.k > 1.2 ? 2 : 4);
-    if (hover) named.add(hover);
-    if (openPath) named.add(openPath);
-    return named;
-  }, [graph, view.k, hover, openPath]);
+    const placed = placeLabels(
+      graph,
+      positions,
+      labelSet(graph, view.k > 1.8 ? 1 : view.k > 1.2 ? 2 : 4),
+      width,
+    );
+    if (hover) placed.add(hover);
+    if (openPath) placed.add(openPath);
+    return placed;
+  }, [graph, positions, view.k, hover, openPath, width]);
 
   const transformed = view.k !== 1 || view.x !== 0 || view.y !== 0;
 

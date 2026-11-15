@@ -8,6 +8,7 @@ import {
   memoryFolder,
   nodeLabel,
   nodeRadius,
+  placeLabels,
   ROOT_FOLDER,
   scatterRing,
 } from "./memory-graph.ts";
@@ -168,5 +169,37 @@ describe("the unlinked ring and folder colours", () => {
   test("a folder's colour is stable and differs between folders", () => {
     expect(folderColor("people")).toBe(folderColor("people"));
     expect(folderColor("people")).not.toBe(folderColor("projects"));
+  });
+});
+
+describe("label placement", () => {
+  test("a hub keeps its label and the cramped neighbour loses its own", () => {
+    const graph = deriveGraph([
+      file("hub.md", ["a.md", "b.md", "c.md", "d.md"]),
+      file("a.md"),
+      file("b.md"),
+      file("c.md"),
+      file("d.md"),
+    ]);
+    const positions = new Map([
+      ["hub.md", { x: 200, y: 200 }],
+      ["a.md", { x: 205, y: 205 }],
+      ["b.md", { x: 210, y: 210 }],
+      ["c.md", { x: 215, y: 215 }],
+      ["d.md", { x: 400, y: 400 }],
+    ]);
+    const placed = placeLabels(
+      graph,
+      positions,
+      new Set(["hub.md", "a.md", "b.md", "c.md", "d.md"]),
+      600,
+    );
+    expect(placed.has("hub.md")).toBe(true);
+    expect(placed.has("d.md")).toBe(true);
+    expect(placed.has("a.md")).toBe(false);
+  });
+
+  test("nothing to place is an empty answer, not a crash", () => {
+    expect(placeLabels(deriveGraph([]), new Map(), new Set(), 600).size).toBe(0);
   });
 });
