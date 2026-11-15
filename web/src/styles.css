@@ -3834,6 +3834,96 @@ p.warning code,
 .memory-row-title strong {
   overflow-wrap: anywhere;
 }
+/* The Memory pane's other view: the link graph (web/src/lib/memory-graph.ts). It fills
+   what the pane has left and never scrolls itself — panning is the gesture here, so a
+   scrollbar would only fight the finger for it. */
+.memory-graph {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.memory-graph .mg-svg {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: block;
+  /* The graph owns drags and pinches; without this the browser pans the page. */
+  touch-action: none;
+  cursor: grab;
+}
+.memory-graph .mg-svg:active {
+  cursor: grabbing;
+}
+.mg-edge {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+.mg-node {
+  cursor: pointer;
+}
+/* A file with no links, shown only when asked for: visible, plainly not part of the
+   network. At a paler fill than this they read as background noise, which the mockups
+   showed is worse than not drawing them at all. */
+.mg-node.lone {
+  fill: #56637d;
+  opacity: 0.55;
+}
+.mg-node.sel {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+/* The label is painted over the lines it crosses, or the crossing is what you read. */
+.mg-label {
+  fill: var(--muted);
+  font-size: 11px;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+  user-select: none;
+}
+.mg-label.hub {
+  fill: var(--text);
+}
+.mg-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 10px;
+  padding: 7px 12px 10px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--muted);
+}
+.mg-legend .k {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.mg-legend .sw {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-round);
+}
+.mg-legend .sw.lone {
+  background: #56637d;
+  opacity: 0.55;
+}
+.mg-actions {
+  position: absolute;
+  top: 6px;
+  right: 12px;
+  display: flex;
+  gap: 10px;
+}
+/* `Tree | Graph`, the same link-pair the file viewer uses for its own two views. */
+.memory-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
 .one-line {
   display: block;
   overflow: hidden;

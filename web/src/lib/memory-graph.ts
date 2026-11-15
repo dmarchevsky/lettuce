@@ -244,3 +244,34 @@ export function nodeRadius(degree: number): number {
 export function labelSet(graph: MemoryGraph, minDegree = 4): Set<string> {
   return new Set(graph.nodes.filter((node) => node.degree >= minDegree).map((node) => node.path));
 }
+
+/**
+ * Where the files with no links go when the reader asks to see them: a ring
+ * outside the cluster, because "everything here is an island" is itself a fact
+ * worth seeing, and scattering them through the cluster would read as noise in
+ * the graph. Deterministic for the same reason the layout is.
+ */
+export function scatterRing(count: number, width: number, height: number, seed = 11): Point[] {
+  const out: Point[] = [];
+  if (count <= 0 || width <= 0 || height <= 0) return out;
+  const random = prng(seed);
+  for (let i = 0; i < count; i += 1) {
+    const angle = random() * Math.PI * 2;
+    const radius = 0.72 + random() * 0.27;
+    out.push({
+      x: Math.min(Math.max(width / 2 + Math.cos(angle) * (width / 2) * radius, 8), width - 8),
+      y: Math.min(Math.max(height / 2 + Math.sin(angle) * (height / 2) * radius, 8), height - 8),
+    });
+  }
+  return out;
+}
+
+/** Folders coloured consistently between loads — a hash, not a random draw. */
+const FOLDER_HUES = [210, 340, 165, 275, 30, 185, 230, 105, 50, 315, 130, 0];
+
+export function folderColor(folder: string): string {
+  let hash = 0;
+  for (const ch of folder) hash = (hash * 31 + ch.charCodeAt(0)) | 0;
+  const hue = FOLDER_HUES[Math.abs(hash) % FOLDER_HUES.length] ?? 210;
+  return `hsl(${hue} 68% 62%)`;
+}

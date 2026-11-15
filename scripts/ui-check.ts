@@ -4121,6 +4121,56 @@ try {
     await page.close();
   }
 
+  section("Memory link graph");
+  for (const [label, options] of [
+    ["desktop", { viewport: DESKTOP }],
+    ["phone", { viewport: PHONE, isMobile: true, hasTouch: true }],
+  ] as const) {
+    const context = await browser.newContext(options);
+    const page = await context.newPage();
+    await signIn(page);
+    await openTab(page, "Agent");
+    await page.locator('.section-tabs button:text-is("Memory")').click();
+    await page.waitForTimeout(1500);
+    // The two views are the same files seen two ways, so the toggle is the whole
+    // surface's door: it must be there, swap the body, and say which one is on.
+    const toggle = page.locator(".memory-view-toggle");
+    check(`memory offers a tree/graph toggle (${label})`, (await toggle.count()) === 1);
+    const treeRows = await page.locator(".memory-tree li button").count();
+    await page.locator('.memory-view-toggle button:text-is("Graph")').click();
+    await page.waitForTimeout(900);
+    check(
+      `graph is the current view (${label})`,
+      (await page.locator('.memory-view-toggle strong:text-is("Graph")').count()) === 1,
+    );
+    const nodes = await page.locator(".memory-graph .mg-node:not(.lone)").count();
+    const empty = await page.locator("text=No links yet.").count();
+    // Either it drew links, or it said plainly there are none — a blank pane is a
+    // failure even though both branches are legitimate states of a real memory.
+    check(`the graph view draws or explains (${label})`, nodes > 0 || empty > 0, { nodes, empty });
+    const { clipped } = await overflow(page);
+    check(`graph view does not overflow (${label})`, clipped.length === 0, { clipped });
+    await shot(page, `memory-graph-${label}`);
+    if (nodes > 0) {
+      await page.locator(".memory-graph .mg-node").first().click();
+      await page.waitForTimeout(700);
+      check(
+        `a node opens the file sheet (${label})`,
+        (await page.locator(".sheet-panel").count()) === 1,
+      );
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(300);
+    }
+    await page.locator('.memory-view-toggle button:text-is("Tree")').click();
+    await page.waitForTimeout(600);
+    check(
+      `the tree comes back (${label})`,
+      (await page.locator(".memory-tree li button").count()) === treeRows,
+      { treeRows },
+    );
+    await page.close();
+  }
+
   section("Form controls share one height");
   for (const [label, options] of [
     ["mouse", { viewport: DESKTOP }],

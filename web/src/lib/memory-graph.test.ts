@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   deriveGraph,
+  folderColor,
   type LinkableEntry,
   labelSet,
   layoutGraph,
@@ -8,6 +9,7 @@ import {
   nodeLabel,
   nodeRadius,
   ROOT_FOLDER,
+  scatterRing,
 } from "./memory-graph.ts";
 
 function file(relative_path: string, references?: string[]): LinkableEntry {
@@ -141,5 +143,30 @@ describe("drawing rules", () => {
     expect(labelSet(graph).has("hub.md")).toBe(true);
     expect(labelSet(graph).has("a.md")).toBe(false);
     expect(labelSet(graph, 1).size).toBe(5);
+  });
+});
+
+describe("the unlinked ring and folder colours", () => {
+  test("the ring is the same scatter every time, and inside the surface", () => {
+    const a = scatterRing(180, 360, 560);
+    const b = scatterRing(180, 360, 560);
+    expect(a).toEqual(b);
+    expect(a).toHaveLength(180);
+    for (const point of a) {
+      expect(point.x).toBeGreaterThanOrEqual(8);
+      expect(point.x).toBeLessThanOrEqual(352);
+      expect(point.y).toBeGreaterThanOrEqual(8);
+      expect(point.y).toBeLessThanOrEqual(552);
+    }
+  });
+
+  test("nothing is scattered into a surface that is not there", () => {
+    expect(scatterRing(0, 360, 560)).toEqual([]);
+    expect(scatterRing(9, 0, 0)).toEqual([]);
+  });
+
+  test("a folder's colour is stable and differs between folders", () => {
+    expect(folderColor("people")).toBe(folderColor("people"));
+    expect(folderColor("people")).not.toBe(folderColor("projects"));
   });
 });
