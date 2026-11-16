@@ -12,6 +12,7 @@ import {
   nodeRadius,
   placeLabels,
   ROOT_FOLDER,
+  SIM_MAX,
   scatterRing,
 } from "./memory-graph.ts";
 
@@ -228,9 +229,11 @@ describe("graphSignature and layout cost", () => {
 
   test("iteration count bounds the freeze, not the picture", () => {
     expect(layoutIterations(1)).toBe(320);
-    expect(layoutIterations(200)).toBe(320);
-    expect(layoutIterations(300)).toBeLessThan(200);
-    expect(layoutIterations(5000)).toBe(40);
+    expect(layoutIterations(60)).toBe(320);
+    expect(layoutIterations(200)).toBe(100);
+    expect(layoutIterations(500)).toBe(40);
+    // Past the ceiling the sim is replaced by the spiral, so there are no passes.
+    expect(layoutIterations(SIM_MAX + 1)).toBe(0);
     const graph = deriveGraph(
       Array.from({ length: 400 }, (_, i) => ({
         relative_path: `notes/n${i}.md`,
@@ -277,5 +280,50 @@ describe("placeLabels at zoom", () => {
     // three times as wide, because the exclusion strip grows with the node.
     expect(place(60, 1).size).toBe(2);
     expect(place(60, 6).size).toBe(1);
+  });
+});
+
+describe("a memory too big to simulate", () => {
+  const big = (n: number) =>
+    deriveGraph(
+      Array.from({ length: n }, (_, i) => ({
+        relative_path: `notes/n${i}.md`,
+        references: [`notes/n${(i + 1) % n}.md`],
+      })) as never,
+    );
+
+  test("past the ceiling it gets the spiral, not a freeze", () => {
+    const graph = big(SIM_MAX + 250);
+    const t0 = performance.now();
+    const positions = layoutGraph(graph, { width: 1180, height: 600 });
+    expect(positions.size).toBe(SIM_MAX + 250);
+    expect(performance.now() - t0).toBeLessThan(200);
+    for (const point of positions.values()) {
+      expect(point.x).toBeGreaterThan(0);
+      expect(point.x).toBeLessThan(1180);
+      expect(point.y).toBeGreaterThan(0);
+      expect(point.y).toBeLessThan(600);
+    }
+  });
+
+  test("the spiral is the same picture twice over", () => {
+    const graph = big(SIM_MAX + 250);
+    const a = layoutGraph(graph, { width: 1180, height: 600 });
+    const b = layoutGraph(graph, { width: 1180, height: 600 });
+    expect([...a.values()]).toEqual([...b.values()]);
+  });
+
+  test("the island ring lands outside the cluster, not in it", () => {
+    const around = { minX: 500, maxX: 680, minY: 250, maxY: 350 };
+    const ring = scatterRing(40, 1180, 600, around);
+    expect(ring.length).toBe(40);
+    for (const point of ring) {
+      const inside =
+        point.x > around.minX &&
+        point.x < around.maxX &&
+        point.y > around.minY &&
+        point.y < around.maxY;
+      expect(inside).toBe(false);
+    }
   });
 });

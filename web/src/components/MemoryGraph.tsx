@@ -3,6 +3,8 @@ import {
   folderColor,
   type MemoryGraph as Graph,
   graphSignature,
+  labelSet,
+  labelWidth,
   layoutGraph,
   memoryFolder,
   nodeLabel,
@@ -34,12 +36,6 @@ const TAP_SLOP = 8;
 const RESIZE_SLOP = 48;
 /** A legend the width of a phone cannot hold thirty folders; the rest is a count. */
 const LEGEND_MAX = 12;
-const LABEL_SIZE = 11;
-
-/** How wide a label will be, before the browser gets a chance to disagree. */
-function labelWidth(text: string): number {
-  return text.length * LABEL_SIZE * 0.58;
-}
 
 export function MemoryGraph({ graph, unlinked, showUnlinked, openPath, onOpen }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -136,10 +132,21 @@ export function MemoryGraph({ graph, unlinked, showUnlinked, openPath, onOpen }:
   const positions = useMemo(() => {
     const base = laid?.positions ?? new Map<string, Point>();
     if (!showUnlinked || unlinked.length === 0) return base;
+    let around: { minX: number; maxX: number; minY: number; maxY: number } | undefined;
+    if (base.size > 0) {
+      around = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity };
+      for (const point of base.values()) {
+        around.minX = Math.min(around.minX, point.x);
+        around.maxX = Math.max(around.maxX, point.x);
+        around.minY = Math.min(around.minY, point.y);
+        around.maxY = Math.max(around.maxY, point.y);
+      }
+    }
     const points = scatterRing(
       unlinked.length,
       laid?.width ?? box.width,
       laid?.height ?? box.height,
+      around,
     );
     const out = new Map(base);
     unlinked.forEach((path, i) => {
@@ -186,11 +193,11 @@ export function MemoryGraph({ graph, unlinked, showUnlinked, openPath, onOpen }:
   // reader who has already panned somewhere.
   const fitted = useRef("");
   useEffect(() => {
-    const key = `${signature}|${laid?.width ?? 0}`;
+    const key = `${signature}|${laid?.width ?? 0}|${showUnlinked ? "u" : ""}`;
     if (!laid || fitted.current === key) return;
     fitted.current = key;
     fit();
-  }, [laid, signature, fit]);
+  }, [laid, signature, showUnlinked, fit]);
 
   // -- pan / zoom --------------------------------------------------------------
   const pointers = useRef(new Map<number, Point>());
@@ -199,16 +206,27 @@ export function MemoryGraph({ graph, unlinked, showUnlinked, openPath, onOpen }:
   const pinched = useRef(false);
   const pinch = useRef<{ dist: number; k: number } | null>(null);
 
-  const zoomAround = useCallback((factor: number, cx: number, cy: number) => {
+  // The zoom is set to a target rather than multiplied in, because a gesture
+  // measured from where the fingers started must land where they are — feeding a
+  // cumulative ratio through a multiply runs away to the zoom limit in a dozen
+  // pointermove events, which is most of a pinch.
+  const zoomTo = useCallback((target: number, cx: number, cy: number) => {
     const v = viewRef.current;
-    const k = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, v.k * factor));
+    const k = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, target));
     const ratio = k / v.k;
     viewRef.current = { k, x: cx - (cx - v.x) * ratio, y: cy - (cy - v.y) * ratio };
     setView(viewRef.current);
   }, []);
+  const zoomAround = useCallback(
+    (factor: number, cx: number, cy: number) => zoomTo(viewRef.current.k * factor, cx, cy),
+    [zoomTo],
+  );
 
   const onPointerDown = (event: React.PointerEvent<SVGSVGElement>) => {
-    (event.target as Element).setPointerCapture?.(event.pointerId);
+    // Capture on the surface that owns the end handlers: capture on the dot under
+    // the finger is lost when a memory frame replaces that dot mid-gesture, and the
+    // stranded entry makes the next single-finger drag read as a second pointer.
+    (event.currentTarget as Element).setPointerCapture?.(event.pointerId);
     pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
     if (pointers.current.size >= 2) {
       pinched.current = true;
@@ -232,7 +250,8 @@ export function MemoryGraph({ graph, unlinked, showUnlinked, openPath, onOpen }:
       const cx = (a.x + b.x) / 2 - (rect?.left ?? 0);
       const cy = (a.y + b.y) / 2 - (rect?.top ?? 0);
       if (!pinch.current) pinch.current = { dist, k: viewRef.current.k };
-      zoomAround(pinch.current.dist > 0 ? dist / pinch.current.dist : 1, cx, cy);
+      const span = pinch.current.dist > 0 ? dist / pinch.current.dist : 1;
+      zoomTo(pinch.current.k * span, cx, cy);
       return;
     }
     const start = panFrom.current;
@@ -247,7 +266,18 @@ export function MemoryGraph({ graph, unlinked, showUnlinked, openPath, onOpen }:
 
   const endPointer = (event: React.PointerEvent<SVGSVGElement>) => {
     pointers.current.delete(event.pointerId);
-    if (pointers.current.size >= 1) return; // the other finger of a pinch is still down
+    const left = [...pointers.current.values()];
+    if (left.length === 1) {
+      // The finger left on the glass after a pinch keeps panning, but the gesture
+      // still counts as a pinch, so lifting it must not open a file.
+      const point = left[0];
+      if (point) {
+        const v = viewRef.current;
+        panFrom.current = { px: point.x, py: point.y, ox: v.x, oy: v.y };
+      }
+      pinch.current = null;
+      return;
+    }
     panFrom.current = null;
     pinch.current = null;
   };
@@ -321,9 +351,12 @@ export function MemoryGraph({ graph, unlinked, showUnlinked, openPath, onOpen }:
             { x: point.x * view.k + view.x, y: point.y * view.k + view.y },
           ]),
         ),
-        new Set(
-          [...(focus ? [focus] : []), ...(hoveredSet ?? [])].filter((path) => visibleSet.has(path)),
-        ),
+        (() => {
+          const candidates = new Set([...labelSet(graph, view.k > 1.8 ? 1 : view.k > 1.2 ? 2 : 4)]);
+          if (focus && visibleSet.has(focus)) candidates.add(focus);
+          for (const path of hoveredSet ?? []) candidates.add(path);
+          return candidates;
+        })(),
         box.width,
         view.k,
       ),
@@ -426,7 +459,7 @@ export function MemoryGraph({ graph, unlinked, showUnlinked, openPath, onOpen }:
             const point = positions.get(path);
             if (!point) return null;
             const label = nodeLabel(path);
-            const text = labelWidth(label) * scale;
+            const text = labelWidth(label);
             const x = point.x * view.k + view.x;
             const y = point.y * view.k + view.y;
             return (

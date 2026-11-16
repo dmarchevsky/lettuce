@@ -148,9 +148,14 @@ export function graphSignature(graph: MemoryGraph): string {
  * starts to bite, the layout coarsens instead of getting slower — a slightly
  * looser picture you can still read beats a half-second stall on every resize.
  */
+/** Past this the simulation is replaced by the spiral: a first paint that costs
+ * seconds is worse than a plainer picture. */
+export const SIM_MAX = 500;
+
 export function layoutIterations(count: number): number {
   if (count <= 0) return 0;
-  return Math.max(40, Math.min(320, Math.round(320 * (200 / count) ** 2)));
+  if (count > SIM_MAX) return 0;
+  return Math.max(40, Math.min(320, Math.round(20000 / count)));
 }
 
 export interface LayoutOptions {
@@ -190,6 +195,8 @@ export function layoutGraph(graph: MemoryGraph, options: LayoutOptions): Map<str
   const random = prng(seed);
   const index = new Map(nodes.map((node, i) => [node.path, i]));
   const n = nodes.length;
+  // Too big to simulate: a shape you can see now beats a picture that costs seconds.
+  if (n > SIM_MAX && options.iterations === undefined) return spiralLayout(graph, options);
   const iterations = options.iterations ?? layoutIterations(n);
   // Each node is a body with a position and the force accumulating into it for
   // this pass. Objects, not parallel arrays, so the loops below can hold a body
@@ -282,19 +289,64 @@ export function labelSet(graph: MemoryGraph, minDegree = 4): Set<string> {
  * worth seeing, and scattering them through the cluster would read as noise in
  * the graph. Deterministic for the same reason the layout is.
  */
-export function scatterRing(count: number, width: number, height: number, seed = 11): Point[] {
+export function scatterRing(
+  count: number,
+  width: number,
+  height: number,
+  around?: { minX: number; maxX: number; minY: number; maxY: number },
+  seed = 11,
+): Point[] {
   const out: Point[] = [];
   if (count <= 0 || width <= 0 || height <= 0) return out;
   const random = prng(seed);
+  // With a cluster to keep clear, the ring is an ellipse around its bounding box
+  // rather than at the edge of the surface: the layout clamps the cluster into
+  // that same surface, so a ring on the margins lands *inside* it and the islands
+  // end up on top of real dots — the dirt the plan rejected, just ringed.
+  const cx = around ? (around.minX + around.maxX) / 2 : width / 2;
+  const cy = around ? (around.minY + around.maxY) / 2 : height / 2;
+  const rx = around
+    ? Math.min(width / 2 - 10, Math.max((around.maxX - around.minX) * 0.75, width * 0.28))
+    : (width / 2) * 0.9;
+  const ry = around
+    ? Math.min(height / 2 - 10, Math.max((around.maxY - around.minY) * 0.75, height * 0.28))
+    : (height / 2) * 0.9;
   for (let i = 0; i < count; i += 1) {
     const angle = random() * Math.PI * 2;
-    const radius = 0.72 + random() * 0.27;
+    const radius = 0.78 + random() * 0.22;
     out.push({
-      x: Math.min(Math.max(width / 2 + Math.cos(angle) * (width / 2) * radius, 8), width - 8),
-      y: Math.min(Math.max(height / 2 + Math.sin(angle) * (height / 2) * radius, 8), height - 8),
+      x: Math.min(Math.max(cx + Math.cos(angle) * rx * radius, 8), width - 8),
+      y: Math.min(Math.max(cy + Math.sin(angle) * ry * radius, 8), height - 8),
     });
   }
   return out;
+}
+
+/**
+ * The layout for a memory too big to simulate: a golden-angle spiral, folders
+ * contiguous because the nodes arrive sorted by folder. No forces, so its cost
+ * does not care about size — at a thousand files a reader wants the shape of the
+ * pile and the tree, not a force diagram they have to wait for.
+ */
+export function spiralLayout(graph: MemoryGraph, options: LayoutOptions): Map<string, Point> {
+  const { width, height } = options;
+  const positions = new Map<string, Point>();
+  const nodes = graph.nodes;
+  if (nodes.length === 0 || width <= 0 || height <= 0) return positions;
+  const margin = Math.min(70, Math.max(24, Math.min(width, height) / 6));
+  const usableH = height - margin * 2;
+  const usableW = width - margin * 2;
+  const golden = Math.PI * (3 - Math.sqrt(5));
+  const spread = Math.min(usableW, usableH) / 2.1;
+  nodes.forEach((node, i) => {
+    const angle = i * golden;
+    const radius = spread * Math.sqrt((i + 1) / nodes.length);
+    positions.set(node.path, {
+      x: width / 2 + Math.cos(angle) * radius * (usableW / Math.min(usableW, usableH)) * 0.9,
+      y: height / 2 + Math.sin(angle) * radius,
+    });
+  });
+  return positions;
 }
 
 /** Folders coloured consistently between loads — a hash, not a random draw. */
@@ -308,7 +360,7 @@ export function folderColor(folder: string): string {
 }
 
 /** Rough rendered width of a label at the graph's font size — enough to judge collisions. */
-function labelWidth(text: string): number {
+export function labelWidth(text: string): number {
   return text.length * 5.8;
 }
 
