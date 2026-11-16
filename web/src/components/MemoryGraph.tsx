@@ -3,8 +3,8 @@ import {
   folderColor,
   type MemoryGraph as Graph,
   graphSignature,
+  labelCentre,
   labelSet,
-  labelWidth,
   layoutGraph,
   memoryFolder,
   nodeLabel,
@@ -459,18 +459,17 @@ export function MemoryGraph({ graph, unlinked, showUnlinked, openPath, onOpen }:
             const point = positions.get(path);
             if (!point) return null;
             const label = nodeLabel(path);
-            const text = labelWidth(label);
-            const x = point.x * view.k + view.x;
-            const y = point.y * view.k + view.y;
+            // The same clamp the collision test used, so the label that was counted
+            // as fitting is the one that is painted.
+            const x = labelCentre(point.x * view.k + view.x, label, box.width);
+            const y = point.y * view.k + view.y + nodeRadius(degree.get(path) ?? 0) * view.k + 14;
             return (
               <text
                 key={path}
                 className={`mg-label${(degree.get(path) ?? 0) >= 4 ? " hub" : ""}`}
                 x={x}
-                y={y + nodeRadius(degree.get(path) ?? 0) * view.k + 14}
-                textAnchor={
-                  x < text / 2 + 6 ? "start" : x > box.width - text / 2 - 6 ? "end" : "middle"
-                }
+                y={y}
+                textAnchor="middle"
               >
                 {label}
               </text>

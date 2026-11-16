@@ -381,6 +381,16 @@ function overlaps(a: Box, b: Box): boolean {
  * stays labelled and the quieter file goes unlabelled until the reader zooms.
  * Greedy in hub order, because the point of the picture is the hubs.
  */
+/**
+ * Where a label's centre has to go for the whole label to stay on the surface.
+ * The collision test and the paint must use this same clamp, or a label counted as
+ * fitting is not the label that gets drawn.
+ */
+export function labelCentre(x: number, text: string, width: number): number {
+  const half = labelWidth(text) / 2;
+  return Math.min(Math.max(x, Math.min(half, width / 2)), width - Math.min(half, width / 2));
+}
+
 export function placeLabels(
   graph: MemoryGraph,
   positions: ReadonlyMap<string, Point>,
@@ -398,10 +408,7 @@ export function placeLabels(
     if (!point) continue;
     const text = nodeLabel(node.path);
     const half = labelWidth(text) / 2;
-    const centre = Math.min(
-      Math.max(point.x, Math.min(half, width / 2)),
-      width - Math.min(half, width / 2),
-    );
+    const centre = labelCentre(point.x, text, width);
     const reach = nodeRadius(node.degree) * scale;
     const box: Box = {
       left: centre - half,
