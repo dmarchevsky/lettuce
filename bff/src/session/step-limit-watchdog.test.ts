@@ -72,7 +72,7 @@ function setup(opts: { limit: number | null; aborted?: boolean; fail?: boolean }
     feed(usage());
   };
   const sent = (type: string) => commands.filter((c) => c.type === type);
-  return { feed, toolStep, sent };
+  return { feed, toolStep, sent, watchdog };
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
@@ -257,6 +257,26 @@ describe("StepLimitWatchdog", () => {
     expect(feed(finished("cancelled"))).toHaveLength(2);
     const next = finished("cancelled", { turn_id: "turn-2" });
     expect(feed(next)).toEqual([next]);
+  });
+
+  test("a cancelled finish from another run is not ours to rewrite", async () => {
+    const { feed, toolStep } = setup({ limit: 1 });
+    toolStep("run-2");
+    await settle();
+    const other = finished("cancelled", { run_id: "run-other" });
+    expect(feed(other)).toEqual([other]);
+  });
+
+  test("a stop whose finish was never seen does not outlive the connection", async () => {
+    const { feed, toolStep, watchdog } = setup({ limit: 1 });
+    toolStep();
+    await settle();
+    // The socket dropped before the turn's finish arrived, so nothing consumed
+    // the stop. Coming back from that gap forgets every scope.
+    watchdog.reset();
+    const later = finished("cancelled", { turn_id: "turn-9", run_id: "run-9" });
+    expect(feed(later)).toEqual([later]);
+    expect(feed(interrupted())).toEqual([interrupted()]);
   });
 
   test("other frames pass through translate unchanged", () => {

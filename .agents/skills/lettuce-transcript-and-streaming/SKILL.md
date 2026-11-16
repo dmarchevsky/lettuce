@@ -114,7 +114,9 @@ do: it parks queued user messages (a `resume_queue` follows the stopped turn's f
 `cancelled` `turn_finished` is rewritten to `max_steps` with an error, preceded by an injected terminal
 `loop_error` delta, **before any consumer sees it** (`translate`, first thing in `onFrame`): the
 transcript, the turn errors and the push read it like upstream's own cap. A user's Stop that landed first
-is not rewritten. The abort shares Stop's limit: a model call already running finishes its prefill first.
+is not rewritten, and a stop whose finish the BFF never saw (the socket dropped in between) is forgotten
+when the connection reconnects — kept across a gap it would rewrite the next cancelled turn there. The
+abort shares Stop's limit: a model call already running finishes its prefill first.
 And **the model is told the user interrupted it**: the capped step's tool calls persist as "Interrupted by
 user", and upstream sends `interrupt_recovery_alert.txt` ("The user interrupted the active stream",
 `turn-setup.ts`) after those results and ahead of the conversation's next input, where its own cap denies them with "Maximum turns limit

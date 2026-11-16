@@ -300,6 +300,10 @@ const upstream = new UpstreamConnection({
     registry.broadcastUpstreamState(state, info);
     if (state === "connected") {
       skillCatalog.reset();
+      // Whatever a step-limit stop was waiting for is gone with the old socket:
+      // its turn's finish was either consumed or lost, and a stop kept across
+      // the gap would rewrite the next cancelled finish in that conversation.
+      stepLimitWatchdog?.reset();
       void installShippedSkills();
       // One after another: each of these rewrites the shared MCP list, and two
       // read-modify-writes at once would drop one's change.

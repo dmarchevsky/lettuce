@@ -39,7 +39,10 @@ import { readUsageStatistics } from "./turn-usage.ts";
  * `resume_queue` releases once the stopped turn has finished, and it emits an
  * "Interrupted" status line, which is dropped for the run this BFF stopped. The
  * abort carries the turn's `run_id` when the stream showed one, so upstream
- * never applies it to a turn that replaced the one at its limit.
+ * never applies it to a turn that replaced the one at its limit. A stop whose
+ * finish the BFF never saw (the upstream socket dropped in between) outlives its
+ * turn, so `reset` drops every scope when the connection is re-established —
+ * frames from before a gap cannot describe a turn still running.
  *
  * The abort cannot interrupt a model call already running (Stop's own limit —
  * docs/upstream-notes.md#stop-cancellation-call-chain): when a step's tools
@@ -126,6 +129,9 @@ export class StepLimitWatchdog {
     if (frame.type !== "turn_finished" || frame.stop_reason !== "cancelled" || !stop.confirmed) {
       return [frame];
     }
+    // A finish belonging to some other run is not ours to report, whatever this
+    // scope still remembers: see `reset` for how a stop can outlive its turn.
+    if (stop.runId && frame.run_id && frame.run_id !== stop.runId) return [frame];
     const message = stepLimitMessage(stop.steps, stop.limit);
     // Upstream's own cap emits this through `emitLoopErrorNotice`
     // (`recoverable-notices.ts`); the shape is its `createLifecycleMessageBase`
@@ -145,6 +151,17 @@ export class StepLimitWatchdog {
       },
     } as unknown as WsProtocolMessage;
     return [loopError, { ...frame, stop_reason: "max_steps", error: message }];
+  }
+
+  /**
+   * Forget every scope, because the connection that produced those frames is
+   * gone. A confirmed stop whose `turn_finished` the BFF never saw would
+   * otherwise sit in the scope and rewrite the NEXT cancelled finish there —
+   * a later turn the user stopped reads as "Model call limit reached", in the
+   * transcript, the turn-error log and the failure push.
+   */
+  reset(): void {
+    this.scopes.clear();
   }
 
   /** Count steps and stop a turn at its agent's limit. */
