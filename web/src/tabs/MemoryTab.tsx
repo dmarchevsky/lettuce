@@ -295,7 +295,7 @@ export function MemoryTab({ session, agentId }: Props) {
                     graph.edges.length === 1 ? "link" : "links"
                   }`}
             </span>
-            {graph.linked > 0 && unlinked.length > 0 ? (
+            {unlinked.length > 0 ? (
               <button type="button" className="link" onClick={() => setShowUnlinked((v) => !v)}>
                 {showUnlinked ? "Hide unlinked" : "Show unlinked"}
               </button>
@@ -363,7 +363,7 @@ export function MemoryTab({ session, agentId }: Props) {
       ) : null}
 
       {hasMemory && view === "graph" ? (
-        graph.linked > 0 ? (
+        graph.linked > 0 || showUnlinked ? (
           <MemoryGraph
             graph={graph}
             unlinked={unlinked}

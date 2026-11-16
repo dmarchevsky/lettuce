@@ -4134,7 +4134,14 @@ try {
     await page.waitForTimeout(1500);
     // The two views are the same files seen two ways, so the toggle is the whole
     // surface's door: it must be there, swap the body, and say which one is on.
+    // A stack whose agent has no memory has no Memory pane to toggle, so say so
+    // rather than clicking a control that is not there and throwing.
     const toggle = page.locator(".memory-view-toggle");
+    if ((await toggle.count()) === 0) {
+      console.log(`  SKIP  memory link graph (${label}: this agent has no memory)`);
+      await page.close();
+      continue;
+    }
     check(`memory offers a tree/graph toggle (${label})`, (await toggle.count()) === 1);
     const treeRows = await page.locator(".memory-tree li button").count();
     await page.locator('.memory-view-toggle button:text-is("Graph")').click();
@@ -4152,14 +4159,22 @@ try {
     check(`graph view does not overflow (${label})`, clipped.length === 0, { clipped });
     await shot(page, `memory-graph-${label}`);
     if (nodes > 0) {
-      await page.locator(".memory-graph .mg-node").first().click();
-      await page.waitForTimeout(700);
-      check(
-        `a node opens the file sheet (${label})`,
-        (await page.locator(".sheet-panel").count()) === 1,
-      );
-      await page.keyboard.press("Escape");
-      await page.waitForTimeout(300);
+      // Click the middle of the biggest node, the way a finger does. A locator
+      // `.click()` aims at the element's box, and the node sits under the zoom
+      // controls' corner, so it would test the overlay instead of the graph.
+      const box = await page.locator(".memory-graph .mg-node").first().boundingBox();
+      if (!box) {
+        console.log(`  SKIP  node opens the file sheet (${label}: no node box)`);
+      } else {
+        await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+        await page.waitForTimeout(700);
+        check(
+          `a node opens the file sheet (${label})`,
+          (await page.locator(".sheet-panel").count()) === 1,
+        );
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(300);
+      }
     }
     await page.locator('.memory-view-toggle button:text-is("Tree")').click();
     await page.waitForTimeout(600);

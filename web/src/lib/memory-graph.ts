@@ -122,6 +122,37 @@ export interface Point {
   y: number;
 }
 
+/**
+ * A cheap fingerprint of what is in the graph. The Memory pane re-lists memory
+ * every time the agent writes a file, and each listing is a fresh object, so
+ * "did the object change" is not a useful question — "did the set of files and
+ * links change" is, and answering it is what stops a re-layout on every frame.
+ */
+export function graphSignature(graph: MemoryGraph): string {
+  let hash = 2166136261;
+  const eat = (text: string) => {
+    for (let i = 0; i < text.length; i += 1) {
+      hash ^= text.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+  };
+  for (const node of graph.nodes) eat(node.path);
+  for (const edge of graph.edges) eat(`${edge.a}\u0000${edge.b}`);
+  return `${graph.nodes.length}:${graph.edges.length}:${(hash >>> 0).toString(36)}`;
+}
+
+/**
+ * Iterations that keep a big memory cheap. The sim is O(n²) per pass, and the
+ * measure that matters is the freeze on the main thread: 320 passes is lovely at
+ * 150 files and about a third of a second at 300. Past the point where the cost
+ * starts to bite, the layout coarsens instead of getting slower — a slightly
+ * looser picture you can still read beats a half-second stall on every resize.
+ */
+export function layoutIterations(count: number): number {
+  if (count <= 0) return 0;
+  return Math.max(40, Math.min(320, Math.round(320 * (200 / count) ** 2)));
+}
+
 export interface LayoutOptions {
   width: number;
   height: number;
@@ -151,7 +182,6 @@ function prng(seed: number): () => number {
 export function layoutGraph(graph: MemoryGraph, options: LayoutOptions): Map<string, Point> {
   const { width, height } = options;
   const margin = Math.min(70, Math.max(24, Math.min(width, height) / 6));
-  const iterations = options.iterations ?? 320;
   const seed = options.seed ?? 7;
   const positions = new Map<string, Point>();
   const nodes = graph.nodes;
@@ -160,6 +190,7 @@ export function layoutGraph(graph: MemoryGraph, options: LayoutOptions): Map<str
   const random = prng(seed);
   const index = new Map(nodes.map((node, i) => [node.path, i]));
   const n = nodes.length;
+  const iterations = options.iterations ?? layoutIterations(n);
   // Each node is a body with a position and the force accumulating into it for
   // this pass. Objects, not parallel arrays, so the loops below can hold a body
   // in a local instead of indexing three arrays.
@@ -303,6 +334,7 @@ export function placeLabels(
   positions: ReadonlyMap<string, Point>,
   candidates: ReadonlySet<string>,
   width: number,
+  scale = 1,
 ): Set<string> {
   const placed = new Set<string>();
   const boxes: Box[] = [];
@@ -318,11 +350,12 @@ export function placeLabels(
       Math.max(point.x, Math.min(half, width / 2)),
       width - Math.min(half, width / 2),
     );
+    const reach = nodeRadius(node.degree) * scale;
     const box: Box = {
       left: centre - half,
       right: centre + half,
-      top: point.y,
-      bottom: point.y + nodeRadius(node.degree) + 20,
+      top: point.y - reach - 6,
+      bottom: point.y + reach + 20,
     };
     if (boxes.some((other) => overlaps(box, other))) continue;
     boxes.push(box);

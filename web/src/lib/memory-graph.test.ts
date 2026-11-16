@@ -2,9 +2,11 @@ import { describe, expect, test } from "bun:test";
 import {
   deriveGraph,
   folderColor,
+  graphSignature,
   type LinkableEntry,
   labelSet,
   layoutGraph,
+  layoutIterations,
   memoryFolder,
   nodeLabel,
   nodeRadius,
@@ -201,5 +203,79 @@ describe("label placement", () => {
 
   test("nothing to place is an empty answer, not a crash", () => {
     expect(placeLabels(deriveGraph([]), new Map(), new Set(), 600).size).toBe(0);
+  });
+});
+
+describe("graphSignature and layout cost", () => {
+  const rows = (extra = false) => {
+    const list = [
+      { relative_path: "index/people.md", references: ["people/ana.md"] },
+      { relative_path: "people/ana.md", references: [] },
+      { relative_path: "topics/memory-graph.md", references: ["index/people.md"] },
+    ];
+    if (extra)
+      list.push({ relative_path: "notes/extra.md", references: ["people/ana.md"] as string[] });
+    return list as never[];
+  };
+
+  test("the fingerprint survives a re-list and dies with the graph", () => {
+    const a = deriveGraph(rows());
+    // A fresh array of fresh objects — what every memory frame hands us — is the
+    // same graph, and must not buy another simulation.
+    expect(graphSignature(deriveGraph(rows()))).toBe(graphSignature(a));
+    expect(graphSignature(deriveGraph(rows(true)))).not.toBe(graphSignature(a));
+  });
+
+  test("iteration count bounds the freeze, not the picture", () => {
+    expect(layoutIterations(1)).toBe(320);
+    expect(layoutIterations(200)).toBe(320);
+    expect(layoutIterations(300)).toBeLessThan(200);
+    expect(layoutIterations(5000)).toBe(40);
+    const graph = deriveGraph(
+      Array.from({ length: 400 }, (_, i) => ({
+        relative_path: `notes/n${i}.md`,
+        references: [`notes/n${(i + 1) % 400}.md`],
+      })) as never,
+    );
+    const t0 = performance.now();
+    const positions = layoutGraph(graph, { width: 1180, height: 600 });
+    // The reviewer measured ~600ms at this size before the count was bounded.
+    expect(positions.size).toBe(400);
+    expect(performance.now() - t0).toBeLessThan(330);
+  });
+});
+
+describe("placeLabels at zoom", () => {
+  const graph = deriveGraph([
+    { relative_path: "index/people.md", references: ["people/ana.md"] },
+    { relative_path: "people/ana.md", references: ["topics/x.md"] },
+    { relative_path: "topics/x.md", references: [] },
+  ] as never);
+  const [a, b] = ["index/people.md", "people/ana.md"];
+  const place = (screenGap: number, scale: number) =>
+    placeLabels(
+      graph,
+      new Map([
+        [a, { x: 300, y: 300 }],
+        [b, { x: 300, y: 300 + screenGap }],
+      ]),
+      new Set([a, b]),
+      800,
+      scale,
+    );
+
+  test("crowding is measured where the label is painted, on screen", () => {
+    // Two dots 24px apart on the glass are one label whoever zoomed them there;
+    // the caller hands over screen coordinates, so the answer is the same at any
+    // graph-space distance. That is what the old graph-space fit got wrong.
+    expect(place(24, 1).size).toBe(1);
+    expect(place(120, 1).size).toBe(2);
+  });
+
+  test("a bigger node reserves a bigger strip for its own name", () => {
+    // The same screen gap clears at 1x and collides at a zoom where the dot is
+    // three times as wide, because the exclusion strip grows with the node.
+    expect(place(60, 1).size).toBe(2);
+    expect(place(60, 6).size).toBe(1);
   });
 });
