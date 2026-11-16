@@ -357,25 +357,32 @@ export function MemoryGraph({ graph, unlinked, showUnlinked, openPath, onOpen }:
             />
           );
         })}
-        {nodes.map((node) => {
-          if (!visibleSet.has(node.path)) return null;
-          const point = positions.get(node.path);
+        {/* Iterated over what is visible, not over the linked nodes: the unlinked
+            files join the picture by path alone, with no graph node of their own. */}
+        {visible.map((path) => {
+          const point = positions.get(path);
           if (!point) return null;
-          const lone = !degree.has(node.path);
+          const deg = degree.get(path) ?? 0;
+          // A file with no links is drawn as a hollow ring in its folder's own
+          // colour: a grey dot at a fade reads as dirt and as background noise,
+          // which the mockups showed is worse than not drawing it at all.
+          const lone = deg === 0;
+          const color = folderColor(memoryFolder(path));
           return (
             <circle
-              key={node.path}
-              className={`mg-node${node.path === openPath ? " sel" : ""}${lone ? " lone" : ""}`}
+              key={path}
+              className={`mg-node${path === openPath ? " sel" : ""}${lone ? " lone" : ""}`}
               cx={point.x}
               cy={point.y}
-              r={nodeRadius(degree.get(node.path) ?? 0)}
-              fill={folderColor(node.folder)}
+              r={nodeRadius(deg)}
+              fill={color}
+              stroke={lone ? color : undefined}
             />
           );
         })}
       </>
     ),
-    [graph.edges, nodes, positions, visibleSet, degree, openPath],
+    [graph.edges, visible, positions, visibleSet, degree, openPath],
   );
 
   const scale = Math.max(0.4, Math.min(3, view.k));
@@ -440,13 +447,19 @@ export function MemoryGraph({ graph, unlinked, showUnlinked, openPath, onOpen }:
       </svg>
       <div className="mg-legend" aria-hidden="true">
         {legend.slice(0, LEGEND_MAX).map((folder) => (
-          <span className="lg" key={folder}>
-            <i style={{ background: folderColor(folder) }} />
+          <span className="k" key={folder}>
+            <i className="sw" style={{ background: folderColor(folder) }} />
             {folder}
           </span>
         ))}
+        {showUnlinked && unlinked.length > 0 ? (
+          <span className="k">
+            <i className="sw lone" />
+            no links
+          </span>
+        ) : null}
         {legend.length > LEGEND_MAX ? (
-          <span className="lg">+{legend.length - LEGEND_MAX} more</span>
+          <span className="k">+{legend.length - LEGEND_MAX} more</span>
         ) : null}
       </div>
     </div>

@@ -3867,8 +3867,8 @@ p.warning code,
    network. At a paler fill than this they read as background noise, which the mockups
    showed is worse than not drawing them at all. */
 .mg-node.lone {
-  fill: #56637d;
-  opacity: 0.55;
+  fill-opacity: 0.3;
+  stroke-width: 1.4;
 }
 .mg-node.sel {
   stroke: var(--accent);
@@ -3907,8 +3907,8 @@ p.warning code,
   border-radius: var(--radius-round);
 }
 .mg-legend .sw.lone {
-  background: #56637d;
-  opacity: 0.55;
+  background: transparent;
+  border: 1.4px solid var(--muted);
 }
 .mg-actions {
   position: absolute;
