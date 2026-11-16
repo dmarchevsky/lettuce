@@ -5,9 +5,14 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
-### Added
-- **Give an agent a model call limit in Agent → General.** A turn stops after that many model calls, in
-  chats, crons and Telegram alike, and says "Model call limit reached".
+## [v0.45.2-letta_0.34.56] - 2026-11-16
+
+### Fixed
+- **A looping agent no longer runs all night.** An agent that keeps calling tools had no ceiling, so a
+  bad turn — especially one nobody is watching, like a cron at 3am — ran until the model stopped
+  volunteering. An agent can now be given a **model call limit** in Agent → General: the turn stops
+  after that many model calls, in chats, crons and Telegram alike, and ends with "Model call limit
+  reached (n/N calls)". Empty means no limit, which is how every agent starts.
 
 ## [v0.45.1-letta_0.34.56] - 2026-11-16
 
