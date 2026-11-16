@@ -9,6 +9,7 @@ import {
   nodeRadius,
   type Point,
   placeLabels,
+  scatterRing,
 } from "../lib/memory-graph";
 
 interface Props {
@@ -129,7 +130,24 @@ export function MemoryGraph({ graph, unlinked, showUnlinked, openPath, onOpen }:
     viewRef.current = view;
   }, [view]);
 
-  const positions = laid?.positions ?? new Map<string, Point>();
+  // The unlinked files are placed on a ring rather than simulated: they have no
+  // links to pull on, and putting them in the simulation would drag the cluster
+  // apart every time a reader asks to see them.
+  const positions = useMemo(() => {
+    const base = laid?.positions ?? new Map<string, Point>();
+    if (!showUnlinked || unlinked.length === 0) return base;
+    const points = scatterRing(
+      unlinked.length,
+      laid?.width ?? box.width,
+      laid?.height ?? box.height,
+    );
+    const out = new Map(base);
+    unlinked.forEach((path, i) => {
+      const point = points[i];
+      if (point) out.set(path, point);
+    });
+    return out;
+  }, [laid, showUnlinked, unlinked, box.width, box.height]);
 
   const fit = useCallback(() => {
     const w = box.width;
