@@ -268,12 +268,14 @@ describe("StepLimitWatchdog", () => {
   });
 
   test("a stop whose finish was never seen does not outlive the connection", async () => {
-    const { feed, toolStep, watchdog } = setup({ limit: 1 });
+    const { feed, toolStep, sent, watchdog } = setup({ limit: 1 });
     toolStep();
     await settle();
     // The socket dropped before the turn's finish arrived, so nothing consumed
-    // the stop. Coming back from that gap forgets every scope.
+    // the stop. Coming back from that gap forgets every scope — and releases the
+    // queued messages that stop parked, which no finish is coming to release.
     watchdog.reset();
+    expect(sent("resume_queue")).toHaveLength(1);
     const later = finished("cancelled", { turn_id: "turn-9", run_id: "run-9" });
     expect(feed(later)).toEqual([later]);
     expect(feed(interrupted())).toEqual([interrupted()]);

@@ -40,9 +40,14 @@ import { readUsageStatistics } from "./turn-usage.ts";
  * "Interrupted" status line, which is dropped for the run this BFF stopped. The
  * abort carries the turn's `run_id` when the stream showed one, so upstream
  * never applies it to a turn that replaced the one at its limit. A stop whose
- * finish the BFF never saw (the upstream socket dropped in between) outlives its
- * turn, so `reset` drops every scope when the connection is re-established —
- * frames from before a gap cannot describe a turn still running.
+ * finish the BFF never saw (the socket dropped in between) outlives its turn, so
+ * `reset` forgets every scope when the connection is re-established — frames
+ * from before a gap cannot describe a turn still running. Forgetting one still
+ * releases whatever queue its stop parked. It also forgets the steps counted in
+ * a turn that survived the gap, so after a reconnect a limit counts calls since
+ * the connection rather than since the turn began: the cheaper error, because a
+ * count kept across a gap would stop some later turn early and claim it had
+ * reached its limit.
  *
  * The abort cannot interrupt a model call already running (Stop's own limit —
  * docs/upstream-notes.md#stop-cancellation-call-chain): when a step's tools
@@ -55,8 +60,10 @@ import { readUsageStatistics } from "./turn-usage.ts";
  * the live transcript, `TurnErrorLog` (so a reload still shows it), the push
  * watcher (so an unwatched cron turn still says why) — reads those as it reads
  * upstream's own. Only a stop the app-server confirmed (`aborted: true`) is
- * rewritten: when the user's Stop got there first, ours finds nothing to abort
- * and the finish stays the user's.
+ * rewritten: a user's Stop that got there first usually answers that there is
+ * nothing left to abort, and that finish stays theirs. A user's Stop still
+ * unwinding when ours arrives answers `aborted: true` the same way ours does, and
+ * then the turn reads as the limit it did in fact reach.
  *
  * Subagent frames are skipped like `TurnUsageLog` skips them: a subagent's steps
  * are not the parent's, and subagents keep upstream's own `--max-turns`.
@@ -161,7 +168,19 @@ export class StepLimitWatchdog {
    * transcript, the turn-error log and the failure push.
    */
   reset(): void {
-    this.scopes.clear();
+    for (const key of [...this.scopes.keys()]) this.drop(key);
+  }
+
+  /**
+   * Forget one scope — and release the user messages its stop parked, because
+   * the finish that would have released them is never coming: without this a
+   * queued message waits in the pause our abort caused until somebody sends
+   * another one. Dropping a scope for being stale must not strand it either.
+   */
+  private drop(key: string): void {
+    const stop = this.scopes.get(key)?.stop;
+    this.scopes.delete(key);
+    if (stop?.confirmed) void this.resumeQueue(key);
   }
 
   /** Count steps and stop a turn at its agent's limit. */
@@ -171,9 +190,7 @@ export class StepLimitWatchdog {
     if (!key) return;
 
     if (frame.type === "turn_finished") {
-      const stop = this.scopes.get(key)?.stop;
-      this.scopes.delete(key);
-      if (stop?.confirmed) void this.resumeQueue(key);
+      this.drop(key);
       return;
     }
     if (frame.type !== "stream_delta") return;
@@ -189,7 +206,9 @@ export class StepLimitWatchdog {
     }
     if (messageType === "retry" || messageType === "loop_error") {
       // A failed or retried step never reached its usage; whatever it asked
-      // for is not what the step that replaces it will ask for.
+      // for is not what the step that replaces it will ask for. It is not
+      // counted either, so a turn whose calls all fail before their usage is
+      // bounded by upstream's own retry limit rather than by this one.
       const state = this.scopes.get(key);
       if (state) state.wantsTools = false;
       return;
@@ -260,14 +279,19 @@ export class StepLimitWatchdog {
   private async resumeQueue(key: string): Promise<void> {
     const [agentId, conversationId] = parseScopeKey(key);
     try {
-      await this.deps.upstream.request(
+      const response = (await this.deps.upstream.request(
         {
           type: "resume_queue",
           request_id: `bff-step-limit-resume-${randomUUID()}`,
           runtime: { agent_id: agentId, conversation_id: conversationId },
         },
         10_000,
-      );
+      )) as { success?: boolean; error?: string };
+      if (response?.success === false) {
+        this.deps.log(
+          `step limit: the queue of ${conversationId} stayed parked (${response.error ?? "refused"})`,
+        );
+      }
     } catch (error) {
       this.deps.log(
         `step limit: could not resume the queue of ${conversationId}: ${
@@ -285,7 +309,7 @@ export class StepLimitWatchdog {
     while (this.scopes.size > STEP_LIMIT_SCOPES) {
       const oldest = this.scopes.keys().next().value;
       if (oldest === undefined) break;
-      this.scopes.delete(oldest);
+      this.drop(oldest);
     }
     return state;
   }
