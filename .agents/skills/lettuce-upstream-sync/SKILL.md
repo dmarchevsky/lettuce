@@ -159,13 +159,38 @@ Protocol drift shows up two ways:
      that cannot get under the pressure threshold now raises the matching error type instead of looping
      or overrunning the server (`src/backend/local/compaction.ts`, 0.34.42). All of it lands on our
      primary provider, where a cloud summariser name could only ever fail.
+   - `src/backend/local/compaction.ts` + `compaction-settings.ts` — since 0.34.61 the local backend
+     can summarize instead of truncating: `LocalCompactionMode` is `all | sliding_window |
+     self_compact_all | self_compact_sliding_window`, and a `self_compact_*` mode compacts inside the
+     agent's **own** request context — the turn's system prompt, history and tools plus a compaction
+     prompt — so it needs no second model, which is exactly what a local install lacks. The default is
+     unchanged (`sliding_window`, `LOCAL_DEFAULT_SLIDING_WINDOW_PERCENTAGE` 0.3), so nothing moved for
+     us until asked: it is per-agent and arrives through a verb we already speak, `create_agent` or
+     `agent_update` with `compaction_settings {mode, prompt, clip_chars, sliding_window_percentage}`,
+     validated by `validateLocalCompactionSettingsRecord` and kept on the local agent record.
+   - the model catalog is a **dependency, not a pin**: `@earendil-works/pi-ai` went `^0.99.1` → `^1.5.2`
+     across this range and the script prints only the two ranges. It is what Settings → Providers lists,
+     so a catalog move changes the model list and the counts written in `docs/CONFIGURATION.md` with no
+     lettuce file touching them. Recount from the installed copy —
+     `node_modules/.bun/@earendil-works+pi-ai@<v>*/…/pi-ai/dist/providers/data/openrouter.json`, a dict
+     keyed by api type where chat is `anthropic-messages` + `openai-completions` (398 at 0.99.2 → 403 at
+     1.5.2) and `openrouter-images` (57 → 66) and `typesafe-system-one` (9 → 36) are not chat. Same turn
+     renamed Azure's provider id `azure-openai-responses` → `azure` with the old spelling aliased; nothing
+     in our tree names either.
 
-   Everything else the skills assert was re-checked against 0.34.56 and did **not** move: `connection-
-   lifecycle.ts`, `listener/lifecycle.ts`, `gateway-supervisor.ts`, the channel state writers
-   (accounts, credential store, routing, pairing, access control), the mods paths and engine,
-   `agent/skills.ts`, the MCP settings writers, `utils/settings-path.ts`, `toolset-catalog.ts` and
-   `background-process-protocol.ts`. A range that moves none of them still needs saying, or the next sync
-   reads the silence as an unread gap.
+   The rest of what the skills assert was re-checked over 0.34.56 → 0.34.63 and did **not** move:
+   `connection-lifecycle.ts`, `listener/lifecycle.ts`, `gateway-supervisor.ts`, `gateway-core.ts`,
+   `control-inputs.ts`, `interrupts.ts`, the channel state writers (accounts, credential store, routing,
+   pairing, access control), the mods paths and engine, `agent/skills.ts`, the MCP settings writers,
+   `utils/settings-path.ts`, `toolset-catalog.ts`, `background-process-protocol.ts`,
+   `schedule-protocol.ts` and the subagent steering guard. Two watched files moved and neither wants
+   code: `protocol_v2.ts` added `cloud_monitors` to the `ExperimentId` union, and nothing here switches
+   on an experiment id; `subagent-protocol.ts` added `"queued"` to `SubagentMessageResponse.delivery`
+   (0.34.62 — a steer aimed at a worker mid-tool-call is queued rather than refused), which stays unread
+   because `subagent_message` is on no BFF allowlist — if it ever is, `"queued"` needs its own label.
+   `external-coding-agent.ts` moved a comment and how a fork meets a default computer, which is Cloud
+   routing this stack has none of. A range that moves none of the rest still needs saying, or the next
+   sync reads the silence as an unread gap.
 
 ### Version pinning
 
