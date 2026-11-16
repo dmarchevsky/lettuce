@@ -100,6 +100,8 @@ export interface BffConfig {
   archivedAgentsFile: string;
   /** Per-agent Codex and Google access (`agents/tool-access.ts`), on the `bff-data` volume. */
   agentToolAccessFile: string;
+  /** Per-agent step limits (`agents/step-limit.ts`), on the `bff-data` volume. */
+  agentStepLimitFile: string;
   /** Per-agent avatar choices (`agents/avatar-prefs.ts`), on the `bff-data` volume. */
   avatarPrefsFile: string;
   /**
@@ -664,6 +666,8 @@ export function loadConfig(): BffConfig {
       process.env.ARCHIVED_AGENTS_FILE?.trim() || "/app/data/archived-agents.json",
     agentToolAccessFile:
       process.env.AGENT_TOOL_ACCESS_FILE?.trim() || "/app/data/agent-tool-access.json",
+    agentStepLimitFile:
+      process.env.AGENT_STEP_LIMIT_FILE?.trim() || "/app/data/agent-step-limits.json",
     avatarPrefsFile: process.env.AVATAR_PREFS_FILE?.trim() || "/app/data/avatar-prefs.json",
     avatarImageDir: process.env.AVATAR_IMAGE_DIR?.trim() || "/app/data/avatars",
     avatarRecentsFile: process.env.AVATAR_RECENTS_FILE?.trim() || "/app/data/avatar-recents.json",
