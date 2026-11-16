@@ -4158,6 +4158,24 @@ try {
     const { clipped } = await overflow(page);
     check(`graph view does not overflow (${label})`, clipped.length === 0, { clipped });
     await shot(page, `memory-graph-${label}`);
+    // The unlinked files are the graph's honest mode on a memory that has no
+    // links, and the only state provable on a dev stack — so prove it: asking for
+    // them must actually put them on the surface, as rings, not an empty pane.
+    const showUnlinked = page.locator('.pane-bar button:text-is("Show unlinked")');
+    if ((await showUnlinked.count()) === 1) {
+      const claimed = Number(
+        ((await page.locator(".pane-bar .muted.small").first().textContent()) ?? "").match(
+          /(\d+) of/,
+        )?.[1] ?? "0",
+      );
+      await showUnlinked.click();
+      await page.waitForTimeout(900);
+      const rings = await page.locator(".memory-graph .mg-node.lone").count();
+      check(`the unlinked files join the graph (${label})`, rings >= claimed, { claimed, rings });
+      await shot(page, `memory-graph-unlinked-${label}`);
+      await page.locator('.pane-bar button:text-is("Hide unlinked")').click();
+      await page.waitForTimeout(400);
+    }
     if (nodes > 0) {
       // Click the middle of the biggest node, the way a finger does. A locator
       // `.click()` aims at the element's box, and the node sits under the zoom
