@@ -5,6 +5,19 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.45.1-letta_0.34.56] - 2026-11-16
+
+### Added
+- **The Memory pane can show memory as a link graph.** Memory files reference each other with
+  `[[wiki links]]`, and nothing showed the shape of that: finding out whether the agent had
+  anything about a person meant searching for their name. The Memory bar now toggles between the
+  folder tree and a graph — one dot per linked file, a line for each link, a dot sized by how many
+  links it carries and coloured by its folder with a legend to read it by. Tap a file to open it,
+  drag to pan, pinch or scroll to zoom, and the bar says how much of memory is in the picture.
+  Files with no links stay out of it until asked for, and then arrive as rings around the cluster,
+  because a dot with nothing attached is noise; where there are no links yet the pane says so
+  instead of drawing a blank box.
+
 ### Changed
 - **The Memory tab opens as folders, not as one long list of paths.** An agent that has been working
   a while holds hundreds of memory files, listed flat with the whole path as the row, so finding one
