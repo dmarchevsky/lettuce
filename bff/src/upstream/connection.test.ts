@@ -567,7 +567,10 @@ test("the production client attaches to the socket's own error event", () => {
   // Version-independent half of the regression: bun 1.3.0 (CI's pin) lets a refused
   // handshake through as a plain rejection, so only the listener itself can be
   // asserted everywhere. It is what bun's shim counts, and it has to be there at
-  // construction — before any handshake has had the chance to fail.
+  // construction — before any handshake has had the chance to fail. Present, not
+  // counted: since letta-code 0.34.61 upstream attaches a permanent no-op `error`
+  // listener of its own in the client constructor, so two attaches is what the
+  // current build does and the number is not the property under test.
   const attached: string[] = [];
   class RecordedSocket {
     readyState = 0;
@@ -582,7 +585,7 @@ test("the production client attaches to the socket's own error event", () => {
     }
   }
   createAppServerClient("ws://127.0.0.1:4599/ws", { WebSocket: RecordedSocket as never });
-  expect(attached).toEqual(["error"]);
+  expect(attached).toContain("error");
 });
 
 test("nothing is sent before the socket is up", () => {

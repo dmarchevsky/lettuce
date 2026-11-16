@@ -82,7 +82,7 @@ function describeSocketError(event: unknown): string {
  *
  * Bun aliases `ws` onto its own WebSocket implementation, and that implementation
  * decides whether an `error` event is "unhandled" by counting **EventEmitter**
- * listeners. Upstream's client never registers one: `attachSocketListener`
+ * listeners. Upstream's client used to register none: `attachSocketListener`
  * (`@letta-ai/letta-code` `dist/app-server-client.js`) prefers `addEventListener`
  * whenever the socket has it, and Bun's does. So when the handshake fails — the
  * app-server not listening yet, which is what a docker-daemon boot hands this
@@ -100,6 +100,13 @@ function describeSocketError(event: unknown): string {
  * rejects. Measured on bun 1.4.2 / node 22: keeping **one** permanent ws-style
  * listener on the socket is what stops it; `socket.onerror = …` and
  * `addEventListener("error", …)` both leave the count at zero and still crash.
+ *
+ * Since 0.34.61 upstream keeps a permanent no-op `socket.on("error")` for its
+ * client's whole life for this exact reason, and its `connect()` now closes the
+ * socket when the handshake fails, so a retry loop stops leaking a dead socket per
+ * attempt. Ours stays anyway: the guard is older than that, it has to hold whatever
+ * upstream does next, and upstream's listener is a no-op, so it cannot do the second
+ * half below.
  *
  * The listener also keeps the reason the rejection loses. Under bun the rejection
  * reads `App-server WebSocket failed to open: [object ErrorEvent]`, while the
