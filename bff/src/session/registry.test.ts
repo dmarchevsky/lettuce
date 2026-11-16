@@ -566,7 +566,7 @@ describe("repeat runtime_start", () => {
  * tab a whole agent's memory and stuff the replay buffer with it.
  */
 describe("memory listing chunks", () => {
-  function memorySetup() {
+  function memorySetup(command: Record<string, unknown> = {}) {
     const forwarded: Record<string, unknown>[] = [];
     const sent: Record<string, unknown>[] = [];
     const otherSent: Record<string, unknown>[] = [];
@@ -588,7 +588,7 @@ describe("memory listing chunks", () => {
     registry.add(other, { email: "other@example.com" });
     registry.handleSessionMessage(
       id,
-      JSON.stringify({ type: "list_memory", request_id: "web-1", agent_id: "agent-1" }),
+      JSON.stringify({ type: "list_memory", request_id: "web-1", agent_id: "agent-1", ...command }),
     );
     const bffId = forwarded[0]?.request_id as string;
     expect(typeof bffId).toBe("string");
@@ -646,6 +646,54 @@ describe("memory listing chunks", () => {
     // sequenced into the replay buffer either.
     expect(responses(otherSent)).toHaveLength(0);
     expect(registry.latestSeq).toBe(0);
+  });
+
+  /**
+   * The Memory tab asks for `include_references` so it can draw which files link
+   * to which (upstream parses the [[wiki links]] in `memory.ts` and returns a
+   * resolved path per entry). The merge is a concatenation, so the only way this
+   * breaks is a merge that rebuilds entries instead of carrying them — and the
+   * chunker splits on content size, so a later chunk could otherwise stand in
+   * for an earlier one and lose the arrays with it.
+   */
+  test("per-file link references survive the merge", () => {
+    const { registry, sent, forwarded, responses } = memorySetup({ include_references: true });
+    const bffId = forwarded[0]?.request_id as string;
+    expect(forwarded[0]?.include_references).toBe(true);
+
+    const file = (path: string, references: string[]) => ({
+      relative_path: path,
+      content: `# ${path}`,
+      size: 8,
+      is_system: false,
+      description: null,
+      references,
+    });
+    registry.handleUpstreamFrame({
+      type: "list_memory_response",
+      request_id: bffId,
+      entries: [file("index/home.md", ["people/ana.md"])],
+      done: false,
+      total: 2,
+      success: true,
+    } as never);
+    registry.handleUpstreamFrame({
+      type: "list_memory_response",
+      request_id: bffId,
+      entries: [file("people/ana.md", ["index/home.md"])],
+      done: true,
+      total: 2,
+      success: true,
+    } as never);
+
+    const mine = responses(sent);
+    expect(mine).toHaveLength(1);
+    const entries = (mine[0] as { entries: { relative_path: string; references?: string[] }[] })
+      .entries;
+    expect(entries.map((e) => [e.relative_path, e.references])).toEqual([
+      ["index/home.md", ["people/ana.md"]],
+      ["people/ana.md", ["index/home.md"]],
+    ]);
   });
 
   test("a listing that fits in one frame answers once, unchanged", () => {

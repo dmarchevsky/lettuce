@@ -1,11 +1,13 @@
 import { type CSSProperties, useCallback, useEffect, useMemo, useState } from "react";
 import { FilterField } from "../components/FilterField.tsx";
 import { Icon } from "../components/Icon.tsx";
+import { MemoryGraph } from "../components/MemoryGraph.tsx";
 import { Sheet } from "../components/Sheet.tsx";
 import { toast } from "../components/Toast.tsx";
 import { shortDate } from "../lib/conversation-groups.ts";
 import { formatBytes, formatChars } from "../lib/download.ts";
 import { errorMessage } from "../lib/errors.ts";
+import { deriveGraph } from "../lib/memory-graph.ts";
 import {
   buildMemoryTree,
   filterMemoryPaths,
@@ -13,7 +15,24 @@ import {
   memoryTreeCounts,
   memoryTreeDirs,
 } from "../lib/memory-tree.ts";
+import { defaultStorage, readStored } from "../lib/storage.ts";
 import type { SessionApi } from "../state/use-session.ts";
+
+/** Which of the two views the Memory pane opens in, remembered per browser. */
+const VIEW_KEY = "lettuce:memory-view";
+type MemoryView = "tree" | "graph";
+
+function readView(): MemoryView {
+  return readStored(defaultStorage(), VIEW_KEY) === "graph" ? "graph" : "tree";
+}
+
+function storeView(view: MemoryView): void {
+  try {
+    defaultStorage()?.setItem(VIEW_KEY, view);
+  } catch {
+    // A browser that will not store it is a browser that opens in the tree.
+  }
+}
 
 interface MemoryEntry {
   relative_path: string;
@@ -21,6 +40,13 @@ interface MemoryEntry {
   description: string | null;
   content: string;
   size: number;
+  /**
+   * The files this one links to with `[[wiki links]]`, resolved by upstream to
+   * paths that exist (letta-code `websocket/listener/commands/memory.ts`). Only
+   * present because the request below asks for it; a link whose target is gone
+   * is simply absent, not flagged.
+   */
+  references?: string[];
 }
 
 interface Commit {
@@ -57,6 +83,8 @@ export function MemoryTab({ session, agentId }: Props) {
       shut under someone reading it. */
   const [openDirs, setOpenDirs] = useState<ReadonlySet<string>>(new Set());
   const [query, setQuery] = useState("");
+  const [view, setView] = useState<MemoryView>(readView);
+  const [showUnlinked, setShowUnlinked] = useState(false);
 
   const load = useCallback(async () => {
     if (!agentId) return;
@@ -67,7 +95,7 @@ export function MemoryTab({ session, agentId }: Props) {
         success?: boolean;
         error?: string;
         memfs_enabled?: boolean;
-      }>("list_memory", { agent_id: agentId });
+      }>("list_memory", { agent_id: agentId, include_references: true });
       if (response?.success === false) {
         setStatus(response.error ?? "Could not list memory");
         return;
@@ -107,6 +135,34 @@ export function MemoryTab({ session, agentId }: Props) {
     [rows, openDirs],
   );
   const allOpen = dirs.length > 0 && dirs.every((dir) => openDirs.has(dir));
+  // The same entries, seen as links instead of as folders. Upstream resolves the
+  // [[wiki links]] per file, so this is a re-shape of data already on hand.
+  const graph = useMemo(() => deriveGraph(entries), [entries]);
+  const unlinked = useMemo(() => {
+    const linked = new Set(graph.nodes.map((node) => node.path));
+    return entries
+      .map((entry) => entry.relative_path)
+      .filter((path) => !linked.has(path))
+      .sort();
+  }, [entries, graph]);
+  const entryByPath = useMemo(
+    () => new Map(entries.map((entry) => [entry.relative_path, entry])),
+    [entries],
+  );
+
+  const switchView = (next: MemoryView) => {
+    setView(next);
+    storeView(next);
+  };
+
+  /** A node tap opens the same sheet a tree row opens. */
+  const openFile = (path: string) => {
+    const entry = entryByPath.get(path);
+    if (!entry) return;
+    setOpen(entry);
+    setDraft(entry.content);
+    setHistory(null);
+  };
 
   const toggleDir = (path: string) =>
     setOpenDirs((current) => {
@@ -226,9 +282,26 @@ export function MemoryTab({ session, agentId }: Props) {
 
   return (
     <div className="pane">
-      <div className="pane-bar">
+      {/* `wrap`, like the Files bar: this bar carries the counts, the unlinked
+          switch and the view toggle, which is more than a phone row can hold. */}
+      <div className="pane-bar wrap">
         {memfs === false ? <span className="tag">MemFS off</span> : null}
-        {hasMemory ? (
+        {hasMemory && view === "graph" ? (
+          <>
+            <span className="muted small">
+              {graph.linked === 0
+                ? `0 of ${graph.total} files linked`
+                : `${graph.linked} of ${graph.total} files · ${graph.edges.length} ${
+                    graph.edges.length === 1 ? "link" : "links"
+                  }`}
+            </span>
+            {unlinked.length > 0 ? (
+              <button type="button" className="link" onClick={() => setShowUnlinked((v) => !v)}>
+                {showUnlinked ? "Hide unlinked" : "Show unlinked"}
+              </button>
+            ) : null}
+          </>
+        ) : hasMemory ? (
           <>
             <span className="muted small">
               {searching
@@ -245,6 +318,28 @@ export function MemoryTab({ session, agentId }: Props) {
               </button>
             )}
           </>
+        ) : null}
+        <span className="spacer" />
+        {hasMemory ? (
+          <span className="memory-view-toggle">
+            {view === "tree" ? (
+              <strong>Tree</strong>
+            ) : (
+              <button type="button" className="link" onClick={() => switchView("tree")}>
+                Tree
+              </button>
+            )}
+            <span aria-hidden="true" className="muted small">
+              |
+            </span>
+            {view === "graph" ? (
+              <strong>Graph</strong>
+            ) : (
+              <button type="button" className="link" onClick={() => switchView("graph")}>
+                Graph
+              </button>
+            )}
+          </span>
         ) : null}
         <span className="spacer" />
         <button
@@ -267,62 +362,83 @@ export function MemoryTab({ session, agentId }: Props) {
         </p>
       ) : null}
 
-      {hasMemory ? (
+      {hasMemory && view === "graph" ? (
+        graph.linked > 0 || showUnlinked ? (
+          <MemoryGraph
+            graph={graph}
+            unlinked={unlinked}
+            showUnlinked={showUnlinked}
+            openPath={open?.relative_path ?? null}
+            onOpen={openFile}
+          />
+        ) : (
+          <div className="pad">
+            <p className="muted">No links yet.</p>
+            <p className="muted small">
+              Files link to each other by writing <code>[[people/ana]]</code>, and the graph draws
+              those links — 0 of {graph.total} files are linked. Use the tree until there are more.
+            </p>
+          </div>
+        )
+      ) : null}
+
+      {hasMemory && view === "tree" ? (
         <div className="memory-filter">
           <FilterField placeholder="Filter memory…" value={query} onChange={setQuery} />
         </div>
       ) : null}
 
-      {searching ? (
-        matches.length === 0 ? (
-          <p className="muted pad">No memory files match “{query.trim()}”.</p>
+      {view === "tree" &&
+        (searching ? (
+          matches.length === 0 ? (
+            <p className="muted pad">No memory files match “{query.trim()}”.</p>
+          ) : (
+            <ul className="list memory-tree">
+              {matches.map((match, index) =>
+                fileRow({
+                  key: `m:${match.path}:${index}`,
+                  name: match.name,
+                  entry: match.entry,
+                  depth: 0,
+                  folder: match.parent,
+                }),
+              )}
+            </ul>
+          )
         ) : (
           <ul className="list memory-tree">
-            {matches.map((match, index) =>
-              fileRow({
-                key: `m:${match.path}:${index}`,
-                name: match.name,
-                entry: match.entry,
-                depth: 0,
-                folder: match.parent,
-              }),
+            {visible.map((row, index) =>
+              row.kind === "dir" ? (
+                <li key={`d:${row.path}`}>
+                  <button
+                    type="button"
+                    className="row"
+                    style={depthStyle(row.depth)}
+                    aria-expanded={openDirs.has(row.path)}
+                    onClick={() => toggleDir(row.path)}
+                  >
+                    <Icon
+                      name={openDirs.has(row.path) ? "chevron-down" : "chevron-right"}
+                      className="chevron"
+                    />
+                    <Icon name="folder" />
+                    <span className="grow-text">
+                      <strong>{row.name}</strong>
+                    </span>
+                    <span className="muted small">{row.count}</span>
+                  </button>
+                </li>
+              ) : (
+                fileRow({
+                  key: `f:${row.path}:${index}`,
+                  name: row.name,
+                  entry: row.entry,
+                  depth: row.depth,
+                })
+              ),
             )}
           </ul>
-        )
-      ) : (
-        <ul className="list memory-tree">
-          {visible.map((row, index) =>
-            row.kind === "dir" ? (
-              <li key={`d:${row.path}`}>
-                <button
-                  type="button"
-                  className="row"
-                  style={depthStyle(row.depth)}
-                  aria-expanded={openDirs.has(row.path)}
-                  onClick={() => toggleDir(row.path)}
-                >
-                  <Icon
-                    name={openDirs.has(row.path) ? "chevron-down" : "chevron-right"}
-                    className="chevron"
-                  />
-                  <Icon name="folder" />
-                  <span className="grow-text">
-                    <strong>{row.name}</strong>
-                  </span>
-                  <span className="muted small">{row.count}</span>
-                </button>
-              </li>
-            ) : (
-              fileRow({
-                key: `f:${row.path}:${index}`,
-                name: row.name,
-                entry: row.entry,
-                depth: row.depth,
-              })
-            ),
-          )}
-        </ul>
-      )}
+        ))}
 
       {hasMemory || status || loading ? null : <p className="muted pad">No memory files yet.</p>}
 

@@ -1,6 +1,6 @@
 ---
 name: lettuce-memory-and-system-prompt
-description: 'lettuce memory mechanics: `agent.system` is a letta-code-managed preset tracked by hash and version (editing it opts the agent out of refreshes and no agent tool can write it), while what an agent rewrites is persona.md in its memfs repo, surfaced in the Memory tab, not Agent → General; the memfs repo location, the fact that no toolset can write memory (0.34.7 added a read-only `Memory` tool for memfs-v2 agents), `letta memory` having no write verb, and the background memory worker. Read before answering "it updated its system prompt but the UI shows the old one", touching bff/src/agents memory rendering, or any memory/ persona or frontmatter validation work.'
+description: 'lettuce memory mechanics: `agent.system` is a letta-code-managed preset tracked by hash and version (editing it opts the agent out of refreshes and no agent tool can write it), while what an agent rewrites is persona.md in its memfs repo, surfaced in the Memory tab, not Agent → General; the memfs repo location, the fact that no toolset can write memory (0.34.7 added a read-only `Memory` tool for memfs-v2 agents), `letta memory` having no write verb, and the background memory worker. the Memory pane's two views (folder tree and link graph) and why its edges are upstream's `references[]`. Read before answering "it updated its system prompt but the UI shows the old one", touching bff/src/agents memory rendering or `web/src/lib/memory-graph.ts`, or any memory/ persona or frontmatter validation work.'
 ---
 
 # Agent memory and the two system prompts
@@ -36,3 +36,14 @@ Loaded from `AGENTS.md`. Two different things are called "the system prompt" and
   `letta memory` (the CLI) has status/diff/backup/export/pull but **no write verb** — its own
   help says "use git commands" — so an agent that goes looking there finds nothing and
   concludes memory is unwritable.
+- **The Memory pane is two views of one `list_memory` listing, and its links are upstream's.**
+  Tree (folders first, alphabetical, top level collapsed) or graph (`web/src/lib/memory-graph.ts`,
+  derived in the SPA — there is no graph command upstream). The graph asks `list_memory` with
+  `include_references: true` and draws what comes back: letta-code
+  (`websocket/listener/commands/memory.ts`) owns the `[[wiki link]]` grammar, resolves aliases and
+  `.md` inference, and **drops a target that does not exist** — so a dangling link is invisible
+  rather than broken, and the SPA deliberately has no second parser to disagree with that. Note
+  references are extracted from the body **after frontmatter is stripped**: a `[[link]]` in
+  frontmatter is not an edge. Files with no links are off the picture by default (the bar counts
+  them), and the force layout is our own — seeded, one run per change of file-set, with the pass
+  count shrinking as memory grows (`layoutIterations`) because the freeze is the thing to bound.

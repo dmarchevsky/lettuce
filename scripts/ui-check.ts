@@ -4121,6 +4121,89 @@ try {
     await page.close();
   }
 
+  section("Memory link graph");
+  for (const [label, options] of [
+    ["desktop", { viewport: DESKTOP }],
+    ["phone", { viewport: PHONE, isMobile: true, hasTouch: true }],
+  ] as const) {
+    const context = await browser.newContext(options);
+    const page = await context.newPage();
+    await signIn(page);
+    await openTab(page, "Agent");
+    await page.locator('.section-tabs button:text-is("Memory")').click();
+    await page.waitForTimeout(1500);
+    // The two views are the same files seen two ways, so the toggle is the whole
+    // surface's door: it must be there, swap the body, and say which one is on.
+    // A stack whose agent has no memory has no Memory pane to toggle, so say so
+    // rather than clicking a control that is not there and throwing.
+    const toggle = page.locator(".memory-view-toggle");
+    if ((await toggle.count()) === 0) {
+      console.log(`  SKIP  memory link graph (${label}: this agent has no memory)`);
+      await page.close();
+      continue;
+    }
+    check(`memory offers a tree/graph toggle (${label})`, (await toggle.count()) === 1);
+    const treeRows = await page.locator(".memory-tree li button").count();
+    await page.locator('.memory-view-toggle button:text-is("Graph")').click();
+    await page.waitForTimeout(900);
+    check(
+      `graph is the current view (${label})`,
+      (await page.locator('.memory-view-toggle strong:text-is("Graph")').count()) === 1,
+    );
+    const nodes = await page.locator(".memory-graph .mg-node:not(.lone)").count();
+    const empty = await page.locator("text=No links yet.").count();
+    // Either it drew links, or it said plainly there are none — a blank pane is a
+    // failure even though both branches are legitimate states of a real memory.
+    check(`the graph view draws or explains (${label})`, nodes > 0 || empty > 0, { nodes, empty });
+    const { clipped } = await overflow(page);
+    check(`graph view does not overflow (${label})`, clipped.length === 0, { clipped });
+    await shot(page, `memory-graph-${label}`);
+    // The unlinked files are the graph's honest mode on a memory that has no
+    // links, and the only state provable on a dev stack — so prove it: asking for
+    // them must actually put them on the surface, as rings, not an empty pane.
+    const showUnlinked = page.locator('.pane-bar button:text-is("Show unlinked")');
+    if ((await showUnlinked.count()) === 1) {
+      const claimed = Number(
+        ((await page.locator(".pane-bar .muted.small").first().textContent()) ?? "").match(
+          /(\d+) of/,
+        )?.[1] ?? "0",
+      );
+      await showUnlinked.click();
+      await page.waitForTimeout(900);
+      const rings = await page.locator(".memory-graph .mg-node.lone").count();
+      check(`the unlinked files join the graph (${label})`, rings >= claimed, { claimed, rings });
+      await shot(page, `memory-graph-unlinked-${label}`);
+      await page.locator('.pane-bar button:text-is("Hide unlinked")').click();
+      await page.waitForTimeout(400);
+    }
+    if (nodes > 0) {
+      // Click the middle of the biggest node, the way a finger does. A locator
+      // `.click()` aims at the element's box, and the node sits under the zoom
+      // controls' corner, so it would test the overlay instead of the graph.
+      const box = await page.locator(".memory-graph .mg-node").first().boundingBox();
+      if (!box) {
+        console.log(`  SKIP  node opens the file sheet (${label}: no node box)`);
+      } else {
+        await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+        await page.waitForTimeout(700);
+        check(
+          `a node opens the file sheet (${label})`,
+          (await page.locator(".sheet-panel").count()) === 1,
+        );
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(300);
+      }
+    }
+    await page.locator('.memory-view-toggle button:text-is("Tree")').click();
+    await page.waitForTimeout(600);
+    check(
+      `the tree comes back (${label})`,
+      (await page.locator(".memory-tree li button").count()) === treeRows,
+      { treeRows },
+    );
+    await page.close();
+  }
+
   section("Form controls share one height");
   for (const [label, options] of [
     ["mouse", { viewport: DESKTOP }],
