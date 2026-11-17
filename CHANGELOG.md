@@ -5,9 +5,16 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.45.4-letta_0.34.63] - 2026-11-17
+
 ### Changed
 - **The playbook absorbed sixteen session reflections:** fold discipline, credential-safe probing,
   bump-word rules and render-size screenshot review are written rules now.
+
+### Fixed
+- **The coding CLIs run newer.** Codex 0.164.0 → 0.169.1 and Claude Code 2.1.310 → 2.1.327 — five
+  and seventeen releases. letta-code drives each over its own protocol, so a worker run is the thing
+  to re-check after the deploy. The app-server image is rebuilt, so the deploy recreates `app-server`.
 
 ## [v0.45.3-letta_0.34.63] - 2026-11-17
 
