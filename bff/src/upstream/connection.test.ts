@@ -567,7 +567,10 @@ test("the production client attaches to the socket's own error event", () => {
   // Version-independent half of the regression: bun 1.3.0 (CI's pin) lets a refused
   // handshake through as a plain rejection, so only the listener itself can be
   // asserted everywhere. It is what bun's shim counts, and it has to be there at
-  // construction — before any handshake has had the chance to fail.
+  // construction — before any handshake has had the chance to fail. Present, not
+  // counted: since letta-code 0.34.61 upstream attaches a permanent no-op `error`
+  // listener of its own in the client constructor, so two attaches is what the
+  // current build does and the number is not the property under test.
   const attached: string[] = [];
   class RecordedSocket {
     readyState = 0;
@@ -582,7 +585,34 @@ test("the production client attaches to the socket's own error event", () => {
     }
   }
   createAppServerClient("ws://127.0.0.1:4599/ws", { WebSocket: RecordedSocket as never });
-  expect(attached).toEqual(["error"]);
+  expect(attached).toContain("error");
+});
+
+test("the production client keeps the reason a refused handshake loses", () => {
+  // The other half of that guard, and the half only we do: upstream's listener is a
+  // no-op, so what bun buries in the event — a real cause under `error`, while the
+  // rejection reads `[object ErrorEvent]` — survives only in our wrapper's
+  // `failureDetail()`. Every error handler attached at construction gets called, so
+  // this holds whichever of the two attaches first.
+  const handlers: Array<(event: unknown) => void> = [];
+  class EmittingSocket {
+    readyState = 0;
+    send(): void {}
+    close(): void {}
+    addEventListener(): void {}
+    removeEventListener(): void {}
+    on(type: string, handler?: (event: unknown) => void): void {
+      if (type === "error" && handler) handlers.push(handler);
+    }
+  }
+  const client = createAppServerClient("ws://127.0.0.1:4599/ws", {
+    WebSocket: EmittingSocket as never,
+  });
+  expect(client.failureDetail?.()).toBeNull();
+  for (const handler of handlers) {
+    handler({ error: new Error("WebSocket connection failed: Failed to connect") });
+  }
+  expect(client.failureDetail?.()).toContain("Failed to connect");
 });
 
 test("nothing is sent before the socket is up", () => {

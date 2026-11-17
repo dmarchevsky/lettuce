@@ -32,6 +32,11 @@ BEHAVIOR_FILES=(
   "src/channels/gateway-supervisor.ts"
   "src/websocket/app-server.ts"
   "src/websocket/app-server-auth.ts"
+  # The client class bff/src/upstream/connection.ts wraps: its constructor is where a
+  # socket error listener has to live (bun counts only EventEmitter listeners, so an
+  # absent one turns a refused handshake into an uncaught exception), and its connect()
+  # decides whether a failed handshake leaks the socket into every retry.
+  "src/app-server-client.ts"
   "src/websocket/listener/interrupts.ts"
   "src/websocket/listener/control-inputs.ts"
   # Hand-parsed in web/src/state/use-conversation.ts (readBackgroundProcesses):
@@ -259,14 +264,18 @@ if [[ $BEHAV_CHANGED -eq 1 ]]; then
   warn "   * mods/paths.ts — same question from the mod side: does the BFF-rendered mod still"
   warn "     land where the listener discovers mods?"
   warn "   * subagent-control.ts — does steering still accept a LOCAL"
-  warn "     codex_<thread>/claude_<session> id, and is ownership still judged against the"
-  warn "     caller's parent scope? That rule is the whole boundary for what a browser may"
-  warn "     send about a child."
- warn "   * codex-app-server.ts — how does it spawn the app-server now? The shim rewrites its"
- warn "     stdin only when it reads `app-server` as the subcommand (first non-option argv, since"
- warn "     upstream can prepend `-c` CLI overrides for tracing); miss that and the sandbox rewrite"
- warn "     stops silently, so a turn's own `dangerFullAccess` reaches Codex instead of our"
- warn "     `externalSandbox`. Does a worker launch still pass the preflight our shim must satisfy?"
+  warn "     codex_<thread>/claude_<session> id, and is ownership judged against the caller's"
+  warn "     parent **agent** or its conversation? That rule is the whole boundary for what a"
+  warn "     browser may send about a child, and subagent_stop is on the BFF allowlist."
+  warn "   * app-server-client.ts — the class bff/src/upstream/connection.ts wraps. Is a socket"
+  warn "     error listener still attached in the constructor (bun counts only EventEmitter"
+  warn "     listeners, so without one a refused handshake is an uncaught exception), and does"
+  warn "     connect() close the socket when the handshake fails?"
+  warn "   * codex-app-server.ts — how does it spawn the app-server now? The shim rewrites its"
+  warn "     stdin only when it reads \`app-server\` as the subcommand (first non-option argv, since"
+  warn "     upstream can prepend \`-c\` CLI overrides for tracing); miss that and the sandbox rewrite"
+  warn "     stops silently, so a turn's own \`dangerFullAccess\` reaches Codex instead of our"
+  warn "     \`externalSandbox\`. Does a worker launch still pass the preflight our shim must satisfy?"
 else
   echo "  none"
 fi
