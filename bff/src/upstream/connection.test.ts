@@ -588,6 +588,33 @@ test("the production client attaches to the socket's own error event", () => {
   expect(attached).toContain("error");
 });
 
+test("the production client keeps the reason a refused handshake loses", () => {
+  // The other half of that guard, and the half only we do: upstream's listener is a
+  // no-op, so what bun buries in the event — a real cause under `error`, while the
+  // rejection reads `[object ErrorEvent]` — survives only in our wrapper's
+  // `failureDetail()`. Every error handler attached at construction gets called, so
+  // this holds whichever of the two attaches first.
+  const handlers: Array<(event: unknown) => void> = [];
+  class EmittingSocket {
+    readyState = 0;
+    send(): void {}
+    close(): void {}
+    addEventListener(): void {}
+    removeEventListener(): void {}
+    on(type: string, handler?: (event: unknown) => void): void {
+      if (type === "error" && handler) handlers.push(handler);
+    }
+  }
+  const client = createAppServerClient("ws://127.0.0.1:4599/ws", {
+    WebSocket: EmittingSocket as never,
+  });
+  expect(client.failureDetail?.()).toBeNull();
+  for (const handler of handlers) {
+    handler({ error: new Error("WebSocket connection failed: Failed to connect") });
+  }
+  expect(client.failureDetail?.()).toContain("Failed to connect");
+});
+
 test("nothing is sent before the socket is up", () => {
   const client = new FakeClient();
   const { upstream } = makeConnection(client);
