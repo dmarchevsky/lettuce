@@ -174,23 +174,54 @@ Protocol drift shows up two ways:
      lettuce file touching them. Recount from the installed copy —
      `node_modules/.bun/@earendil-works+pi-ai@<v>*/…/pi-ai/dist/providers/data/openrouter.json`, a dict
      keyed by api type where chat is `anthropic-messages` + `openai-completions` (398 at 0.99.2 → 403 at
-     1.5.2) and `openrouter-images` (57 → 66) and `typesafe-system-one` (9 → 36) are not chat. Same turn
-     renamed Azure's provider id `azure-openai-responses` → `azure` with the old spelling aliased; nothing
-     in our tree names either.
+     1.5.2) and `openrouter-images` (57 → 66) and `typesafe-system-one` (9 → 36) are not chat. Take the
+     copy whose version the lockfile resolves: a bump leaves the previous copy installed beside it, and
+     the glob above matches either. The same number is repeated in code — the OpenRouter entry's
+     comment in `bff/src/providers/registry.ts` once claimed the catalog's Claude count and now refuses
+     to, because nothing catches a stale one. Same turn upstream renamed Azure's provider id
+     `azure-openai-responses` → `azure` with the old spelling aliased; nothing in our tree names either.
 
-   The rest of what the skills assert was re-checked over 0.34.56 → 0.34.63 and did **not** move:
-   `connection-lifecycle.ts`, `listener/lifecycle.ts`, `gateway-supervisor.ts`, `gateway-core.ts`,
-   `control-inputs.ts`, `interrupts.ts`, the channel state writers (accounts, credential store, routing,
-   pairing, access control), the mods paths and engine, `agent/skills.ts`, the MCP settings writers,
-   `utils/settings-path.ts`, `toolset-catalog.ts`, `background-process-protocol.ts`,
-   `schedule-protocol.ts` and the subagent steering guard. Two watched files moved and neither wants
-   code: `protocol_v2.ts` added `cloud_monitors` to the `ExperimentId` union, and nothing here switches
-   on an experiment id; `subagent-protocol.ts` added `"queued"` to `SubagentMessageResponse.delivery`
-   (0.34.62 — a steer aimed at a worker mid-tool-call is queued rather than refused), which stays unread
-   because `subagent_message` is on no BFF allowlist — if it ever is, `"queued"` needs its own label.
-   `external-coding-agent.ts` moved a comment and how a fork meets a default computer, which is Cloud
-   routing this stack has none of. A range that moves none of the rest still needs saying, or the next
-   sync reads the silence as an unread gap.
+   **Eleven watched files moved** over 0.34.56 → 0.34.63 (the list was 61 files at the time; it is a
+   line longer now). Take that count from
+   `git diff --name-only <old>..<new>` against the script's own two arrays, not from a hand-picked
+   list: this sync's first pass diffed a subset, reported three files, and silently filed the eight it
+   had forgotten as unchanged. What moved, and what it costs us:
+   - *typed and inert*: `protocol_v2.ts` (`cloud_monitors` joins the `ExperimentId` union; nothing here
+     switches on an experiment id) and `subagent-protocol.ts` (`"queued"` joins
+     `SubagentMessageResponse.delivery`, 0.34.62 — a steer aimed at a worker mid-tool-call is queued
+     rather than refused). The second stays unread because `subagent_message` is on no BFF allowlist;
+     if it ever is, `"queued"` needs a label of its own.
+   - **the subagent steering guard moved — ownership is now judged against the parent *agent*, not the
+     parent *conversation*** (`subagent-control.ts`, 0.34.59's worker handoffs: `parentConversationId`
+     is gone from `findOwnedTask` and `ownsNativeSession`, and the refusal text is `subagentAccessError`).
+     `subagent_stop` **is** on the BFF allowlist, so a stop from a different conversation of the same
+     agent is accepted where it was refused. One user behind one trust boundary, so this is a widening
+     rather than a hole — but it is the boundary this file exists to describe, so it is written down here
+     and nowhere else.
+   - *local provider, one family*: `pi-model-factory.ts`, `pi-stream-adapter.ts` and
+     `provider-turn-executor.ts`. Sampling (`max_tokens`, `temperature`, and now a `sampling_params`
+     pass-through) is gathered once and handed to pi-ai, so a model setting reaches a llama.cpp request
+     that used to be dropped quietly; and a tool call whose arguments fail to parse now yields provider
+     error chunks and ends the stream instead of forwarding a malformed call, which is what a small
+     local model does often enough to matter. Both land on shapes `bff/src/session/turn-usage.ts` and
+     `turn-errors.ts` read, and both help, so no code.
+   - *task surfaces*: `tools/manager.ts` (a `Task`/`Skill`/`Monitor` receipt now carries the executor's
+     own tool-call id), `tools/impl/task.ts` (a launch may append a result reminder; a fork's prompt is
+     validated before launch) and `tools/toolset.ts` (a caller-owned `readScopeState` wraps scope
+     metadata reads). None of it changes what a browser frame carries.
+   - the compaction pair above, and `external-coding-agent.ts` — a comment and how a fork meets a
+     default computer, which is Cloud routing this stack has none of.
+
+   Everything else on the list did **not** move: `connection-lifecycle.ts`, `listener/lifecycle.ts`,
+   `gateway-supervisor.ts`, `gateway-core.ts`, `control-inputs.ts`, `interrupts.ts`, the channel state
+   writers (accounts, credential store, routing, pairing, access control), the mods paths and engine,
+   `agent/skills.ts`, the MCP settings writers, `utils/settings-path.ts`, `toolset-catalog.ts`,
+   `background-process-protocol.ts`, `schedule-protocol.ts`, the mod-validation and connect-provider
+   paths. One file that is **not** on the list moved and matters more than most: `app-server-client.ts`,
+   which is what `bff/src/upstream/connection.ts` wraps — since 0.34.61 its constructor keeps a
+   permanent no-op `error` listener and `connect()` closes the socket on a failed handshake. It is
+   watched now; a range that moves none of them still needs saying, or the next sync reads the silence
+   as an unread gap.
 
 ### Version pinning
 
