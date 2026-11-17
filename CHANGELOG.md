@@ -5,6 +5,18 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.45.3-letta_0.34.63] - 2026-11-17
+
+### Fixed
+- **The agent runs a newer Letta Code.** 0.34.56 → 0.34.63, seven upstream releases, and three of
+  them land on what a local model server was getting away with: a tool call the model writes badly is
+  reported as an error instead of half-running; a model's sampling settings (temperature, maximum
+  output) reach the server instead of being dropped on the way there; and a refused app-server
+  connection no longer leaves a dead socket behind on every retry, which is what a cold boot with the
+  model server still starting looks like. A long conversation can now be summarized by the model it is
+  already talking to rather than dropping its oldest turns — that mode is there and stays off until
+  someone asks for it.
+
 ## [v0.45.2-letta_0.34.56] - 2026-11-16
 
 ### Fixed
