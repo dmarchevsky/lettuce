@@ -92,6 +92,13 @@ own test — and repeat on the merged artifact if the bundle changed:
    that reads wrong, or a state no one tested, is not.
 4. Record what was looked at in the PR's container-test section: surfaces, widths, states.
 
+**When a screenshot is itself the deliverable** (a README image, a mockup), also review each element at
+the size it actually renders, not only in the full-page PNG: a fixture avatar glyph that must read inside
+a 28px disc (~13px of glyph) is invisible at 1280x800, and a full-page-only pass ships it. The crop must
+come from the generator itself (no PIL or ImageMagick on this machine): capture the element — or a clip at
+`deviceScaleFactor` 2–3 — alongside the full page, and look at both before committing. An operator caught
+what the full-page pass missed and it cost a full regenerate-and-commit round.
+
 Fix what the pass finds before the PR; a visual-pass finding that changes scope goes back to gate 1.
 
 ## Every operator round re-proves, and re-sweeps
