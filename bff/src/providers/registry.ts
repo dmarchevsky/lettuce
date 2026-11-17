@@ -136,8 +136,11 @@ export const PROVIDER_TYPES: readonly ProviderType[] = [
     baseUrl: "https://openrouter.ai/api/v1",
     keyOptional: false,
     connection: "openrouter",
-    // Its catalog serves 15 Claude models on `…/api` (Anthropic Messages) and the
-    // rest on `…/api/v1`; a stored base URL replaces both, so those 15 then 404.
+    // Its catalog serves its Claude models on `…/api` (Anthropic Messages) and the
+    // rest on `…/api/v1`; a stored base URL replaces both, so the Claude ones then
+    // 404. No count here on purpose: which models sit in that group is whatever the
+    // pi-ai catalog bundled with this letta-code release says, and it moves between
+    // releases — 15 at 0.34.56, 20 at 0.34.63 — with nothing to catch a stale one.
     endpointNote:
       "Claude models served through OpenRouter's Anthropic API won't work on a custom endpoint.",
   },
