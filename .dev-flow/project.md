@@ -50,7 +50,14 @@ Release? was answered, state the new one back and wait.
 `protect` and `forbid` name a path and its subtree; a glob works in the **last segment only**, as a
 sibling set: `protect docker/.env*` covers `.env` and every `docker/.env.bak-20261021` a variable flip
 leaves beside it. Flip a variable **in place** anyway instead of copying `.env` aside, and never `-f` add
-an ignored dotfile — `git add -f docker/.env.bak` is a public secret, not a shortcut. Committing the
+an ignored dotfile — `git add -f docker/.env.bak` is a public secret, not a shortcut.
+
+**A probe never prints a credential file.** `protect` and `forbid` keep secrets out of git; the session
+transcript is the other leak, and reviews and reflections read it back. To learn what a credential-bearing
+file holds, grep for key names (`grep -o '"apiKey"' file`, `jq keys file`), never `cat` it; a per-machine
+password is read into a variable or a file descriptor, never printed — `head -c` on the file is a leak
+too. A plan-stage environment survey that `cat`-ed a live models.json dumped a provider apiKey into the
+transcript this way. Committing the
 playbook itself is the one `-f` add that is right (`.dev-flow/` is ignored, `project.md` is tracked):
 `git add -f .dev-flow/project.md` on its own line — a plain `git add` exits 1 and silently drops the
 `&& git commit` chained after it.
@@ -74,10 +81,18 @@ before moving on.
 
 A one-line `--patch` plan is not enough when the change **stands in for upstream letta-code behaviour**: name the upstream command path (`file:line`) it short-circuits in the plan line, before Approve?, so the ordering assumption is on disk and checkable before code is written — a patch flow has no plan file, so that line is the only place a wrong assumption can surface. A cache once keyed its fill on `runtime_start_response`, but upstream replays state *before* that response (`src/websocket/listener/commands/runtime-start.ts`): the design could never fill, and the cache and its tests were rewritten after implementation through a second review round.
 
+**A plan states the bump *class*, never a literal version tag** — MINOR or PATCH, nothing more. The tag is
+cut at pre-release and a parallel flow can release while this one is open: a plan that guessed the next tag
+was stale on arrival (the real tag landed one minute before the plan was written) and the correction had to
+be paid at pre-release. And **a measurement the plan names as a gate must be closed explicitly, not
+outlived**: when the operator waives a named precondition verbally, write the waiver into plan.md (in a
+`--patch`/`--docs` flow, which has no plan file, into the plan line) and the PR body — what was measured, or that the work proceeded unmeasured and what would change if the number
+comes back low — so a precondition cannot die silently behind a proceed-anyway.
+
 An asked-for *skill* settles its harness **before the flow starts**: `.agents/skills/` is this repo's dev harness — pi reads it in the checkout, and nothing mounts this checkout into a container, so it reaches no agent — while `docker/agent-skills/` is what ships: the bff image carries it and `bff/src/agent-skills.ts` installs it into `/root/.letta/skills` on every connect, global to every agent (Settings → Global skills). Ask which one is meant when it is ambiguous; guessing wrong once cost a whole extra unversioned flow for a skill that could never reach the app, plus a modify/delete rebase conflict when the harness copy was deleted.
 
 Anything user-visible starts with `flow start <slug> --ui`. A docs-only change (nothing under `bff/`,
-`web/` or `docker/`) still needs a flow: `flow start <slug> --patch` — and `--patch` / `--docs` are the
+`web/` or `docker/`) still needs a flow: `flow start <slug> --docs` — and `--patch` / `--docs` are the
 operator's grant in chat, never self-selected. `flow approve` cuts the branch from
 `origin/main` as this clone last fetched it, so `git fetch` right before approving — an unfetched
 `origin/main` puts the whole feature, its diff and every `flow check`, on a stale base that pre-release
@@ -86,7 +101,7 @@ pays for with a merge and a full CI re-run. Local-only commits on `main`
 
 **A fold is not done until a repo-wide grep says so.** When a reflection names one stale string or verb,
 `git grep` the whole tree, not the file the note names: a rename that left `ponytail-review` printing in
-`scripts/verify.ts`'s epilogue cost an extra commit, and the note itself pointed nowhere near it. A fold also **rewrites addresses before committing**: a reflection records what it really saw — one carried a docker bridge-gateway address verbatim — and `check-prod-info` fails any tracked file holding a private IPv4, so a fold that copies a literal LAN or bridge address out of a reflection is doomed to fail its own gate. Reword it to the mechanism ("the bridge-gateway address of the compose network"), or to RFC 5737's documentation range where a literal example is the point.
+`scripts/verify.ts`'s epilogue cost an extra commit, and the note itself pointed nowhere near it. A fold also **rewrites addresses before committing**: a reflection records what it really saw — one carried a docker bridge-gateway address verbatim — and `check-prod-info` fails any tracked file holding a private IPv4, so a fold that copies a literal LAN or bridge address out of a reflection is doomed to fail its own gate. Reword it to the mechanism ("the bridge-gateway address of the compose network"), or to RFC 5737's documentation range where a literal example is the point. A fold also **re-proves each reflection's claim against the thing it describes** before committing, not just greps for stale strings: in one fold three of nine folded claims were false as written, and a wrong rule in a rule doc is worse than the missing rule it replaced. And a fold touching `AGENTS.md` **buys room first** — `bun run check-docs --print-size` shows the bytes left, and the file ships within a hair of its budget, so a two-line addition costs several byte-shaving runs; move task-scoped prose into a skill in the same commit.
 
 ## implement
 
@@ -111,13 +126,18 @@ replaced by verify itself (dev-flow releases after 0.90.1): nobody is reviewing 
 `BUILD_INFO`; verify refuses when it is not the worktree's HEAD, which is the "still serving the previous
 bundle" failure `deploy-check` exists for, caught before the operator is asked.
 
-A **mid-flow recheck** runs against the shared stack, because there is no second stack to build: compose publishes the agents' web-app range `3000-3099` wide and only its bind address is configurable, so a hand-built parallel project — even one namespaced with `COMPOSE_PROJECT_NAME=lettuce$DEV_FLOW_SUFFIX` — dies with `port 3000 already allocated` and leaves its containers in `Created`. Route a recheck through `flow verify`, or scope it by hand to the one service that changed: `bun run build:bff` then `docker compose -f docker/compose.yml up -d --no-deps bff`. The `--no-deps` rule is not only for the release tail — a hand-run unscoped `up -d` from a worktree silently recreates `app-server` on the shared stack and kills every in-flight turn a parallel flow has open, with no drain. The playbook's own unscoped `dev` run is not the forbidden case: `flow verify` is sanctioned because it enforces port ownership, names the holder and asks **replace or wait** before anything is recreated — the rule is *never unscoped by hand*, not *never unscoped*.
+A **mid-flow recheck** runs against the shared stack, because there is no second stack to build: compose publishes the agents' web-app range `3000-3099` wide and only its bind address is configurable, so a hand-built parallel project — even one namespaced with `COMPOSE_PROJECT_NAME=lettuce$DEV_FLOW_SUFFIX` — dies with `port 3000 already allocated` and leaves its containers in `Created`. Route a recheck through `flow verify`, or scope it by hand to the one service that changed: `bun run build:bff` then `docker compose -f docker/compose.yml up -d --no-deps bff`. A hand-scoped recheck **runs from the worktree whose deploy you are refreshing**, never from the main checkout while a flow's branch deploy is live: build:bff's image tag is the checkout's release literal (the compose image-tag default, kept equal to `VERSION`), so both checkouts build to the *same* tag with different content — building from main retags and recreates the shared `bff` onto main's bundle and the review target silently changes under the operator, with nothing warning. The `--no-deps` rule is not only for the release tail — a hand-run unscoped `up -d` from a worktree silently recreates `app-server` on the shared stack and kills every in-flight turn a parallel flow has open, with no drain. The playbook's own unscoped `dev` run is not the forbidden case: `flow verify` is sanctioned because it enforces port ownership, names the holder and asks **replace or wait** before anything is recreated — the rule is *never unscoped by hand*, not *never unscoped*.
 
 `bun run verify` is the whole offline half (worktree, version pins, prod-info, release hygiene, docs,
 lint, typecheck, tests, build), so no separate `build` key. The commands assume `bun` on PATH, which the
 harness env does not guarantee: `bun: command not found` means pi was started without `~/.bun/bin`, and
 the fix is a symlink into a directory already on PATH (`ln -s ~/.bun/bin/bun ~/.local/bin/bun`) — a
-machine fix, not a playbook edit. `bun run ui-check` can fail the same way from a fresh worktree: its
+machine fix, not a playbook edit. A tier-1 test must not bound wall-clock time: `verify` runs the whole
+suite, so a test that asserts milliseconds loses on a loaded machine and costs a full verify cycle — one
+perf test failed inside `flow verify` and was rewritten to assert the deterministic work count with a
+loose ceiling that only catches deleting the bound. Assert the count the code enforces, not a tight
+millisecond budget under full-suite load — the one allowed elapsed-time form is exactly that loose ceiling,
+whose only job is to go red when the bound gets deleted. `bun run ui-check` can fail the same way from a fresh worktree: its
 `bun install` resolves a Playwright whose pinned Chromium build is not the one this machine caches, so
 either `npx playwright install chromium` once, or set `PLAYWRIGHT_CHROMIUM` to the cached
 `~/.cache/ms-playwright/chromium_headless_shell-<build>/chrome-headless-shell-linux64/chrome-headless-shell`.
@@ -134,7 +154,14 @@ temp dir, `Cannot find module './harness.ts'` unless you import the worktree pat
 ~/.cache/ms-playwright/chromium_headless_shell-<other>/…` from the flow dir or the main checkout, which reads
 like a machine problem and is the same cwd problem. `PLAYWRIGHT_CHROMIUM` is the override for the last one only.
 A failed `setup` fails `flow approve`
-and runs again on the next one; a `--docs` flow skips it.
+and runs again on the next one; a `--docs` flow skips it — **so nothing is installed there**: a docs flow
+whose task runs a project tool (`bun run screenshots`, a Playwright render) must `bun install` in its own
+worktree first, and `bun run build` when the tool needs `web/dist`, or the tool fails confusingly (`No
+build at web/dist`, a Playwright that cannot resolve); when a screenshot is the artifact (the README generator), the render-size rule in `lettuce-ui-verification` applies too. And **a `--docs` flow stops being docs-only the
+moment its branch touches `bff/`, `web/` or `docker/`** — even a comment-only edit — while `flow check`
+keeps printing "project commands skipped": docs mode runs zero checks over a tree that ships. The instant
+the diff leaves the doc paths, run `bun run verify` by hand before Verified?, and say plainly in the PR
+that the container pass was skipped and why.
 
 **Verify is two steps, and the first one is the deploy.** `flow verify` (no `--confirmed`) rebases the
 branch onto `origin/main` when it is behind, then runs `dev` itself — `build:bff`, then `up -d` — proves
@@ -143,7 +170,10 @@ deploy; do not run the step by hand first, and do not write "no container was re
 verify printed it. **That deploy is the one the operator clicks**: sign in, look at the change, then ask
 Verified? in chat and record it with `flow verify --confirmed`. That second run re-checks the same stack
 (the image build is cached and compose converges where nothing changed), and it refuses if `origin/main`
-moved since — run `flow verify` again rather than asking over a tree that is no longer what ships. A
+moved since — run `flow verify` again rather than asking over a tree that is no longer what ships. When a
+parallel flow released while this one was open, merge `origin/main` into the worktree **before** asking
+Verified?: the collision is `CHANGELOG.md`, which verify's own auto-rebase cannot resolve, and a question
+discarded by the moved gate has to be re-asked after a hand rebase plus a full verify re-run. A
 rebase that stops on conflicts is aborted and handed back: resolve it in the worktree, then re-run. When
 the operator asks you to "deploy this branch", `flow verify` is that command. `health` is a single `/readyz` probe; dev-flow
 retries it within `healthWait`.
@@ -162,7 +192,11 @@ A look at the running stack never mutates operator state on its own. Move nothin
 `$LETTA_STATE_DIR` or `/app/auth`, never claim an instance you were not handed, and keep nothing durable in
 a container path — the next recreate deletes it. A session that moved the sign-in hash aside to photograph a
 locked screen, keeping its only backup inside `bff`, cost the operator their password when the container was
-rebuilt. Copy state **out** to the host to photograph it, or add data instead of moving it.
+rebuilt. Copy state **out** to the host to photograph it, or add data instead of moving it. And a seed on the
+shared stack is not cleaned up until a re-listing shows it gone: after deleting seeded files, list the path
+again (`ls`, `list_memory`, whatever fits) and quote the listing in the checkpoint. Empty directories
+survive file deletes — root-owned under the bind mount, so the host cannot `rmdir` them; remove them with
+`docker exec` inside the owning container. Never report residue as removed.
 
 **Never ask Verified? of a stack that is not up.** Prove it before the question: every service running
 (`docker ps`, or `docker compose -f docker/compose.yml ps` run from the **main** checkout — a worktree
@@ -205,7 +239,7 @@ run them records **what it probed in the container** instead — in the PR's *Wh
 plainly that a human pass on the sign-in path is still owed. `flow verify` deploying and probing `/readyz`
 is not that pass and never counts as one.
 
-**A `flow_stage` worker gets three more lines in its brief, because it has no operator to ask.**
+**A `flow_stage` worker gets four more lines in its brief, because it has no operator to ask.**
 - **Never type a compose lifecycle command — `down`, `stop`, `kill`, `rm`, `restart`.** The compose file pins
   `name: lettuce`, so a `down -v` typed in a copy of the file still tears down the real one-per-machine stack
   and its named volumes. Prove compose interpolation with `docker compose config` in a scratch directory and
@@ -218,6 +252,10 @@ is not that pass and never counts as one.
 - **Keep guarded commands out of chains.** A refusal takes the whole command down with it, so a blocked
   `docker …` also kills the read-only `grep` chained after it, and the worker reports a probe it never
   ran. One guarded command per call, or none.
+- **A `--patch` flow has no plan file, so the brief must carry the facts, not just the branch.** Hand a
+  review worker the upstream `file:line` and the frame order the change leans on — the ones the driver
+  already established — or it spends half its budget re-deriving them from `letta-code/` and needs a
+  steer to file a report at all.
 
 When the branch edits `scripts/ui-check.ts` itself, the owed item
 is narrower: **the operator runs `bun run ui-check` once** during the container test — a click-through does
@@ -241,7 +279,8 @@ which starts sidecars and can recreate `app-server`: name that in the handoff ra
       recreated a service mid-pass — if it did, pause and tell the operator instead of asking
 - [ ] the branch is on current `origin/main` before any review — `flow verify` rebases it for the deploy, but
       a `/flow-review` run earlier in implement judges the branch against the skills it branched from: if a
-      parallel flow landed since, rebase first (`git rebase origin/main` in the worktree) and re-run the checks
+      parallel flow landed since, update first (`git merge origin/main` in the worktree; once the branch is
+      pushed, merging is also the `## global` rule — never rebase a pushed branch) and re-run the checks
 
 ## pre-release
 
@@ -258,9 +297,17 @@ why `versionTag` is a bare `{version}` — do not let the doctor re-add the `v`.
 user-facing functionality, PATCH for everything else that ships. The version is cut here, per feature:
 **one commit** bumps VERSION and renames `## [Unreleased]` to `## [v…] - <date>`, leaving an empty
 `## [Unreleased]` above it — `check-release-hygiene` fails the branch when the two disagree, so a rename
-without a bump is red. The heading an entry lands under is what CI derives the bump from: `### Added` and
+without a bump is red. **The bump commit waits for the operator's bump word** — a bare Verified? is not
+one: hold the prep commit until the operator names the class (MINOR or PATCH) or says unversioned; when
+Verified? arrives without a class, ask in the same breath as Verified?. Cutting the whole prep commit on an
+assumed class once produced hours of soft-reset rework on history that was about to be pushed.
+The heading an entry lands under is what CI derives the bump from: `### Added` and
 `### Changed` are proof of a MINOR, so a PATCH flow files its entry under `### Fixed` or `### Removed`
-— otherwise the derivation answers `unknown` against a `bump:patch` label. A flow that ships no version runs `flow release --no-version` on the operator's
+— otherwise the derivation answers `unknown` against a `bump:patch` label. Reconcile the operator's bump
+word against the changelog heading **before** cutting the prep commit, not when the hygiene check answers
+`unknown`: an operator who holds a patch anyway against an `### Added` entry has made a deliberate
+override, not an oversight — say so in the PR body and the prep commit message so nobody rediscovers it
+as a bug. A flow that ships no version runs `flow release --no-version` on the operator's
 word instead, **and it still owes its line**: an unversioned flow files one `## [Unreleased]` entry even
 when `lettuce-releasing` calls the change internal-only, because the next versioned release folds
 `Unreleased` under its heading and remembers what no image carries. No gate enforces that debt on a `bump:none` branch — `check-release-hygiene --pr` passes a docs branch with no entry and `flow release --no-version` accepts such a tree — so the line is the agent's duty, and a green hygiene run is not evidence it was written. A harness-only entry (playbook, skills,
@@ -315,6 +362,13 @@ the post-merge checks below run **before** it, not after it. Nothing here deploy
 tagged without the operator's **Release?** for that specific change — a standing yes from an earlier
 change is not one. dev-flow refuses `gh pr merge` and tag pushes before `flow release`; after it, the
 merge guard wants the style spelled out (`gh pr merge <n> --merge`).
+
+**Re-read a PR body you edited before reporting from it.** `gh pr edit --body-file` can fail — GitHub's
+Projects (classic) deprecation surfaced as a GraphQL error that made `gh` exit 1 with the edit not
+applied — so the checkbox flips it was meant to apply never land, and a `gh pr checks --watch` chained
+after it dies with it; a chat summary written from intent then says the opposite of what GitHub holds. The PR body is the gate list the operator trusts: after any
+body edit, `gh pr view <n> --json body` and quote what is actually there; never chain a watch or a report
+behind an edit whose exit code you have not checked.
 
 **A watch that reports no checks has not watched anything.** `gh pr checks <n> --watch` run straight after
 `gh pr create` can exit at once with "no checks reported on the branch" because the runs have not

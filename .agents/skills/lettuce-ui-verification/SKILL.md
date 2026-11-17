@@ -1,6 +1,6 @@
 ---
 name: lettuce-ui-verification
-description: 'lettuce UI-change gates: before implementing any web/ change, mock the target state at phone (390px) and desktop (1280px) into the flow plan and get the mockups approved; after implementing, a holistic visual pass over screenshots and the live page — task accomplishment, consistency with sibling screens, broken layout, overflows, stray scrollbars — never pixel diffs. Mechanics: a static mock page linking web/src/styles.css for fidelity, rendered to plan/mockups/ PNGs with headless chromium and embedded in plan.md, plus Playwright screenshots and ui-check output in .ui-check/. Read before implementing any web/ UI change, before handing a UI change off for the container test, or when a review asks "does this fit the app".'
+description: 'lettuce UI-change gates: before implementing any web/ change, mock the target state at phone (390px) and desktop (1280px) into the flow plan and get the mockups approved; after implementing, a holistic visual pass over screenshots and the live page — task accomplishment, consistency with sibling screens, broken layout, overflows, stray scrollbars — never pixel diffs. Mechanics: a static mock page linking web/src/styles.css for fidelity, rendered to plan/mockups/ PNGs with headless chromium and embedded in plan.md, plus Playwright screenshots and ui-check output in .ui-check/. Also when a screenshot is itself the deliverable (a README image, a mockup crop): review the element at the size it really renders. Read before implementing any web/ UI change, before handing a UI change off for the container test, before regenerating a README screenshot, or when a review asks "does this fit the app".'
 ---
 
 # UI change gates: mockups before, visual pass after
@@ -91,6 +91,13 @@ own test — and repeat on the merged artifact if the bundle changed:
 3. Pixel accuracy is **not** the goal — placement inside a few pixels of a mock is fine; a control
    that reads wrong, or a state no one tested, is not.
 4. Record what was looked at in the PR's container-test section: surfaces, widths, states.
+
+**When a screenshot is itself the deliverable** (a README image, a mockup), also review each element at
+the size it actually renders, not only in the full-page PNG: a fixture avatar glyph that must read inside
+a 28px disc (~13px of glyph) is invisible at 1280x800, and a full-page-only pass ships it. The crop must
+come from the generator itself (no PIL or ImageMagick on this machine): capture the element — or a clip at
+`deviceScaleFactor` 2–3 — alongside the full page, and look at both before committing. An operator caught
+what the full-page pass missed and it cost a full regenerate-and-commit round.
 
 Fix what the pass finds before the PR; a visual-pass finding that changes scope goes back to gate 1.
 

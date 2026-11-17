@@ -5,6 +5,10 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Changed
+- **The playbook absorbed sixteen session reflections:** fold discipline, credential-safe probing,
+  bump-word rules and render-size screenshot review are written rules now.
+
 ## [v0.45.3-letta_0.34.63] - 2026-11-17
 
 ### Fixed
