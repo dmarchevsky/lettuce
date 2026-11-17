@@ -85,14 +85,14 @@ A one-line `--patch` plan is not enough when the change **stands in for upstream
 cut at pre-release and a parallel flow can release while this one is open: a plan that guessed the next tag
 was stale on arrival (the real tag landed one minute before the plan was written) and the correction had to
 be paid at pre-release. And **a measurement the plan names as a gate must be closed explicitly, not
-outlived**: when the operator waives a named precondition verbally, write the waiver into plan.md and the
-PR body — what was measured, or that the work proceeded unmeasured and what would change if the number
+outlived**: when the operator waives a named precondition verbally, write the waiver into plan.md (in a
+`--patch`/`--docs` flow, which has no plan file, into the plan line) and the PR body — what was measured, or that the work proceeded unmeasured and what would change if the number
 comes back low — so a precondition cannot die silently behind a proceed-anyway.
 
 An asked-for *skill* settles its harness **before the flow starts**: `.agents/skills/` is this repo's dev harness — pi reads it in the checkout, and nothing mounts this checkout into a container, so it reaches no agent — while `docker/agent-skills/` is what ships: the bff image carries it and `bff/src/agent-skills.ts` installs it into `/root/.letta/skills` on every connect, global to every agent (Settings → Global skills). Ask which one is meant when it is ambiguous; guessing wrong once cost a whole extra unversioned flow for a skill that could never reach the app, plus a modify/delete rebase conflict when the harness copy was deleted.
 
 Anything user-visible starts with `flow start <slug> --ui`. A docs-only change (nothing under `bff/`,
-`web/` or `docker/`) still needs a flow: `flow start <slug> --patch` — and `--patch` / `--docs` are the
+`web/` or `docker/`) still needs a flow: `flow start <slug> --docs` — and `--patch` / `--docs` are the
 operator's grant in chat, never self-selected. `flow approve` cuts the branch from
 `origin/main` as this clone last fetched it, so `git fetch` right before approving — an unfetched
 `origin/main` puts the whole feature, its diff and every `flow check`, on a stale base that pre-release
@@ -126,7 +126,7 @@ replaced by verify itself (dev-flow releases after 0.90.1): nobody is reviewing 
 `BUILD_INFO`; verify refuses when it is not the worktree's HEAD, which is the "still serving the previous
 bundle" failure `deploy-check` exists for, caught before the operator is asked.
 
-A **mid-flow recheck** runs against the shared stack, because there is no second stack to build: compose publishes the agents' web-app range `3000-3099` wide and only its bind address is configurable, so a hand-built parallel project — even one namespaced with `COMPOSE_PROJECT_NAME=lettuce$DEV_FLOW_SUFFIX` — dies with `port 3000 already allocated` and leaves its containers in `Created`. Route a recheck through `flow verify`, or scope it by hand to the one service that changed: `bun run build:bff` then `docker compose -f docker/compose.yml up -d --no-deps bff`. A hand-scoped recheck **runs from the worktree whose deploy you are refreshing**, never from the main checkout while a flow's branch deploy is live: `build:bff` tags by the checkout's `VERSION`, so building from main retags and recreates the shared `bff` onto main's bundle and the review target silently changes under the operator, with nothing warning. The `--no-deps` rule is not only for the release tail — a hand-run unscoped `up -d` from a worktree silently recreates `app-server` on the shared stack and kills every in-flight turn a parallel flow has open, with no drain. The playbook's own unscoped `dev` run is not the forbidden case: `flow verify` is sanctioned because it enforces port ownership, names the holder and asks **replace or wait** before anything is recreated — the rule is *never unscoped by hand*, not *never unscoped*.
+A **mid-flow recheck** runs against the shared stack, because there is no second stack to build: compose publishes the agents' web-app range `3000-3099` wide and only its bind address is configurable, so a hand-built parallel project — even one namespaced with `COMPOSE_PROJECT_NAME=lettuce$DEV_FLOW_SUFFIX` — dies with `port 3000 already allocated` and leaves its containers in `Created`. Route a recheck through `flow verify`, or scope it by hand to the one service that changed: `bun run build:bff` then `docker compose -f docker/compose.yml up -d --no-deps bff`. A hand-scoped recheck **runs from the worktree whose deploy you are refreshing**, never from the main checkout while a flow's branch deploy is live: build:bff's image tag is the checkout's release literal (the compose image-tag default, kept equal to `VERSION`), so both checkouts build to the *same* tag with different content — building from main retags and recreates the shared `bff` onto main's bundle and the review target silently changes under the operator, with nothing warning. The `--no-deps` rule is not only for the release tail — a hand-run unscoped `up -d` from a worktree silently recreates `app-server` on the shared stack and kills every in-flight turn a parallel flow has open, with no drain. The playbook's own unscoped `dev` run is not the forbidden case: `flow verify` is sanctioned because it enforces port ownership, names the holder and asks **replace or wait** before anything is recreated — the rule is *never unscoped by hand*, not *never unscoped*.
 
 `bun run verify` is the whole offline half (worktree, version pins, prod-info, release hygiene, docs,
 lint, typecheck, tests, build), so no separate `build` key. The commands assume `bun` on PATH, which the
@@ -135,8 +135,9 @@ the fix is a symlink into a directory already on PATH (`ln -s ~/.bun/bin/bun ~/.
 machine fix, not a playbook edit. A tier-1 test must not bound wall-clock time: `verify` runs the whole
 suite, so a test that asserts milliseconds loses on a loaded machine and costs a full verify cycle — one
 perf test failed inside `flow verify` and was rewritten to assert the deterministic work count with a
-loose ceiling that only catches deleting the bound. Assert the count the code enforces, never elapsed
-time under full-suite load. `bun run ui-check` can fail the same way from a fresh worktree: its
+loose ceiling that only catches deleting the bound. Assert the count the code enforces, not a tight
+millisecond budget under full-suite load — the one allowed elapsed-time form is exactly that loose ceiling,
+whose only job is to go red when the bound gets deleted. `bun run ui-check` can fail the same way from a fresh worktree: its
 `bun install` resolves a Playwright whose pinned Chromium build is not the one this machine caches, so
 either `npx playwright install chromium` once, or set `PLAYWRIGHT_CHROMIUM` to the cached
 `~/.cache/ms-playwright/chromium_headless_shell-<build>/chrome-headless-shell-linux64/chrome-headless-shell`.
@@ -156,7 +157,7 @@ A failed `setup` fails `flow approve`
 and runs again on the next one; a `--docs` flow skips it — **so nothing is installed there**: a docs flow
 whose task runs a project tool (`bun run screenshots`, a Playwright render) must `bun install` in its own
 worktree first, and `bun run build` when the tool needs `web/dist`, or the tool fails confusingly (`No
-build at web/dist`, a Playwright that cannot resolve). And **a `--docs` flow stops being docs-only the
+build at web/dist`, a Playwright that cannot resolve); when a screenshot is the artifact (the README generator), the render-size rule in `lettuce-ui-verification` applies too. And **a `--docs` flow stops being docs-only the
 moment its branch touches `bff/`, `web/` or `docker/`** — even a comment-only edit — while `flow check`
 keeps printing "project commands skipped": docs mode runs zero checks over a tree that ships. The instant
 the diff leaves the doc paths, run `bun run verify` by hand before Verified?, and say plainly in the PR
@@ -278,7 +279,8 @@ which starts sidecars and can recreate `app-server`: name that in the handoff ra
       recreated a service mid-pass — if it did, pause and tell the operator instead of asking
 - [ ] the branch is on current `origin/main` before any review — `flow verify` rebases it for the deploy, but
       a `/flow-review` run earlier in implement judges the branch against the skills it branched from: if a
-      parallel flow landed since, rebase first (`git rebase origin/main` in the worktree) and re-run the checks
+      parallel flow landed since, update first (`git merge origin/main` in the worktree; once the branch is
+      pushed, merging is also the `## global` rule — never rebase a pushed branch) and re-run the checks
 
 ## pre-release
 
@@ -361,10 +363,10 @@ tagged without the operator's **Release?** for that specific change — a standi
 change is not one. dev-flow refuses `gh pr merge` and tag pushes before `flow release`; after it, the
 merge guard wants the style spelled out (`gh pr merge <n> --merge`).
 
-**Re-read a PR body you edited before reporting from it.** `gh pr edit --body-file` can exit 1 on a
-GitHub GraphQL error (a deprecation warning is enough) while looking like it ran, so the checkbox flips it
-was meant to apply never land and a chained `gh pr checks --watch` dies with it — leaving a chat summary
-that says the opposite of what GitHub holds. The PR body is the gate list the operator trusts: after any
+**Re-read a PR body you edited before reporting from it.** `gh pr edit --body-file` can fail — GitHub's
+Projects (classic) deprecation surfaced as a GraphQL error that made `gh` exit 1 with the edit not
+applied — so the checkbox flips it was meant to apply never land, and a `gh pr checks --watch` chained
+after it dies with it; a chat summary written from intent then says the opposite of what GitHub holds. The PR body is the gate list the operator trusts: after any
 body edit, `gh pr view <n> --json body` and quote what is actually there; never chain a watch or a report
 behind an edit whose exit code you have not checked.
 
