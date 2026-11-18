@@ -61,6 +61,7 @@ const PINS: Pin[] = [
     where: "docker/compose.yml (app-server build args)",
     pattern: /CLAUDE_CODE_VERSION:\s*\$\{CLAUDE_CODE_VERSION:-([^}]+)\}/,
     source: { kind: "npm", pkg: "@anthropic-ai/claude-code" },
+    note: "npm's `latest` is the channel we follow (this package's `stable` tag trails it on purpose); the shim depends on its stream-json flags and `auth status --json` shape, so re-run a worker after a bump",
   },
   {
     name: "WORKSPACE_MCP_VERSION",
