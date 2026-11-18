@@ -176,8 +176,8 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   scoped `.entry .rail` and the nav's responsive rules are tagged `nav.rail`; `styles.css`
   comments both leaks at their rules.
 - **Settings are split by scope, and the split is the UI's only statement of it.** The **Agent** tab
-  (`web/src/tabs/AgentTab.tsx`) holds what belongs to the selected agent: General (name, model, base
-  system prompt, delete), its **Tools** chip (`web/src/components/AgentToolsSection.tsx`, which
+  (`web/src/tabs/AgentTab.tsx`) holds what belongs to the selected agent: General (name, model,
+  model call limit, avatar, base system prompt, compaction mode, delete), its **Tools** chip (`web/src/components/AgentToolsSection.tsx`, which
   shared tool families that agent is offered and what each one points at *for it*), Secrets,
   Reflection, and the Skills it sees. Tools is a chip and not a pane for the rule below: its record is
   keyed by `agent_id`. **Settings** (`web/src/tabs/SettingsTab.tsx`) is a **pane**, not a modal: it

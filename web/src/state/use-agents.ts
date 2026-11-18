@@ -50,6 +50,100 @@ export interface AgentDetail {
   name: string;
   system: string;
   modelHandle: string | null;
+  compaction: CompactionSettings;
+}
+
+/** The four local compaction modes upstream accepts (`LocalCompactionMode`, letta-code `src/backend/local/compaction.ts`). */
+export type CompactionMode =
+  | "sliding_window"
+  | "self_compact_sliding_window"
+  | "all"
+  | "self_compact_all";
+
+/**
+ * What the UI shows for one agent's compaction. `source` is the stored record as it
+ * arrived: the write replaces the agent's whole record upstream
+ * (`LocalStore.setAgentCompactionSettings`), so keys this UI does not own — the
+ * `prompt` and `clip_chars` upstream's own `self-configuration` skill writes — have
+ * to be passed back through verbatim or a Save here deletes them.
+ */
+export interface CompactionSettings {
+  mode: CompactionMode;
+  /** Whole percent for the UI; the protocol keeps it as a fraction of the window. */
+  slidingWindowPercent: number;
+  source: Record<string, unknown>;
+}
+
+export const DEFAULT_COMPACTION_MODE: CompactionMode = "sliding_window";
+/** Upstream's `LOCAL_DEFAULT_SLIDING_WINDOW_PERCENTAGE = 0.3`, in percent points. */
+export const DEFAULT_SLIDING_WINDOW_PERCENT = 30;
+
+const COMPACTION_MODES: readonly CompactionMode[] = [
+  "sliding_window",
+  "self_compact_sliding_window",
+  "all",
+  "self_compact_all",
+];
+
+/** Only the sliding modes drop turns, so only they use the drop percentage. */
+export function isSlidingWindowMode(mode: CompactionMode): boolean {
+  return mode === "sliding_window" || mode === "self_compact_sliding_window";
+}
+
+/**
+ * Parse the agent record's `compaction_settings` tolerantly: the record is optional and
+ * free-form on the protocol (upstream validates only `mode`), so anything unknown shows
+ * as the upstream default. The protocol's `sliding_window_percentage` is a fraction
+ * (0.3); the UI works in percent points.
+ */
+export function readCompactionSettings(raw: unknown): CompactionSettings {
+  const settings = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const mode = COMPACTION_MODES.includes(settings.mode as CompactionMode)
+    ? (settings.mode as CompactionMode)
+    : DEFAULT_COMPACTION_MODE;
+  const fraction = settings.sliding_window_percentage;
+  const slidingWindowPercent =
+    typeof fraction === "number" && Number.isFinite(fraction) && fraction > 0 && fraction <= 1
+      ? Math.round(fraction * 100)
+      : DEFAULT_SLIDING_WINDOW_PERCENT;
+  return { mode, slidingWindowPercent, source: settings };
+}
+
+/**
+ * 1–80, not 1–100: upstream's sliding planner steps the eviction fraction up by 0.1
+ * and throws once it reaches 1.0 (`planLocalSlidingWindowCompaction`), and the
+ * fallback for that error is a whole-transcript `all` compaction — the opposite of
+ * what the sliding-mode caption promises.
+ */
+export function parseSlidingWindowPercent(text: string): number | undefined {
+  const trimmed = text.trim();
+  if (!/^\d+$/.test(trimmed)) return undefined;
+  const percent = Number(trimmed);
+  return percent >= 1 && percent <= 80 ? percent : undefined;
+}
+
+/**
+ * The `compaction_settings` record to write. Upstream stores this whole record in
+ * place of the old one, so every key this UI does not own rides along from `source`
+ * — and an untouched drop percentage passes through as its raw fraction too: showing
+ * 0.125 as 13% and writing 13 back would quietly rewrite upstream's number on an
+ * unrelated mode-only Save.
+ */
+export function buildCompactionRecord(
+  source: Record<string, unknown>,
+  next: { mode: CompactionMode; slidingWindowPercent: number; percentEdited: boolean },
+): Record<string, unknown> {
+  const record: Record<string, unknown> = { ...source, mode: next.mode };
+  const raw = source.sliding_window_percentage;
+  // Any finite stored number passes through untouched — normalizing weird values is
+  // upstream's job at compaction time, and rewriting them here would be ours.
+  const rawUsable = typeof raw === "number" && Number.isFinite(raw);
+  if (!next.percentEdited && rawUsable) {
+    record.sliding_window_percentage = raw;
+  } else {
+    record.sliding_window_percentage = next.slidingWindowPercent / 100;
+  }
+  return record;
 }
 
 export interface AgentDraft {
@@ -135,6 +229,7 @@ function readAgentDetail(id: string, raw: unknown): AgentDetail {
     name: typeof agent.name === "string" ? agent.name : id,
     system: typeof agent.system === "string" ? agent.system : "",
     modelHandle: readAgentModelHandle(agent),
+    compaction: readCompactionSettings(agent.compaction_settings),
   };
 }
 
@@ -156,6 +251,11 @@ export interface AgentsApi {
     draft: AgentDraft,
   ) => Promise<{ id: string; faceFailed: boolean }>;
   updateAgent: (agentId: string, draft: AgentDraft) => Promise<void>;
+  /**
+   * Writes the compaction record (from `buildCompactionRecord`). Rejects when the
+   * write failed — the caller's Save button is the place that has to say so.
+   */
+  saveAgentCompaction: (agentId: string, record: Record<string, unknown>) => Promise<void>;
   deleteAgent: (agentId: string) => Promise<void>;
   /** Agent ids pinned to the top of every agent list; `agents` is already in that order. */
   pinned: ReadonlySet<string>;
@@ -497,6 +597,24 @@ export function useAgents(session: SessionApi): AgentsApi {
     [request, refreshAgents, applyAgentModel],
   );
 
+  /**
+   * `agent_update` takes `compaction_settings` as its own body part — upstream stores
+   * the whole record verbatim and leaves `name`/`system` alone when the body omits
+   * them — so this is a separate write from the General form's Save. The caller
+   * builds the record with `buildCompactionRecord`, which carries the stored record's
+   * foreign keys through: the stored record is replaced, not merged.
+   */
+  const saveAgentCompaction = useCallback(
+    async (target: string, record: Record<string, unknown>) => {
+      const response = await request("agent_update", {
+        agent_id: target,
+        body: { compaction_settings: record },
+      });
+      assertOk(response, "Failed to save the compaction settings");
+    },
+    [request],
+  );
+
   const deleteAgent = useCallback(
     async (target: string) => {
       const response = await request("agent_delete", { agent_id: target });
@@ -586,6 +704,7 @@ export function useAgents(session: SessionApi): AgentsApi {
     retrieveAgent,
     createAgent,
     updateAgent,
+    saveAgentCompaction,
     deleteAgent,
     pinned: pinnedSet,
     setPinned,

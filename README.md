@@ -70,6 +70,9 @@ before exposing anything.
 - **Per-agent model call limit.** Cap how many model calls one turn may make, in
   Agent → General, so a looping agent stops instead of running all night. It
   holds for chats, crons and Telegram alike.
+- **Per-agent compaction.** Choose what happens when an agent fills its context — drop the
+  oldest turns, or summarize them, in a separate request or inside the agent's own request
+  (no extra summariser model needed) — in Agent → General.
 
 ### Working from your phone
 

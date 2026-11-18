@@ -6,7 +6,16 @@ import {
 } from "../lib/agent-step-limit.ts";
 import type { AvatarPref } from "../lib/agent-tint.ts";
 import { errorMessage } from "../lib/errors.ts";
-import type { AgentDraft, AgentsApi } from "../state/use-agents.ts";
+import {
+  type AgentDraft,
+  type AgentsApi,
+  buildCompactionRecord,
+  type CompactionMode,
+  DEFAULT_COMPACTION_MODE,
+  DEFAULT_SLIDING_WINDOW_PERCENT,
+  isSlidingWindowMode,
+  parseSlidingWindowPercent,
+} from "../state/use-agents.ts";
 import { useModels } from "../state/use-models.ts";
 import type { SessionApi } from "../state/use-session.ts";
 import { AgentAvatar } from "./AgentAvatar.tsx";
@@ -14,6 +23,33 @@ import { ModelField } from "./AgentEditor.tsx";
 import { AvatarSheet } from "./AvatarSheet.tsx";
 import { DeleteAgentSheet } from "./DeleteAgentSheet.tsx";
 import { toast } from "./Toast.tsx";
+
+const COMPACTION_OPTIONS: Array<{ mode: CompactionMode; label: string; caption: string }> = [
+  {
+    mode: "sliding_window",
+    label: "Drop the oldest turns (default)",
+    caption:
+      "When this agent fills its context: the oldest turns are dropped, nothing is summarized. The cheapest mode, and the default.",
+  },
+  {
+    mode: "self_compact_sliding_window",
+    label: "Summarize in context, then drop the oldest turns",
+    caption:
+      "When this agent fills its context: the oldest turns are summarized inside the agent's own request first, then dropped.",
+  },
+  {
+    mode: "all",
+    label: "Summarize the whole conversation (separate request)",
+    caption:
+      "When this agent fills its context: a separate summariser request carries a truncated transcript of the whole conversation and returns one summary. More faithful than dropping, pricier than sliding.",
+  },
+  {
+    mode: "self_compact_all",
+    label: "Summarize the whole conversation in context",
+    caption:
+      "When this agent fills its context: the whole conversation is summarized inside the agent's own request — no separate summariser call, and the most faithful summary. The summary request is as big as the conversation.",
+  },
+];
 
 interface Props {
   session: SessionApi;
@@ -44,6 +80,14 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
   const [stepLimitSaved, setStepLimitSaved] = useState("");
   /** Why the model call limit could not be read; its field is disabled until a reload. */
   const [stepLimitError, setStepLimitError] = useState<string | null>(null);
+  /** The compaction mode and drop percentage, staged like every other field: Save commits them. */
+  const [compactionMode, setCompactionMode] = useState<CompactionMode>(DEFAULT_COMPACTION_MODE);
+  const [compactionModeSaved, setCompactionModeSaved] =
+    useState<CompactionMode>(DEFAULT_COMPACTION_MODE);
+  const [dropPercent, setDropPercent] = useState(String(DEFAULT_SLIDING_WINDOW_PERCENT));
+  const [dropPercentSaved, setDropPercentSaved] = useState(String(DEFAULT_SLIDING_WINDOW_PERCENT));
+  /** The stored record as loaded — keys this form does not own ride back through it. */
+  const [compactionSource, setCompactionSource] = useState<Record<string, unknown>>({});
   const [choosingAvatar, setChoosingAvatar] = useState(false);
   const [deleting, setDeleting] = useState(false);
   /** Only a failed load — a save result is a toast, it does not live on the page. */
@@ -82,6 +126,7 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
         };
         const chosen = avatarsRef.current[agentId] ?? {};
         const limitText = limit === null ? "" : String(limit);
+        const percentText = String(detail.compaction.slidingWindowPercent);
         setDraft(loaded);
         setSaved(loaded);
         setAvatar(chosen);
@@ -89,6 +134,11 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
         setStepLimit(limitText);
         setStepLimitSaved(limitText);
         setStepLimitError(error);
+        setCompactionMode(detail.compaction.mode);
+        setCompactionModeSaved(detail.compaction.mode);
+        setCompactionSource(detail.compaction.source);
+        setDropPercent(percentText);
+        setDropPercentSaved(percentText);
       } catch (cause) {
         if (!cancelled) setStatus(errorMessage(cause));
       } finally {
@@ -114,7 +164,11 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
     (avatar.image ?? null) !== (avatarSaved.image ?? null);
   const stepLimitValue = parseStepLimitInput(stepLimit);
   const stepLimitDirty = stepLimit.trim() !== stepLimitSaved;
-  const dirty = agentFieldsDirty || avatarDirty || stepLimitDirty;
+  const showDropPercent = isSlidingWindowMode(compactionMode);
+  const dropPercentValue = parseSlidingWindowPercent(dropPercent);
+  const compactionDirty =
+    compactionMode !== compactionModeSaved || dropPercent !== dropPercentSaved;
+  const dirty = agentFieldsDirty || avatarDirty || stepLimitDirty || compactionDirty;
 
   /** The model sheet stages a pick instead of applying it, so say that out loud. */
   const modelHint =
@@ -157,6 +211,37 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
         const limitText = savedLimit === null ? "" : String(savedLimit);
         setStepLimit(limitText);
         setStepLimitSaved(limitText);
+      }
+      // Its own write, whenever this part is dirty: upstream stores the record in
+      // place of the old one, so it is rebuilt from the record as loaded (foreign
+      // keys survive) and a mode switch saved while a hidden % field holds junk
+      // still writes — on the last good percentage, never silently skipped.
+      if (compactionDirty) {
+        const percent =
+          dropPercentValue ??
+          parseSlidingWindowPercent(dropPercentSaved) ??
+          DEFAULT_SLIDING_WINDOW_PERCENT;
+        const record = buildCompactionRecord(compactionSource, {
+          mode: compactionMode,
+          slidingWindowPercent: percent,
+          // Only a valid edit rewrites the fraction; junk in a hidden field counts
+          // as untouched, so the raw stored fraction passes through unchanged.
+          percentEdited: dropPercentValue !== undefined && dropPercent !== dropPercentSaved,
+        });
+        await agents.saveAgentCompaction(agentId, record);
+        // The written record becomes the base for the next write: a later
+        // percent-untouched Save must pass through what this one stored, not what
+        // the page first loaded.
+        setCompactionSource(record);
+        setCompactionModeSaved(compactionMode);
+        // The field shows what the store now holds — not what was typed: junk in a
+        // field that was only hidden must not come back as the current value when
+        // it reappears, and a loaded value this UI would not accept stays shown.
+        const stored = record.sliding_window_percentage;
+        const shown =
+          typeof stored === "number" ? String(Math.round(stored * 100)) : String(percent);
+        setDropPercent(shown);
+        setDropPercentSaved(shown);
       }
       toast(agentFieldsDirty ? "Saved — agents see it on their next turn" : "Saved");
     } catch (cause) {
@@ -205,6 +290,40 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
               : "Stops a turn after this many model calls (each tool round-trip is one), in chats, crons and Telegram alike. Empty means no limit."}
         </span>
       </label>
+
+      <label className="field">
+        Compaction
+        <select
+          value={compactionMode}
+          onChange={(event) => setCompactionMode(event.target.value as CompactionMode)}
+        >
+          {COMPACTION_OPTIONS.map((option) => (
+            <option key={option.mode} value={option.mode}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <span className="small">
+          {COMPACTION_OPTIONS.find((option) => option.mode === compactionMode)?.caption}
+        </span>
+      </label>
+      {showDropPercent ? (
+        <label className="field">
+          Drop per compaction (%)
+          {/* Text, not `type="number"`, for the reason the call-limit field gives: a
+              half-typed value must disable Save, not save as something else. */}
+          <input
+            type="text"
+            inputMode="numeric"
+            value={dropPercent}
+            onChange={(event) => setDropPercent(event.target.value)}
+          />
+          <span className="small">
+            Each compaction drops at least this much of the context window — more if the
+            conversation is still over it. Whole percent 1–80.
+          </span>
+        </label>
+      ) : null}
 
       <div className="field">
         Avatar
@@ -264,7 +383,16 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
       <button
         type="button"
         className="button"
-        disabled={busy || !dirty || !draft.name.trim() || stepLimitValue === undefined}
+        disabled={
+          busy ||
+          !dirty ||
+          !draft.name.trim() ||
+          stepLimitValue === undefined ||
+          // Only a *dirty* unparseable % blocks Save: a loaded fraction above 80
+          // (upstream's own self-configuration skill can store one) must not brick
+          // the whole form — nothing about it is being written.
+          (showDropPercent && dropPercentValue === undefined && dropPercent !== dropPercentSaved)
+        }
         onClick={() => void save()}
       >
         {busy ? "Saving…" : "Save"}
