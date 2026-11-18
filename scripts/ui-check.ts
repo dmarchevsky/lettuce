@@ -4373,7 +4373,9 @@ try {
     const before = (await trigger.innerText()).trim();
     check(
       "the model field is a trigger, and no model select is left",
-      (await page.locator(".pane .field select").count()) === 0,
+      // Scoped to the model's own field: Compaction is a legitimate select in the
+      // same pane since local-self-compaction; this asserts the *model* select died.
+      (await page.locator(".pane .field:has(.field-trigger) select").count()) === 0,
     );
     await trigger.click();
     const sheet = page.locator('.sheet-panel[aria-label="Model"]');
