@@ -20,10 +20,12 @@ export type GoogleService = (typeof GOOGLE_SERVICES)[number];
 const G = "https://www.googleapis.com/auth/";
 
 /**
- * workspace-mcp 2.1.0 `SERVICE_PERMISSION_LEVELS`, restricted to the four
+ * workspace-mcp 2.5.0 `SERVICE_PERMISSION_LEVELS`, restricted to the four
  * services exposed here. Each entry lists the scopes that level ADDS. Re-check
  * on every WORKSPACE_MCP_VERSION bump: a drifted table means the sidecar hides
- * tools the token could use, or — worse — offers tools the token cannot.
+ * tools the token could use, or — worse — offers tools the token cannot. The
+ * table (and `SERVICE_DENIED_ACTIONS`) is byte-identical from 2.1.0 through
+ * 2.5.0; 2.5.0 only adds a `+` level-union syntax we do not use.
  */
 export const PERMISSION_LEVELS = {
   gmail: [

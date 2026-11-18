@@ -133,7 +133,7 @@
         "detailed": {
           "default": false,
           "type": "boolean",
-          "description": "Whether to return detailed event information including description, location, colour (colorId), attendees, and attendee details (response status, organizer, optional flags). Recurring instances also report the parent series ID needed to edit the whole series; recurring masters report their raw RFC5545 recurrence rules; and events that are not ordinary confirmed meetings report their event type (outOfOffice, workingLocation, focusTime) and status. Defaults to False."
+          "description": "Whether to return detailed event information including description, location, colour (colorId), attendees, and attendee details (response status, organizer, optional flags). Recurring instances also report the parent series ID needed to edit the whole series; recurring masters report their raw RFC5545 recurrence rules; and events that are not ordinary confirmed meetings report their event type (outOfOffice, workingLocation, focusTime) and status. Custom reminders (an empty list means none), non-default visibility and transparency are reported too; events using the calendar's default reminders omit the Reminders line. Defaults to False."
         },
         "include_attachments": {
           "default": false,
@@ -235,7 +235,7 @@
   {
     "name": "get_gmail_message_content",
     "title": "Get Gmail Message Content",
-    "description": "Retrieves the full content (subject, sender, recipients, body) of a specific Gmail message.\n\nBodies are returned inline and truncated at 20,000 characters. Set full=True to\nget the complete, untruncated message instead: it is exported to storage and the\nresponse carries a short-lived download URL (HTTP transport) or file path (stdio\ntransport) rather than the body, so large messages never stream through the model\ncontext. Stateless deployments without GCS staging have no storage, so there\nfull=True returns the untruncated body inline; with GCS staging configured it\nreturns a signed download URL like any other HTTP deployment.",
+    "description": "Retrieves the full content (subject, sender, recipients, body) of a specific Gmail message.\n\nSet page_offset=0 to read the complete rendered body, excluding attachments and\nattached messages, as JSON pages of at most page_size characters. Follow\nnext_offset until complete=true, passing body_sha256 as expected_sha256 and\nkeeping body_format and include_links unchanged.\n\nBodies are returned inline and truncated at 20,000 characters. Set full=True to\nget the complete, untruncated message instead: it is exported to storage and the\nresponse carries a short-lived download URL (HTTP transport) or file path (stdio\ntransport) rather than the body, so large messages never stream through the model\ncontext. Stateless deployments without GCS staging have no storage, so there\nfull=True returns the untruncated body inline; with GCS staging configured it\nreturns a signed download URL like any other HTTP deployment.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -264,6 +264,34 @@
           "enum": ["full", "metadata"],
           "type": "string",
           "description": "Message format. \"full\" (default) includes\nthe body and attachments, \"metadata\" only headers."
+        },
+        "include_headers": {
+          "default": true,
+          "type": "boolean",
+          "description": "When False, omit the Subject/From/To/Date header\nsummary (attached messages' too), and with full=True name the export\nafter the message ID. Requires format='full'; body_format='raw' is only\nallowed when the raw message is exported to a file."
+        },
+        "include_links": {
+          "default": false,
+          "description": "When True, append a LINKS section listing the http(s) URLs from the HTML body that the text output omits. Only applies to body_format='text'.",
+          "type": "boolean"
+        },
+        "page_offset": {
+          "minimum": 0,
+          "type": "integer",
+          "default": null,
+          "description": "Character offset in the complete rendered body. Start at 0 and follow next_offset."
+        },
+        "page_size": {
+          "default": 20000,
+          "maximum": 20000,
+          "minimum": 1,
+          "type": "integer",
+          "description": "Maximum body characters per page, between 1 and 20,000."
+        },
+        "expected_sha256": {
+          "type": "string",
+          "default": null,
+          "description": "Optional previous body_sha256; rejects changed content."
         }
       },
       "required": ["message_id"],
@@ -303,7 +331,7 @@
             "type": "string"
           },
           "type": "array",
-          "description": "List of Gmail message IDs to retrieve (max 25 per batch)."
+          "description": "List of Gmail message IDs to retrieve; fetched in batches of 25."
         },
         "user_google_email": {
           "type": "string",
@@ -321,6 +349,11 @@
           "description": "Body output format (only applies when format='full'). 'text' (default) returns plaintext (HTML converted to text as fallback). 'html' returns the raw HTML body as-is without conversion. 'raw' fetches the full raw MIME message and returns the base64url-decoded content.",
           "enum": ["text", "html", "raw"],
           "type": "string"
+        },
+        "include_links": {
+          "default": false,
+          "description": "When True, append a LINKS section listing the http(s) URLs from the HTML body that the text output omits. Only applies to body_format='text'.",
+          "type": "boolean"
         }
       },
       "required": ["message_ids"],
@@ -373,6 +406,11 @@
         "include_analysis": {
           "default": false,
           "description": "When True, the return value is a dict with both the formatted thread content AND structured ownership analysis (last sender, ball-in-court verdict, per-sender message counts, participants). Defaults to False, in which case the existing string return shape is preserved.",
+          "type": "boolean"
+        },
+        "include_links": {
+          "default": false,
+          "description": "When True, append a LINKS section listing the http(s) URLs from the HTML body that the text output omits. Only applies to body_format='text'.",
           "type": "boolean"
         }
       },
@@ -433,6 +471,11 @@
           "description": "Body output format. 'text' (default) returns plaintext (HTML converted to text as fallback). 'html' returns the raw HTML body as-is without conversion. 'raw' fetches each message's full raw MIME content and returns the base64url-decoded body.",
           "enum": ["text", "html", "raw"],
           "type": "string"
+        },
+        "include_links": {
+          "default": false,
+          "description": "When True, append a LINKS section listing the http(s) URLs from the HTML body that the text output omits. Only applies to body_format='text'.",
+          "type": "boolean"
         }
       },
       "required": ["thread_ids"],
@@ -647,7 +690,7 @@
   {
     "name": "list_contacts",
     "title": "List Contacts",
-    "description": "List contacts for the authenticated user.",
+    "description": "List contacts for the authenticated user, optionally as a full or incremental sync.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -664,12 +707,22 @@
         "page_token": {
           "type": "string",
           "default": null,
-          "description": "Token for pagination."
+          "description": "Token for pagination. Keep all other arguments unchanged when following it."
         },
         "sort_order": {
           "type": "string",
           "default": null,
-          "description": "Sort order: \"LAST_MODIFIED_ASCENDING\", \"LAST_MODIFIED_DESCENDING\", \"FIRST_NAME_ASCENDING\", or \"LAST_NAME_ASCENDING\"."
+          "description": "Sort order: \"LAST_MODIFIED_ASCENDING\", \"LAST_MODIFIED_DESCENDING\", \"FIRST_NAME_ASCENDING\", or \"LAST_NAME_ASCENDING\". Not supported when syncing."
+        },
+        "request_sync_token": {
+          "default": false,
+          "type": "boolean",
+          "description": "Start a full sync. The last page returns a sync token."
+        },
+        "sync_token": {
+          "type": "string",
+          "default": null,
+          "description": "List only changes since the sync that returned this token, marking deleted contacts. The last page returns a new sync token."
         }
       },
       "required": [],
@@ -1015,7 +1068,7 @@
       "properties": {
         "query": {
           "type": "string",
-          "description": "The search query. Supports standard Gmail search operators."
+          "description": "The search query. Supports standard Gmail search operators.\nResults include drafts unless the query excludes them (e.g. in:sent or -in:drafts)."
         },
         "user_google_email": {
           "type": "string",
@@ -1035,7 +1088,7 @@
         "include_headers": {
           "default": false,
           "type": "boolean",
-          "description": "If True, also fetch each message's metadata and include\nSubject, From, and Date per result. Costs one metadata get per result,\ngrouped into HTTP batches of up to 10, plus retries for transient failures.\nDefaults to False (output unchanged from prior versions)."
+          "description": "If True, also fetch each message's metadata and include\nSubject, From, Date and label IDs (e.g. DRAFT, SENT) per result. Costs one\nmetadata get per result, grouped into HTTP batches of up to 10, plus retries\nfor transient failures.\nDefaults to False (output unchanged from prior versions)."
         }
       },
       "required": ["query"],

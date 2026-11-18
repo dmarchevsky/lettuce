@@ -2,7 +2,7 @@
   {
     "name": "batch_modify_gmail_message_labels",
     "title": "Batch Modify Gmail Message Labels",
-    "description": "Adds or removes labels from multiple Gmail messages in a single batch request.\n\nTakes MESSAGE ids, not thread ids. Gmail's batch endpoint returns no\nper-message result and silently ignores ids it does not recognise, so by\ndefault this reads the messages back afterwards and reports which ids\nactually changed.",
+    "description": "Adds or removes labels on many Gmail messages, or on every message of whole\nconversations via thread_ids.\n\nmessage_ids are sent in one users.messages.batchModify call (Gmail accepts\nup to 1000 ids per call). That endpoint returns no per-message result and\nsilently ignores ids it does not recognise, so by default the messages are\nread back afterwards to report which ids actually changed.\n\nthread_ids are modified one at a time with users.threads.modify, e.g.\narchive a conversation with remove_label_ids=[\"INBOX\"] or mark it read with\nremove_label_ids=[\"UNREAD\"]. Each thread reports its own outcome.\nmessage_ids and thread_ids can be combined; at least one is required, as is\nat least one of add_label_ids or remove_label_ids.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -12,11 +12,12 @@
           "default": "fixture@example.com"
         },
         "message_ids": {
+          "default": null,
           "items": {
             "type": "string"
           },
           "type": "array",
-          "description": "A list of message IDs to modify."
+          "description": "Message IDs to modify."
         },
         "add_label_ids": {
           "default": null,
@@ -24,7 +25,7 @@
             "type": "string"
           },
           "type": "array",
-          "description": "List of label IDs to add to the messages."
+          "description": "Label IDs to add."
         },
         "remove_label_ids": {
           "default": null,
@@ -32,15 +33,23 @@
             "type": "string"
           },
           "type": "array",
-          "description": "List of label IDs to remove from the messages."
+          "description": "Label IDs to remove."
         },
         "verify": {
           "default": true,
           "type": "boolean",
-          "description": "Read the messages back and report per-id outcomes. Costs\none extra (batched) read per id. Set False for very large sweeps\nwhere that cost matters and an unverified result is acceptable."
+          "description": "Read message_ids back and report per-id outcomes, at the\ncost of one extra read per id (batched 25 at a time). Set False for\nvery large sweeps where an unverified result is acceptable. Has no\neffect on thread_ids, which always report per thread."
+        },
+        "thread_ids": {
+          "default": null,
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Thread (conversation) IDs to modify."
         }
       },
-      "required": ["message_ids"],
+      "required": [],
       "additionalProperties": false
     },
     "outputSchema": {
@@ -66,58 +75,6 @@
     }
   },
   {
-    "name": "create_calendar",
-    "title": "Create Calendar",
-    "description": "Creates a new secondary Google Calendar.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "user_google_email": {
-          "type": "string",
-          "description": "The user's Google email address. Required.",
-          "default": "fixture@example.com"
-        },
-        "summary": {
-          "type": "string",
-          "description": "The title/name of the new calendar."
-        },
-        "description": {
-          "type": "string",
-          "default": null,
-          "description": "An optional description for the calendar."
-        },
-        "timezone": {
-          "type": "string",
-          "default": null,
-          "description": "IANA timezone for the calendar (e.g. 'America/New_York')."
-        }
-      },
-      "required": ["summary"],
-      "additionalProperties": false
-    },
-    "outputSchema": {
-      "type": "object",
-      "properties": {
-        "result": {
-          "type": "string"
-        }
-      },
-      "required": ["result"],
-      "x-fastmcp-wrap-result": true
-    },
-    "annotations": {
-      "readOnlyHint": false,
-      "destructiveHint": false,
-      "idempotentHint": false,
-      "openWorldHint": true
-    },
-    "_meta": {
-      "fastmcp": {
-        "tags": []
-      }
-    }
-  },
-  {
     "name": "draft_gmail_message",
     "title": "Draft Gmail Message",
     "description": "Creates a draft email in the user's Gmail account. Supports new, reply, and forward\ndrafts with optional attachments. Supports Gmail's \"Send As\" feature to draft from\nconfigured alias addresses.\n\nTo save a forward as a draft for review, pass forward_message_id. The original\nsubject, body (quoted with a \"Forwarded message\" header), and attachments are\ncarried over. In forward mode, body (if any) is prepended as a note, subject is\noptional, and threading, reply, and signature options do not apply.\n\nSCHEDULED SEND IS NOT AVAILABLE. Gmail's REST API exposes no send-time\nparameter; the Schedule send feature is web-UI only, and a message cannot be\nplaced in the Scheduled folder through the API. Do not claim a message was\nscheduled. To deliver at a chosen time, create a draft with\ndraft_gmail_message. An external scheduler must retain the message data to\ncreate and send a new message via send_gmail_message then, or call\nusers.drafts.send with the draft ID returned by draft_gmail_message.\nAlternatively, let the user schedule the draft in the Gmail UI.",
@@ -132,7 +89,7 @@
         "subject": {
           "type": "string",
           "default": null,
-          "description": "Email subject. Required unless forwarding (then defaults to 'Fwd: <original subject>')."
+          "description": "Email subject. Required for a new draft. Optional when replying with thread_id (inherits the parent message's subject, adding 'Re:' only if absent) or when forwarding (then defaults to 'Fwd: <original subject>')."
         },
         "body": {
           "type": "string",
@@ -141,7 +98,7 @@
         },
         "body_format": {
           "default": "plain",
-          "description": "Email body format. Use 'plain' for plaintext or 'html' for HTML content.",
+          "description": "Email body format. Use 'plain' for plaintext or 'html' for HTML content. With 'html', write real markup; an entity-escaped body ('&lt;div&gt;') is rejected.",
           "enum": ["plain", "html"],
           "type": "string"
         },
@@ -202,16 +159,27 @@
           },
           "type": "array",
           "default": null,
-          "description": "Optional list of attachments. Each can have: 'url' (fetch from URL — works with MCP attachment URLs from get_drive_file_download_url / get_gmail_attachment_content), OR 'path' (file path, auto-encodes), OR 'content' (standard base64, not urlsafe) + 'filename'. Optional 'mime_type'. Optional 'content_id' (string) makes the attachment inline-rendered: it lands in a multipart/related part with `Content-ID: <content_id>` and `Content-Disposition: inline`, and the HTML body can reference it via `<img src=\"cid:<content_id>\">` (RFC 2392). Without `content_id` the attachment is a regular multipart/mixed attachment."
+          "description": "Optional list of attachments. Each can have: 'url' (fetch from URL \u2014 works with MCP attachment URLs from get_drive_file_download_url / get_gmail_attachment_content), OR 'path' (file path, auto-encodes), OR 'content' (standard base64, not urlsafe) + 'filename'. Optional 'mime_type'. Optional 'content_id' (string) makes the attachment inline-rendered: it lands in a multipart/related part with `Content-ID: <content_id>` and `Content-Disposition: inline`, and the HTML body can reference it via `<img src=\"cid:<content_id>\">` (RFC 2392). Without `content_id` the attachment is a regular multipart/mixed attachment."
         },
         "include_signature": {
           "default": true,
           "description": "Whether to append the Gmail signature from Settings > Signature when available. Defaults to true.",
           "type": "boolean"
         },
+        "direction": {
+          "default": "auto",
+          "description": "Base text direction of the body. 'auto' (default) takes it from the first strong character (a right-to-left script gives 'rtl', anything else 'ltr'); 'ltr'/'rtl' force it. On a forward it orients the note.",
+          "enum": ["auto", "ltr", "rtl"],
+          "type": "string"
+        },
         "quote_original": {
           "default": false,
           "description": "Whether to include the original message as a quoted reply. Only has an effect when thread_id is provided. Defaults to false.",
+          "type": "boolean"
+        },
+        "reply_all": {
+          "default": false,
+          "description": "Whether to derive reply-all recipients from the thread: To = the sender being replied to, Cc = the other participants, excluding the authenticated account and from_email. Requires thread_id. Explicit to/cc win; when cc is omitted the sender being replied to is added to the derived Cc if they are not already in To. Defaults to false.",
           "type": "boolean"
         }
       },
@@ -374,7 +342,7 @@
         "detailed": {
           "default": false,
           "type": "boolean",
-          "description": "Whether to return detailed event information including description, location, colour (colorId), attendees, and attendee details (response status, organizer, optional flags). Recurring instances also report the parent series ID needed to edit the whole series; recurring masters report their raw RFC5545 recurrence rules; and events that are not ordinary confirmed meetings report their event type (outOfOffice, workingLocation, focusTime) and status. Defaults to False."
+          "description": "Whether to return detailed event information including description, location, colour (colorId), attendees, and attendee details (response status, organizer, optional flags). Recurring instances also report the parent series ID needed to edit the whole series; recurring masters report their raw RFC5545 recurrence rules; and events that are not ordinary confirmed meetings report their event type (outOfOffice, workingLocation, focusTime) and status. Custom reminders (an empty list means none), non-default visibility and transparency are reported too; events using the calendar's default reminders omit the Reminders line. Defaults to False."
         },
         "include_attachments": {
           "default": false,
@@ -476,7 +444,7 @@
   {
     "name": "get_gmail_message_content",
     "title": "Get Gmail Message Content",
-    "description": "Retrieves the full content (subject, sender, recipients, body) of a specific Gmail message.\n\nBodies are returned inline and truncated at 20,000 characters. Set full=True to\nget the complete, untruncated message instead: it is exported to storage and the\nresponse carries a short-lived download URL (HTTP transport) or file path (stdio\ntransport) rather than the body, so large messages never stream through the model\ncontext. Stateless deployments without GCS staging have no storage, so there\nfull=True returns the untruncated body inline; with GCS staging configured it\nreturns a signed download URL like any other HTTP deployment.",
+    "description": "Retrieves the full content (subject, sender, recipients, body) of a specific Gmail message.\n\nSet page_offset=0 to read the complete rendered body, excluding attachments and\nattached messages, as JSON pages of at most page_size characters. Follow\nnext_offset until complete=true, passing body_sha256 as expected_sha256 and\nkeeping body_format and include_links unchanged.\n\nBodies are returned inline and truncated at 20,000 characters. Set full=True to\nget the complete, untruncated message instead: it is exported to storage and the\nresponse carries a short-lived download URL (HTTP transport) or file path (stdio\ntransport) rather than the body, so large messages never stream through the model\ncontext. Stateless deployments without GCS staging have no storage, so there\nfull=True returns the untruncated body inline; with GCS staging configured it\nreturns a signed download URL like any other HTTP deployment.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -505,6 +473,34 @@
           "enum": ["full", "metadata"],
           "type": "string",
           "description": "Message format. \"full\" (default) includes\nthe body and attachments, \"metadata\" only headers."
+        },
+        "include_headers": {
+          "default": true,
+          "type": "boolean",
+          "description": "When False, omit the Subject/From/To/Date header\nsummary (attached messages' too), and with full=True name the export\nafter the message ID. Requires format='full'; body_format='raw' is only\nallowed when the raw message is exported to a file."
+        },
+        "include_links": {
+          "default": false,
+          "description": "When True, append a LINKS section listing the http(s) URLs from the HTML body that the text output omits. Only applies to body_format='text'.",
+          "type": "boolean"
+        },
+        "page_offset": {
+          "minimum": 0,
+          "type": "integer",
+          "default": null,
+          "description": "Character offset in the complete rendered body. Start at 0 and follow next_offset."
+        },
+        "page_size": {
+          "default": 20000,
+          "maximum": 20000,
+          "minimum": 1,
+          "type": "integer",
+          "description": "Maximum body characters per page, between 1 and 20,000."
+        },
+        "expected_sha256": {
+          "type": "string",
+          "default": null,
+          "description": "Optional previous body_sha256; rejects changed content."
         }
       },
       "required": ["message_id"],
@@ -544,7 +540,7 @@
             "type": "string"
           },
           "type": "array",
-          "description": "List of Gmail message IDs to retrieve (max 25 per batch)."
+          "description": "List of Gmail message IDs to retrieve; fetched in batches of 25."
         },
         "user_google_email": {
           "type": "string",
@@ -562,6 +558,11 @@
           "description": "Body output format (only applies when format='full'). 'text' (default) returns plaintext (HTML converted to text as fallback). 'html' returns the raw HTML body as-is without conversion. 'raw' fetches the full raw MIME message and returns the base64url-decoded content.",
           "enum": ["text", "html", "raw"],
           "type": "string"
+        },
+        "include_links": {
+          "default": false,
+          "description": "When True, append a LINKS section listing the http(s) URLs from the HTML body that the text output omits. Only applies to body_format='text'.",
+          "type": "boolean"
         }
       },
       "required": ["message_ids"],
@@ -614,6 +615,11 @@
         "include_analysis": {
           "default": false,
           "description": "When True, the return value is a dict with both the formatted thread content AND structured ownership analysis (last sender, ball-in-court verdict, per-sender message counts, participants). Defaults to False, in which case the existing string return shape is preserved.",
+          "type": "boolean"
+        },
+        "include_links": {
+          "default": false,
+          "description": "When True, append a LINKS section listing the http(s) URLs from the HTML body that the text output omits. Only applies to body_format='text'.",
           "type": "boolean"
         }
       },
@@ -674,6 +680,11 @@
           "description": "Body output format. 'text' (default) returns plaintext (HTML converted to text as fallback). 'html' returns the raw HTML body as-is without conversion. 'raw' fetches each message's full raw MIME content and returns the base64url-decoded body.",
           "enum": ["text", "html", "raw"],
           "type": "string"
+        },
+        "include_links": {
+          "default": false,
+          "description": "When True, append a LINKS section listing the http(s) URLs from the HTML body that the text output omits. Only applies to body_format='text'.",
+          "type": "boolean"
         }
       },
       "required": ["thread_ids"],
@@ -888,7 +899,7 @@
   {
     "name": "list_contacts",
     "title": "List Contacts",
-    "description": "List contacts for the authenticated user.",
+    "description": "List contacts for the authenticated user, optionally as a full or incremental sync.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -905,12 +916,22 @@
         "page_token": {
           "type": "string",
           "default": null,
-          "description": "Token for pagination."
+          "description": "Token for pagination. Keep all other arguments unchanged when following it."
         },
         "sort_order": {
           "type": "string",
           "default": null,
-          "description": "Sort order: \"LAST_MODIFIED_ASCENDING\", \"LAST_MODIFIED_DESCENDING\", \"FIRST_NAME_ASCENDING\", or \"LAST_NAME_ASCENDING\"."
+          "description": "Sort order: \"LAST_MODIFIED_ASCENDING\", \"LAST_MODIFIED_DESCENDING\", \"FIRST_NAME_ASCENDING\", or \"LAST_NAME_ASCENDING\". Not supported when syncing."
+        },
+        "request_sync_token": {
+          "default": false,
+          "type": "boolean",
+          "description": "Start a full sync. The last page returns a sync token."
+        },
+        "sync_token": {
+          "type": "string",
+          "default": null,
+          "description": "List only changes since the sync that returned this token, marking deleted contacts. The last page returns a new sync token."
         }
       },
       "required": [],
@@ -1175,6 +1196,98 @@
     }
   },
   {
+    "name": "manage_calendar",
+    "title": "Manage Calendar",
+    "description": "Creates secondary Google Calendars and manages who a calendar is shared with (its access control rules).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "user_google_email": {
+          "type": "string",
+          "description": "The user's Google email address. Required.",
+          "default": "fixture@example.com"
+        },
+        "action": {
+          "type": "string",
+          "description": "Action to perform. One of:\n- \"create\": Create a new secondary calendar. Uses summary, description, timezone.\n- \"list_sharing\": List the calendar's sharing rules. Uses calendar_id, page_token.\n- \"share\": Grant access to the calendar. Uses calendar_id, role, scope_type, scope_value, send_notifications.\n- \"update_sharing\": Change the role of an existing rule. Uses calendar_id, rule_id, role, send_notifications.\n- \"unshare\": Remove an existing rule. Uses calendar_id, rule_id."
+        },
+        "summary": {
+          "type": "string",
+          "default": null,
+          "description": "The title/name of the new calendar. Required for \"create\"."
+        },
+        "description": {
+          "type": "string",
+          "default": null,
+          "description": "An optional description for the new calendar. Used by \"create\"."
+        },
+        "timezone": {
+          "type": "string",
+          "default": null,
+          "description": "IANA timezone for the new calendar (e.g. 'America/New_York'). Used by \"create\"."
+        },
+        "calendar_id": {
+          "default": "primary",
+          "type": "string",
+          "description": "Calendar ID for the sharing actions. Defaults to 'primary'."
+        },
+        "role": {
+          "type": "string",
+          "default": null,
+          "description": "Access level for \"share\" and \"update_sharing\". One of: \"freeBusyReader\", \"reader\", \"writerWithoutPrivateAccess\", \"writer\", \"owner\", \"none\"."
+        },
+        "scope_type": {
+          "default": "user",
+          "type": "string",
+          "description": "Who \"share\" grants access to: \"user\", \"group\", \"domain\", or \"default\" (public). Defaults to \"user\"."
+        },
+        "scope_value": {
+          "type": "string",
+          "default": null,
+          "description": "Email address for \"user\"/\"group\" or domain name for \"domain\". Required for \"share\" unless scope_type is \"default\"."
+        },
+        "rule_id": {
+          "type": "string",
+          "default": null,
+          "description": "Rule ID from \"list_sharing\" (e.g. \"user:alice@example.com\"). Required for \"update_sharing\" and \"unshare\"."
+        },
+        "send_notifications": {
+          "default": true,
+          "type": "boolean",
+          "description": "Whether to email the grantee on \"share\" and \"update_sharing\". Defaults to True."
+        },
+        "page_token": {
+          "type": "string",
+          "default": null,
+          "description": "For \"list_sharing\" action: token for the next page, taken from a previous response."
+        }
+      },
+      "required": ["action"],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "string"
+        }
+      },
+      "required": ["result"],
+      "x-fastmcp-wrap-result": true
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    }
+  },
+  {
     "name": "manage_contact",
     "title": "Manage Contact",
     "description": "Create, update, or delete a contact. Consolidated tool replacing create_contact,\nupdate_contact, and delete_contact.",
@@ -1231,7 +1344,7 @@
           },
           "type": "array",
           "default": null,
-          "description": "List of phone dicts {number, type?}.\nSupported types: mobile, work, home, main, workMobile, internal, other, etc.\nUse type=\"internal\" for internal PBX/ATS short numbers (e.g. 250, 301) — stored\nas a standalone number without + prefix, displayed as \"Internal: 250\"."
+          "description": "List of phone dicts {number, type?}.\nSupported types: mobile, work, home, main, workMobile, internal, other, etc.\nUse type=\"internal\" for internal PBX/ATS short numbers (e.g. 250, 301) \u2014 stored\nas a standalone number without + prefix, displayed as \"Internal: 250\"."
         },
         "emails": {
           "items": {
@@ -1393,7 +1506,7 @@
         "address": {
           "type": "string",
           "default": null,
-          "description": "Street address (for create/update)."
+          "description": "Street address, replacing any existing addresses. \"\" clears them (for create/update)."
         },
         "birthday": {
           "type": "string",
@@ -1428,7 +1541,7 @@
           "default": "merge",
           "enum": ["merge", "replace", "remove"],
           "type": "string",
-          "description": "How to update urls on \"update\": \"merge\" (default), \"replace\", or \"remove\".\nmerge dedups by normalized URL (lowercased, trailing slash stripped)."
+          "description": "How to update urls on \"update\": \"merge\" (default), \"replace\", or \"remove\".\nmerge and remove match URLs case-insensitively on scheme and host only, ignoring a trailing slash."
         },
         "user_defined_mode": {
           "default": "merge",
@@ -1797,7 +1910,7 @@
           },
           "type": "array",
           "default": null,
-          "description": "List of contact dicts for \"create\" action.\nEach dict may contain: given_name, family_name, phones, emails, organizations,\nnotes, address. Deprecated: phone, email, organization, job_title."
+          "description": "List of contact dicts for \"create\" action.\nEach dict may contain: given_name, family_name, phones, emails,\norganizations, nicknames, urls, user_defined, relations, notes, address,\nbirthday. Deprecated: phone, email, organization, job_title."
         },
         "updates": {
           "items": {
@@ -2049,7 +2162,7 @@
           ],
           "type": "string",
           "default": null,
-          "description": "For \"update\" action — the single People API field to update across\nall contacts in this batch. Required. Must be one of: names, phoneNumbers,\nemailAddresses, organizations, nicknames, urls, userDefined, relations,\nbiographies, addresses, birthdays. Using a single field per batch call prevents\nunintentional data loss from a union updateMask overwriting unrelated fields."
+          "description": "For \"update\" action, the single People API field to update across\nall contacts in this batch. Required. Must be one of: names, phoneNumbers,\nemailAddresses, organizations, nicknames, urls, userDefined, relations,\nbiographies, addresses, birthdays. Using a single field per batch call prevents\nunintentional data loss from a union updateMask overwriting unrelated fields."
         }
       },
       "required": ["action"],
@@ -2222,7 +2335,7 @@
         "color_id": {
           "type": "string",
           "default": null,
-          "description": "Event color ID (1-11, update only)."
+          "description": "Event color, by name or ID: lavender (1), sage (2),\ngrape (3), flamingo (4), banana (5), tangerine (6), peacock (7),\ngraphite (8), blueberry (9), basil (10), tomato (11)."
         },
         "recurrence": {
           "items": {
@@ -2250,7 +2363,7 @@
         "response": {
           "type": "string",
           "default": null,
-          "description": "RSVP response — \"accepted\", \"declined\", \"tentative\", or \"needsAction\" (rsvp action only)."
+          "description": "RSVP response \u2014 \"accepted\", \"declined\", \"tentative\", or \"needsAction\" (rsvp action only)."
         },
         "rsvp_comment": {
           "type": "string",
@@ -2260,7 +2373,7 @@
         "send_updates": {
           "type": "string",
           "default": null,
-          "description": "Notification behavior for create, update, delete, and rsvp — \"all\" (default), \"externalOnly\", or \"none\"."
+          "description": "Notification behavior for create, update, delete, and rsvp \u2014 \"all\" (default), \"externalOnly\", or \"none\"."
         },
         "start_timezone": {
           "type": "string",
@@ -2271,6 +2384,11 @@
           "type": "string",
           "default": null,
           "description": "IANA timezone for the end boundary only,\noverriding timezone. See start_timezone."
+        },
+        "this_and_following": {
+          "default": false,
+          "type": "boolean",
+          "description": "Update only. With event_id set to a recurring instance ID,\napplies the change to that instance and every later one by ending the original\nseries before it and starting a new series there; earlier instances are kept.\nUpdating the series ID instead changes every instance, and moving its start or\nrecurrence drops past instances that no longer match. Defaults to False."
         }
       },
       "required": ["action"],
@@ -2993,7 +3111,7 @@
       "properties": {
         "query": {
           "type": "string",
-          "description": "The search query. Supports standard Gmail search operators."
+          "description": "The search query. Supports standard Gmail search operators.\nResults include drafts unless the query excludes them (e.g. in:sent or -in:drafts)."
         },
         "user_google_email": {
           "type": "string",
@@ -3013,7 +3131,7 @@
         "include_headers": {
           "default": false,
           "type": "boolean",
-          "description": "If True, also fetch each message's metadata and include\nSubject, From, and Date per result. Costs one metadata get per result,\ngrouped into HTTP batches of up to 10, plus retries for transient failures.\nDefaults to False (output unchanged from prior versions)."
+          "description": "If True, also fetch each message's metadata and include\nSubject, From, Date and label IDs (e.g. DRAFT, SENT) per result. Costs one\nmetadata get per result, grouped into HTTP batches of up to 10, plus retries\nfor transient failures.\nDefaults to False (output unchanged from prior versions)."
         }
       },
       "required": ["query"],
@@ -3061,7 +3179,7 @@
         "subject": {
           "type": "string",
           "default": null,
-          "description": "Email subject. Required when sending; optional when forwarding (defaults to 'Fwd: <original subject>')."
+          "description": "Email subject. Required for a new message. Optional when replying with thread_id (inherits the parent message's subject, adding 'Re:' only if absent) or when forwarding (defaults to 'Fwd: <original subject>')."
         },
         "body": {
           "type": "string",
@@ -3070,7 +3188,7 @@
         },
         "body_format": {
           "default": "plain",
-          "description": "Format of the body content (and of the prepended note when forwarding). Use 'plain' for plaintext or 'html' for HTML content.",
+          "description": "Format of the body content (and of the prepended note when forwarding). Use 'plain' for plaintext or 'html' for HTML content. With 'html', write real markup; an entity-escaped body ('&lt;div&gt;') is rejected.",
           "enum": ["plain", "html"],
           "type": "string"
         },
@@ -3126,12 +3244,18 @@
           },
           "type": "array",
           "default": null,
-          "description": "Optional list of attachments. Each can have: \"url\" (fetch from URL — works with MCP attachment URLs from get_drive_file_download_url / get_gmail_attachment_content), OR \"path\" (file path, auto-encodes), OR \"content\" (standard base64, not urlsafe) + \"filename\". Optional \"mime_type\". Optional \"content_id\" (string) makes the attachment inline-rendered: it lands in a multipart/related part with `Content-ID: <content_id>` and `Content-Disposition: inline`, and the HTML body can reference it via `<img src=\"cid:<content_id>\">` (RFC 2392). Without `content_id` the attachment is a regular multipart/mixed attachment. Example: [{\"url\": \"https://host/attachments/abc-123\", \"filename\": \"report.pdf\"}]"
+          "description": "Optional list of attachments. Each can have: \"url\" (fetch from URL \u2014 works with MCP attachment URLs from get_drive_file_download_url / get_gmail_attachment_content), OR \"path\" (file path, auto-encodes), OR \"content\" (standard base64, not urlsafe) + \"filename\". Optional \"mime_type\". Optional \"content_id\" (string) makes the attachment inline-rendered: it lands in a multipart/related part with `Content-ID: <content_id>` and `Content-Disposition: inline`, and the HTML body can reference it via `<img src=\"cid:<content_id>\">` (RFC 2392). Without `content_id` the attachment is a regular multipart/mixed attachment. Example: [{\"url\": \"https://host/attachments/abc-123\", \"filename\": \"report.pdf\"}]"
         },
         "include_signature": {
           "default": true,
           "description": "Whether to append the Gmail signature from Settings > Signature when available. Defaults to true.",
           "type": "boolean"
+        },
+        "direction": {
+          "default": "auto",
+          "description": "Base text direction of the body. 'auto' (default) takes it from the first strong character (a right-to-left script gives 'rtl', anything else 'ltr'); 'ltr'/'rtl' force it. On a forward it orients the note.",
+          "enum": ["auto", "ltr", "rtl"],
+          "type": "string"
         },
         "quote_original": {
           "default": false,
@@ -3159,7 +3283,7 @@
     },
     "annotations": {
       "readOnlyHint": false,
-      "destructiveHint": false,
+      "destructiveHint": true,
       "idempotentHint": false,
       "openWorldHint": true
     },
