@@ -149,3 +149,22 @@ describe("agent compaction settings parsing", () => {
     ).toBe(0.2);
   });
 });
+
+// The second-Save sequencing that hid a real defect: the component must rebuild
+// from the record it just wrote, or an untouched-percent Save reverts the
+// fraction the previous Save stored.
+test("a follow-up mode-only Save keeps the fraction the previous Save wrote", () => {
+  const loaded = { mode: "sliding_window", sliding_window_percentage: 0.3 };
+  const first = buildCompactionRecord(loaded, {
+    mode: "sliding_window",
+    slidingWindowPercent: 45,
+    percentEdited: true,
+  });
+  expect(first.sliding_window_percentage).toBe(0.45);
+  const second = buildCompactionRecord(first, {
+    mode: "self_compact_all",
+    slidingWindowPercent: 45,
+    percentEdited: false,
+  });
+  expect(second).toEqual({ mode: "self_compact_all", sliding_window_percentage: 0.45 });
+});

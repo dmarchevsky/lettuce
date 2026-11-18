@@ -221,18 +221,27 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
           dropPercentValue ??
           parseSlidingWindowPercent(dropPercentSaved) ??
           DEFAULT_SLIDING_WINDOW_PERCENT;
-        await agents.saveAgentCompaction(
-          agentId,
-          buildCompactionRecord(compactionSource, {
-            mode: compactionMode,
-            slidingWindowPercent: percent,
-            // Only a valid edit rewrites the fraction; junk in a hidden field counts
-            // as untouched, so the raw stored fraction passes through unchanged.
-            percentEdited: dropPercentValue !== undefined && dropPercent !== dropPercentSaved,
-          }),
-        );
+        const record = buildCompactionRecord(compactionSource, {
+          mode: compactionMode,
+          slidingWindowPercent: percent,
+          // Only a valid edit rewrites the fraction; junk in a hidden field counts
+          // as untouched, so the raw stored fraction passes through unchanged.
+          percentEdited: dropPercentValue !== undefined && dropPercent !== dropPercentSaved,
+        });
+        await agents.saveAgentCompaction(agentId, record);
+        // The written record becomes the base for the next write: a later
+        // percent-untouched Save must pass through what this one stored, not what
+        // the page first loaded.
+        setCompactionSource(record);
         setCompactionModeSaved(compactionMode);
-        setDropPercentSaved(dropPercent);
+        // The field shows what the store now holds — not what was typed: junk in a
+        // field that was only hidden must not come back as the current value when
+        // it reappears, and a loaded value this UI would not accept stays shown.
+        const stored = record.sliding_window_percentage;
+        const shown =
+          typeof stored === "number" ? String(Math.round(stored * 100)) : String(percent);
+        setDropPercent(shown);
+        setDropPercentSaved(shown);
       }
       toast(agentFieldsDirty ? "Saved — agents see it on their next turn" : "Saved");
     } catch (cause) {
@@ -379,7 +388,10 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
           !dirty ||
           !draft.name.trim() ||
           stepLimitValue === undefined ||
-          (showDropPercent && dropPercentValue === undefined)
+          // Only a *dirty* unparseable % blocks Save: a loaded fraction above 80
+          // (upstream's own self-configuration skill can store one) must not brick
+          // the whole form — nothing about it is being written.
+          (showDropPercent && dropPercentValue === undefined && dropPercent !== dropPercentSaved)
         }
         onClick={() => void save()}
       >
