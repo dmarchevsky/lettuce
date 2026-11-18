@@ -5,6 +5,16 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.46.0-letta_0.34.63] - 2026-11-18
+
+### Added
+- **Each agent can now choose what happens when it fills its context.** Agent → General gains a
+  Compaction block: drop the oldest turns, or summarize them — in a separate summariser request,
+  or inside the agent's own request, which needs no second summariser model and so closes a hole
+  a llama.cpp install had. The sliding modes take a drop fraction (default 30% — at least that
+  much of the window goes each compaction). The choice is read at every compaction, including
+  the ones the context watchdog triggers.
+
 ## [v0.45.5-letta_0.34.63] - 2026-11-18
 
 ### Fixed
