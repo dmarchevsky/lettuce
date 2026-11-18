@@ -9,8 +9,8 @@ import {
 } from "../mcp-bridge/catalog.ts";
 import type { ListedTool, McpClientPort } from "../mcp-bridge/client.ts";
 import { bridgeHandlers, resolveTool, toolsForAgent } from "../mcp-bridge/tools.ts";
-import fullFixture from "./fixtures/workspace-mcp-2.1.0.full.json";
-import readonlyFixture from "./fixtures/workspace-mcp-2.1.0.readonly.json";
+import fullFixture from "./fixtures/workspace-mcp-2.5.0.full.json";
+import readonlyFixture from "./fixtures/workspace-mcp-2.5.0.readonly.json";
 import {
   availableGoogleTools,
   CURATED_GOOGLE_TOOLS,
@@ -47,13 +47,24 @@ async function catalogOf(listing: ListedTool[], servers: McpServer[] = [google])
 // ── The fixture is the contract with workspace-mcp ──────────────────────────
 // Recorded from the pinned image (WORKSPACE_MCP_VERSION) — refresh it on every
 // bump; these tests are what then say whether the curated mappings still fit.
-describe("curated Google tools against workspace-mcp 2.1.0", () => {
+describe("curated Google tools against workspace-mcp 2.5.0", () => {
   const byName = new Map(full.map((t) => [t.name, t]));
 
   test("every tool a curated tool needs exists", () => {
     for (const curated of CURATED_GOOGLE_TOOLS) {
       for (const need of curated.needs)
         expect(byName.has(need), `${curated.spec.name} → ${need}`).toBe(true);
+    }
+  });
+
+  test("no tool asks the caller for the account", () => {
+    // The fixture is recorded with USER_GOOGLE_EMAIL set, which is how the supervisor
+    // always runs the sidecar while it serves. Recorded without it, workspace-mcp marks
+    // the parameter required on every tool and the fixture pins a requirement the
+    // deployment never has — the BFF and the model alike omit it by design.
+    for (const tool of full) {
+      const required = (tool.inputSchema as { required?: string[] } | undefined)?.required ?? [];
+      expect(required, tool.name).not.toContain("user_google_email");
     }
   });
 
