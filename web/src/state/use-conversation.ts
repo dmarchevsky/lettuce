@@ -34,6 +34,7 @@ import {
   type TurnErrorRecord,
   transcriptFromHistory,
 } from "../lib/messages.ts";
+import { readWatchTarget, type WatchTarget } from "../lib/pr-watch.ts";
 import { frameSeq, type RuntimeScope, type SequencedFrame, scopeKey } from "../lib/protocol.ts";
 import { planForceSend, type QueuedItem, readQueue } from "../lib/queue-actions.ts";
 import { type ResponseFormat, validateResponseFormat } from "../lib/structured-output.ts";
@@ -74,6 +75,16 @@ export interface ToolsetSummary {
   featured: boolean;
 }
 
+/** `MonitorBackgroundProcessSummary["source"]` — the four sources that run locally. */
+export type MonitorSource = "command" | "websocket" | "script" | "github_pull_request";
+
+const MONITOR_SOURCES: readonly MonitorSource[] = [
+  "command",
+  "websocket",
+  "script",
+  "github_pull_request",
+];
+
 export interface BackgroundProcessSummary {
   processId: string;
   /** `workflow` is a native wire kind since letta-code 0.33 (`WorkflowBackgroundProcessSummary`). */
@@ -84,6 +95,12 @@ export interface BackgroundProcessSummary {
   subagentId?: string;
   /** A workflow's phase counts, parsed off the device-status `progress` field. */
   workflow?: WorkflowCounts;
+  /** A monitor's upstream source: `github_pull_request` is a `WatchPR`. */
+  monitorSource?: MonitorSource;
+  /** When a monitor started, for the row's "watching since" (`started_at_ms`). */
+  startedAtMs?: number;
+  /** A `WatchPR`'s rebuilt GitHub destination; absent for every other row. */
+  watch?: WatchTarget;
   /**
    * Whether this row has a stop that works from the browser: a running monitor
    * (`stop_monitor_task`) or a subagent the app-server still owns (`subagent_stop`).
@@ -230,6 +247,34 @@ function readToolsets(raw: unknown): ToolsetSummary[] {
   });
 }
 
+/**
+ * The two fields a monitor carries that the parser used to drop: `source` is what
+ * tells a PR watch from a `tail -f`, and `started_at_ms` how long it has been
+ * watching (upstream's local watch has no duration cap, so nothing here shows an
+ * expiry). A `WatchPR` also gets its rebuilt GitHub link, which needs the label.
+ *
+ * Upstream snapshots only *running* monitors and keeps no readable record of a
+ * finished one in local mode, so there is no terminal-state row to render: what a
+ * watch decided arrives in the conversation as a notice.
+ */
+function readMonitorFields(
+  entry: { source?: unknown; started_at_ms?: unknown },
+  description: string,
+): Pick<BackgroundProcessSummary, "monitorSource" | "startedAtMs" | "watch"> {
+  const source = entry.source;
+  const monitorSource =
+    typeof source === "string" && (MONITOR_SOURCES as readonly string[]).includes(source)
+      ? (source as MonitorSource)
+      : undefined;
+  return {
+    ...(monitorSource ? { monitorSource } : {}),
+    ...(typeof entry.started_at_ms === "number" ? { startedAtMs: entry.started_at_ms } : {}),
+    ...(monitorSource === "github_pull_request"
+      ? { watch: readWatchTarget(description) ?? undefined }
+      : {}),
+  };
+}
+
 export function readBackgroundProcesses(
   raw: unknown,
   liveSubagents: Record<string, LiveSubagent> = {},
@@ -246,6 +291,8 @@ export function readBackgroundProcesses(
       task_type?: unknown;
       subagent_id?: unknown;
       progress?: unknown;
+      source?: unknown;
+      started_at_ms?: unknown;
     };
     if (typeof entry.process_id !== "string") return [];
     const kind = entry.kind;
@@ -265,6 +312,7 @@ export function readBackgroundProcesses(
             : kind;
     const subagentId = typeof entry.subagent_id === "string" ? entry.subagent_id : undefined;
     const workflow = kind === "workflow" ? readWorkflowProgress(entry.progress) : null;
+    const monitor = kind === "monitor" ? readMonitorFields(entry, label) : {};
     return [
       {
         processId: entry.process_id,
@@ -273,6 +321,7 @@ export function readBackgroundProcesses(
         status,
         subagentId,
         ...(workflow ? { workflow } : {}),
+        ...monitor,
         // A subagent row is stoppable only while the snapshot list still names its child agent.
         // After an app-server restart nothing does, and the row simply has no Stop.
         stoppable:
