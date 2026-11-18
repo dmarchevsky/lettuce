@@ -5,6 +5,19 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.45.5-letta_0.34.63] - 2026-11-18
+
+### Fixed
+- **Google's sidecar runs newer.** workspace-mcp 2.1.0 → 2.5.0, four upstream releases. An existing
+  Google connection survives it — the permission levels, the token file format and the sidecar's
+  command line are unchanged across that range — and its tool list was re-recorded, which is what
+  Settings → Google Workspace and the Gmail, Calendar, Tasks and Contacts tools are checked against.
+  Through the general Google tools an agent can now relabel a whole Gmail thread at once, change one
+  occurrence of a recurring event, page through a long message and sync contacts incrementally.
+  Calendar sharing arrives upstream but is refused while an allowed-recipients list is set: the
+  recipient guard does not model the sharing endpoint, so it fails closed rather than mailing someone
+  off your list. The deploy rebuilds the Google sidecar image; `app-server` is untouched.
+
 ## [v0.45.4-letta_0.34.63] - 2026-11-17
 
 ### Changed
