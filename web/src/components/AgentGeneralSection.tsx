@@ -9,6 +9,7 @@ import { errorMessage } from "../lib/errors.ts";
 import {
   type AgentDraft,
   type AgentsApi,
+  buildCompactionRecord,
   type CompactionMode,
   DEFAULT_COMPACTION_MODE,
   DEFAULT_SLIDING_WINDOW_PERCENT,
@@ -85,6 +86,8 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
     useState<CompactionMode>(DEFAULT_COMPACTION_MODE);
   const [dropPercent, setDropPercent] = useState(String(DEFAULT_SLIDING_WINDOW_PERCENT));
   const [dropPercentSaved, setDropPercentSaved] = useState(String(DEFAULT_SLIDING_WINDOW_PERCENT));
+  /** The stored record as loaded — keys this form does not own ride back through it. */
+  const [compactionSource, setCompactionSource] = useState<Record<string, unknown>>({});
   const [choosingAvatar, setChoosingAvatar] = useState(false);
   const [deleting, setDeleting] = useState(false);
   /** Only a failed load — a save result is a toast, it does not live on the page. */
@@ -133,6 +136,7 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
         setStepLimitError(error);
         setCompactionMode(detail.compaction.mode);
         setCompactionModeSaved(detail.compaction.mode);
+        setCompactionSource(detail.compaction.source);
         setDropPercent(percentText);
         setDropPercentSaved(percentText);
       } catch (cause) {
@@ -208,13 +212,25 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
         setStepLimit(limitText);
         setStepLimitSaved(limitText);
       }
-      // Its own write: upstream stores the whole compaction record verbatim, so
-      // the mode change must not ride on the name/system `agent_update`.
-      if (compactionDirty && dropPercentValue !== undefined) {
-        await agents.saveAgentCompaction(agentId, {
-          mode: compactionMode,
-          slidingWindowPercent: dropPercentValue,
-        });
+      // Its own write, whenever this part is dirty: upstream stores the record in
+      // place of the old one, so it is rebuilt from the record as loaded (foreign
+      // keys survive) and a mode switch saved while a hidden % field holds junk
+      // still writes — on the last good percentage, never silently skipped.
+      if (compactionDirty) {
+        const percent =
+          dropPercentValue ??
+          parseSlidingWindowPercent(dropPercentSaved) ??
+          DEFAULT_SLIDING_WINDOW_PERCENT;
+        await agents.saveAgentCompaction(
+          agentId,
+          buildCompactionRecord(compactionSource, {
+            mode: compactionMode,
+            slidingWindowPercent: percent,
+            // Only a valid edit rewrites the fraction; junk in a hidden field counts
+            // as untouched, so the raw stored fraction passes through unchanged.
+            percentEdited: dropPercentValue !== undefined && dropPercent !== dropPercentSaved,
+          }),
+        );
         setCompactionModeSaved(compactionMode);
         setDropPercentSaved(dropPercent);
       }
@@ -266,7 +282,7 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
         </span>
       </label>
 
-      <div className="field">
+      <label className="field">
         Compaction
         <select
           value={compactionMode}
@@ -281,7 +297,7 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
         <span className="small">
           {COMPACTION_OPTIONS.find((option) => option.mode === compactionMode)?.caption}
         </span>
-      </div>
+      </label>
       {showDropPercent ? (
         <label className="field">
           Drop per compaction (%)
@@ -295,7 +311,7 @@ export function AgentGeneralSection({ session, agents, agentId }: Props) {
           />
           <span className="small">
             Each compaction drops at least this much of the context window — more if the
-            conversation is still over it. Whole percent 1–100.
+            conversation is still over it. Whole percent 1–80.
           </span>
         </label>
       ) : null}
