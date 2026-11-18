@@ -107,6 +107,8 @@ class GmailOtherTest(unittest.TestCase):
             ("DELETE", "labels/l1"),
             ("POST", "messages/m1/modify"),
             ("POST", "messages/batchModify"),
+            # 2.5.0's thread relabelling: labels notify nobody.
+            ("POST", "threads/t1/modify"),
             ("DELETE", "settings/filters/f1"),
         ]:
             self.assertIsNone(decide(method, f"{self.base}/{path}", "{}", ALLOWED, no_fetch), path)
@@ -215,6 +217,20 @@ class CalendarTest(unittest.TestCase):
             ("POST", "calendars/primary/events/watch"),
         ]:
             self.assertIsNotNone(decide(method, f"{base}/{path}", "{}", ALLOWED, no_fetch), path)
+
+    def test_calendar_sharing_is_refused_while_a_list_is_set(self):
+        # workspace-mcp 2.5.0's manage_calendar shares a calendar over the ACL API, and a
+        # share mails the grantee. The guard does not model those paths, so it fails closed;
+        # listing the rules is a read and passes.
+        base = "https://www.googleapis.com/calendar/v3"
+        for method, path in [
+            ("POST", "calendars/primary/acl"),
+            ("PUT", "calendars/primary/acl/user:friend@example.com"),
+            ("PATCH", "calendars/primary/acl/user:friend@example.com"),
+            ("DELETE", "calendars/primary/acl/user:friend@example.com"),
+        ]:
+            self.assertIsNotNone(decide(method, f"{base}/{path}", "{}", ALLOWED, no_fetch), path)
+        self.assertIsNone(decide("GET", f"{base}/calendars/primary/acl", None, ALLOWED, no_fetch))
 
     def test_calendar_quiet_writes_pass(self):
         base = "https://www.googleapis.com/calendar/v3"

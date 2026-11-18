@@ -85,20 +85,30 @@ Loaded from `AGENTS.md`. The sidecar is reachable by anything in the container; 
   schemas are large (`manage_event` has 32 parameters) and would ride in every turn's prefill.
   **Access control is unchanged:** a curated tool is registered only if the tool it maps to is
   in the sidecar's current `tools/list`, which `--permissions` and the granted scopes already
-  filter, so read-only Gmail never shows `gmail_send`. `user_google_email` is left out:
-  `--single-user` defaults it (and the bridge hides it from schemas). The mappings are pinned
+  filter, so read-only Gmail never shows `gmail_send`. `user_google_email` never reaches the model
+  (the bridge hides it) and nobody else passes it either: the supervisor always runs the sidecar
+  with `USER_GOOGLE_EMAIL` set to the grant's address, and workspace-mcp fills the parameter from
+  that env and patches its own schemas so it is not required — which is the only safe shape, since
+  its single-user mode returns no credentials for an address it has no credential file for instead
+  of falling back to another user. The mappings are pinned
   by a recorded `tools/list`
   (`bff/src/google/fixtures/workspace-mcp-<version>.{full,readonly}.json`, captured by running
   the pinned image alone with `--transport streamable-http --single-user --permissions
   gmail:full calendar:full tasks:full contacts:full --disabled-tools start_google_auth`, env
-  `WORKSPACE_MCP_HOST=0.0.0.0` and a dummy client — listing needs no token; repeat with every
-  level `readonly` for the second file) and `google/tools.test.ts` checks every mapped tool,
-  argument and read/write marking against it. **Refresh the fixture on every
-  `WORKSPACE_MCP_VERSION` bump.** The 1.29.0 → 2.1.0 bump moved none of what this mirrors —
-  `auth/permissions.py` (the level table), `auth/credential_store.py` (the token file an
-  existing grant is stored in) and the CLI flags are byte-identical across those releases, so
-  a connection survives the upgrade; diff those three files between the two images to know
-  whether a future bump needs a reconnect. What did move is tool schemas: 2.1.0 gave
-  `draft_gmail_message` forwarding parameters and stopped requiring subject and body.
-  Everything else Google offers (labels, filters, focus time…) is reachable through the MCP
+  `WORKSPACE_MCP_HOST=0.0.0.0`, a dummy client **and `USER_GOOGLE_EMAIL` set to any address** —
+  listing needs no token; repeat with every level `readonly` for the second file). Recording
+  without that env is the trap: every tool then comes back *requiring* the account and the fixture
+  pins a requirement the deployment never has, which reads as a breaking upstream change. A test
+  asserts no listed tool requires it. `google/tools.test.ts` checks every mapped tool,
+  argument and read/write marking against the fixture. **Refresh the fixture on every
+  `WORKSPACE_MCP_VERSION` bump.** The 2.1.0 → 2.5.0 bump moved none of what the policy
+  mirrors — `auth/permissions.py` (the level table, and `SERVICE_DENIED_ACTIONS`),
+  `auth/credential_store.py` (the token file an existing grant is stored in) and the CLI flags are
+  byte-identical across those releases, so a connection survives the upgrade; diff those three
+  files between the two images to know whether a future bump needs a reconnect. What 2.5.0 did
+  move: `create_calendar` became `manage_calendar`, which also shares a calendar over the Calendar
+  ACL API, and the guard does not model `calendars/<id>/acl` — so sharing is **refused** while an
+  allowed-recipients list is set; and Gmail now builds sends and drafts the way Gmail web does, so
+  a send is the test of the guard's address parser, not an optional extra. Everything else Google
+  offers (labels, filters, focus time…) is reachable through the MCP
   bridge.

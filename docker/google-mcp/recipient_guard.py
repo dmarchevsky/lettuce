@@ -15,7 +15,10 @@ What delivers mail, and so what is checked:
 
 Fail closed: a mutating Gmail or Calendar request this module does not know is
 refused, so a workspace-mcp upgrade that starts calling a new endpoint is
-blocked until someone looks at it, rather than let through.
+blocked until someone looks at it, rather than let through. Calendar sharing
+is one of those: workspace-mcp 2.5.0's `manage_calendar` writes
+`calendars/<id>/acl` and mails the grantee, so sharing a calendar is refused
+while a list is set.
 
 An empty list installs nothing: no list means no restriction.
 """
