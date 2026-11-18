@@ -2629,6 +2629,14 @@ nav.rail.rail-collapsed {
 .link:disabled {
   opacity: 0.4;
 }
+/* A link verb that carries its own glyph (a watch's "Open PR") pairs the two: JSX
+   leaves no whitespace between them, so the flex gap is the only air between the
+   icon and its word. */
+.link:has(> .icon) {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
 
 button {
   cursor: pointer;
