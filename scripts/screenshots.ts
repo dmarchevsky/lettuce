@@ -442,6 +442,37 @@ async function handleHttp(request: Request): Promise<Response> {
     });
   }
   if (pathname === "/api/mcp") return json({ servers: [] });
+  if (pathname === "/api/context-size") {
+    // The Context sheet's numbers (`ContextAccounting`, web/src/lib/context-size.ts),
+    // derived here the way the BFF derives them: a declared 32k window, compaction
+    // short of it, and nothing typed by hand — which is what the "automatic" source
+    // reads as in the gauge.
+    return json({
+      context: 32_768,
+      source: "declared",
+      maxOutput: 4_096,
+      compactAt: 28_672,
+      window: 30_720,
+      typed: { agent: null, conversation: null },
+      automatic: null,
+    });
+  }
+  if (pathname === "/api/model-caps") {
+    // Declarations the operator would have made for a local endpoint that reports
+    // nothing (`ModelCapsStore`). `models` and `endpoints` must both be objects:
+    // the reader defaults them, but a missing one is a panel that renders empty.
+    return json({
+      models: {
+        "llama/qwen3-32b": {
+          vision: false,
+          thinking: true,
+          contextWindow: 32_768,
+          maxTokens: 4_096,
+        },
+      },
+      endpoints: {},
+    });
+  }
   if (pathname === "/api/skills") return json({ skills: [], errors: [] });
   if (pathname === "/api/native-tools") {
     return json({ google: [], bridge: { servers: [], tools: 0, failures: {} } });
