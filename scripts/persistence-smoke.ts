@@ -7,14 +7,20 @@
  * close constantly (tab switch, phone sleep), so they must never be the
  * connection the app-server knows about.
  *
- * Usage: bun scripts/persistence-smoke.ts [bffOrigin]
+ * Usage: bun scripts/persistence-smoke.ts [bffOrigin] [--allow-stale-build]
+ *
+ * It proves the invariant against the build this checkout produced: every case
+ * here is about what the running BFF does, so scoring a bundle from before the
+ * branch is worse than not running it.
  */
 
 import { MAX_REPLAY_FRAMES } from "../bff/src/session/buffer.ts";
-import { requireTestPassword } from "./harness.ts";
+import { parseArgs, requireServedBuild, requireTestPassword } from "./harness.ts";
 
-const ORIGIN = process.argv[2] ?? "http://127.0.0.1:8090";
+const { origin: ORIGIN, staleBuild } = parseArgs(process.argv.slice(2));
 const WS_ORIGIN = ORIGIN.replace(/^http/, "ws");
+
+await requireServedBuild(ORIGIN, staleBuild);
 
 let failures = 0;
 

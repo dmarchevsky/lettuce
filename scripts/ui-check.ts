@@ -11,16 +11,33 @@
  * Auth is one navigation: under `SIGNIN=none` (what a local stack derives)
  * /auth/login mints the session cookie and redirects to /, so no profile or
  * cookie juggling is needed. Under `SIGNIN=password` the same URL is the form,
- * and the harness needs LETTUCE_TEST_PASSWORD — a script is not entitled to a
- * password a human typed.
+ * and the harness reads the password from LETTUCE_TEST_PASSWORD or the gitignored
+ * `.pi/local-secrets/test-password.md` — a script is not entitled to a password a
+ * human typed.
  *
- * Usage: bun run ui-check [bffOrigin]
+ * It refuses to measure a stack that is not this checkout: the suite is only a
+ * statement about the code you are looking at if the bundle it drives was built
+ * from that code (see `assertServedBuild`).
+ *
+ * Usage: bun run ui-check [bffOrigin] [options]
+ *
+ *   --section <names>  Run only the sections whose title matches — comma-separated,
+ *                      case-insensitive substring. `--list` prints them. Chasing
+ *                      one assertion used to cost a full suite run per attempt.
+ *   --list             Print the section titles and exit.
+ *   --allow-stale-build  Measure a build that is not this checkout's, loudly.
  */
 
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { type Browser, chromium, type Page } from "playwright";
-import { chromiumExecutable, requireTestPassword } from "./harness.ts";
+import {
+  chromiumExecutable,
+  openPane,
+  parseArgs,
+  requireServedBuild,
+  signInPage,
+} from "./harness.ts";
 import {
   expectClean,
   expectNetworkNoise,
@@ -29,24 +46,69 @@ import {
   watchPage as watchPageConsole,
 } from "./page-console.ts";
 
-const ORIGIN = process.argv[2] ?? "http://127.0.0.1:8090";
+const {
+  origin: ORIGIN,
+  sections: SECTION_FILTERS,
+  list: LIST,
+  staleBuild,
+} = parseArgs(process.argv.slice(2));
 const OUT_DIR = new URL("../.ui-check/", import.meta.url).pathname;
 
 const PHONE = { width: 390, height: 844 };
 const DESKTOP = { width: 1200, height: 900 };
 
 let failures = 0;
+const failed: string[] = [];
 
 function check(label: string, ok: boolean, detail?: unknown): void {
   console.log(`${ok ? "  PASS" : "  FAIL"}  ${label}`);
   if (!ok) {
     failures += 1;
+    failed.push(`${CURRENT_SECTION}: ${label}`);
     if (detail !== undefined) console.log(`        ${JSON.stringify(detail)}`);
   }
 }
 
-function section(title: string): void {
+/**
+ * The section boundary: print its title, prove the build, and say whether this run
+ * is measuring it at all.
+ *
+ * A section's body is already one block or one loop, so a caller writes
+ * `if (await go("Phone")) { … }` and a filtered-out section costs nothing but its
+ * title line — which is what makes `--section` worth the braces. The build proof
+ * rides here because a parallel flow's `build:bff` can retag the image mid-pass,
+ * and a suite that proved the build once at boot would score the new bundle (or
+ * the old one) without noticing.
+ */
+let CURRENT_SECTION = "startup";
+async function go(title: string): Promise<boolean> {
+  CURRENT_SECTION = title;
   console.log(`\n${title}`);
+  if (!selected(title)) {
+    console.log("  SKIP  not selected by --section");
+    return false;
+  }
+  await requireServedBuild(ORIGIN, staleBuild);
+  return true;
+}
+
+const SECTION_TITLES = [
+  `Phone (${PHONE.width}px)`,
+  `Desktop (${DESKTOP.width}px)`,
+  "Activity indicators",
+  "Context gauge",
+  "Enter on a touch device",
+  "Settings deep link",
+  "Memory link graph",
+  "Form controls share one height",
+  "Sidebar conversation menu",
+  "Agent model sheet",
+];
+
+function selected(title: string): boolean {
+  if (SECTION_FILTERS.length === 0) return true;
+  const lower = title.toLowerCase();
+  return SECTION_FILTERS.some((needle) => lower.includes(needle));
 }
 
 /**
@@ -55,15 +117,7 @@ function section(title: string): void {
  */
 async function signIn(page: Page): Promise<void> {
   watchPage(page);
-  await page.goto(ORIGIN, { waitUntil: "networkidle" });
-  if (await page.locator('input[type="password"]').first().count()) {
-    const password = requireTestPassword("ui-check");
-    await page.locator('input[type="password"]').first().fill(password);
-    await page.getByRole("button", { name: /sign in/i }).click();
-    // The success path is a reload of the whole app, so wait for the app itself
-    // rather than for the load event, which fires on the sign-in page.
-    await page.waitForSelector(".app", { timeout: 20_000 });
-  }
+  await signInPage(page, ORIGIN);
   // The conversation drawer ships SHUT, and most of this suite is geometry written
   // against the standing column — so every desktop entry point puts it up and pins
   // it, and the shut state is tested where it is tested on purpose (the peek checks).
@@ -529,33 +583,11 @@ async function shot(page: Page, name: string): Promise<void> {
  * Every check that needed a tab click goes through here, so the two navigation
  * surfaces are exercised by the same assertions rather than by two copies of them.
  */
+/** Pane doors live in `harness.ts` now, so a scratch driver and this suite press
+ * the same one. The alias keeps four hundred call sites reading the way they did.
+ */
 async function openTab(page: Page, name: string): Promise<void> {
-  // Both nav surfaces stay mounted at every width and CSS picks one, so existence
-  // proves nothing — ask which one is actually on screen.
-  const rail = page.locator(`.rail button.rail-item:text-is("${name}")`);
-  if ((await rail.count()) > 0 && (await rail.first().isVisible())) {
-    await rail.first().click();
-    return;
-  }
-  // `has-text`, not `text-is`: a slot carrying a running count reads as "Runs2", and
-  // the pane is the same pane with or without one.
-  const bar = page.locator(`.bottombar > button:has-text("${name}")`);
-  if ((await bar.count()) > 0 && (await bar.first().isVisible())) {
-    await bar.first().click();
-  } else {
-    throw new Error(`no "${name}" slot on the phone bar`);
-  }
-  // On a phone, arriving on Chat also opens the conversation list — the bar's Chat press IS
-  // the list's way in — so asking for the pane is only half the ask. A test that wants the
-  // list asserts on it itself; every other test wants the pane under it.
-  if ((await page.locator(".switcher").count()) > 0) {
-    await page.keyboard.press("Escape");
-    // Wait for it to be gone AND for its way out of the history to land: the entry
-    // retires asynchronously, and a test that reads history.state too early sees a
-    // stale overlay entry it did not create.
-    await page.waitForSelector(".switcher", { state: "detached", timeout: 5_000 });
-    await page.waitForTimeout(500);
-  }
+  await openPane(page, name);
 }
 
 /**
@@ -587,6 +619,14 @@ async function cornerIsClear(page: Page): Promise<Record<string, unknown>> {
   });
 }
 
+// `--list` is the discovery half of `--section`: a failing assertion name from a
+// previous run is a substring of exactly one of these, and nothing else in the
+// output says which.
+if (LIST) {
+  for (const title of SECTION_TITLES) console.log(title);
+  process.exit(0);
+}
+
 mkdirSync(OUT_DIR, { recursive: true });
 
 const executablePath = chromiumExecutable();
@@ -603,8 +643,7 @@ browser.on("page", watchPage);
 
 try {
   // ── Phone ────────────────────────────────────────────────────────────────
-  section(`Phone (${PHONE.width}px)`);
-  {
+  if (await go(`Phone (${PHONE.width}px)`)) {
     const page = await open(browser, PHONE);
     await shot(page, "phone-chat");
 
@@ -1808,8 +1847,7 @@ try {
   }
 
   // ── Desktop ──────────────────────────────────────────────────────────────
-  section(`Desktop (${DESKTOP.width}px)`);
-  {
+  if (await go(`Desktop (${DESKTOP.width}px)`)) {
     const page = await open(browser, DESKTOP);
     await shot(page, "desktop-chat");
 
@@ -3776,174 +3814,174 @@ try {
   // frame is injected into a real session instead. What is asserted is what a
   // DOM count cannot see: the dot occupies space and is painted. It once
   // shipped with no CSS at all — present in the DOM, 0x0 on screen.
-  section("Activity indicators");
-  for (const viewport of [DESKTOP, PHONE]) {
-    const page = await browser.newPage({ viewport });
-    let inject: ((frame: string) => void) | null = null;
-    await page.routeWebSocket(/\/ws$/, (ws) => {
-      ws.connectToServer();
-      inject = (frame) => ws.send(frame);
-    });
-    await signIn(page);
-    await page.waitForTimeout(1500);
-    // The rail and the panel stay mounted, hidden, on a phone, so this reads there
-    // too — the dots are the same state either way.
-    const agentId = await page
-      .locator(".rail .rail-agent.active")
-      .getAttribute("data-agent-id")
-      .catch(() => null);
-    const rows = page.locator(".conversations li:not(.activity-note)");
-    if (!agentId || (await rows.count()) === 0 || !inject) {
-      check(`${viewport.width}px: activity check has an agent and a conversation`, false);
-      await page.close();
-      continue;
-    }
-    const send = inject as (frame: string) => void;
-    // Before anything is responding: the link light is back in the corner, and it is
-    // a control — it opens the same list the busy slot opens. Nothing else in the
-    // status colour any more, so the light is the only place the link is shown.
-    const idleLight = await page.evaluate(() => {
-      const btn = document.querySelector(".topbar button.topbar-status.light");
-      const dot = btn?.querySelector(".link-dot");
-      return {
-        light: !!btn && !!dot,
-        dotColour: dot ? getComputedStyle(dot).backgroundColor : null,
-        word: btn?.querySelector(".topbar-word")?.textContent?.trim() ?? null,
-      };
-    });
-    check(
-      `${viewport.width}px: the idle light is there and coloured`,
-      idleLight.light &&
-        Boolean(idleLight.dotColour && idleLight.dotColour !== "rgba(0, 0, 0, 0)") &&
-        (viewport.width < 640 || Boolean(idleLight.word)),
-      idleLight,
-    );
-    await page.locator(".topbar button.topbar-status.light").click();
-    await page.waitForTimeout(300);
-    check(
-      `${viewport.width}px: clicking the light opens the responding list (empty is still a list)`,
-      (await page.locator('.sheet-panel[aria-label="Responding now"]').count()) === 1,
-    );
-    await page.keyboard.press("Escape");
-    await page.waitForTimeout(200);
-
-    // Mark a conversation other than the open one, so the phone badge shows too.
-    const selection = await page.evaluate(() => localStorage.getItem("lettuce:selection"));
-    const openId = selection ? (JSON.parse(selection).conversationId as string | null) : null;
-    send(
-      JSON.stringify({
-        type: "__bff_activity",
-        active: [
-          { agent_id: agentId, conversation_id: "default" },
-          ...(openId ? [{ agent_id: agentId, conversation_id: openId }] : []),
-        ],
-      }),
-    );
-    await page.waitForTimeout(300);
-
-    const painted = (selector: string) =>
-      page.evaluate((sel) => {
-        const el = document.querySelector(sel);
-        if (!el) return { found: false };
-        const rect = el.getBoundingClientRect();
-        const style = getComputedStyle(el);
+  if (await go("Activity indicators"))
+    for (const viewport of [DESKTOP, PHONE]) {
+      const page = await browser.newPage({ viewport });
+      let inject: ((frame: string) => void) | null = null;
+      await page.routeWebSocket(/\/ws$/, (ws) => {
+        ws.connectToServer();
+        inject = (frame) => ws.send(frame);
+      });
+      await signIn(page);
+      await page.waitForTimeout(1500);
+      // The rail and the panel stay mounted, hidden, on a phone, so this reads there
+      // too — the dots are the same state either way.
+      const agentId = await page
+        .locator(".rail .rail-agent.active")
+        .getAttribute("data-agent-id")
+        .catch(() => null);
+      const rows = page.locator(".conversations li:not(.activity-note)");
+      if (!agentId || (await rows.count()) === 0 || !inject) {
+        check(`${viewport.width}px: activity check has an agent and a conversation`, false);
+        await page.close();
+        continue;
+      }
+      const send = inject as (frame: string) => void;
+      // Before anything is responding: the link light is back in the corner, and it is
+      // a control — it opens the same list the busy slot opens. Nothing else in the
+      // status colour any more, so the light is the only place the link is shown.
+      const idleLight = await page.evaluate(() => {
+        const btn = document.querySelector(".topbar button.topbar-status.light");
+        const dot = btn?.querySelector(".link-dot");
         return {
-          found: true,
-          width: rect.width,
-          height: rect.height,
-          background: style.backgroundColor,
-          visible:
-            rect.width >= 6 && rect.height >= 6 && style.backgroundColor !== "rgba(0, 0, 0, 0)",
+          light: !!btn && !!dot,
+          dotColour: dot ? getComputedStyle(dot).backgroundColor : null,
+          word: btn?.querySelector(".topbar-word")?.textContent?.trim() ?? null,
         };
-      }, selector);
-
-    if (viewport === DESKTOP) {
-      if (openId) {
-        const dot = await painted(".conversations .conversation-name .activity-dot");
-        check(
-          "desktop: a responding conversation's dot is painted",
-          dot.found && Boolean(dot.visible),
-          dot,
-        );
-      }
-      const note = await painted(".activity-note .activity-dot");
+      });
       check(
-        "desktop: the default-conversation notice is painted",
-        note.found && Boolean(note.visible),
-        note,
+        `${viewport.width}px: the idle light is there and coloured`,
+        idleLight.light &&
+          Boolean(idleLight.dotColour && idleLight.dotColour !== "rgba(0, 0, 0, 0)") &&
+          (viewport.width < 640 || Boolean(idleLight.word)),
+        idleLight,
       );
-    } else {
-      const badge = await painted(".topbar .badge-dot");
-      check("phone: the menu badge is painted", badge.found && Boolean(badge.visible), badge);
-    }
+      await page.locator(".topbar button.topbar-status.light").click();
+      await page.waitForTimeout(300);
+      check(
+        `${viewport.width}px: clicking the light opens the responding list (empty is still a list)`,
+        (await page.locator('.sheet-panel[aria-label="Responding now"]').count()) === 1,
+      );
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(200);
 
-    // The busy slot is the way into the same list: while any scope is active it is
-    // a button, and clicking a row switches to that conversation.
-    const busyDot = page.locator(".topbar button.topbar-status.busy");
-    check(
-      `${viewport.width}px: the status dot is a button while turns run`,
-      (await busyDot.count()) === 1,
-    );
-    // While turns run, the busy slot replaces the idle light rather than sitting
-    // beside it: one corner, one status, and the busier of the two is the one shown.
-    const busyReplacesLight = await page.evaluate(() => ({
-      busy: document.querySelectorAll(".topbar button.topbar-status.busy").length,
-      light: document.querySelectorAll(".topbar button.topbar-status.light").length,
-    }));
-    check(
-      `${viewport.width}px: the busy slot takes the light's place, it does not join it`,
-      busyReplacesLight.busy === 1 && busyReplacesLight.light === 0,
-      busyReplacesLight,
-    );
-    // A second conversation to switch to, taken from the sidebar list.
-    const otherId = await page.evaluate((open) => {
-      for (const row of document.querySelectorAll(".conversations li.conversation-row")) {
-        const id = row.getAttribute("data-conversation-id");
-        if (id && id !== open) return id;
-      }
-      return null;
-    }, openId);
-    if (otherId) {
+      // Mark a conversation other than the open one, so the phone badge shows too.
+      const selection = await page.evaluate(() => localStorage.getItem("lettuce:selection"));
+      const openId = selection ? (JSON.parse(selection).conversationId as string | null) : null;
       send(
         JSON.stringify({
           type: "__bff_activity",
           active: [
             { agent_id: agentId, conversation_id: "default" },
             ...(openId ? [{ agent_id: agentId, conversation_id: openId }] : []),
-            { agent_id: agentId, conversation_id: otherId },
           ],
         }),
       );
-      await page.waitForTimeout(200);
-      await busyDot.click();
-      const sheet = page.locator('.sheet-panel[aria-label="Responding now"]');
-      await sheet.waitFor({ state: "visible", timeout: 3000 });
-      check(`${viewport.width}px: the dot opens the responding list`, true);
+      await page.waitForTimeout(300);
+
+      const painted = (selector: string) =>
+        page.evaluate((sel) => {
+          const el = document.querySelector(sel);
+          if (!el) return { found: false };
+          const rect = el.getBoundingClientRect();
+          const style = getComputedStyle(el);
+          return {
+            found: true,
+            width: rect.width,
+            height: rect.height,
+            background: style.backgroundColor,
+            visible:
+              rect.width >= 6 && rect.height >= 6 && style.backgroundColor !== "rgba(0, 0, 0, 0)",
+          };
+        }, selector);
+
+      if (viewport === DESKTOP) {
+        if (openId) {
+          const dot = await painted(".conversations .conversation-name .activity-dot");
+          check(
+            "desktop: a responding conversation's dot is painted",
+            dot.found && Boolean(dot.visible),
+            dot,
+          );
+        }
+        const note = await painted(".activity-note .activity-dot");
+        check(
+          "desktop: the default-conversation notice is painted",
+          note.found && Boolean(note.visible),
+          note,
+        );
+      } else {
+        const badge = await painted(".topbar .badge-dot");
+        check("phone: the menu badge is painted", badge.found && Boolean(badge.visible), badge);
+      }
+
+      // The busy slot is the way into the same list: while any scope is active it is
+      // a button, and clicking a row switches to that conversation.
+      const busyDot = page.locator(".topbar button.topbar-status.busy");
       check(
-        `${viewport.width}px: the default conversation shows as a note`,
-        (await sheet.locator(".activity-note").count()) === 1,
+        `${viewport.width}px: the status dot is a button while turns run`,
+        (await busyDot.count()) === 1,
       );
-      // The open conversation first (marked as current), then the other one.
-      const sheetRows = sheet.locator(".menu-row");
-      const expectedRows = openId ? 2 : 1;
+      // While turns run, the busy slot replaces the idle light rather than sitting
+      // beside it: one corner, one status, and the busier of the two is the one shown.
+      const busyReplacesLight = await page.evaluate(() => ({
+        busy: document.querySelectorAll(".topbar button.topbar-status.busy").length,
+        light: document.querySelectorAll(".topbar button.topbar-status.light").length,
+      }));
       check(
-        `${viewport.width}px: the sheet lists the responding conversations`,
-        (await sheetRows.count()) === expectedRows,
-        { expected: expectedRows },
+        `${viewport.width}px: the busy slot takes the light's place, it does not join it`,
+        busyReplacesLight.busy === 1 && busyReplacesLight.light === 0,
+        busyReplacesLight,
       );
-      await shot(page, `activity-sheet-${viewport.width}`);
-      await sheetRows.nth(openId ? 1 : 0).click();
-      await sheet.waitFor({ state: "hidden", timeout: 3000 });
-      const after = await page.evaluate(() => localStorage.getItem("lettuce:selection"));
-      check(
-        `${viewport.width}px: clicking a row switches to that conversation`,
-        after !== null && JSON.parse(after).conversationId === otherId,
-        { expected: otherId, got: after },
-      );
+      // A second conversation to switch to, taken from the sidebar list.
+      const otherId = await page.evaluate((open) => {
+        for (const row of document.querySelectorAll(".conversations li.conversation-row")) {
+          const id = row.getAttribute("data-conversation-id");
+          if (id && id !== open) return id;
+        }
+        return null;
+      }, openId);
+      if (otherId) {
+        send(
+          JSON.stringify({
+            type: "__bff_activity",
+            active: [
+              { agent_id: agentId, conversation_id: "default" },
+              ...(openId ? [{ agent_id: agentId, conversation_id: openId }] : []),
+              { agent_id: agentId, conversation_id: otherId },
+            ],
+          }),
+        );
+        await page.waitForTimeout(200);
+        await busyDot.click();
+        const sheet = page.locator('.sheet-panel[aria-label="Responding now"]');
+        await sheet.waitFor({ state: "visible", timeout: 3000 });
+        check(`${viewport.width}px: the dot opens the responding list`, true);
+        check(
+          `${viewport.width}px: the default conversation shows as a note`,
+          (await sheet.locator(".activity-note").count()) === 1,
+        );
+        // The open conversation first (marked as current), then the other one.
+        const sheetRows = sheet.locator(".menu-row");
+        const expectedRows = openId ? 2 : 1;
+        check(
+          `${viewport.width}px: the sheet lists the responding conversations`,
+          (await sheetRows.count()) === expectedRows,
+          { expected: expectedRows },
+        );
+        await shot(page, `activity-sheet-${viewport.width}`);
+        await sheetRows.nth(openId ? 1 : 0).click();
+        await sheet.waitFor({ state: "hidden", timeout: 3000 });
+        const after = await page.evaluate(() => localStorage.getItem("lettuce:selection"));
+        check(
+          `${viewport.width}px: clicking a row switches to that conversation`,
+          after !== null && JSON.parse(after).conversationId === otherId,
+          { expected: otherId, got: after },
+        );
+      }
+      await shot(page, `activity-${viewport.width}`);
+      await page.close();
     }
-    await shot(page, `activity-${viewport.width}`);
-    await page.close();
-  }
 
   // ── Context gauge ────────────────────────────────────────────────────────
   // Usage lives in the BFF (`GET /api/turn-usage`), which knows only real
@@ -3953,129 +3991,130 @@ try {
   // shows the whole prompt with its cache hit, and opens the limit editor.
   // Nothing is saved —
   // the limit is real agent state.
-  section("Context gauge");
-  for (const viewport of [DESKTOP, PHONE]) {
-    const page = await browser.newPage({ viewport });
-    await page.route(/\/api\/turn-usage\?/, (route) =>
-      route.fulfill({
-        json: {
-          current: null,
-          last: {
-            promptTokens: 790,
-            cachedTokens: 24_655,
-            lastPromptTokens: 25_445,
-            lastCachedTokens: 24_655,
-            cacheReported: true,
-            completionTokens: 16,
-            reasoningTokens: 13,
-            steps: 1,
-            contextTokens: 25_461,
+  if (await go("Context gauge"))
+    for (const viewport of [DESKTOP, PHONE]) {
+      const page = await browser.newPage({ viewport });
+      await page.route(/\/api\/turn-usage\?/, (route) =>
+        route.fulfill({
+          json: {
+            current: null,
+            last: {
+              promptTokens: 790,
+              cachedTokens: 24_655,
+              lastPromptTokens: 25_445,
+              lastCachedTokens: 24_655,
+              cacheReported: true,
+              completionTokens: 16,
+              reasoningTokens: 13,
+              steps: 1,
+              contextTokens: 25_461,
+            },
           },
-        },
-      }),
-    );
-    let inject: ((frame: string) => void) | null = null;
-    await page.routeWebSocket(/\/ws$/, (ws) => {
-      ws.connectToServer();
-      inject = (frame) => ws.send(frame);
-    });
-    await signIn(page);
-    await page.waitForTimeout(1500);
-    if (!inject) {
-      check(`${viewport.width}px: context check has a session`, false);
-      await page.close();
-      continue;
-    }
-    (inject as (frame: string) => void)(
-      JSON.stringify({
-        type: "stream_delta",
-        delta: {
-          message_type: "usage_statistics",
-          prompt_tokens: 25445,
-          completion_tokens: 16,
-          reasoning_tokens: 13,
-          context_tokens: 25461,
-        },
-      }),
-    );
-    await page.waitForTimeout(300);
-    const w = viewport.width;
-    const gauge = page.locator(".topbar .ctx-gauge");
-    check(`${w}px: the gauge is in the top bar`, (await gauge.count()) === 1);
-    if ((await gauge.count()) === 1) {
-      const label = (await gauge.innerText()).trim();
-      check(`${w}px: the gauge reads used / limit`, /^\d+k \/ \d+k$/.test(label), label);
-      const box = await gauge.boundingBox();
-      check(`${w}px: the gauge is on screen`, !!box && box.x >= 0 && box.x + box.width <= w, box);
-      const title = await page.locator(".topbar .where").boundingBox();
-      check(`${w}px: the title keeps room beside it`, !!title && title.width >= 120, title);
-      await shot(page, `context-gauge-${w}`);
+        }),
+      );
+      let inject: ((frame: string) => void) | null = null;
+      await page.routeWebSocket(/\/ws$/, (ws) => {
+        ws.connectToServer();
+        inject = (frame) => ws.send(frame);
+      });
+      await signIn(page);
+      await page.waitForTimeout(1500);
+      if (!inject) {
+        check(`${viewport.width}px: context check has a session`, false);
+        await page.close();
+        continue;
+      }
+      (inject as (frame: string) => void)(
+        JSON.stringify({
+          type: "stream_delta",
+          delta: {
+            message_type: "usage_statistics",
+            prompt_tokens: 25445,
+            completion_tokens: 16,
+            reasoning_tokens: 13,
+            context_tokens: 25461,
+          },
+        }),
+      );
+      await page.waitForTimeout(300);
+      const w = viewport.width;
+      const gauge = page.locator(".topbar .ctx-gauge");
+      check(`${w}px: the gauge is in the top bar`, (await gauge.count()) === 1);
+      if ((await gauge.count()) === 1) {
+        const label = (await gauge.innerText()).trim();
+        check(`${w}px: the gauge reads used / limit`, /^\d+k \/ \d+k$/.test(label), label);
+        const box = await gauge.boundingBox();
+        check(`${w}px: the gauge is on screen`, !!box && box.x >= 0 && box.x + box.width <= w, box);
+        const title = await page.locator(".topbar .where").boundingBox();
+        check(`${w}px: the title keeps room beside it`, !!title && title.width >= 120, title);
+        await shot(page, `context-gauge-${w}`);
 
-      await gauge.click();
-      const sheet = page.locator(".sheet");
-      await sheet.waitFor({ timeout: 3000 }).catch(() => {});
-      const text = await sheet.innerText().catch(() => "");
-      check(
-        `${w}px: the sheet shows the prompt size`,
-        text.includes("Prompt") && text.includes("25,445"),
-        text.slice(0, 200),
-      );
-      check(
-        `${w}px: the sheet shows the cache hit`,
-        text.includes("Cache hit") && text.includes("24,655") && text.includes("97% of prompt"),
-        text.slice(0, 300),
-      );
-      // The compaction section is the whole point of the sheet now: it says where
-      // the context size came from and where the conversation therefore compacts,
-      // which is the number an operator has to compare against the server's n_ctx.
-      check(
-        `${w}px: the sheet names the compaction point`,
-        /Compacts at/.test(text),
-        text.slice(0, 400),
-      );
-      check(
-        `${w}px: the compaction point is the context minus its budget`,
-        /Compacts at\s*[\d,]+/.test(text) && text.includes("context −"),
-        text.slice(0, 400),
-      );
-      const limitRow = page.locator(".kv-tap");
-      await page
-        .waitForFunction(() => !document.querySelector(".kv-tap:disabled"), null, { timeout: 5000 })
-        .catch(() => {});
-      check(
-        `${w}px: the context-size row is tappable`,
-        await limitRow.isEnabled().catch(() => false),
-      );
-      await shot(page, `context-sheet-${w}`);
-      await limitRow.click().catch(() => {});
-      const input = page.locator(".limit-edit input");
-      check(`${w}px: tapping the size opens the editor`, (await input.count()) === 1);
-      check(
-        `${w}px: the editor has presets and both scopes`,
-        (await page.locator(".limit-preset").count()) >= 3 &&
-          (await page.locator(".limit-edit .menu-row").count()) === 2,
-      );
-      const { clipped } = await overflow(page);
-      check(`${w}px: nothing clipped with the editor open`, clipped.length === 0, clipped);
-      await shot(page, `context-limit-${w}`);
-      await page
-        .locator(".limit-actions .ghost")
-        .click()
-        .catch(() => {});
-      check(
-        `${w}px: Cancel returns to the context-size row`,
-        (await page.locator(".kv-tap").count()) === 1,
-      );
+        await gauge.click();
+        const sheet = page.locator(".sheet");
+        await sheet.waitFor({ timeout: 3000 }).catch(() => {});
+        const text = await sheet.innerText().catch(() => "");
+        check(
+          `${w}px: the sheet shows the prompt size`,
+          text.includes("Prompt") && text.includes("25,445"),
+          text.slice(0, 200),
+        );
+        check(
+          `${w}px: the sheet shows the cache hit`,
+          text.includes("Cache hit") && text.includes("24,655") && text.includes("97% of prompt"),
+          text.slice(0, 300),
+        );
+        // The compaction section is the whole point of the sheet now: it says where
+        // the context size came from and where the conversation therefore compacts,
+        // which is the number an operator has to compare against the server's n_ctx.
+        check(
+          `${w}px: the sheet names the compaction point`,
+          /Compacts at/.test(text),
+          text.slice(0, 400),
+        );
+        check(
+          `${w}px: the compaction point is the context minus its budget`,
+          /Compacts at\s*[\d,]+/.test(text) && text.includes("context −"),
+          text.slice(0, 400),
+        );
+        const limitRow = page.locator(".kv-tap");
+        await page
+          .waitForFunction(() => !document.querySelector(".kv-tap:disabled"), null, {
+            timeout: 5000,
+          })
+          .catch(() => {});
+        check(
+          `${w}px: the context-size row is tappable`,
+          await limitRow.isEnabled().catch(() => false),
+        );
+        await shot(page, `context-sheet-${w}`);
+        await limitRow.click().catch(() => {});
+        const input = page.locator(".limit-edit input");
+        check(`${w}px: tapping the size opens the editor`, (await input.count()) === 1);
+        check(
+          `${w}px: the editor has presets and both scopes`,
+          (await page.locator(".limit-preset").count()) >= 3 &&
+            (await page.locator(".limit-edit .menu-row").count()) === 2,
+        );
+        const { clipped } = await overflow(page);
+        check(`${w}px: nothing clipped with the editor open`, clipped.length === 0, clipped);
+        await shot(page, `context-limit-${w}`);
+        await page
+          .locator(".limit-actions .ghost")
+          .click()
+          .catch(() => {});
+        check(
+          `${w}px: Cancel returns to the context-size row`,
+          (await page.locator(".kv-tap").count()) === 1,
+        );
+      }
+      await page.close();
     }
-    await page.close();
-  }
 
   // ── Enter on a phone ─────────────────────────────────────────────────────
   // A real touch device: coarse pointer, no hover. There Enter must add a new
   // line and never send — an accidental send cannot be taken back. A plain
   // phone-sized viewport does not emulate the pointer, hence the context.
-  section("Enter on a touch device");
-  {
+  if (await go("Enter on a touch device")) {
     const context = await browser.newContext({ viewport: PHONE, isMobile: true, hasTouch: true });
     const page = await context.newPage();
     await signIn(page);
@@ -4096,8 +4135,7 @@ try {
   // keeps 16px text (iOS zooms a focused input below that) but not a taller box.
   // `?settings=google` is the link an agent gives when Google access is lost:
   // it must open Settings on Google and leave no param behind to reopen it.
-  section("Settings deep link");
-  {
+  if (await go("Settings deep link")) {
     const page = await open(browser, DESKTOP);
     await page.goto(`${ORIGIN}/?settings=google`, { waitUntil: "networkidle" });
     await page.locator(".settings-pane").waitFor({ timeout: 10_000 });
@@ -4121,141 +4159,143 @@ try {
     await page.close();
   }
 
-  section("Memory link graph");
-  for (const [label, options] of [
-    ["desktop", { viewport: DESKTOP }],
-    ["phone", { viewport: PHONE, isMobile: true, hasTouch: true }],
-  ] as const) {
-    const context = await browser.newContext(options);
-    const page = await context.newPage();
-    await signIn(page);
-    await openTab(page, "Agent");
-    await page.locator('.section-tabs button:text-is("Memory")').click();
-    await page.waitForTimeout(1500);
-    // The two views are the same files seen two ways, so the toggle is the whole
-    // surface's door: it must be there, swap the body, and say which one is on.
-    // A stack whose agent has no memory has no Memory pane to toggle, so say so
-    // rather than clicking a control that is not there and throwing.
-    const toggle = page.locator(".memory-view-toggle");
-    if ((await toggle.count()) === 0) {
-      console.log(`  SKIP  memory link graph (${label}: this agent has no memory)`);
-      await page.close();
-      continue;
-    }
-    check(`memory offers a tree/graph toggle (${label})`, (await toggle.count()) === 1);
-    const treeRows = await page.locator(".memory-tree li button").count();
-    await page.locator('.memory-view-toggle button:text-is("Graph")').click();
-    await page.waitForTimeout(900);
-    check(
-      `graph is the current view (${label})`,
-      (await page.locator('.memory-view-toggle strong:text-is("Graph")').count()) === 1,
-    );
-    const nodes = await page.locator(".memory-graph .mg-node:not(.lone)").count();
-    const empty = await page.locator("text=No links yet.").count();
-    // Either it drew links, or it said plainly there are none — a blank pane is a
-    // failure even though both branches are legitimate states of a real memory.
-    check(`the graph view draws or explains (${label})`, nodes > 0 || empty > 0, { nodes, empty });
-    const { clipped } = await overflow(page);
-    check(`graph view does not overflow (${label})`, clipped.length === 0, { clipped });
-    await shot(page, `memory-graph-${label}`);
-    // The unlinked files are the graph's honest mode on a memory that has no
-    // links, and the only state provable on a dev stack — so prove it: asking for
-    // them must actually put them on the surface, as rings, not an empty pane.
-    const showUnlinked = page.locator('.pane-bar button:text-is("Show unlinked")');
-    if ((await showUnlinked.count()) === 1) {
-      const claimed = Number(
-        ((await page.locator(".pane-bar .muted.small").first().textContent()) ?? "").match(
-          /(\d+) of/,
-        )?.[1] ?? "0",
-      );
-      await showUnlinked.click();
-      await page.waitForTimeout(900);
-      const rings = await page.locator(".memory-graph .mg-node.lone").count();
-      check(`the unlinked files join the graph (${label})`, rings >= claimed, { claimed, rings });
-      await shot(page, `memory-graph-unlinked-${label}`);
-      await page.locator('.pane-bar button:text-is("Hide unlinked")').click();
-      await page.waitForTimeout(400);
-    }
-    if (nodes > 0) {
-      // Click the middle of the biggest node, the way a finger does. A locator
-      // `.click()` aims at the element's box, and the node sits under the zoom
-      // controls' corner, so it would test the overlay instead of the graph.
-      const box = await page.locator(".memory-graph .mg-node").first().boundingBox();
-      if (!box) {
-        console.log(`  SKIP  node opens the file sheet (${label}: no node box)`);
-      } else {
-        await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-        await page.waitForTimeout(700);
-        check(
-          `a node opens the file sheet (${label})`,
-          (await page.locator(".sheet-panel").count()) === 1,
-        );
-        await page.keyboard.press("Escape");
-        await page.waitForTimeout(300);
+  if (await go("Memory link graph"))
+    for (const [label, options] of [
+      ["desktop", { viewport: DESKTOP }],
+      ["phone", { viewport: PHONE, isMobile: true, hasTouch: true }],
+    ] as const) {
+      const context = await browser.newContext(options);
+      const page = await context.newPage();
+      await signIn(page);
+      await openTab(page, "Agent");
+      await page.locator('.section-tabs button:text-is("Memory")').click();
+      await page.waitForTimeout(1500);
+      // The two views are the same files seen two ways, so the toggle is the whole
+      // surface's door: it must be there, swap the body, and say which one is on.
+      // A stack whose agent has no memory has no Memory pane to toggle, so say so
+      // rather than clicking a control that is not there and throwing.
+      const toggle = page.locator(".memory-view-toggle");
+      if ((await toggle.count()) === 0) {
+        console.log(`  SKIP  memory link graph (${label}: this agent has no memory)`);
+        await page.close();
+        continue;
       }
-    }
-    await page.locator('.memory-view-toggle button:text-is("Tree")').click();
-    await page.waitForTimeout(600);
-    check(
-      `the tree comes back (${label})`,
-      (await page.locator(".memory-tree li button").count()) === treeRows,
-      { treeRows },
-    );
-    await page.close();
-  }
-
-  section("Form controls share one height");
-  for (const [label, options] of [
-    ["mouse", { viewport: DESKTOP }],
-    ["touch", { viewport: PHONE, isMobile: true, hasTouch: true }],
-  ] as const) {
-    const context = await browser.newContext(options);
-    const page = await context.newPage();
-    await signIn(page);
-    await openTab(page, "Agent");
-    await page.locator('.section-tabs button:text-is("Reflection")').click();
-    await page.locator(".field select").first().waitFor();
-    const sizes = await page.evaluate(() => {
-      const measure = (selector: string) => {
-        const el = [...document.querySelectorAll<HTMLElement>(selector)].find(
-          (candidate) => candidate.offsetParent !== null,
+      check(`memory offers a tree/graph toggle (${label})`, (await toggle.count()) === 1);
+      const treeRows = await page.locator(".memory-tree li button").count();
+      await page.locator('.memory-view-toggle button:text-is("Graph")').click();
+      await page.waitForTimeout(900);
+      check(
+        `graph is the current view (${label})`,
+        (await page.locator('.memory-view-toggle strong:text-is("Graph")').count()) === 1,
+      );
+      const nodes = await page.locator(".memory-graph .mg-node:not(.lone)").count();
+      const empty = await page.locator("text=No links yet.").count();
+      // Either it drew links, or it said plainly there are none — a blank pane is a
+      // failure even though both branches are legitimate states of a real memory.
+      check(`the graph view draws or explains (${label})`, nodes > 0 || empty > 0, {
+        nodes,
+        empty,
+      });
+      const { clipped } = await overflow(page);
+      check(`graph view does not overflow (${label})`, clipped.length === 0, { clipped });
+      await shot(page, `memory-graph-${label}`);
+      // The unlinked files are the graph's honest mode on a memory that has no
+      // links, and the only state provable on a dev stack — so prove it: asking for
+      // them must actually put them on the surface, as rings, not an empty pane.
+      const showUnlinked = page.locator('.pane-bar button:text-is("Show unlinked")');
+      if ((await showUnlinked.count()) === 1) {
+        const claimed = Number(
+          ((await page.locator(".pane-bar .muted.small").first().textContent()) ?? "").match(
+            /(\d+) of/,
+          )?.[1] ?? "0",
         );
-        if (!el) return null;
-        return {
-          height: Math.round(el.getBoundingClientRect().height * 10) / 10,
-          font: getComputedStyle(el).fontSize,
+        await showUnlinked.click();
+        await page.waitForTimeout(900);
+        const rings = await page.locator(".memory-graph .mg-node.lone").count();
+        check(`the unlinked files join the graph (${label})`, rings >= claimed, { claimed, rings });
+        await shot(page, `memory-graph-unlinked-${label}`);
+        await page.locator('.pane-bar button:text-is("Hide unlinked")').click();
+        await page.waitForTimeout(400);
+      }
+      if (nodes > 0) {
+        // Click the middle of the biggest node, the way a finger does. A locator
+        // `.click()` aims at the element's box, and the node sits under the zoom
+        // controls' corner, so it would test the overlay instead of the graph.
+        const box = await page.locator(".memory-graph .mg-node").first().boundingBox();
+        if (!box) {
+          console.log(`  SKIP  node opens the file sheet (${label}: no node box)`);
+        } else {
+          await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+          await page.waitForTimeout(700);
+          check(
+            `a node opens the file sheet (${label})`,
+            (await page.locator(".sheet-panel").count()) === 1,
+          );
+          await page.keyboard.press("Escape");
+          await page.waitForTimeout(300);
+        }
+      }
+      await page.locator('.memory-view-toggle button:text-is("Tree")').click();
+      await page.waitForTimeout(600);
+      check(
+        `the tree comes back (${label})`,
+        (await page.locator(".memory-tree li button").count()) === treeRows,
+        { treeRows },
+      );
+      await page.close();
+    }
+
+  if (await go("Form controls share one height"))
+    for (const [label, options] of [
+      ["mouse", { viewport: DESKTOP }],
+      ["touch", { viewport: PHONE, isMobile: true, hasTouch: true }],
+    ] as const) {
+      const context = await browser.newContext(options);
+      const page = await context.newPage();
+      await signIn(page);
+      await openTab(page, "Agent");
+      await page.locator('.section-tabs button:text-is("Reflection")').click();
+      await page.locator(".field select").first().waitFor();
+      const sizes = await page.evaluate(() => {
+        const measure = (selector: string) => {
+          const el = [...document.querySelectorAll<HTMLElement>(selector)].find(
+            (candidate) => candidate.offsetParent !== null,
+          );
+          if (!el) return null;
+          return {
+            height: Math.round(el.getBoundingClientRect().height * 10) / 10,
+            font: getComputedStyle(el).fontSize,
+          };
         };
-      };
-      return {
-        input: measure('.field input:not([type="checkbox"])'),
-        select: measure(".field select"),
-        // The pane's buttons: the sidebar's heading actions are compact by design.
-        button: measure(".main .button:not(.compact)"),
-      };
-    });
-    const heights = Object.values(sizes)
-      .filter((size) => size !== null)
-      .map((size) => size.height);
-    check(
-      `${label}: input, select and button are one height`,
-      heights.length >= 3 && heights.every((height) => height === heights[0]),
-      sizes,
-    );
-    const fieldFont = label === "touch" ? "16px" : "14px";
-    check(
-      `${label}: field text is ${fieldFont}`,
-      sizes.input?.font === fieldFont && sizes.select?.font === fieldFont,
-      sizes,
-    );
-    await context.close();
-  }
+        return {
+          input: measure('.field input:not([type="checkbox"])'),
+          select: measure(".field select"),
+          // The pane's buttons: the sidebar's heading actions are compact by design.
+          button: measure(".main .button:not(.compact)"),
+        };
+      });
+      const heights = Object.values(sizes)
+        .filter((size) => size !== null)
+        .map((size) => size.height);
+      check(
+        `${label}: input, select and button are one height`,
+        heights.length >= 3 && heights.every((height) => height === heights[0]),
+        sizes,
+      );
+      const fieldFont = label === "touch" ? "16px" : "14px";
+      check(
+        `${label}: field text is ${fieldFont}`,
+        sizes.input?.font === fieldFont && sizes.select?.font === fieldFont,
+        sizes,
+      );
+      await context.close();
+    }
 
   // The desktop sidebar's rows: the open one marked by a left accent bar, like
   // the agent list's, and the ⋯ menu (the phone switcher's) rather than icons on
   // every row — one verb, Archive, does earn a hover glyph, and the row pointed
   // at is the only one that shows it.
-  section("Sidebar conversation menu");
-  {
+  if (await go("Sidebar conversation menu")) {
     const page = await open(browser, DESKTOP);
     const active = page.locator(".sidebar .conversations li.conversation-row.active");
     await active.waitFor();
@@ -4363,8 +4403,7 @@ try {
   // The agent's model is picked in the conversation's model sheet, and the pick
   // is staged: the tab's Save is the only thing that commits it. Nested sheet, so
   // Escape belongs to the inner one — closing the outer would drop the draft.
-  section("Agent model sheet");
-  {
+  if (await go("Agent model sheet")) {
     const page = await open(browser, DESKTOP);
     await openTab(page, "Agent");
     await page.locator(".pane .field").first().waitFor();
@@ -4508,4 +4547,12 @@ console.log(
     ? `\n✓ ui-check passed — screenshots in ${OUT_DIR}`
     : `\n✗ ui-check FAILED (${failures}) — screenshots in ${OUT_DIR}`,
 );
+if (failures > 0) {
+  // The names, gathered as they happened. A wall of PASS lines ends in a verdict
+  // that says how many failed and nothing about which, and re-running the whole
+  // suite to re-grep one FAIL out of a truncated tail costs about two minutes a
+  // try. With the labels here, one assertion is a `--section` away.
+  console.log("\n  failed checks:");
+  for (const label of failed) console.log(`   - ${label}`);
+}
 process.exit(failures === 0 ? 0 : 1);
