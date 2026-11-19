@@ -5,6 +5,11 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.46.2-letta_0.34.63] - 2026-11-19
+
+### Fixed
+- Fix an approval card that stayed on screen after its turn had ended, so nothing asks to approve a request that no longer exists.
+
 ## [v0.46.1-letta_0.34.63] - 2026-11-19
 
 ### Fixed
