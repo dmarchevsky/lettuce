@@ -10,10 +10,10 @@
   ],
   "scripts": {
     "verify": "bun scripts/verify.ts",
-    "lint": "biome check .",
+    "lint": "biome check . --diagnostic-level=error --max-diagnostics=none",
     "format": "biome check --write .",
     "typecheck": "bun run --filter '*' typecheck",
-    "test": "bun test",
+    "test": "bun scripts/test.ts",
     "check-docs": "bun scripts/check-docs.ts",
     "check-prod-info": "bun scripts/check-prod-info.ts",
     "check-release-hygiene": "bun scripts/check-release-hygiene.ts",
