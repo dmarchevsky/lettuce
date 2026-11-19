@@ -15,17 +15,59 @@
  * `request_id`, so a server that echoes the id back with a canned payload
  * drives the real UI without the BFF, the app-server, Docker, or a model.
  *
- * Usage: bun run screenshots [outputDir]
+ * Usage: bun run screenshots [--shot <names>] [--list] [outputDir]
  * Requires: `bun run build` first (serves web/dist), and a Chromium build.
+ *
+ * `--shot` picks which images to render (comma-separated substring; `--list`
+ * prints the names), because diagnosing one fixture crash used to mean rendering
+ * all three every time. An app-server route this mock does not model is a hard
+ * failure, not an empty object: see `unmodeledRoutes`.
  */
 
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { extname, join } from "node:path";
 import { type Browser, chromium, type Page } from "playwright";
+import { parseArgs } from "./harness.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const WEB_DIST = join(ROOT, "web", "dist");
-const OUT_DIR = process.argv[2] ?? join(ROOT, "docs", "images");
+const { positional, shots: SHOT_FILTER, list: LIST } = parseArgs(process.argv.slice(2), "");
+const OUT_DIR = positional === "" ? join(ROOT, "docs", "images") : positional;
+
+const SHOTS = [
+  { name: "desktop-chat", label: "desktop chat: the transcript and the composer" },
+  { name: "mobile-chat", label: "phone chat at 390px" },
+  { name: "desktop-settings", label: "desktop Settings, opened on the providers section" },
+];
+
+/**
+ * App-server routes the client asked for and this mock does not model.
+ *
+ * The old behaviour was to answer `{}` to anything unmapped, which is how the
+ * generator died on main with nobody noticing: the Runs chip read a field off an
+ * empty object, the React tree threw, and the run still wrote its PNGs and exited
+ * as if it had worked. A fixture that rots silently is worse than no fixture, so
+ * an unmapped route is now a 500 that names itself, the render fails, and what is
+ * missing is stated rather than inferred from a blank panel.
+ */
+const unmodeledRoutes = new Set<string>();
+
+/**
+ * Which shots this run renders. A filter that matches nothing is an error, not a
+ * green run that rendered nothing: `--shot chat` and `--shot chats` look the same
+ * to type and only one of them is a picture.
+ */
+const chosen = SHOTS.filter(
+  (shot) => SHOT_FILTER.length === 0 || SHOT_FILTER.some((needle) => shot.name.includes(needle)),
+);
+if (SHOT_FILTER.length > 0 && chosen.length === 0) {
+  console.error(
+    `✗ --shot ${SHOT_FILTER.join(",")} selected nothing. The shots are:\n` +
+      SHOTS.map((shot) => `   - ${shot.name}`).join("\n"),
+  );
+  process.exit(1);
+}
+const render = new Set(chosen.map((shot) => shot.name));
 
 const DESKTOP = { width: 1280, height: 800 };
 const PHONE = { width: 390, height: 844 };
@@ -329,8 +371,9 @@ const MIME: Record<string, string> = {
   ".woff2": "font/woff2",
 };
 
-function json(data: unknown): Response {
+function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
+    status,
     headers: { "content-type": "application/json; charset=utf-8" },
   });
 }
@@ -410,6 +453,37 @@ async function handleHttp(request: Request): Promise<Response> {
     });
   }
   if (pathname === "/api/mcp") return json({ servers: [] });
+  if (pathname === "/api/context-size") {
+    // The Context sheet's numbers (`ContextAccounting`, web/src/lib/context-size.ts),
+    // derived here the way the BFF derives them: a declared 32k window, compaction
+    // short of it, and nothing typed by hand — which is what the "automatic" source
+    // reads as in the gauge.
+    return json({
+      context: 32_768,
+      source: "declared",
+      maxOutput: 4_096,
+      compactAt: 28_672,
+      window: 30_720,
+      typed: { agent: null, conversation: null },
+      automatic: null,
+    });
+  }
+  if (pathname === "/api/model-caps") {
+    // Declarations the operator would have made for a local endpoint that reports
+    // nothing (`ModelCapsStore`). `models` and `endpoints` must both be objects:
+    // the reader defaults them, but a missing one is a panel that renders empty.
+    return json({
+      models: {
+        "llama/qwen3-32b": {
+          vision: false,
+          thinking: true,
+          contextWindow: 32_768,
+          maxTokens: 4_096,
+        },
+      },
+      endpoints: {},
+    });
+  }
   if (pathname === "/api/skills") return json({ skills: [], errors: [] });
   if (pathname === "/api/native-tools") {
     return json({ google: [], bridge: { servers: [], tools: 0, failures: {} } });
@@ -465,10 +539,12 @@ async function handleHttp(request: Request): Promise<Response> {
   }
   if (pathname === "/push/vapid-key") return json({ key: "" });
   if (pathname.startsWith("/api/") || pathname.startsWith("/push/")) {
-    // Anything else this run does not model. Answer with an empty object
-    // rather than a 404 so a caller's `.json()` succeeds; the specific
-    // array/object shapes above are what keep the render tree alive.
-    return json({});
+    // Anything else this run does not model. Naming the route is the point: a
+    // caller's `.json()` succeeds against a stub and its panel renders empty, so
+    // the only honest signal a fixture can give is a failed render that says which
+    // shape to add — see `unmodeledRoutes`.
+    unmodeledRoutes.add(pathname);
+    return json({ error: `screenshots fixture has no route for ${pathname}` }, 500);
   }
 
   return (
@@ -654,6 +730,11 @@ async function shot(page: Page, name: string, contentSelector: string): Promise<
   console.log(`  wrote ${path}`);
 }
 
+if (LIST) {
+  for (const shot of SHOTS) console.log(`${shot.name}\t${shot.label}`);
+  process.exit(0);
+}
+
 if (!existsSync(join(WEB_DIST, "index.html"))) {
   console.error(`No build at ${WEB_DIST}. Run \`bun run build\` first.`);
   process.exit(1);
@@ -669,17 +750,17 @@ const browser = await chromium.launch({
 });
 
 try {
-  {
+  if (render.has("desktop-chat")) {
     const page = await open(browser, DESKTOP);
     await shot(page, "desktop-chat", ".messages .entry");
     await page.close();
   }
-  {
+  if (render.has("mobile-chat")) {
     const page = await open(browser, PHONE);
     await shot(page, "mobile-chat", ".messages .entry");
     await page.close();
   }
-  {
+  if (render.has("desktop-settings")) {
     // `?settings=<section>` opens Settings on that section on load
     // (web/src/lib/settings-link.ts), so this needs no clicking.
     const page = await browser.newPage({ viewport: DESKTOP });
@@ -696,3 +777,13 @@ try {
 }
 
 console.log(`\nScreenshots in ${OUT_DIR}`);
+if (unmodeledRoutes.size > 0) {
+  // Named after the PNGs are written, so a run that rendered something still
+  // tells you what it had to stub to do it. These are the routes a future render
+  // will read a shape off and throw on.
+  console.error(
+    `\n✗ the fixture modelled none of these routes the client asked for:\n` +
+      [...unmodeledRoutes].map((route) => `   - ${route}`).join("\n"),
+  );
+  process.exit(1);
+}

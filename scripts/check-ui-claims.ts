@@ -30,6 +30,24 @@ import { join } from "node:path";
 const ROOT = new URL("..", import.meta.url).pathname;
 
 const SCRIPTS = ["scripts/ui-check.ts", "scripts/screenshots.ts", "scripts/signin-screens.ts"];
+
+/**
+ * Selectors the suites drive through the shared harness rather than inline.
+ *
+ * `harness.ts` as a whole cannot go in `SCRIPTS`: its prose quotes paths (`.git`,
+ * `.cache`, `.pi`) and flag names, and this parser reads a quoted `.foo` as a
+ * class claim — so the file's own documentation would fail the gate it is meant to
+ * pass. The selectors that moved into it are listed here instead, which is the part
+ * worth gating: a redesign that renames `.rail-item` must fail somewhere, and this
+ * is the only place that still names it.
+ */
+const HARNESS_CLAIMS = [
+  ".rail button.rail-item",
+  ".bottombar",
+  ".switcher",
+  ".app",
+  'input[type="password"]',
+];
 const SKILL_GLOB = ".agents/skills";
 const WEB_DIR = "web/src";
 
@@ -218,6 +236,20 @@ for (const { path, skill } of files) {
     continue;
   }
   claims.push(...claimsIn(path, readFileSync(abs, "utf8"), skill));
+}
+
+// The harness selectors, claimed by hand: every `.foo` segment of each is a class
+// the app must still render, and the file that uses them cannot be scanned (see
+// HARNESS_CLAIMS for why).
+for (const selector of HARNESS_CLAIMS) {
+  for (const m of selector.matchAll(/\.([a-z][a-z0-9-]*)/g)) {
+    claims.push({
+      token: m[1]!,
+      at: "scripts/harness.ts (shared)",
+      selector: true,
+      negative: false,
+    });
+  }
 }
 
 const dead = new Map<string, Claim[]>();

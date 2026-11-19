@@ -367,7 +367,13 @@ for (const dir of skillDirs) {
   const claimsScript = join(ROOT, "scripts", "check-ui-claims.ts");
   if (existsSync(claimsScript)) {
     const run = Bun.spawnSync([process.execPath, "scripts/check-ui-claims.ts"], { cwd: ROOT });
-    const out = `${run.stdoutText}${run.stderrText}`.trim();
+    // `spawnSync` gives bytes, not text: `run.stdoutText` is undefined here (that
+    // helper belongs to the async subprocess), and reading it once printed
+    // `undefinedundefined` as the "reason" for every failure this sub-check
+    // reported — a red gate with no lead in it.
+    const decode = (bytes: ArrayBuffer | null): string =>
+      bytes === null ? "" : new TextDecoder().decode(bytes);
+    const out = `${decode(run.stdout)}${decode(run.stderr)}`.trim();
     check(
       run.exitCode === 0,
       "the UI suites and the UI skills cite selectors/tokens that exist",

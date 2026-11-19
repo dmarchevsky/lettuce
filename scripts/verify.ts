@@ -6,10 +6,18 @@
  * the failure this script exists to prevent was reporting work "done" when it
  * had been typechecked and built but never committed or deployed.
  *
+ * A stage's own output is captured and echoed only when it fails: the test stage
+ * prints about 2,300 lines to surface one, and a red gate that buries its failure
+ * under a wall of green tells the driver nothing. On a red run the verdict is the
+ * last thing printed, so the tail of this output is the answer.
+ *
  * Usage: bun run verify
  */
 
 const ROOT = new URL("..", import.meta.url).pathname;
+
+/** How much of a failing stage's own output to echo. */
+const TAIL_LINES = 60;
 
 interface Stage {
   name: string;
@@ -54,21 +62,37 @@ const STAGES: Stage[] = [
 ];
 
 let failed: string | null = null;
+let failureOutput = "";
 
 for (const stage of STAGES) {
-  console.log(`\n── ${stage.name} (${stage.why})`);
-  const result = Bun.spawnSync(stage.cmd, {
-    cwd: ROOT,
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-  if (result.exitCode !== 0) {
-    failed = stage.name;
-    break;
+  const started = Date.now();
+  const result = Bun.spawnSync(stage.cmd, { cwd: ROOT });
+  const out = `${new TextDecoder().decode(result.stdout)}${new TextDecoder().decode(result.stderr)}`;
+  const seconds = ((Date.now() - started) / 1000).toFixed(1);
+  if (result.exitCode === 0) {
+    // One line per green stage: what ran, how long, and the last line of its own
+    // summary, so a stage that quietly did less than it claims is still visible.
+    const summary = out.trimEnd().split("\n").pop() ?? "";
+    console.log(`  ✓ ${stage.name} (${seconds}s)${summary ? ` — ${summary}` : ""}`);
+    continue;
   }
+  failed = stage.name;
+  failureOutput = out;
+  break;
 }
 
 if (failed) {
+  // The failing stage's own words first, then the verdict, so the last lines read
+  // are the verdict and where to look, not a passing stage's chatter.
+  const lines = failureOutput.trimEnd().split("\n");
+  console.log(`\n── ${failed} said:`);
+  if (lines.length > TAIL_LINES) {
+    console.log(
+      `  … ${lines.length - TAIL_LINES} earlier line(s) omitted — the stage's own command ` +
+        "prints all of it.",
+    );
+  }
+  for (const line of lines.slice(-TAIL_LINES)) console.log(line);
   console.log(`\n✗ verify FAILED at: ${failed}`);
   console.log("  Later stages were not run.");
   process.exit(1);
@@ -81,9 +105,10 @@ console.log(`
 
     implement     build, deploy and run it locally from the worktree (setup copies docker/.env in),
                   then STOP: the operator tests it in the container and says it works
-    pre-release   /flow-review, the CHANGELOG entry + VERSION bump in one commit, then Release?
-    release       push the branch, open the PR, merge it (--merge) on the operator's Release?, tag
-                  main's tip and only then bun run deploy-check, ui-check / smoke where they apply
+    pre-release   the review, the CHANGELOG entry + VERSION bump in one commit, then Release?
+    release       one flow release does it: push the branch, open the PR, wait for CI, merge,
+                  tag main's tip, publish the release — and only then bun run deploy-check,
+                  ui-check / smoke where they apply.
 
   Production deploy is the operator's alone — the flow stops at the tag and never asks about it.
   Never remove a worktree or a branch by hand: flow finish does the checking.

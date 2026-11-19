@@ -7,14 +7,20 @@
  * close constantly (tab switch, phone sleep), so they must never be the
  * connection the app-server knows about.
  *
- * Usage: bun scripts/persistence-smoke.ts [bffOrigin]
+ * Usage: bun scripts/persistence-smoke.ts [bffOrigin] [--allow-stale-build]
+ *
+ * It proves the invariant against the build this checkout produced: every case
+ * here is about what the running BFF does, so scoring a bundle from before the
+ * branch is worse than not running it.
  */
 
 import { MAX_REPLAY_FRAMES } from "../bff/src/session/buffer.ts";
-import { requireTestPassword } from "./harness.ts";
+import { devSignIn, parseArgs, requireServedBuild } from "./harness.ts";
 
-const ORIGIN = process.argv[2] ?? "http://127.0.0.1:8090";
+const { origin: ORIGIN, staleBuild } = parseArgs(process.argv.slice(2));
 const WS_ORIGIN = ORIGIN.replace(/^http/, "ws");
+
+await requireServedBuild(ORIGIN, staleBuild);
 
 let failures = 0;
 
@@ -30,26 +36,21 @@ function section(title: string): void {
   console.log(`\n${title}`);
 }
 
-/** Whatever method this stack signs in with. `password` needs LETTUCE_TEST_PASSWORD. */
+/** Whatever method this stack signs in with — the shared helper reads the mode. */
 async function login(): Promise<string> {
-  const method = ((await status()) as { signin?: string }).signin;
-  const response =
-    method === "password"
-      ? await fetch(`${ORIGIN}/auth/login`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ password: requireTestPassword("smoke") }),
-        })
-      : await fetch(`${ORIGIN}/auth/login`, { redirect: "manual" });
-  const cookie = response.headers.get("set-cookie");
-  if (!cookie) throw new Error(`No session cookie (status ${response.status})`);
-  return cookie.split(";")[0]!;
+  return devSignIn(ORIGIN);
 }
 
-async function status(cookie?: string): Promise<Record<string, any>> {
+/** The few `/api/status` fields this suite asserts on, typed instead of `any`. */
+interface StatusBody {
+  sessions: number;
+  upstream: { state: string };
+}
+
+async function status(cookie?: string): Promise<StatusBody> {
   return (
     await fetch(`${ORIGIN}/api/status`, cookie ? { headers: { cookie } } : undefined)
-  ).json() as Promise<Record<string, any>>;
+  ).json() as Promise<StatusBody>;
 }
 
 interface Session {

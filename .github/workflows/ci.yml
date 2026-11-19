@@ -46,8 +46,12 @@ jobs:
           key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
       - run: bun install --frozen-lockfile --ignore-scripts
       # Warnings do not fail lint (biome.jsonc explains which ones are load-bearing);
-      # errors do. typecheck is also this repo's protocol-drift detector.
+      # errors do. `lint` prints errors only so a red run names the file and the rule
+      # instead of exit 1 plus a pile of hidden diagnostics, so the warning counts are
+      # reported here separately — surfaced, not fatal, as they were before.
       - run: bun run lint
+      - name: Biome warnings (informational)
+        run: bunx biome check . --reporter=summary || true
       - run: bun run typecheck
 
   test:
@@ -62,7 +66,10 @@ jobs:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
       - run: bun install --frozen-lockfile --ignore-scripts
-      - run: bun test
+      # Through the runner, not `bun test` directly: it owns the scratch TMPDIR the
+      # suite writes into, so the leak it fixes is fixed in CI too and not only on a
+      # developer's machine.
+      - run: bun run test
 
   build:
     runs-on: ubuntu-latest
