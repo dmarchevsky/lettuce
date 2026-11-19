@@ -141,6 +141,8 @@ before exposing anything.
   wrong way.
 - **Monitors.** A watch wakes the agent as events arrive; when it arms a backup wake,
   Tasks shows when a silent watch brings the agent back to check the real state.
+  A GitHub pull-request or Actions-run watch names itself **WatchPR** in Tasks, shows what it
+  watches and links out to it; its changes arrive in the conversation as notices.
 - **Codex workers.** Hand a coding job to a Codex CLI worker and follow its
   run from the transcript.
 - **Claude Code workers.** The same for Claude Code, signed in with your Claude
