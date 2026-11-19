@@ -169,50 +169,78 @@ export interface BuildIdentity {
   expected: string;
   ok: boolean;
   why: string;
+  /** The served image was built from a dirty tree: it carries code no commit has. */
+  dirty: boolean;
+}
+
+/**
+ * Does the string a stack answers at `/versionz` name this commit?
+ *
+ * Split out of `servedBuild` because every wrong answer here is a suite that
+ * measured the wrong bundle, and the shapes that produce one are all strings: a
+ * seven-hex prefix, `dev`, `unknown`, an `HTTP 500` read back as a version, a build
+ * stamped from a dirty tree. Pinning the comparison is cheap; giving the live fetch
+ * a fake server per case is not.
+ */
+export function judgeServedBuild(
+  served: string,
+  expectedSha: string | null,
+): { ok: boolean; why: string; dirty: boolean } {
+  const dirty = served.endsWith("-dirty");
+  const clean = served.replace(/-dirty$/, "");
+  const servedSha = clean.includes("+") ? clean.split("+").pop()! : "";
+  if (servedSha === "unknown") {
+    return {
+      ok: false,
+      dirty,
+      why: "the served image names no commit (+unknown): it was built with no git metadata to read",
+    };
+  }
+  // A sha is eight hex and nothing else. `dev`, a truncated sha, or the text of a
+  // failed request all fail here and say "not this build" — the safe direction, so
+  // the fix is a rebuild rather than a quiet green.
+  if (!/^[0-9a-f]{8}$/.test(servedSha)) {
+    return { ok: false, dirty, why: `serving ${served}, which names no eight-hex commit` };
+  }
+  if (!expectedSha) {
+    return {
+      ok: false,
+      dirty,
+      why: `this checkout resolves no commit to compare ${served} against`,
+    };
+  }
+  if (servedSha !== expectedSha) {
+    return { ok: false, dirty, why: `serving ${served}, this checkout is ${expectedSha}` };
+  }
+  return { ok: true, dirty, why: `both at ${expectedSha}` };
 }
 
 export async function servedBuild(origin: string): Promise<BuildIdentity> {
   const info = readBuildInfo(ROOT);
   const expected = versionString(info).replace(/-dirty$/, "");
   const expectedSha = info.sha;
-  let served: string | null;
+  let served: string;
   try {
     const response = await fetch(`${origin}/versionz`, { signal: AbortSignal.timeout(5000) });
     served = response.ok ? (await response.text()).trim() : `HTTP ${response.status}`;
   } catch (cause) {
-    served = null;
     return {
-      served,
+      served: null,
       expectedSha,
       expected,
       ok: false,
+      dirty: false,
       why: `${origin}/versionz is unreachable: ${cause instanceof Error ? cause.message : cause}`,
     };
   }
-  const servedSha = served.includes("+")
-    ? served
-        .split("+")
-        .pop()!
-        .replace(/-dirty$/, "")
-    : "";
-  if (servedSha && expectedSha && servedSha === expectedSha) {
-    return { served, expectedSha, expected, ok: true, why: `both at ${expectedSha}` };
-  }
-  if (servedSha === "unknown") {
-    return {
-      served,
-      expectedSha,
-      expected,
-      ok: false,
-      why: `the served image names no commit (+unknown)`,
-    };
-  }
+  const verdict = judgeServedBuild(served, expectedSha);
   return {
     served,
     expectedSha,
     expected,
-    ok: false,
-    why: `serving ${served}, this checkout is ${expected}`,
+    ok: verdict.ok,
+    dirty: verdict.dirty,
+    why: verdict.why,
   };
 }
 
@@ -231,7 +259,15 @@ export async function assertServedBuild(
   allowStale = envAllowStaleBuild(),
 ): Promise<string> {
   const identity = await servedBuild(origin);
-  if (identity.ok) return identity.served as string;
+  if (identity.ok) {
+    // The one way a green proof can still mislead: a `-dirty` stamp means the
+    // bundle carries edits no commit has, so what passed is not what would ship.
+    // Loud, because the fix is a commit and a rebuild, not a flag.
+    if (identity.dirty) {
+      console.log("  NOTE  the served build was stamped -dirty: it carries uncommitted code.");
+    }
+    return identity.served as string;
+  }
   const fix =
     "Run `bun run build:bff` from this checkout, then " +
     "`docker compose -f docker/compose.yml up -d bff`. To measure it anyway, pass " +
@@ -397,10 +433,14 @@ export function headlessRenderArgs(
     "--disable-gpu",
     "--hide-scrollbars",
     `--window-size=${width},${height}`,
-    // A window-sized render has no fine pointer unless told, and the app's layout
-    // keys off `(pointer: fine)` on desktop.
-    "--primaryPointerType=4",
-    "--secondaryPointerType=2",
+    // The flag that cannot be guessed and lies when it is wrong:
+    // chrome-headless-shell reports `pointer: none` / `hover: none` unless
+    // `--blink-settings` says otherwise, so every `(pointer: fine)` and
+    // `(hover: hover)` rule silently does not apply — a desktop mock comes back
+    // with the phone composer and looks like a styling bug in the app. The
+    // plausible-looking `--primaryPointerType=4` form is ignored by the shell:
+    // verified against a `matchMedia` probe with this very binary.
+    "--blink-settings=primaryPointerType=4,availablePointerTypes=4,primaryHoverType=2,availableHoverTypes=2",
     `--screenshot=${pngPath}`,
     htmlPath,
   ];

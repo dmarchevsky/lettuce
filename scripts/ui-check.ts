@@ -81,17 +81,32 @@ function check(label: string, ok: boolean, detail?: unknown): void {
  * the old one) without noticing.
  */
 let CURRENT_SECTION = "startup";
+/** Every title this run walked past, in order — see the drift check by the verdict. */
+const seenTitles: string[] = [];
+/** How many sections this run actually measured. */
+let ranCount = 0;
+
 async function go(title: string): Promise<boolean> {
   CURRENT_SECTION = title;
+  seenTitles.push(title);
   console.log(`\n${title}`);
   if (!selected(title)) {
     console.log("  SKIP  not selected by --section");
     return false;
   }
+  ranCount += 1;
   await requireServedBuild(ORIGIN, staleBuild);
   return true;
 }
 
+/**
+ * The section titles, in the order the suite walks them.
+ *
+ * Hand-kept beside the call sites, because `--list` must answer without launching a
+ * browser. The cost of hand-keeping it is checked rather than trusted: the verdict
+ * compares this list against what actually ran, so a renamed section fails the next
+ * run instead of turning `--section` into a filter that silently matches nothing.
+ */
 const SECTION_TITLES = [
   `Phone (${PHONE.width}px)`,
   `Desktop (${DESKTOP.width}px)`,
@@ -628,6 +643,10 @@ if (LIST) {
 }
 
 mkdirSync(OUT_DIR, { recursive: true });
+
+// Prove the target before paying for a browser: a wrong origin should cost one
+// fetch and one line, not a chromium launch on its way to the same refusal.
+await requireServedBuild(ORIGIN, staleBuild);
 
 const executablePath = chromiumExecutable();
 console.log(`chromium: ${executablePath ?? "(playwright default)"}`);
@@ -4554,5 +4573,23 @@ if (failures > 0) {
   // try. With the labels here, one assertion is a `--section` away.
   console.log("\n  failed checks:");
   for (const label of failed) console.log(`   - ${label}`);
+}
+if (SECTION_FILTERS.length > 0 && ranCount === 0) {
+  // A filter that matches nothing is the one way this suite can go green while
+  // measuring nothing, which is worse than the red it replaced.
+  console.error(
+    `\n✗ --section ${SECTION_FILTERS.join(",")} selected nothing. Sections are:\n` +
+      seenTitles.map((title) => `   - ${title}`).join("\n"),
+  );
+  process.exit(1);
+}
+if (seenTitles.join("\n") !== SECTION_TITLES.join("\n")) {
+  // --list lies if this drifts, and a stale list is how a renamed section becomes a
+  // no-op filter: the suite still runs, the operator still gets a ✓.
+  console.error(
+    `\n✗ SECTION_TITLES is stale — it says ${SECTION_TITLES.length} sections, the suite ran ` +
+      `${seenTitles.length}. Update it beside the section() calls: ${seenTitles.join(" | ")}`,
+  );
+  process.exit(1);
 }
 process.exit(failures === 0 ? 0 : 1);

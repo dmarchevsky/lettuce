@@ -95,4 +95,9 @@ could not ask for a password and a tunneled one could not ask for anything but A
   `requireSession` never gated.
 - **The test harness logs in like anyone else.** `scripts/ui-check.ts` and
   `scripts/persistence-smoke.ts` hit `GET /auth/login` (mints a session under `none`); under
-  `SIGNIN=password` they need `LETTUCE_TEST_PASSWORD`. There is no dev-login route.
+  `SIGNIN=password` they need a password from `LETTUCE_TEST_PASSWORD` or, failing that, the first line of
+  the gitignored local-secrets password file (`test-password.md`) in the **main** checkout (a worktree has no
+  per-machine `.pi` directory, so the harness resolves it through `git rev-parse --git-common-dir`).
+  `scripts/dev-login.ts` does the same for a shell: it prints a 0600 cookie-jar path and a `curl -b` line,
+  never the password or the raw cookie, and `--agent-ids` lists the agent ids from
+  `$LETTA_STATE_DIR/workspaces`. There is no dev-login **route**.

@@ -9,7 +9,53 @@
  * against a running stack.
  */
 import { describe, expect, test } from "bun:test";
-import { cookieJarLine, parseArgs } from "../scripts/harness.ts";
+import { cookieJarLine, judgeServedBuild, parseArgs } from "../scripts/harness.ts";
+
+describe("judgeServedBuild", () => {
+  const SHA = "a921f630";
+
+  test("the same commit on a different tag is the same build", () => {
+    // A worktree's VERSION carries whatever tag its branch started from, so the tag
+    // is no fact about the code and only the sha is.
+    expect(judgeServedBuild(`v9.9.9-letta_0.99.99+${SHA}`, SHA).ok).toBe(true);
+  });
+
+  test("a dirty stamp is the right commit and gets said out loud", () => {
+    const verdict = judgeServedBuild(`v0.46.1-letta_0.34.63+${SHA}-dirty`, SHA);
+    expect(verdict.ok).toBe(true);
+    expect(verdict.dirty).toBe(true);
+  });
+
+  test("a different commit is refused with both sides named", () => {
+    const verdict = judgeServedBuild("v0.46.1-letta_0.34.63+e75909d5", SHA);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.why).toContain("e75909d5");
+    expect(verdict.why).toContain(SHA);
+  });
+
+  test("an unstamped image cannot be held to a commit", () => {
+    expect(judgeServedBuild("v0.46.1-letta_0.34.63+unknown", SHA).ok).toBe(false);
+  });
+
+  test("a truncated sha is not a match, however close", () => {
+    // Eight hex or nothing: a seven-char prefix would otherwise pass as "a build
+    // that names no commit" and get accepted by a sloppier comparison.
+    expect(judgeServedBuild("v0.46.1-letta_0.34.63+a921f63", SHA).ok).toBe(false);
+  });
+
+  test("a dev build names no commit", () => {
+    expect(judgeServedBuild("v0.46.1-letta_0.34.63+dev", SHA).ok).toBe(false);
+  });
+
+  test("the text of a failed request is not a version", () => {
+    expect(judgeServedBuild("HTTP 500", SHA).ok).toBe(false);
+    expect(judgeServedBuild("", SHA).ok).toBe(false);
+  });
+
+  test("a checkout that resolves no commit cannot prove anything", () => {
+    expect(judgeServedBuild(`v0.46.1-letta_0.34.63+${SHA}`, null).ok).toBe(false);
+  });
+});
 
 describe("parseArgs", () => {
   test("the bare argument is the origin, as it always was", () => {

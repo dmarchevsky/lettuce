@@ -24,22 +24,53 @@ import { chromiumExecutable, headlessRenderArgs } from "./harness.ts";
 
 const argv = process.argv.slice(2);
 
-function flag(name: string, fallback: string): string {
-  const i = argv.indexOf(name);
-  return i === -1 ? fallback : (argv[i + 1] ?? fallback);
+/**
+ * Parse the arguments by walking them, not by `indexOf`: with `indexOf`, a value
+ * that happens to start with `--` (`--out --weird.png`) is read as a filename and
+ * writes a file nobody asked for, and `--width --x` becomes a `NaN` window size.
+ */
+const options: Record<string, string> = {};
+const positional: string[] = [];
+for (let i = 0; i < argv.length; i += 1) {
+  const arg = argv[i] as string;
+  if (!arg.startsWith("--")) {
+    positional.push(arg);
+    continue;
+  }
+  const value = argv[i + 1];
+  if (value === undefined || value.startsWith("--")) {
+    console.error(`✗ ${arg} needs a value that is not another flag`);
+    process.exit(2);
+  }
+  options[arg] = value;
+  i += 1;
 }
 
-const source = argv.find((arg) => !arg.startsWith("--") && !isFlagValue(arg));
+function take(name: string, fallback: string): string {
+  return options[name] ?? fallback;
+}
+
+function takeSize(name: string, fallback: number): number {
+  const raw = options[name];
+  if (raw === undefined) return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1 || value > 8192) {
+    console.error(`✗ ${name} wants a whole pixel count between 1 and 8192, got "${raw}"`);
+    process.exit(2);
+  }
+  return value;
+}
+
+const source = positional[0];
 if (!source) {
   console.error(
     "usage: bun scripts/mockup.ts <file.html> [--width 1280] [--height 900] [--out <png>]",
   );
   process.exit(2);
 }
-/** The argument after a value-taking flag is not the positional, even bare. */
-function isFlagValue(arg: string): boolean {
-  const i = argv.indexOf(arg);
-  return i > 0 && ["--width", "--height", "--out"].includes(argv[i - 1] as string);
+if (positional.length > 1) {
+  console.error(`✗ unexpected extra argument: ${positional.slice(1).join(" ")}`);
+  process.exit(2);
 }
 
 const html = resolve(source);
@@ -47,10 +78,10 @@ if (!existsSync(html)) {
   console.error(`no such file: ${html}`);
   process.exit(2);
 }
-const width = Number(flag("--width", "1280"));
-const height = Number(flag("--height", "900"));
+const width = takeSize("--width", 1280);
+const height = takeSize("--height", 900);
 const out = resolve(
-  flag(
+  take(
     "--out",
     join(
       dirname(html),

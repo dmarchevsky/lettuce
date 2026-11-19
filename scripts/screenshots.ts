@@ -52,11 +52,22 @@ const SHOTS = [
  */
 const unmodeledRoutes = new Set<string>();
 
-/** Is this shot part of this run? `--shot chat` takes both chat shots. */
-function wanted(name: string): boolean {
-  if (SHOT_FILTER.length === 0) return true;
-  return SHOT_FILTER.some((needle) => name.toLowerCase().includes(needle));
+/**
+ * Which shots this run renders. A filter that matches nothing is an error, not a
+ * green run that rendered nothing: `--shot chat` and `--shot chats` look the same
+ * to type and only one of them is a picture.
+ */
+const chosen = SHOTS.filter(
+  (shot) => SHOT_FILTER.length === 0 || SHOT_FILTER.some((needle) => shot.name.includes(needle)),
+);
+if (SHOT_FILTER.length > 0 && chosen.length === 0) {
+  console.error(
+    `✗ --shot ${SHOT_FILTER.join(",")} selected nothing. The shots are:\n` +
+      SHOTS.map((shot) => `   - ${shot.name}`).join("\n"),
+  );
+  process.exit(1);
 }
+const render = new Set(chosen.map((shot) => shot.name));
 
 const DESKTOP = { width: 1280, height: 800 };
 const PHONE = { width: 390, height: 844 };
@@ -739,17 +750,17 @@ const browser = await chromium.launch({
 });
 
 try {
-  if (wanted("desktop-chat")) {
+  if (render.has("desktop-chat")) {
     const page = await open(browser, DESKTOP);
     await shot(page, "desktop-chat", ".messages .entry");
     await page.close();
   }
-  if (wanted("mobile-chat")) {
+  if (render.has("mobile-chat")) {
     const page = await open(browser, PHONE);
     await shot(page, "mobile-chat", ".messages .entry");
     await page.close();
   }
-  if (wanted("desktop-settings")) {
+  if (render.has("desktop-settings")) {
     // `?settings=<section>` opens Settings on that section on load
     // (web/src/lib/settings-link.ts), so this needs no clicking.
     const page = await browser.newPage({ viewport: DESKTOP });
