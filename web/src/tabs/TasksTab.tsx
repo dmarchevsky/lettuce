@@ -16,6 +16,7 @@ import { shortDate } from "../lib/conversation-groups.ts";
 import { describeCron } from "../lib/cron-describe.ts";
 import { errorMessage } from "../lib/errors.ts";
 import { findMonitorBackupWake } from "../lib/monitor-backup.ts";
+import { monitorChip } from "../lib/pr-watch.ts";
 import { resolveLiveWorkerRun, workerKindOf } from "../lib/run-link.ts";
 import type { LiveSubagent } from "../lib/subagents.ts";
 import { subagentStatusLine, workflowPhasesLine, workflowStatusLine } from "../lib/subagents.ts";
@@ -26,6 +27,7 @@ import {
   type SystemCronList,
 } from "../lib/system-cron.ts";
 import { conversationTargetLabel, NEW_CONVERSATION } from "../lib/tasks.ts";
+import { formatEntryTime } from "../lib/timestamps.ts";
 import type { ConversationSummary } from "../state/use-agents.ts";
 import type { BackgroundProcessSummary } from "../state/use-conversation.ts";
 import type { SessionApi } from "../state/use-session.ts";
@@ -60,6 +62,35 @@ const PROCESS_KIND_LABEL: Record<BackgroundProcessSummary["kind"], string> = {
   // No client-side command stops a workflow.
   workflow: "Workflow",
 };
+
+/**
+ * The row's chip. A monitor's word comes from its source, because `WatchPR` and
+ * `Monitor` share the `monitor` kind on the wire.
+ */
+function processChip(process: BackgroundProcessSummary): string {
+  return process.kind === "monitor"
+    ? monitorChip(process.monitorSource)
+    : PROCESS_KIND_LABEL[process.kind];
+}
+
+/**
+ * The muted line a monitor row carries. Upstream snapshots only *running*
+ * monitors and keeps no readable record of a finished one in local mode, so the
+ * row cannot say what a watch decided — the honest version is "how long so far",
+ * plus, for a GitHub watch, where its notices land instead.
+ */
+function monitorLine(process: BackgroundProcessSummary): string {
+  if (process.kind !== "monitor") return process.status;
+  const since =
+    process.startedAtMs === undefined
+      ? ""
+      : formatEntryTime(new Date(process.startedAtMs).toISOString());
+  if (process.watch)
+    return since
+      ? `Watching since ${since} · changes arrive here as notices`
+      : "Watching · changes arrive here as notices";
+  return since ? `${process.status} · watching since ${since}` : process.status;
+}
 
 interface Props {
   session: SessionApi;
@@ -435,7 +466,7 @@ export function TasksTab({
                 ? subagentStatusLine(process.status, child, null)
                 : process.workflow
                   ? workflowStatusLine(process.status, process.workflow)
-                  : process.status;
+                  : monitorLine(process);
               const phasesLine = process.workflow ? workflowPhasesLine(process.workflow) : "";
               // The event log a row can open: plain subagents always (the snapshot
               // is their log); workers only when the live run resolves unambiguously
@@ -473,8 +504,8 @@ export function TasksTab({
               return (
                 <li key={process.processId} className="task">
                   <div className="task-head">
-                    <span className="tag muted">{PROCESS_KIND_LABEL[process.kind]}</span>
-                    <span className="small">{process.label}</span>
+                    <span className="tag muted">{processChip(process)}</span>
+                    <span className="small">{process.watch?.label ?? process.label}</span>
                   </div>
                   {backup?.scheduled_for ? (
                     <div className="muted small">
@@ -483,8 +514,20 @@ export function TasksTab({
                   ) : null}
                   <div className="muted small">{statusLine}</div>
                   {phasesLine ? <div className="muted small">{phasesLine}</div> : null}
-                  {transcript || stop ? (
+                  {transcript || stop || process.watch ? (
                     <div className="task-actions">
+                      {process.watch ? (
+                        <a
+                          className="link"
+                          href={process.watch.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={process.watch.url}
+                        >
+                          <Icon name="external" />
+                          {process.watch.title}
+                        </a>
+                      ) : null}
                       {transcript ? (
                         <button type="button" className="link" onClick={transcript}>
                           Transcript

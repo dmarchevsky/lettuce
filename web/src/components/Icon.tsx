@@ -53,7 +53,8 @@ export type IconName =
   | "pin"
   | "pin-solid"
   | "trash"
-  | "attach";
+  | "attach"
+  | "external";
 
 /** Path data on a 24×24 grid; stroked, except the icons in `FILLED`. */
 const PATHS: Record<IconName, string> = {
@@ -137,6 +138,10 @@ const PATHS: Record<IconName, string> = {
   // "paperclip" icon — ISC License, Copyright (c) Lucide Contributors.
   attach:
     "m21.44 11.05-9.19 9.19a6 6 0 01-8.49-8.49l8.57-8.57A4 4 0 1118 8.84l-8.59 8.57a2 2 0 01-2.83-2.83l8.49-8.48",
+  // A box with an arrow leaving it: this verb opens something outside the app, so
+  // it must not read as one of the in-app glyphs. Path from Lucide's
+  // "external-link" — ISC License, Copyright (c) Lucide Contributors.
+  external: "M15 3h6v6M10 14 21 3M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6",
 };
 
 /** Icons painted solid rather than outlined — see the notes on their paths. */

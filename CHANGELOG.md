@@ -5,6 +5,11 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.46.1-letta_0.34.63] - 2026-11-19
+
+### Fixed
+- A PR watch in Tasks reads as WatchPR with its number, a link to the PR or run, and how long it has been watching.
+
 ## [v0.46.0-letta_0.34.63] - 2026-11-18
 
 ### Added

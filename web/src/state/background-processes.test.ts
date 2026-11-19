@@ -74,6 +74,83 @@ describe("background process parsing", () => {
     expect(process?.stoppable).toBe(true);
   });
 
+  test("a GitHub watch keeps its source, its start time and its rebuilt link", () => {
+    // The wire shape upstream writes for `WatchPR` — no URL anywhere.
+    const [process] = readBackgroundProcesses([
+      {
+        process_id: "monitor_pr",
+        kind: "monitor",
+        description: "PR dmarchevsky/lettuce#142 checks, reviews, and mergeability",
+        source: "github_pull_request",
+        started_at_ms: 1_700_000_000_000,
+        status: "running",
+        persistent: true,
+      },
+    ]);
+    expect(process?.monitorSource).toBe("github_pull_request");
+    expect(process?.startedAtMs).toBe(1_700_000_000_000);
+    expect(process?.watch?.url).toBe("https://github.com/dmarchevsky/lettuce/pull/142");
+    expect(process?.watch?.label).toBe("dmarchevsky/lettuce#142");
+  });
+
+  test("a monitor whose start time upstream does not know has none", () => {
+    // `started_at_ms: 0` is upstream's sentinel, not the epoch: a row that rendered it
+    // would say "watching since Dec 31, 1969".
+    const [process] = readBackgroundProcesses([
+      {
+        process_id: "monitor_7",
+        kind: "monitor",
+        description: "PR dmarchevsky/lettuce#142 checks, reviews, and mergeability",
+        source: "github_pull_request",
+        started_at_ms: 0,
+        status: "running",
+      },
+    ]);
+    expect(process?.startedAtMs).toBeUndefined();
+    expect(process?.watch?.url).toBe("https://github.com/dmarchevsky/lettuce/pull/142");
+  });
+
+  test("a command monitor has a source but no watch", () => {
+    const [process] = readBackgroundProcesses([
+      {
+        process_id: "monitor_3",
+        kind: "monitor",
+        description: "tail -f /var/log/app.log",
+        source: "command",
+        started_at_ms: 5,
+        status: "running",
+        persistent: false,
+      },
+    ]);
+    expect(process?.monitorSource).toBe("command");
+    expect(process?.startedAtMs).toBe(5);
+    expect(process?.watch).toBeUndefined();
+  });
+
+  test("a monitor with unknown or missing monitor fields still renders", () => {
+    const [odd] = readBackgroundProcesses([
+      { process_id: "monitor_4", kind: "monitor", description: "x", source: "mystery" },
+    ]);
+    const [bare] = readBackgroundProcesses([
+      { process_id: "monitor_5", kind: "monitor", description: "y", status: "running" },
+    ]);
+    expect(odd?.monitorSource).toBeUndefined();
+    expect(odd?.startedAtMs).toBeUndefined();
+    expect(bare?.monitorSource).toBeUndefined();
+    // And a watch whose description lies about its shape gets no link.
+    const [liar] = readBackgroundProcesses([
+      {
+        process_id: "monitor_6",
+        kind: "monitor",
+        description: "my beloved PR tracker",
+        source: "github_pull_request",
+        status: "running",
+      },
+    ]);
+    expect(liar?.monitorSource).toBe("github_pull_request");
+    expect(liar?.watch).toBeUndefined();
+  });
+
   test("a finished monitor is not stoppable", () => {
     const [process] = readBackgroundProcesses([
       { process_id: "monitor_2", kind: "monitor", description: "done", status: "exited" },

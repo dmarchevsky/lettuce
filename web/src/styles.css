@@ -2629,6 +2629,16 @@ nav.rail.rail-collapsed {
 .link:disabled {
   opacity: 0.4;
 }
+/* A link verb that carries its own glyph (a watch's "Open PR") pairs the two: JSX
+   leaves no whitespace between them, so the flex gap is the air. Scoped to a task
+   row's verbs rather than every `.link`, because the other link-plus-glyph buttons
+   across the app were laid out as inline and one px of shift is not worth finding
+   again in a toolbar. */
+.task-actions .link:has(> .icon) {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
 
 button {
   cursor: pointer;
