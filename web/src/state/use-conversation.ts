@@ -846,6 +846,13 @@ export function useConversation(
         case "turn_finished": {
           refreshUsage();
           settleStreaming(transcriptRef.current);
+          // An approval the turn never got an answer to dies with it: upstream
+          // rejects its pending approval resolvers as the turn is cancelled, so
+          // answering it now would send a response for a request that no longer
+          // exists — and the sheet is undismissable, so a leftover is a dead
+          // modal over a finished turn. Goes on both sides of the force-send
+          // seam below: the replacement turn raises its own approvals afresh.
+          setApprovals([]);
           if (expectResentTurnRef.current) {
             // The seam between an aborted turn and its force-sent replacement:
             // processing continues into the resent turn.

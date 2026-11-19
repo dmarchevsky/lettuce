@@ -8,6 +8,11 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 ### Changed
 - The dev loop tells the truth about itself: a UI or smoke run refuses to score a container that is not the checkout it ran from, a red `lint`/`verify`/`check-docs` names the file that failed, `ui-check --section` and `screenshots --shot` re-run one part instead of the whole suite, and mockups, sign-in and the suite's scratch directories come from one shared harness.
 
+## [v0.46.2-letta_0.34.63] - 2026-11-19
+
+### Fixed
+- Fix an approval card that stayed on screen after its turn had ended, so nothing asks to approve a request that no longer exists.
+
 ## [v0.46.1-letta_0.34.63] - 2026-11-19
 
 ### Fixed
