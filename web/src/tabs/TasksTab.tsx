@@ -16,6 +16,7 @@ import { shortDate } from "../lib/conversation-groups.ts";
 import { describeCron } from "../lib/cron-describe.ts";
 import { errorMessage } from "../lib/errors.ts";
 import { findMonitorBackupWake } from "../lib/monitor-backup.ts";
+import { monitorChip } from "../lib/pr-watch.ts";
 import { resolveLiveWorkerRun, workerKindOf } from "../lib/run-link.ts";
 import type { LiveSubagent } from "../lib/subagents.ts";
 import { subagentStatusLine, workflowPhasesLine, workflowStatusLine } from "../lib/subagents.ts";
@@ -63,13 +64,12 @@ const PROCESS_KIND_LABEL: Record<BackgroundProcessSummary["kind"], string> = {
 };
 
 /**
- * The row's chip. A monitor's source is what says whether it is a GitHub watch —
- * `WatchPR` and `Monitor` are two different tools whose processes share the
- * `monitor` kind, and the word is the only place the difference can show.
+ * The row's chip. A monitor's word comes from its source, because `WatchPR` and
+ * `Monitor` share the `monitor` kind on the wire.
  */
 function processChip(process: BackgroundProcessSummary): string {
-  return process.kind === "monitor" && process.monitorSource === "github_pull_request"
-    ? "WatchPR"
+  return process.kind === "monitor"
+    ? monitorChip(process.monitorSource)
     : PROCESS_KIND_LABEL[process.kind];
 }
 

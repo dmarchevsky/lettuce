@@ -34,7 +34,13 @@ import {
   type TurnErrorRecord,
   transcriptFromHistory,
 } from "../lib/messages.ts";
-import { readWatchTarget, type WatchTarget } from "../lib/pr-watch.ts";
+import {
+  MONITOR_SOURCES,
+  type MonitorSource,
+  readStartedAtMs,
+  readWatchTarget,
+  type WatchTarget,
+} from "../lib/pr-watch.ts";
 import { frameSeq, type RuntimeScope, type SequencedFrame, scopeKey } from "../lib/protocol.ts";
 import { planForceSend, type QueuedItem, readQueue } from "../lib/queue-actions.ts";
 import { type ResponseFormat, validateResponseFormat } from "../lib/structured-output.ts";
@@ -76,14 +82,7 @@ export interface ToolsetSummary {
 }
 
 /** `MonitorBackgroundProcessSummary["source"]` — the four sources that run locally. */
-export type MonitorSource = "command" | "websocket" | "script" | "github_pull_request";
-
-const MONITOR_SOURCES: readonly MonitorSource[] = [
-  "command",
-  "websocket",
-  "script",
-  "github_pull_request",
-];
+export type { MonitorSource } from "../lib/pr-watch.ts";
 
 export interface BackgroundProcessSummary {
   processId: string;
@@ -103,7 +102,7 @@ export interface BackgroundProcessSummary {
   watch?: WatchTarget;
   /**
    * Whether this row has a stop that works from the browser: a running monitor
-   * (`stop_monitor_task`) or a subagent the app-server still owns (`subagent_stop`).
+   * (`monitor_stop`) or a subagent the app-server still owns (`subagent_stop`).
    * `task_stop` is an agent tool and not a client command, so a shell job stays false.
    */
   stoppable: boolean;
@@ -266,9 +265,10 @@ function readMonitorFields(
     typeof source === "string" && (MONITOR_SOURCES as readonly string[]).includes(source)
       ? (source as MonitorSource)
       : undefined;
+  const startedAtMs = readStartedAtMs(entry.started_at_ms);
   return {
     ...(monitorSource ? { monitorSource } : {}),
-    ...(typeof entry.started_at_ms === "number" ? { startedAtMs: entry.started_at_ms } : {}),
+    ...(startedAtMs === undefined ? {} : { startedAtMs }),
     ...(monitorSource === "github_pull_request"
       ? { watch: readWatchTarget(description) ?? undefined }
       : {}),

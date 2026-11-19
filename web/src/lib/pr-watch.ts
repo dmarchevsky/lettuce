@@ -24,6 +24,36 @@ export interface WatchTarget {
   title: string;
 }
 
+/** `MonitorBackgroundProcessSummary["source"]` — the four sources that run locally. */
+export type MonitorSource = "command" | "websocket" | "script" | "github_pull_request";
+
+export const MONITOR_SOURCES: readonly MonitorSource[] = [
+  "command",
+  "websocket",
+  "script",
+  "github_pull_request",
+];
+
+/**
+ * The chip's word for a monitor row. `WatchPR` and `Monitor` are two different
+ * tools whose processes share the `monitor` kind, and this word is the row's only
+ * signal of which one it is.
+ */
+export function monitorChip(monitorSource: MonitorSource | undefined): string {
+  return monitorSource === "github_pull_request" ? "WatchPR" : "Monitor";
+}
+
+/**
+ * Upstream writes `started_at_ms: proc.startTime?.getTime() ?? 0` for a monitor
+ * (`background-process-snapshot.ts`), so `0` is its "unknown" and every other
+ * out-of-range value would make `new Date(ms).toISOString()` throw — a
+ * monitor's `status` is always "running", so a bad start time is the one field
+ * that could take the row down. ECMAScript's Date range is ±8.64e15 ms.
+ */
+export function readStartedAtMs(value: unknown): number | undefined {
+  return typeof value === "number" && value > 0 && value <= 8.64e15 ? value : undefined;
+}
+
 /** Owner and repo as GitHub allows them, then the number upstream appends. */
 const WATCH_TARGET = /^(?:PR|Workflow run) ([\w.-]+\/[\w.-]+)#(\d+)\b/;
 

@@ -49,4 +49,17 @@ describe("findMonitorBackupWake", () => {
   test("ignores a different monitor's wake", () => {
     expect(findMonitorBackupWake("Other watch", [wake()])).toBeNull();
   });
+
+  /**
+   * A `WatchPR` row shows no "Backup wake armed" line because upstream arms one
+   * only from the `Monitor` tool (letta-code `tools/impl/monitor.ts` → `armMonitorBackup`;
+   * `tools/impl/watch-pr.ts` never calls it). The join is by name alone, so what the
+   * row can prove is only this: a watch's description never picks up a wake armed for
+   * some other monitor.
+   */
+  test("a GitHub watch matches no monitor's wake", () => {
+    const pr = "PR dmarchevsky/lettuce#142 checks, reviews, and mergeability";
+    expect(findMonitorBackupWake(pr, [wake()])).toBeNull();
+    expect(findMonitorBackupWake(pr, [wake(), wake({ name: "Nightly build" })])).toBeNull();
+  });
 });

@@ -1,5 +1,29 @@
 import { describe, expect, test } from "bun:test";
-import { readWatchTarget } from "./pr-watch.ts";
+import { monitorChip, readStartedAtMs, readWatchTarget } from "./pr-watch.ts";
+
+describe("monitor row vocabulary", () => {
+  test("the source is what says WatchPR", () => {
+    expect(monitorChip("github_pull_request")).toBe("WatchPR");
+    expect(monitorChip("command")).toBe("Monitor");
+    expect(monitorChip("websocket")).toBe("Monitor");
+    expect(monitorChip("script")).toBe("Monitor");
+    // A frame with no source is still a row; it just cannot claim to be a watch.
+    expect(monitorChip(undefined)).toBe("Monitor");
+  });
+
+  test("a start time that is not a date is no start time", () => {
+    // Upstream's own sentinel for "no startTime" is 0 (background-process-snapshot.ts),
+    // and anything outside ECMAScript's Date range would make the row throw when it
+    // formatted it — so both have to be dropped here, not handled at render.
+    expect(readStartedAtMs(0)).toBeUndefined();
+    expect(readStartedAtMs(-1)).toBeUndefined();
+    expect(readStartedAtMs(1e300)).toBeUndefined();
+    expect(readStartedAtMs(Number.NaN)).toBeUndefined();
+    expect(readStartedAtMs("1700000000000")).toBeUndefined();
+    expect(readStartedAtMs(undefined)).toBeUndefined();
+    expect(readStartedAtMs(1_700_000_000_000)).toBe(1_700_000_000_000);
+  });
+});
 
 /**
  * The link a WatchPR row offers is rebuilt from the description upstream writes,

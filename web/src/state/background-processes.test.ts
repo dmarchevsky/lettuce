@@ -93,6 +93,23 @@ describe("background process parsing", () => {
     expect(process?.watch?.label).toBe("dmarchevsky/lettuce#142");
   });
 
+  test("a monitor whose start time upstream does not know has none", () => {
+    // `started_at_ms: 0` is upstream's sentinel, not the epoch: a row that rendered it
+    // would say "watching since Dec 31, 1969".
+    const [process] = readBackgroundProcesses([
+      {
+        process_id: "monitor_7",
+        kind: "monitor",
+        description: "PR dmarchevsky/lettuce#142 checks, reviews, and mergeability",
+        source: "github_pull_request",
+        started_at_ms: 0,
+        status: "running",
+      },
+    ]);
+    expect(process?.startedAtMs).toBeUndefined();
+    expect(process?.watch?.url).toBe("https://github.com/dmarchevsky/lettuce/pull/142");
+  });
+
   test("a command monitor has a source but no watch", () => {
     const [process] = readBackgroundProcesses([
       {
