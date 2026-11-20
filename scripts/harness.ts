@@ -445,6 +445,8 @@ export interface HarnessArgs {
   list: boolean;
   shots: string[];
   staleBuild: boolean;
+  /** `--fixture <file>` — synthetic data for a hermetic generator; empty when unset. */
+  fixture: string;
 }
 
 export function parseArgs(argv: string[], fallbackOrigin = "http://127.0.0.1:8090"): HarnessArgs {
@@ -473,6 +475,13 @@ export function parseArgs(argv: string[], fallbackOrigin = "http://127.0.0.1:809
     };
     if (arg === "--section" || arg === "--sections") {
       split(next());
+    } else if (arg === "--fixture") {
+      // Read verbatim, not through `next()` — which lowercases, and a path is
+      // case-bearing. And taken here rather than left to fall through, or the
+      // path lands in `positional` (an output dir, a shot name, whatever the
+      // caller's positional means) — the trap `--timeout 240` springs in frame-tap.
+      i += 1;
+      args.fixture = (argv[i] ?? "").trim();
     } else if (arg === "--shot" || arg === "--shots") {
       args.shots.push(
         ...next()
