@@ -41,6 +41,19 @@ interface Props {
   processing: boolean;
   /** History for this conversation is in flight: say so instead of "no messages". */
   historyLoading?: boolean;
+  /**
+   * Only the newest messages are loaded; older ones are a click away. The wall row
+   * is what keeps a partial transcript from reading as a complete one.
+   */
+  historyPartial?: boolean;
+  /** An older page is on its way, so the wall shows its busy state. */
+  historyLoadingOlder?: boolean;
+  /** How many messages were fetched; what the wall counts out. */
+  historyLoaded?: number;
+  /** Bumped once per older page landed — what the scroll anchor is held on. */
+  olderPages?: number;
+  /** Fetch the next page of older messages. */
+  onLoadOlder?: () => void;
   session: SessionApi;
   /** The runtime's working directory, used to shorten paths in tool summaries. */
   cwd: string | null;
@@ -131,6 +144,11 @@ export function MessageList({
   entries,
   processing,
   historyLoading,
+  historyPartial,
+  historyLoadingOlder,
+  historyLoaded,
+  olderPages = 0,
+  onLoadOlder,
   session,
   cwd,
   onOpenFile,
@@ -159,6 +177,24 @@ export function MessageList({
     if (!container || !stuckRef.current) return;
     container.scrollTop = container.scrollHeight;
   }, [entries, processing]);
+
+  // An older page lands above the viewport, where the reader of a partial
+  // transcript already is — so without a word from the browser the text they were
+  // reading jumps down by the height of everything inserted. Scroll anchoring is
+  // not something to trust here (it is exactly the case it handles worst), so the
+  // height the insert added is measured and the scroll position pushed by it.
+  const heightRef = useRef(0);
+  const olderSeenRef = useRef(olderPages);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `olderPages` is the event, not an input
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    const grew = olderPages !== olderSeenRef.current;
+    olderSeenRef.current = olderPages;
+    const delta = container ? container.scrollHeight - heightRef.current : 0;
+    heightRef.current = container?.scrollHeight ?? 0;
+    if (!container || !grew || stuckRef.current || delta <= 0) return;
+    container.scrollTop += delta;
+  }, [entries, olderPages]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -326,6 +362,24 @@ export function MessageList({
                 that was about to fill. */}
             {historyLoading ? "Loading conversation…" : "No messages yet. Say something below."}
           </p>
+        ) : null}
+
+        {historyPartial && !historyLoading ? (
+          // The floor stopped the read, so say so where the missing messages would
+          // have been — a transcript that is only partly loaded must not read as a
+          // conversation that started here.
+          <div className="history-wall">
+            <span className="history-wall-note">
+              Showing the newest {historyLoaded?.toLocaleString() ?? "loaded"} messages
+            </span>
+            {historyLoadingOlder ? (
+              <span className="pill history-wall-busy">Loading older messages…</span>
+            ) : (
+              <button type="button" className="pill as-button" onClick={onLoadOlder}>
+                Load older messages
+              </button>
+            )}
+          </div>
         ) : null}
 
         {items.map((item) => {

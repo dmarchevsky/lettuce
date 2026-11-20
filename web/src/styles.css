@@ -1014,6 +1014,30 @@ nav.rail.rail-collapsed {
   margin: auto;
 }
 
+/*
+ * The wall at the top of a transcript that is only partly loaded: one muted line
+ * saying how much is on screen, and the way past it. Centered because it speaks
+ * for the transcript rather than for a speaker, and wrapped rather than truncated
+ * — the count is the whole point of the row.
+ */
+.history-wall {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 10px;
+  padding: 2px 0 10px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.history-wall-note {
+  color: var(--muted);
+  font-size: 13px;
+}
+.history-wall-busy {
+  color: var(--muted);
+}
+
 .entry {
   display: flex;
   flex-direction: column;
