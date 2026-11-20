@@ -5,6 +5,8 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.47.0-letta_0.34.63] - 2026-11-20
+
 ### Added
 - **Every agent can draw.** A new `generate_image` tool talks to any OpenAI-compatible image endpoint (`POST <url>/images/generations`) — a local server or a cloud API — pointed at from the new Settings → Image generation, which carries a test draw that runs exactly what an agent's call runs. Pictures appear as thumbnails in the chat (click for full size), the agent can look at its own drawing and iterate, and each one is saved under `generated/` in the workspace. Needs the `images` compose token.
 
