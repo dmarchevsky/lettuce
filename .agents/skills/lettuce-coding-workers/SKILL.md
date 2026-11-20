@@ -130,3 +130,25 @@ Loaded from `AGENTS.md`. letta-code spawns the real CLIs; a shim makes them fit 
     release rebuilds and publishes it either way. Either way it recreates `app-server`, and a
     `CLAUDE_CODE_VERSION` bump re-verifies the preflight shape anyway (subscription mode came with
     2.1.289).
+
+## Proving a CLI bump without touching the running stack
+
+Both CLIs are provable in a throwaway image, so a bump never needs the shared stack (and never kills anyone's
+turn):
+
+1. **`bun run check-pin-upstream` first** — it reports `CODEX` and `CLAUDE_CODE` (with every other pin)
+   against their registries. A hand probe lies both ways: npm's `latest` lags a fresh publish by hours, and
+   the upstream mirror's tags lag too.
+2. **Scratch-build `docker/codex/Dockerfile`** — the file the app-server image builds `FROM
+   letta/letta:${LETTA_CODE_VERSION}` — with the new `ARG CODEX_VERSION` / `ARG CLAUDE_CODE_VERSION`,
+   `CODING_FEATURES=codex,claude`, under a throwaway tag. The build itself asserts each CLI installs and
+   answers `--version`, and it writes `/opt/lettuce/features`, all without a container being touched.
+3. **Run the two preflights the way letta-code does**, through the shims in that image, with a stub config
+   so the worker switch reads on: `{"enabled": true}` at `CODEX_HOME/lettuce.json` (resp.
+   `CLAUDE_CONFIG_DIR/lettuce.json`). `codex --version` and `claude auth status --json` — which must answer
+   `{"loggedIn": true}` — are exactly the two calls upstream makes.
+4. **For the Codex handshake, keep stdin open.** `{ cat init.ndjson; sleep 6; } | codex app-server --stdio`
+   with newline-delimited JSON-RPC; feed it and close stdin and the process returns nothing, which reads like
+   a broken CLI rather than like a closed pipe.
+5. **What is never skippable:** a real worker turn needs the operator's endpoint and key, so a bump is proven
+   locally up to the handshake and the turn itself stays the operator's pass — say which you did.

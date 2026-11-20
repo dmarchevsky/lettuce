@@ -43,11 +43,20 @@ workflow-file trap below.
    `.github/pull_request_template.md` — its container-test section records who ran it and what they
    answered, which is a precondition of the PR rather than a review checkbox. Note `gh` bodies are
    scanned by the guard too: a body that *quotes* `docker compose stop` still trips the compose rule,
-   so pass long bodies with `--body-file`.
-5. **CI green, then merge it yourself.** **Release? is the authorization** — the operator does not merge
-   by hand: once `ci` is green on the PR the agent runs `gh pr merge <n> --merge`. A standing
+   so pass long bodies with `--body-file`. Under dev-flow that body is authored **before** the gate runs,
+   as `.dev-flow/<slug>/pr-body.md`: `flow release` opens the PR itself and refuses when the repo has a
+   template and no authored body, because synthesizing one from the changelog drops the gate list.
+5. **CI green, then the gate merges it.** **Release? is the authorization** — the operator does not merge
+   by hand: with it, `flow release` waits for CI, merges in the repo's style, cuts and pushes the tag and
+   records the release, so you run no `git` or `gh` step of your own. Merging by hand (`gh pr merge <n
+   --merge`, once `ci` is green) is the fallback for a machine with no `gh` or no gate. A standing
    "continue" is not an authorization, and neither is a reviewer's `Approved` review — that says they
    ran it, not that they own the merge.
+   - **Editing a body that is already open:** `gh pr edit --body-file` is dead on this GitHub — the
+     Projects (classic) GraphQL failure exits 1 with the edit silently unapplied, now on four PRs — so
+     patch the endpoint instead: `gh api -X PATCH repos/<owner>/<repo>/pulls/<n> -F body=@<file>`
+     (or `--input <json>`), then `gh pr view <n> --json body` and quote what is really there. Never chain
+     a `--watch` or a report behind an edit whose exit code you have not read.
 6. **Merge = merge commit** (`--merge`, the repo's only enabled method). The branch's own commits are
    what reach `main`, so a landed branch really is an ancestor of `main` and `git branch -d` can delete
    it — no PR API needed to know what merged. Report the worktree as merged and let `flow finish`
@@ -246,8 +255,9 @@ ride the feature's own branch — see `lettuce-releasing`.
 
 ## After merge: `flow finish`
 
-Bookkeeping is dev-flow's, not a script and not a habit. Once the PR is merged and
-`flow release-done` has recorded the tag, `flow finish` closes the feature: it refuses a dirty main
+Bookkeeping is dev-flow's, not a script and not a habit. Once the PR is merged and the release is recorded
+— `flow release` does that itself now; `flow release-done` is only the catch-up recorder — `flow finish`
+closes the feature: it refuses a dirty main
 checkout or a `HEAD` that is not on `origin/main`, blocks on uncommitted changes inside the worktree,
 notes any commit that never reached `main`, then removes the worktree and the local branch and deletes
 `origin/<branch>` only on proof it was released. With merge commits that proof is plain ancestry —

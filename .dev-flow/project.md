@@ -64,7 +64,7 @@ playbook itself is the one `-f` add that is right (`.dev-flow/` is ignored, `pro
 
 ## plan
 
-- [ ] (ui) mockups of every changed surface, rendered at 390 and 1280 and embedded in plan.md
+- [ ] (ui) mockups of every changed surface, rendered at 390 and 1280 by `bun scripts/mockup.ts` and embedded in plan.md
 
 A mockup rendered **at plan** has no worktree to link — `flow approve` is what creates it — so link the
 **main checkout's** `web/src/styles.css` (`../../../../web/src/styles.css` from `plan/mockups/`), and
@@ -73,6 +73,14 @@ and re-render every mockup you keep using at **this feature's** worktree stylesh
 (`../../worktree/web/src/styles.css`) — the main checkout lacks every class the branch adds until it
 merges, so a re-render against it silently loses the new styling. Check the link resolved before
 trusting a shot.
+
+**Render with `scripts/mockup.ts`, never a hand-typed chromium call**: `bun scripts/mockup.ts
+<screen>.html --width 1280 --height 900 --out <screen>-desktop.png`. It passes the
+`--blink-settings=primaryPointerType=…` flags `chrome-headless-shell` needs to report
+`(pointer: fine)` / `(hover: hover)` — a plausible `--primaryPointerType=4` is accepted and ignored — and it
+fails the render when the stylesheet `<link>` does not resolve. Two flows since that script landed have
+typed the incantation by hand, dropped those flags, and approved 1280px shots of a page that was never
+styled as the desktop it claimed to be. `lettuce-ui-verification` holds the recipe.
 
 Write the plan to `plan/` **as the discussion goes**, not when it ends: pi has auto-compacted at the
 `release` stage twice now, and a plan that lived only in the transcript was gone with it — the gates read
@@ -88,6 +96,15 @@ be paid at pre-release. And **a measurement the plan names as a gate must be clo
 outlived**: when the operator waives a named precondition verbally, write the waiver into plan.md (in a
 `--patch`/`--docs` flow, which has no plan file, into the plan line) and the PR body — what was measured, or that the work proceeded unmeasured and what would change if the number
 comes back low — so a precondition cannot die silently behind a proceed-anyway.
+
+**A plan proves the feature's own runtime precondition, not just that a model exists.** "Prove there is a
+model before driving a turn" is the special case of a wider duty: name what the feature needs to be
+*testable* — a login in the container, a compose profile up, an OAuth scope granted, a file under
+`$LETTA_STATE_DIR` — and prove it in the running stack with one read-only probe, quoting that probe's
+output in plan.md. A roadmap brief's claim that "the image carries `gh` plus a persisted login" went into
+an approved plan unproven and died at implement, where `gh auth status` in the container answered *not
+logged into any GitHub hosts* and the feature could not be exercised at all. A brief's assertion is not
+evidence.
 
 An asked-for *skill* settles its harness **before the flow starts**: `.agents/skills/` is this repo's dev harness — pi reads it in the checkout, and nothing mounts this checkout into a container, so it reaches no agent — while `docker/agent-skills/` is what ships: the bff image carries it and `bff/src/agent-skills.ts` installs it into `/root/.letta/skills` on every connect, global to every agent (Settings → Global skills). Ask which one is meant when it is ambiguous; guessing wrong once cost a whole extra unversioned flow for a skill that could never reach the app, plus a modify/delete rebase conflict when the harness copy was deleted.
 
@@ -152,7 +169,32 @@ one of the two, and which import fails first decides the message — `ERR_MODULE
 temp dir, `Cannot find module './harness.ts'` unless you import the worktree path by hand
 (`../worktree/scripts/harness.ts`), or `Executable doesn't exist at
 ~/.cache/ms-playwright/chromium_headless_shell-<other>/…` from the flow dir or the main checkout, which reads
-like a machine problem and is the same cwd problem. `PLAYWRIGHT_CHROMIUM` is the override for the last one only.
+like a machine problem and is the same cwd problem. `PLAYWRIGHT_CHROMIUM` is the override for the last one only. **This rule beats dev-flow's generic one:**
+the plugin's implement reference puts scratch in `$TMPDIR` / `mktemp`, and here that is wrong twice —
+`bun` resolves neither this worktree's Playwright nor `./harness.ts` from there, and a scratch stays
+invisible until it is *committed*, at which point `bun run lint` and `bun run verify` go red over it. So:
+worktree, deleted before `flow check`, never committed. Resolve sibling paths from the same place — the
+upstream clone is `../letta-code` **from the main checkout** (AGENTS.md's `~/work/letta-code`), a path that
+does not exist from inside a worktree, so a probe that assumes `$repo/letta-code` reads nothing and reports
+upstream unchanged.
+
+**A new script that wraps an incantation a repo skill already documents copies it verbatim and re-proves
+it.** A flow rewrote the chromium flags from memory into `scripts/mockup.ts` as `--primaryPointerType=4`
+— silently ignored by the headless shell — while `lettuce-ui-verification` already carried the working
+`--blink-settings=…` form, so the tool rendered unstyled desktop mocks and looked healthy; the independent
+review's only must-fix. The skill is the source of truth, and wrapping its recipe needs one empirical proof
+that the wrapped form actually applies (there: a `matchMedia('(pointer: fine)')` probe printed from the
+render).
+
+**Use the harness instead of re-deriving it.** `scripts/harness.ts` exports `devSignIn` / `signInPage` /
+`requireTestPassword` (sign-in), `openPane` (rail and phone bottom-bar navigation), `servedBuild` /
+`assertServedBuild` / `requireServedBuild` (which bundle a stack actually serves), `cookieJarLine` and
+`headlessRenderArgs`; `scripts/dev-login.ts` prints a cookie jar (0600) and the agent ids from a shell.
+Four flows have hand-rolled a sign-in driver anyway. Four more re-ran the whole `ui-check` suite (~2 min
+each) to land three assertions: `bun scripts/ui-check.ts --list` names the sections and `--section <name>`
+runs one, and `scripts/screenshots.ts --shot <name>` renders one image. And a probe of the shared stack
+calls `assertServedBuild()` immediately before it measures — a parallel `build:bff` retags the image under
+you mid-pass.
 A failed `setup` fails `flow approve`
 and runs again on the next one; a `--docs` flow skips it — **so nothing is installed there**: a docs flow
 whose task runs a project tool (`bun run screenshots`, a Playwright render) must `bun install` in its own
@@ -194,9 +236,11 @@ a container path — the next recreate deletes it. A session that moved the sign
 locked screen, keeping its only backup inside `bff`, cost the operator their password when the container was
 rebuilt. Copy state **out** to the host to photograph it, or add data instead of moving it. And a seed on the
 shared stack is not cleaned up until a re-listing shows it gone: after deleting seeded files, list the path
-again (`ls`, `list_memory`, whatever fits) and quote the listing in the checkpoint. Empty directories
-survive file deletes — root-owned under the bind mount, so the host cannot `rmdir` them; remove them with
-`docker exec` inside the owning container. Never report residue as removed.
+again (`ls`, `list_memory`, whatever fits) and quote the listing in the checkpoint. Whatever a **turn**
+created under the bind mount is root-owned, so the host cannot delete any of it — not a leftover directory
+(`rmdir` fails) and not a file an agent wrote (`rm` fails with EACCES). Remove it in the owning container
+(`docker compose -f docker/compose.yml exec app-server rm -r …`), never from the host. Never report residue
+as removed.
 
 **Never ask Verified? of a stack that is not up.** Prove it before the question: every service running
 (`docker ps`, or `docker compose -f docker/compose.yml ps` run from the **main** checkout — a worktree
@@ -204,11 +248,14 @@ without `docker/.env` cannot interpolate the compose file), the `health` probe g
 signs in with a password (`SIGNIN=password`) sign in to the UI yourself and look at the change — an operator
 should click a working app, not discover a dead one. This machine's password lives in
 `.pi/local-secrets/test-password.md` in the main checkout (gitignored, per-machine, never committed and
-never pasted into a tracked file). **Where it is missing, ask once and write the answer to that path**
-(`mkdir -p .pi/local-secrets` in the main checkout, then export from the file) — the file is the point, not
-the value: an answer that stays in chat is in the session transcript forever, and a value re-typed into the
-argv of every `ui-check` / `smoke` call is a secret in the process list and in the shell history. So the
-rule is *ask once, store in the gitignored file, always export from the file*, never accept it as a message. When a look needs raw curl instead of the harness, sign-in is a **JSON** endpoint: `POST /auth/login` with `{"password": …}` — a `--data-urlencode` form post is refused with 400 — so load the value from the **main checkout** (`PW=$(tr -d '\n' < <main-checkout>/.pi/local-secrets/test-password.md)`) and post it as `-d "{\"password\":\"$PW\"}"` with a cookie jar; never `cat` / `head` / `od` the file in a command that prints its value, and never paste the password into argv.
+never pasted into a tracked file). **Where the file is missing, ask the operator to create it
+themselves** and say out loud that the agent must never receive the value as a message: `mkdir -p
+.pi/local-secrets` in the main checkout, then write the value into `test-password.md` and `chmod 600` it,
+and the agent reads it from there. The file is the point, not the value: an answer that stays in chat is in
+the session transcript forever, and a value re-typed into the argv of every `ui-check` / `smoke` call is a
+secret in the process list and in the shell history. So the rule is *ask them to write the file, always
+export from the file*, never accept the value as a message — and if they insist on sending it anyway, write
+it, then say plainly that it reached the transcript and should be rotated. When a look needs raw curl instead of the harness, sign-in is a **JSON** endpoint: `POST /auth/login` with `{"password": …}` — a `--data-urlencode` form post is refused with 400 — so load the value from the **main checkout** (`PW=$(tr -d '\n' < <main-checkout>/.pi/local-secrets/test-password.md)`) and post it as `-d "{\"password\":\"$PW\"}"` with a cookie jar; never `cat` / `head` / `od` the file in a command that prints its value, and never paste the password into argv.
 **A stage worker needs the same line in its brief**: hand a worker `bun run ui-check` or `smoke` without
 `export LETTUCE_TEST_PASSWORD=$(cat <main checkout>/.pi/local-secrets/test-password.md)` and it concludes the
 check cannot be run, so the assertions rest on the plan's claim instead of on a run. Because the stack is
@@ -239,7 +286,7 @@ run them records **what it probed in the container** instead — in the PR's *Wh
 plainly that a human pass on the sign-in path is still owed. `flow verify` deploying and probing `/readyz`
 is not that pass and never counts as one.
 
-**A `flow_stage` worker gets four more lines in its brief, because it has no operator to ask.**
+**A `flow_stage` worker gets six more lines in its brief, because it has no operator to ask.**
 - **Never type a compose lifecycle command — `down`, `stop`, `kill`, `rm`, `restart`.** The compose file pins
   `name: lettuce`, so a `down -v` typed in a copy of the file still tears down the real one-per-machine stack
   and its named volumes. Prove compose interpolation with `docker compose config` in a scratch directory and
@@ -256,6 +303,14 @@ is not that pass and never counts as one.
   review worker the upstream `file:line` and the frame order the change leans on — the ones the driver
   already established — or it spends half its budget re-deriving them from `letta-code/` and needs a
   steer to file a report at all.
+- **Scratch lives and runs in the worktree, under `bun`.** A probe or browser driver goes in
+  `…/worktree/scripts/` and runs with `bun` — never `/tmp`, never `node` — because that is what makes it
+  resolve *this* worktree's Playwright and its `./harness.ts`. From anywhere else it dies on module
+  resolution with a message that reads like a machine problem, and a worker with nobody to ask re-derives
+  it for several calls. Delete it before `flow check`; never commit it.
+- **Sibling paths belong to the main checkout.** `letta-code/` sits beside the repo (`../letta-code` from
+  the main checkout, never `$repo/letta-code`), and `docker/.env` is copied in by `setup` — a probe that
+  resolves paths from its own cwd silently reads the wrong tree and reports absence as fact.
 
 When the branch edits `scripts/ui-check.ts` itself, the owed item
 is narrower: **the operator runs `bun run ui-check` once** during the container test — a click-through does
@@ -299,7 +354,10 @@ user-facing functionality, PATCH for everything else that ships. The version is 
 `## [Unreleased]` above it — `check-release-hygiene` fails the branch when the two disagree, so a rename
 without a bump is red. **The bump commit waits for the operator's bump word** — a bare Verified? is not
 one: hold the prep commit until the operator names the class (MINOR or PATCH) or says unversioned; when
-Verified? arrives without a class, ask in the same breath as Verified?. Cutting the whole prep commit on an
+Verified? arrives without a class, ask in the same breath as Verified?. **A standing `yolo` has no Verified?
+breath** — it runs the flow to this stage unasked — so stop and ask "which bump, or unversioned?" in the same
+message as Release?, and hold the prep commit until the answer: a whole `v…` prep commit cut on an assumed
+PATCH once came off with one `reset --hard`. Cutting the whole prep commit on an
 assumed class once produced hours of soft-reset rework on history that was about to be pushed.
 The heading an entry lands under is what CI derives the bump from: `### Added` and
 `### Changed` are proof of a MINOR, so a PATCH flow files its entry under `### Fixed` or `### Removed`
@@ -332,11 +390,12 @@ builds, and what CI compares against `VERSION` after the merge. `sync-upstream` 
       `flow-review` skill, or `flow_stage` op `review`) and every must-have and should-have finding
       fixed — on a
       code-free release branch, `check-release-hygiene --pr` over the branch stands in, named as such
-- [ ] the CHANGELOG entry, the VERSION bump and any README / docs/CONFIGURATION.md sync in that one
-      release-prep commit, and the `bump:minor` / `bump:patch` / `bump:none` label agrees with it
-- [ ] the compose image-tag default moved with VERSION in that same commit
-- [ ] the operator confirmed this exact tag, after being told the commit range and whether `app-server`
-      gets recreated (an `app-server` recreate kills every in-flight turn; the BFF drain covers only bff)
+- [ ] (versioned) the CHANGELOG entry, the VERSION bump and any README / docs/CONFIGURATION.md sync in
+      that one release-prep commit, and the `bump:minor` / `bump:patch` / `bump:none` label agrees with it
+- [ ] (versioned) the compose image-tag default moved with VERSION in that same commit
+- [ ] (versioned) the operator confirmed this exact tag, after being told the commit range and whether
+      `app-server` gets recreated (an `app-server` recreate kills every in-flight turn; the BFF drain
+      covers only bff)
 
 ## release
 
@@ -353,24 +412,37 @@ plan- or verify-stage yolo onto `flow release` as `--yolo --confirmed` — run i
 `merge = merge`, so a plan-stage yolo merged a version-bump branch under `--yolo` fourteen minutes before the
 operator said the word. A yolo answered **at** the release checkpoint is that word and passes.
 
-Publish only — the preparation happened above. Push the branch, open the PR from
-`.github/pull_request_template.md`, wait for `ci` green, **merge it yourself**
-(`gh pr merge <n> --merge`), `git fetch`, create the annotated tag at `main`'s tip and push it
-**by name** (`git push origin v<x>`, never `--follow-tags`). `flow release-done` creates
-the GitHub Release for that tag (`release.releases = true`) with the changelog section as its notes — and
-the post-merge checks below run **before** it, not after it. Nothing here deploys prod, and nothing is pushed, merged or
-tagged without the operator's **Release?** for that specific change — a standing yes from an earlier
-change is not one. dev-flow refuses `gh pr merge` and tag pushes before `flow release`; after it, the
-merge guard wants the style spelled out (`gh pr merge <n> --merge`).
+Publish only — the preparation happened above, and **the gate does the publishing**: `flow release
+--confirmed` pushes the branch, opens the PR, waits for its CI, merges in the playbook's style, cuts the
+annotated tag on the merge commit and pushes it, then records the release — tag on `origin`,
+`release.artifact`, and the GitHub Release built from the changelog section — and reads it back. You run no
+`git` or `gh` step of your own, and no `flow release-done` in the happy path: that verb is the catch-up
+recorder `flow finish` falls back on.
+
+The one thing you author first is **the PR body**. With `.github/pull_request_template.md` in the tree the
+gate refuses to open a PR whose body it would have to synthesize from the changelog, because that drops the
+template's gate list — so write `.dev-flow/<slug>/pr-body.md` from the template before running the gate:
+every section filled, the changelog entry, and the commit the operator's Verified? was given over. (An
+unversioned flow has no changelog heading to synthesize from, so the body is the only place its case lives.)
+
+Nothing here deploys prod, and nothing is pushed, merged or tagged without the operator's **Release?** for
+that specific change — a standing yes from an earlier change is not one (see `yolo = until-release` above).
+The gate **resumes**: `publish waiting` means CI outlived its 30-minute wait, so re-run `flow release` in
+this same turn — nothing wakes the session later; `publish stopped` names what is wrong (a red check to fix
+on the branch, runs stuck in `queued` to `gh run cancel` + `gh run rerun`, or a forge refusal to report back
+and stop).
 
 **Re-read a PR body you edited before reporting from it.** `gh pr edit --body-file` can fail — GitHub's
 Projects (classic) deprecation surfaced as a GraphQL error that made `gh` exit 1 with the edit not
 applied — so the checkbox flips it was meant to apply never land, and a `gh pr checks --watch` chained
 after it dies with it; a chat summary written from intent then says the opposite of what GitHub holds. The PR body is the gate list the operator trusts: after any
 body edit, `gh pr view <n> --json body` and quote what is actually there; never chain a watch or a report
-behind an edit whose exit code you have not checked.
+behind an edit whose exit code you have not checked. **The proven escape, now used on four PRs**, is to skip
+`gh pr edit` and patch the REST endpoint: `gh api -X PATCH repos/<owner>/<repo>/pulls/<n> -F body=@<file>`
+(or `--input <json>`), then the same `gh pr view` re-read to confirm the length changed.
 
-**A watch that reports no checks has not watched anything.** `gh pr checks <n> --watch` run straight after
+**A watch that reports no checks has not watched anything.** (These are the hand-poll traps; a gate-run
+publish waits for CI itself and reports the same two shapes as `publish waiting` and a queued run.) `gh pr checks <n> --watch` run straight after
 `gh pr create` can exit at once with "no checks reported on the branch" because the runs have not
 registered yet — which reads exactly like nothing-to-wait-for and invites a merge on a false green. Poll
 again (a short sleep, re-run) until checks actually appear, and only then treat a green watch as green. The
@@ -385,19 +457,21 @@ green and pushed nothing — `lettuce-pr-and-ci` says why a green Compose build 
 green pipeline is not the artifact; the registry is. (An unversioned flow tags nothing, so this gate and
 the artifact check both stand down.)
 
-**The tail runs from `main` before `flow finish`, not after it.** The order is merge → tag → the post-merge
-checks below, from `main` with a clean tree → `flow release-done` → `flow finish`, and the reason it is an
-order and not a preference is that `flow finish` is the last gate and it *will* record a release it finds
-unrecorded on its way to deleting the worktree. So a session that treats finish as the cleanup step can end
-with a release recorded, a worktree gone and `deploy-check` never run. `flow release-done` stays the step
-that records the tag and writes the GitHub Release; finish only catches it when that was skipped.
+**The tail runs from `main` before `flow finish`, not after it.** The order is `flow release` (which merges, tags and records) → the
+post-merge checks below, from `main` with a clean tree → `flow finish`, and the reason it is an order and
+not a preference is that `flow finish` is the last gate and it *will* record a release it finds unrecorded
+on its way to deleting the worktree. So a session that treats finish as the cleanup step can end with a
+release recorded, a worktree gone and `deploy-check` never run.
 
 - [ ] after the merge and from `main`: `bun run build` **first** — `deploy-check` compares the served bundle
       against this host's `web/dist`, and after a release built in a worktree that copy is stale
       (`build:bff` refreshes the image, never the host's copy) — then `bun run deploy-check` green, plus
       `bun run ui-check` and `bun run smoke` where they apply. A merge that ships nothing an image carries
       (playbook, docs, CI) still leaves build identity naming an older sha: rebuild `bff`, or record that
-      there was nothing to rebuild.
+      there was nothing to rebuild. On this one-stack machine the honest close is often the **record**: if
+      another flow's deploy is under review, or a recreate would kill someone's turn, write down what
+      `deploy-check` says and hand off instead of rebuilding. Do not offer a shared-stack redeploy inside the
+      Finish? question — a bare "finish" cannot say which of the two it means.
 - [ ] a versioned release's **image tag lags the checkout** on a build-locally host: the compose tag default
       moved with `VERSION`, so nothing built before the merge carries the new name and build identity fails
       with no flag to forgive it. Fix from `main` with a clean tree — `bun run build:bff` then

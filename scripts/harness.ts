@@ -11,6 +11,13 @@
  * One password source, not one per script — `ui-check`, `smoke` and the sign-in
  * screens all drive the same local stack, and two names meant exporting the same
  * secret twice to run one check.
+ *
+ * Named entry points, so a driver imports one instead of re-deriving it:
+ * `devSignIn` / `signInPage` / `requireTestPassword` (sign-in), `openPane` (rail and
+ * bottom-bar navigation), `servedBuild` / `assertServedBuild` / `requireServedBuild`
+ * (which bundle a running stack actually serves), `cookieJarLine`, `chromiumExecutable`
+ * and `headlessRenderArgs`. `scripts/dev-login.ts` is the shell form of the first group,
+ * and `ui-check --list` / `--section <name>` runs one section instead of the suite.
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
