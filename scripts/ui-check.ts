@@ -114,6 +114,7 @@ const SECTION_TITLES = [
   "Context gauge",
   "Enter on a touch device",
   "Settings deep link",
+  "Image generation settings",
   "Memory link graph",
   "Form controls share one height",
   "Sidebar conversation menu",
@@ -1743,6 +1744,7 @@ try {
     const expectedPhoneChips = [
       "Models",
       ...(featureOn(features, "web") ? ["Web"] : []),
+      ...(featureOn(features, "images") ? ["Images"] : []),
       "MCP",
       ...(featureOn(features, "google") ? ["Workspace"] : []),
       ...(featureOn(features, "codex") ? ["Codex"] : []),
@@ -3102,6 +3104,7 @@ try {
     const expectedRail = [
       "Providers & models",
       ...(featureOn(desktopFeatures, "web") ? ["Web search"] : []),
+      ...(featureOn(desktopFeatures, "images") ? ["Image generation"] : []),
       "MCP servers",
       ...(featureOn(desktopFeatures, "google") ? ["Google Workspace"] : []),
       ...(featureOn(desktopFeatures, "codex") ? ["Codex workers"] : []),
@@ -4177,6 +4180,62 @@ try {
     check("the param is stripped", !page.url().includes("settings="), page.url());
     await page.close();
   }
+
+  // Settings → Image generation, both sizes. The section only exists while the
+  // `images` compose token is on (the BFF 404s its routes otherwise), so what a
+  // stack can prove is derived from /api/status rather than assumed — and a
+  // token that is off is reported as a skip, not a pass.
+  if (await go("Image generation settings"))
+    for (const [label, viewport] of [
+      ["desktop", DESKTOP],
+      ["phone", PHONE],
+    ] as const) {
+      const page = await open(browser, viewport);
+      await page.goto(`${ORIGIN}/?settings=images`, { waitUntil: "networkidle" });
+      await page.locator(".settings-pane").waitFor({ timeout: 10_000 });
+      const drawFeatures = await readFeatures(page);
+      if (!featureOn(drawFeatures, "images")) {
+        console.log(`  SKIP  image generation settings (${label}: the token is off)`);
+        await page.close();
+        continue;
+      }
+      check(
+        `the link opens Image generation (${label})`,
+        label === "phone"
+          ? (await page.locator(".settings-pane .section-tabs button.active").innerText()) ===
+              "Images"
+          : (await page.locator(".settings-content-title").innerText()) === "Image generation",
+      );
+      // The fields the operator needs, in the order that reads top to bottom, and
+      // the two verbs that make the setting real: Save and the test Draw.
+      const labels = (await page.locator(".settings-pane .field").allInnerTexts())
+        .map((text) => text.trim().split("\n")[0] ?? "")
+        .filter((text) => text.length > 0);
+      check(
+        `the section holds endpoint, key, model, size and the test prompt (${label})`,
+        JSON.stringify(labels) ===
+          JSON.stringify(["Endpoint URL", "API key", "Model", "Default size", "Prompt"]),
+        labels,
+      );
+      check(
+        `it has the toggle, Save and a test draw (${label})`,
+        (await page
+          .locator('.settings-pane .menu-row:has-text("Native image generation")')
+          .count()) === 1 &&
+          (await page.locator('.settings-pane button:has-text("Save")').count()) === 1 &&
+          (await page.locator('.settings-pane button:has-text("Draw")').count()) === 1,
+      );
+      // The key never comes back from the server, so the field has to be a
+      // password field whatever is stored — a readable key input here is a leak.
+      check(
+        `the API key field is not readable (${label})`,
+        (await page.locator('.settings-pane .field input[type="password"]').count()) === 1,
+      );
+      const { clipped } = await overflow(page);
+      check(`the section does not overflow (${label})`, clipped.length === 0, { clipped });
+      await shot(page, `settings-images-${label}`);
+      await page.close();
+    }
 
   if (await go("Memory link graph"))
     for (const [label, options] of [

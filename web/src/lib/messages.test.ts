@@ -1024,6 +1024,116 @@ describe("tool returns", () => {
   });
 });
 
+/**
+ * What a mod that drew a picture returns: a content array mixing the text the
+ * model reads and the base64 image parts a vision model sees (the shape
+ * letta-code forwards to Letta as real `ImageContent`). Both wire shapes carry
+ * it — the singular `tool_return` history persists and the `tool_returns[]`
+ * array a live frame adds — and the text must come out exactly as it did when
+ * that body was the only part.
+ */
+function imageReturnBody(text = "Drew 1 image at 512x512.") {
+  return [
+    { type: "text", text },
+    {
+      type: "image",
+      source: { type: "base64", media_type: "image/png", data: "aW1hZ2U=" },
+    },
+  ];
+}
+
+describe("tool returns that carry pictures", () => {
+  test("the singular field's content array: text kept, image lifted", () => {
+    const transcript = streamed([
+      {
+        type: "message",
+        message_type: "tool_return_message",
+        id: "synthetic-tool-return-uuid-img",
+        date: "2026-08-29T02:46:21.743Z",
+        status: "success",
+        tool_call_id: "gen-1",
+        tool_return: imageReturnBody(),
+      },
+    ]);
+
+    const returns = sortedEntries(transcript).filter((entry) => entry.kind === "tool_return");
+    expect(returns).toHaveLength(1);
+    expect(returns[0]?.text).toBe("Drew 1 image at 512x512.");
+    expect(returns[0]?.images).toEqual([
+      { mediaType: "image/png", dataUrl: "data:image/png;base64,aW1hZ2U=" },
+    ]);
+  });
+
+  test("the tool_returns[] array wins, and carries its pictures too", () => {
+    const transcript = streamed([
+      {
+        type: "message",
+        message_type: "tool_return_message",
+        id: "frame-with-two",
+        date: "2026-08-29T02:46:21.743Z",
+        // The array is what decides, so the singular copy is deliberately stale.
+        tool_call_id: "gen-a",
+        tool_return: "stale",
+        tool_returns: [
+          { tool_call_id: "gen-a", status: "success", tool_return: imageReturnBody("first.") },
+          { tool_call_id: "gen-b", status: "success", tool_return: imageReturnBody("second.") },
+        ],
+      },
+    ]);
+
+    const returns = sortedEntries(transcript).filter((entry) => entry.kind === "tool_return");
+    expect(returns.map((entry) => entry.text)).toEqual(["first.", "second."]);
+    expect(returns.every((entry) => entry.images?.length === 1)).toBe(true);
+  });
+
+  test("a text-only return gains no images at all", () => {
+    const transcript = streamed([
+      toolReturnFrame("synthetic-tool-return-stream-plain", "plain", "success", "42"),
+    ]);
+    expect(sortedEntries(transcript)[0]?.images).toBeUndefined();
+  });
+
+  test("a snapshot without pictures keeps the ones the earlier frame carried", () => {
+    // The running snapshot of a mod tool already carries the picture; the
+    // canonical frame that replaces it may report only the text.
+    const transcript = streamed([
+      toolReturnFrame("synthetic-tool-return-stream-img", "img", "success", "drawing…"),
+      {
+        type: "message",
+        message_type: "tool_return_message",
+        id: "synthetic-tool-return-uuid-img2",
+        date: "2026-08-29T02:46:24.743Z",
+        status: "success",
+        tool_call_id: "img",
+        tool_return: imageReturnBody(),
+      },
+      toolReturnFrame("synthetic-tool-return-stream-img3", "img", "success", "done"),
+    ]);
+
+    const returns = sortedEntries(transcript).filter((entry) => entry.kind === "tool_return");
+    expect(returns).toHaveLength(1);
+    expect(returns[0]?.text).toBe("done");
+    expect(returns[0]?.images).toHaveLength(1);
+  });
+
+  test("history replays the same picture onto the same key", () => {
+    const history = transcriptFromHistory([
+      {
+        message_type: "tool_return_message",
+        id: "ui-msg-900",
+        date: "2026-08-29T02:46:21.796Z",
+        tool_call_id: "gen-1",
+        status: "success",
+        tool_return: imageReturnBody(),
+      },
+    ]);
+
+    const entry = sortedEntries(history)[0];
+    expect(entry?.id).toBe("return:gen-1");
+    expect(entry?.images).toHaveLength(1);
+  });
+});
+
 describe("provider error notices", () => {
   test("lifts the model's own message out of a raw JSON body", () => {
     expect(

@@ -1091,6 +1091,17 @@ nav.rail.rail-collapsed {
 .md a {
   color: var(--accent);
 }
+/* A picture inside markdown — what an agent pastes after drawing one. It has to
+   stay in measure: a server answering 1024² would otherwise widen the bubble and
+   so the page, and a captioned image reads as a figure, not inline text. */
+.md img {
+  display: block;
+  max-width: min(100%, 280px);
+  height: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin: 6px 0;
+}
 .md strong {
   font-weight: 650;
 }
@@ -1548,6 +1559,13 @@ nav.rail.rail-collapsed {
 .entry.tool.error .rail,
 .entry.tool_return.error .rail {
   border-left-color: var(--bad);
+}
+
+/* A tool's pictures, inside the call card: above the Out rail and never behind
+   the disclosure — a drawing nobody sees is a drawing nobody asked for. The
+   entry column already owns the width, so this only adds the vertical air. */
+.entry.tool .msg-images {
+  margin: 2px 0 6px;
 }
 
 /* Collapsed, the block still shows one line of output on the same rail. */

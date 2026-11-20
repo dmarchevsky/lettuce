@@ -47,6 +47,7 @@ export type IconName =
   | "search"
   | "terminal"
   | "globe"
+  | "image"
   | "grid"
   | "bell"
   | "info"
@@ -128,6 +129,11 @@ const PATHS: Record<IconName, string> = {
   // Meridian globe: fetching a web page, distinct from the magnifier's search.
   globe:
     "M12 3a9 9 0 100 18 9 9 0 000-18M3 12h18M12 3c2.5 2.6 4 5.6 4 9s-1.5 6.4-4 9c-2.5-2.6-4-5.6-4-9s1.5-6.4 4-9z",
+  // A framed picture with a sun and a peak: the thing a drawing tool makes.
+  // Path from Lucide's "image" icon — ISC License, Copyright (c) Lucide
+  // Contributors, https://github.com/lucide-icons/lucide/blob/main/LICENSE
+  image:
+    "M3 7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4zM3.5 12.5 8 8l6.5 6.5M14 13l2-2 4.5 4.5M15 10a1 1 0 1 1-2 0 1 1 0 0 1 2 0z",
   // Four squares: a workspace, a family of apps under one account.
   grid: "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z",
   // The notification bell: this device's pushes, nothing else says it.

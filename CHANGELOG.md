@@ -5,6 +5,11 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.47.0-letta_0.34.63] - 2026-11-20
+
+### Added
+- **Every agent can draw.** A new `generate_image` tool talks to any OpenAI-compatible image endpoint (`POST <url>/images/generations`) — a local server or a cloud API — pointed at from the new Settings → Image generation, which carries a test draw that runs exactly what an agent's call runs. Pictures appear as thumbnails in the chat (click for full size), the agent can look at its own drawing and iterate, and each one is saved under `generated/` in the workspace. Needs the `images` compose token.
+
 ### Changed
 - The dev loop tells the truth about itself: a UI or smoke run refuses to score a container that is not the checkout it ran from, a red `lint`/`verify`/`check-docs` names the file that failed, `ui-check --section` and `screenshots --shot` re-run one part instead of the whole suite, and mockups, sign-in and the suite's scratch directories come from one shared harness.
 - The playbook catches up with its own tools: mockups render through `scripts/mockup.ts`, the release stage is published by `flow release` with an authored PR body instead of a list of hand steps, a plan proves the feature is testable before approval, and the skills say how to prove a CLI bump in a throwaway image, format a re-recorded fixture, and recover a PR body GitHub refused to edit.

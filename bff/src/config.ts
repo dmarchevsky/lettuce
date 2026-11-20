@@ -138,6 +138,13 @@ export interface BffConfig {
    */
   modelCapsFile: string;
   /**
+   * Image generation (`images/`): the endpoint, model and API key the
+   * `generate_image` tool draws with, written 0600 on the `bff-data` volume —
+   * deliberately NOT on letta-home like the web-tools switch, because agent
+   * shells mount that tree read-write as uid 0 and the key is not theirs.
+   */
+  imagesSettingsFile: string;
+  /**
    * Backends of the agents' native `web_search` / `fetch_webpage` tools (see
    * `web-tools/`): SearXNG answers searches, ddg-mcp reads pages and is the
    * search fallback. Null switches that backend off.
@@ -149,8 +156,8 @@ export interface BffConfig {
    * Which integrations this deployment offers at all, from the tokens in
    * `COMPOSE_PROFILES` (passed through as `LETTA_MODE`): `web`⇐`search`,
    * `google`⇐`google`, `telegram`⇐`telegram` (the real token that creates the
-   * `channel-gateway` container), and the two VIRTUAL coding tokens `codex`
-   * and `claude` — profiles no service declares, which exist to decide the app-server
+   * `channel-gateway` container), and the VIRTUAL tokens `codex`, `claude`,
+   * `pi` and `images` — profiles no service declares, which exist to decide the app-server
    * image's install (see `docker/codex/Dockerfile`) and, here, which Settings
    * sections exist and which integrations the BFF will switch on. A stored
    * Settings switch is only honoured when its feature is on: effective-enabled
@@ -175,6 +182,13 @@ export interface FeatureFlags {
   claude: boolean;
   /** Virtual token like codex/claude, but BFF-side only: no image involvement. */
   pi: boolean;
+  /**
+   * Virtual token, BFF-side only like `pi`: image generation is pure Settings
+   * configuration (any OpenAI-compatible `/v1/images/generations` endpoint), so
+   * no container declares it and the token only decides whether the tool and
+   * its Settings section exist.
+   */
+  images: boolean;
   /**
    * Real token, like `google`: the `telegram` profile is what creates the
    * `channel-gateway` container (docker/compose.yml), so without it there is
@@ -588,6 +602,7 @@ function readFeatures(): FeatureFlags {
     codex: hasProfile(profiles, "codex"),
     claude: hasProfile(profiles, "claude"),
     pi: hasProfile(profiles, "pi"),
+    images: hasProfile(profiles, "images"),
     telegram: hasProfile(profiles, "telegram"),
   };
 }
@@ -678,6 +693,8 @@ export function loadConfig(): BffConfig {
     contextWatchdogRatio: optionalShare("CONTEXT_WATCHDOG_RATIO", 0.9),
     piDir: process.env.PI_DIR?.trim() || "/app/data/pi",
     modelCapsFile: process.env.MODEL_CAPS_FILE?.trim() || "/app/data/vision-models.json",
+    imagesSettingsFile:
+      process.env.IMAGES_SETTINGS_FILE?.trim() || "/app/data/image-generation/settings.json",
     webTools: {
       searxngUrl: process.env.SEARXNG_URL?.trim() || null,
       ddgMcpUrl: process.env.DDG_MCP_URL?.trim() || null,

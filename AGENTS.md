@@ -164,18 +164,18 @@ Every optional piece of the stack hangs off `COMPOSE_PROFILES`, and each token t
 the app-server image contains. **Sidecars are opt-in: `google-mcp` has `profiles: ["google"]`,
 `searxng` and `ddg-mcp` share `["search"]`, `channel-gateway` has `["telegram"]`
 (`lettuce-telegram-channels`), `cloudflared` has `["cloudflared"]`.** Prod runs
-`COMPOSE_PROFILES=cloudflared,google,search,codex,claude`. Nothing `depends_on` a sidecar, and
+`COMPOSE_PROFILES=cloudflared,google,search,codex,claude,images`. Nothing `depends_on` a sidecar, and
 without its token the integration is off wholesale whatever the stored Settings switch says —
-dropping the profile is the whole off switch. Removal is
+dropping the profile is the off switch. Removal is
 `--profile <p> rm -sf …`. To test a profile locally **without editing `docker/.env`**, prefix the
 command — `COMPOSE_PROFILES=<…,pi> docker compose -f docker/compose.yml up -d bff`: shell env beats
 the `.env` file, `LETTA_MODE` carries the string to the BFF, and the next un-prefixed `up` reverts it.
 
-Three tokens are **virtual**: none is declared by a service, none starts a container. `codex` and
-`claude` decide what the app-server *image* contains; `pi` (Remote Pi) is BFF-side only and installs
-nothing in the image. Every token is matched as an exact comma-delimited entry (`bff/src/config.ts`
-`hasProfile`: `searchy` ≠ `search`), and the BFF derives `config.features` = `web`⇐`search`,
-`google`⇐`google`, `codex`⇐`codex`, `claude`⇐`claude`, `pi`⇐`pi`, `telegram`⇐`telegram`.
+Four tokens are **virtual**: no service declares one, none starts a container. `codex` and `claude`
+decide what the app-server *image* contains; `pi` (Remote Pi) and `images` (image generation, Settings
+config) install nothing. Every token is matched as an exact comma-delimited entry
+(`bff/src/config.ts` `hasProfile`), and `config.features` = `web`⇐`search`, `google`⇐`google`,
+`codex`⇐`codex`, `claude`⇐`claude`, `pi`⇐`pi`, `images`⇐`images`, `telegram`⇐`telegram`.
 
 - **effective-enabled = token AND stored Settings switch**, enforced at each availability decision: web
   tools render disabled (`renderAllMods`), Google reapply/status/sidecar-config run on the gated

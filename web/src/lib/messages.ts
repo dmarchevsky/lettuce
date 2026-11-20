@@ -1104,6 +1104,8 @@ interface ToolReturnPart {
   toolCallId: string;
   status: "success" | "error";
   text: string;
+  /** Pictures the tool produced, lifted from image parts of the return body. */
+  images?: TranscriptImage[];
   stdout?: string[];
   stderr?: string[];
 }
@@ -1122,6 +1124,22 @@ function toolReturnText(value: unknown): string {
   return JSON.stringify(value);
 }
 
+/**
+ * The pictures carried by one return body, if any.
+ *
+ * A mod may answer with a content array mixing text and
+ * `{type:"image", source:{type:"base64", …}}` parts (letta-code forwards those
+ * to Letta as real image content, which is what lets a vision model look at
+ * what it drew), and `readContentParts` already reads exactly that shape. A
+ * string body — almost every tool — has none, so this costs a cheap guard.
+ * The type is a superset of the wire, so drift here is invisible to typecheck.
+ */
+function toolReturnImages(value: unknown): TranscriptImage[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const images = readContentParts(value).images;
+  return images.length > 0 ? images : undefined;
+}
+
 function readToolReturnPart(raw: unknown): ToolReturnPart | null {
   if (!raw || typeof raw !== "object") return null;
   const record = raw as Record<string, unknown>;
@@ -1129,10 +1147,12 @@ function readToolReturnPart(raw: unknown): ToolReturnPart | null {
   if (!toolCallId) return null;
   const stdout = readOutputLines(record.stdout);
   const stderr = readOutputLines(record.stderr);
+  const images = toolReturnImages(record.tool_return);
   return {
     toolCallId,
     status: record.status === "error" ? "error" : "success",
     text: toolReturnText(record.tool_return),
+    ...(images ? { images } : {}),
     ...(stdout ? { stdout } : {}),
     ...(stderr ? { stderr } : {}),
   };
@@ -1236,6 +1256,9 @@ function applyToolReturns(
       text: part.text,
       status: part.status,
       toolCallId: part.toolCallId,
+      // A frame that carries none must not erase the ones an earlier snapshot
+      // of the same call put there (the snapshot/canonical pair this keys on).
+      ...(part.images ? { images: part.images } : {}),
       ...(part.stdout ? { stdout: part.stdout } : {}),
       ...(part.stderr ? { stderr: part.stderr } : {}),
     } as TranscriptEntry);

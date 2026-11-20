@@ -10,6 +10,14 @@ export interface ToolAnswer {
   content_b64?: string;
   /** Workspace-relative destination for `content_b64`, already sanitized. */
   save_path?: string;
+  /**
+   * Set by `generate_image`: several pictures, each already given a
+   * workspace-relative path to be saved at. The MOD writes them (the BFF has no
+   * path to /work) **and** returns them to letta-code as image content, so the
+   * picture is in the conversation as a persisted message part — which is what
+   * lets a vision-capable model look at its own drawing and iterate.
+   */
+  images?: { b64: string; path: string }[];
 }
 
 /** Who is calling, as the mod reported it. */
