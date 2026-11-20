@@ -14,7 +14,9 @@
  *
  * Named entry points, so a driver imports one instead of re-deriving it:
  * `devSignIn` / `signInPage` / `requireTestPassword` (sign-in), `openPane` (rail and
- * bottom-bar navigation), `servedBuild` / `assertServedBuild` / `requireServedBuild`
+ * bottom-bar navigation), `servedBuild` / `assertServedBuild` / `requireServedBuild` /
+ * `judgeServedVersion` (which bundle a running stack actually serves, and which build a
+ * release may be held to)
  * (which bundle a running stack actually serves), `cookieJarLine`, `chromiumExecutable`
  * and `headlessRenderArgs`. `scripts/dev-login.ts` is the shell form of the first group,
  * and `ui-check --list` / `--section <name>` runs one section instead of the suite.
@@ -220,6 +222,34 @@ export function judgeServedBuild(
     return { ok: false, dirty, why: `serving ${served}, this checkout is ${expectedSha}` };
   }
   return { ok: true, dirty, why: `both at ${expectedSha}` };
+}
+
+/**
+ * Does the string a stack answers at `/versionz` name this checkout's whole
+ * release — tag and commit? The release gate's question, where an image is
+ * held to its tag (a deploy-manager build may stamp `+unknown` and still be
+ * on the tag; the dev gate's `judgeServedBuild` deliberately does not accept
+ * that, because a local build always has a commit to name).
+ *
+ * The one place that decides "this build" for both gates, so a dev check and
+ * a release check cannot drift into meaning different things by it: `-dirty`
+ * is forgiven the same way, the tag/sha split is parsed the same way.
+ */
+export function judgeServedVersion(
+  served: string,
+  expected: string,
+  allowUnstamped = false,
+): { ok: boolean; unstamped: boolean; why: string } {
+  const clean = served.replace(/-dirty$/, "");
+  if (clean === expected) return { ok: true, unstamped: false, why: `both at ${expected}` };
+  const base = expected.split("+")[0] ?? expected;
+  if (allowUnstamped && clean === `${base}+unknown`) {
+    // The whole point of accepting it: the tag is verifiable, the commit is not,
+    // and pretending otherwise would make a deploy-manager build impossible to
+    // check.
+    return { ok: true, unstamped: true, why: `on the release tag ${base}, unstamped` };
+  }
+  return { ok: false, unstamped: false, why: `serving ${clean}, expected ${expected}` };
 }
 
 export async function servedBuild(origin: string): Promise<BuildIdentity> {

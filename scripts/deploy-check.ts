@@ -11,11 +11,15 @@
  * `--allow-unstamped` is for a target whose builder had no git metadata to stamp
  * with — a deploy manager builds from its own copy of the tree, which has no
  * `.git`, so the image can only say `+unknown`. With the flag, that counts as a
- * match as long as the release tag agrees. The default stays strict.
+ * match as long as the release tag agrees. The default stays strict. The verdict
+ * itself is `judgeServedVersion` in `scripts/harness.ts` — the one place that
+ * decides "this build", so this release gate and the dev gate's
+ * `assertServedBuild` cannot drift into meaning different things by it.
  */
 
 import { readFileSync } from "node:fs";
 import { readBuildInfo, versionString } from "../bff/src/build-info.ts";
+import { judgeServedVersion } from "./harness.ts";
 
 const argv = process.argv.slice(2);
 const ALLOW_UNSTAMPED = argv.includes("--allow-unstamped");
@@ -206,13 +210,11 @@ try {
   check(`${ORIGIN}/versionz is reachable`, false, cause instanceof Error ? cause.message : cause);
 }
 if (servedVersion !== null) {
-  const served = servedVersion.replace(/-dirty$/, "");
-  const expectedBase = expectedBuild.split("+")[0] ?? expectedBuild;
-  if (served === expectedBuild) {
+  const verdict = judgeServedVersion(servedVersion, expectedBuild, ALLOW_UNSTAMPED);
+  if (verdict.ok && !verdict.unstamped) {
     check(`served build matches this checkout (${expectedBuild})`, true);
-  } else if (ALLOW_UNSTAMPED && served === `${expectedBase}+unknown`) {
-    // The whole point of accepting it: the tag is verifiable, the commit is not, and
-    // pretending otherwise would make a deploy-manager build impossible to check.
+  } else if (verdict.ok) {
+    const expectedBase = expectedBuild.split("+")[0] ?? expectedBuild;
     check(`served build is on this release tag (${expectedBase}) and unstamped`, true);
     note(
       "an unstamped image names no commit because its builder had no git metadata — " +
@@ -224,7 +226,7 @@ if (servedVersion !== null) {
     check(
       `served build matches this checkout (${expectedBuild})`,
       false,
-      `serving ${served}. An older sha means the image predates your last commit: run ` +
+      `serving ${servedVersion.replace(/-dirty$/, "")}. An older sha means the image predates your last commit: run ` +
         "`bun run build:bff`, then `docker compose -f docker/compose.yml up -d bff`. " +
         "A `+unknown` means the image was built where there was no git metadata to read " +
         "— if that target is a deploy manager's build, re-run with --allow-unstamped. " +

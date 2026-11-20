@@ -78,6 +78,9 @@ own test — and repeat on the merged artifact if the bundle changed:
    `.ui-check/`), or Playwright against the live stack when the state needs real data — drive a
    real turn or state, then screenshot. A quick live sampler (poll a DOM node's text every ~250 ms
    through a scripted turn) is how the working line was actually verified, transient states included.
+   To prove one surface without paying the whole suite (~2 min/run), run one section:
+   `bun scripts/ui-check.ts --list` names them, `--section <name>` runs one. For a single README
+   image, `bun scripts/screenshots.ts --shot <name>` renders just that one.
 2. Review the screenshots holistically — the checklist is the gate:
    - can a user accomplish the task from what is on screen, no hidden affordances;
    - does the surface read like its neighbours — same type scale, spacing rhythm, icon language,
