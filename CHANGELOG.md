@@ -5,6 +5,8 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.48.0-letta_0.34.67] - 2026-11-20
+
 ### Changed
 - **letta-code 0.34.63 → 0.34.67** (four upstream releases). Coding workers got steadier: a slow Codex steer now reports **queued** instead of hanging, and a steer that collides with a just-finished turn starts a clean new turn instead of being lost. Skills behave: each conversation now keeps its skill list frozen until the next compaction, and a skill added or removed mid-conversation arrives as a small delta notice instead of rewriting the prompt under the agent. Task replies survive app-server reconnects, and a local install no longer sends the misleading "no MCP servers available" reminder to agents.
 
