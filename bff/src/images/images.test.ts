@@ -151,6 +151,22 @@ describe("images settings", () => {
     expect(imagesConfigured(SETTINGS)).toBe(true);
   });
 
+  test("concurrent saves serialize: neither tab loses the other's field", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "images-race-"));
+    const file = join(dir, "settings.json");
+    const store = new ImagesSettingsStore(file);
+    await store.save({
+      enabled: true,
+      baseUrl: "http://img.example:8000/v1",
+      model: "flux-dev",
+    });
+    await Promise.all([store.save({ size: "512x512" }), store.save({ model: "flux-dev-2" })]);
+    const stored = await store.load();
+    expect(stored.size).toBe("512x512");
+    expect(stored.model).toBe("flux-dev-2");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   test("the store round-trips through a file no agent can read", async () => {
     const dir = mkdtempSync(join(tmpdir(), "images-store-"));
     const file = join(dir, "settings.json");
@@ -311,6 +327,30 @@ describe("the universal client", () => {
     ).resolves.toEqual({ ok: false, error: "no image model is configured" });
   });
 
+  test("a server that ignores n does not smuggle extra pictures into the thread", async () => {
+    const { fetchImpl } = spyFetch(() => b64Reply(4));
+    const result = await drawImages(ENDPOINT, { prompt: "x", n: 2 }, { fetchImpl });
+    expect(pictures(result)).toHaveLength(2);
+  });
+
+  test("an svg is refused as a type, not relabeled a png", async () => {
+    const svg = "data:image/svg+xml;base64,PHN2Zy8+";
+    const { fetchImpl } = spyFetch(() => jsonResponse({ data: [{ url: svg }] }));
+    const result = await drawImages(ENDPOINT, { prompt: "x" }, { fetchImpl });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("image/svg+xml");
+  });
+
+  test("a url that answers with a non-image type is a named problem", async () => {
+    const { fetchImpl } = spyFetch((url) =>
+      url.includes("generations")
+        ? jsonResponse({ data: [{ url: "http://cdn.example/x.bin" }] })
+        : new Response("junk", { headers: { "content-type": "application/octet-stream" } }),
+    );
+    const result = await drawImages(ENDPOINT, { prompt: "x" }, { fetchImpl });
+    expect(result.ok).toBe(false);
+  });
+
   test("a 200 whose items carry nothing says so", async () => {
     const stub = spyFetch(() => jsonResponse({ data: [{ revised_prompt: "hmm" }] }));
     const result = await drawImages(ENDPOINT, { prompt: "x" }, { fetchImpl: stub.fetchImpl });
@@ -433,6 +473,17 @@ describe("generate_image's handler", () => {
     expect(answer.text).toBe(
       "generate_image failed: HTTP 400: this server draws one image at a time",
     );
+  });
+
+  test("a server echoing the key it refused is redacted before it persists", async () => {
+    const withKey = { ...SETTINGS, apiKey: "sk-leak-me" };
+    const answer = await generateImageTool(
+      { prompt: "a fox" },
+      deps(withKey, () => new Response("invalid api key sk-leak-me", { status: 401 })),
+    );
+    expect(answer.isError).toBe(true);
+    expect(answer.text).toContain("[redacted]");
+    expect(answer.text).not.toContain("sk-leak-me");
   });
 
   test("reached the way a mod reaches it: loopback POST, same answer", async () => {

@@ -90,9 +90,10 @@ Other profiles are orthogonal to access:
 | `codex` | virtual: installs the Codex CLI into the app-server image + Settings → Codex workers |
 | `claude` | virtual: installs the Claude Code CLI + Settings → Claude Code workers |
 | `pi` | virtual: Settings → Remote Pi — agents dispatch coding tasks to a `pi` install on another host over SSH (nothing installs on that host, and the program itself is configurable — `pi-bolt`, an absolute path, plus fixed flags); Tools gives an agent its own folder, command or host |
+| `images` | virtual: Settings → Image generation — the agents' `generate_image` tool, drawing through any OpenAI-compatible `/images/generations` endpoint you configure (nothing installs; the endpoint may be local or cloud) |
 
 Combine them with commas and keep any profile you already have when adding
-another: `COMPOSE_PROFILES=cloudflared,google,search,codex,claude,pi`.
+another: `COMPOSE_PROFILES=cloudflared,google,search,codex,claude,pi,images`.
 
 A token must match exactly as a comma-delimited entry — `searchy` is not
 `search`. A profile whose token is off is off everywhere: the stored Settings
@@ -319,6 +320,18 @@ backend status and a test search.
 
 Without the profile the tools stay registered and every call fails with the
 backend's error, so switch them off in Settings → Web.
+
+## Image generation
+
+Needs the `images` profile — virtual: nothing installs, the whole feature is
+Settings configuration. Agents get `generate_image` as a native tool, and the
+BFF draws through any OpenAI-compatible `POST {endpoint}/images/generations`
+server — OpenAI itself, a local stable-diffusion.cpp, LocalAI, a proxy. No
+endpoint ships with the stack: you point Settings → Image generation at one
+(endpoint root, optional bearer key, model id, default size), and its **Test
+draw** box is the reachability probe. The key is stored on the `bff-data` volume
+owner-only and is never sent back to the browser. Drawn pictures land in the
+agent's workspace under `generated/` and appear in the conversation itself.
 
 ## Providers that name models `vendor/model`
 
@@ -736,7 +749,7 @@ as that fallback).
 
 | Variable | Value |
 |---|---|
-| `COMPOSE_PROFILES` | `cloudflared,google,search,codex,claude` (drop what you don't want) |
+| `COMPOSE_PROFILES` | `cloudflared,google,search,codex,claude,images` (drop what you don't want) |
 | `LETTA_IMAGE_NS` | `ghcr.io/dmarchevsky/` — set once; the packages are public, so no login |
 | `LETTA_STATE_DIR` | `/srv/letta` |
 | `PUBLIC_ORIGIN` | `https://<your-hostname>` |

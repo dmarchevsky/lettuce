@@ -43,15 +43,19 @@ export class ImagesSettingsStore {
 
   /** Save a browser update, then hand back what is now stored. Throws on a bad body. */
   async save(body: unknown): Promise<ImagesSettings> {
-    const next = applyImagesSettingsUpdate(await this.load(), body);
-    await this.persist(next);
-    return next;
-  }
-
-  private persist(settings: ImagesSettings): Promise<void> {
-    const snapshot = renderStoredImagesSettings(settings);
-    this.queue = this.queue.catch(() => undefined).then(() => this.write(snapshot));
-    return this.queue.then(() => undefined);
+    // The whole read-modify-write rides the queue, not just the write: two tabs
+    // saving at once must not merge against a stale base (one restoring a key
+    // the other just cleared is the visible form of that).
+    const run = this.queue.then(async () => {
+      const next = applyImagesSettingsUpdate(await this.load(), body);
+      await this.write(renderStoredImagesSettings(next));
+      return next;
+    });
+    this.queue = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
   }
 
   private async write(snapshot: string): Promise<void> {
@@ -185,8 +189,13 @@ export async function generateImageTool(
   );
   if (!result.ok) {
     // The server's own words, because the agent's next move (drop `n`, change
-    // the size) depends on them.
-    return { text: `generate_image failed: ${result.error}`, isError: true };
+    // the size) depends on them — but a server or proxy that echoes the bearer
+    // value it just refused must not smuggle our key into the persisted tool
+    // return, where the agents can read it back out of the conversation.
+    const error = settings.apiKey
+      ? result.error.split(settings.apiKey).join("[redacted]")
+      : result.error;
+    return { text: `generate_image failed: ${error}`, isError: true };
   }
 
   const slug = slugifyPrompt(parsed.prompt);

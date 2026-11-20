@@ -244,6 +244,14 @@ export function summarizeToolCall(
       return query ? { headline: query } : null;
     }
 
+    // `generate_image`: the native image tool (bff/src/images/). The prompt is
+    // the whole story of the call, and it is what the approved card mockup
+    // shows beside the tool name.
+    case "generate_image": {
+      const prompt = str(args, "prompt");
+      return prompt ? { headline: prompt } : null;
+    }
+
     case "Skill": {
       const skill = str(args, "skill");
       return skill ? { headline: skill, mono: true } : null;

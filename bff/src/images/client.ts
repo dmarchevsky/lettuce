@@ -49,6 +49,18 @@ export type DrawResult = { ok: true; images: DrawedImage[] } | { ok: false; erro
 /** The most body to show back when it is not JSON anybody recognises. */
 const BODY_HEAD = 400;
 
+/**
+ * What a picture may be. The transcript, the workspace file and the model's
+ * image part all carry a media type, and an image type outside this set (SVG
+ * above all — a drawable vector that is also a script vector) would be
+ * mislabeled everywhere downstream, so the client refuses it here instead.
+ */
+const ALLOWED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+
+/** The biggest picture one reply item may carry, base64 or fetched. */
+const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
+const MAX_B64_CHARS = Math.ceil((MAX_IMAGE_BYTES * 4) / 3);
+
 export function endpointFromSettings(settings: ImagesSettings): ImageEndpoint {
   return {
     baseUrl: settings.baseUrl,
@@ -117,8 +129,10 @@ async function imageFromUrl(
   if (url.startsWith("data:")) {
     const comma = url.indexOf(",");
     const mediaType = mediaTypeOfUrl(url) ?? "image/png";
+    if (!ALLOWED_IMAGE_TYPES.has(mediaType)) return `a data: URL of type ${mediaType}`;
     const payload = comma >= 0 ? url.slice(comma + 1) : "";
     if (!payload) return "a data: URL with no payload";
+    if (payload.length > MAX_B64_CHARS) return "a picture larger than 25 MiB";
     return { b64: payload, mediaType };
   }
   if (!/^https?:\/\//i.test(url)) {
@@ -129,11 +143,11 @@ async function imageFromUrl(
     const response = await fetchImpl(url, { signal });
     if (!response.ok) return `a URL that answered HTTP ${response.status}`;
     const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.length > MAX_IMAGE_BYTES) return "a picture larger than 25 MiB";
     const type = response.headers.get("content-type")?.split(";")[0]?.trim();
-    return {
-      b64: base64OfBytes(bytes),
-      mediaType: type?.startsWith("image/") ? type : "image/png",
-    };
+    if (!type?.startsWith("image/")) return `a URL that is not an image (${type || "unknown"})`;
+    if (!ALLOWED_IMAGE_TYPES.has(type)) return `a URL of type ${type}`;
+    return { b64: base64OfBytes(bytes), mediaType: type };
   } catch (error) {
     return `a URL the BFF could not fetch (${error instanceof Error ? error.message : error})`;
   }
@@ -154,7 +168,11 @@ async function collectImages(
   for (const [index, item] of data.entries()) {
     const entry = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
     if (typeof entry.b64_json === "string" && entry.b64_json) {
-      images.push({ b64: entry.b64_json, mediaType: "image/png" });
+      if (entry.b64_json.length > MAX_B64_CHARS) {
+        problems.push(`item ${index + 1} is a picture larger than 25 MiB`);
+      } else {
+        images.push({ b64: entry.b64_json, mediaType: "image/png" });
+      }
       continue;
     }
     if (typeof entry.url === "string" && entry.url) {
@@ -168,17 +186,23 @@ async function collectImages(
   return { images, problems };
 }
 
-/** Parse a successful reply: `data[]` items with `b64_json` or `url`, or raw image bytes. */
+/**
+ * Parse a successful reply: `data[]` items with `b64_json` or `url`, or raw
+ * image bytes. `maxImages` is what the request asked for: a server that
+ * ignores `n` answers with more, and every extra picture would ride every
+ * later model call of the conversation.
+ */
 export async function parseImageReply(
   response: Response,
   fetchImpl: ImageFetch,
   signal: AbortSignal,
+  maxImages?: number,
 ): Promise<DrawResult> {
   const contentType = response.headers.get("content-type") ?? "";
   // A server that ignores response_format and answers with the picture itself.
-  if (response.ok && contentType.startsWith("image/")) {
+  if (response.ok && contentType.startsWith("image/") && ALLOWED_IMAGE_TYPES.has(contentType)) {
     const bytes = new Uint8Array(await response.arrayBuffer().catch(() => new ArrayBuffer(0)));
-    if (bytes.length > 0)
+    if (bytes.length > 0 && bytes.length <= MAX_IMAGE_BYTES)
       return { ok: true, images: [{ b64: base64OfBytes(bytes), mediaType: contentType }] };
   }
   const text = await response.text().catch(() => "");
@@ -194,7 +218,10 @@ export async function parseImageReply(
   const { images, problems } = Array.isArray(data)
     ? await collectImages(data as unknown[], fetchImpl, signal)
     : { images: [], problems: [] };
-  if (images.length > 0) return { ok: true, images };
+  // A server that ignored `n` must not smuggle extra pictures into the thread.
+  const kept =
+    maxImages !== undefined && images.length > maxImages ? images.slice(0, maxImages) : images;
+  if (kept.length > 0) return { ok: true, images: kept };
 
   // A 200 that says no — some proxies wrap the failure that way.
   const asText = describeImageError(response.status, text, json);
@@ -259,7 +286,7 @@ export async function drawImages(
       body: JSON.stringify(imageRequestBody(request, endpoint, size)),
       signal: linked.signal,
     });
-    return await parseImageReply(response, fetchImpl, linked.signal);
+    return await parseImageReply(response, fetchImpl, linked.signal, request.n);
   } catch (error) {
     // Which of the two causes fired decides the wording the agent acts on: a
     // stopped turn is not a dead server, and a busy queue is worth retrying.
