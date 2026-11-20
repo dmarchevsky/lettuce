@@ -243,11 +243,14 @@ Protocol drift shows up two ways:
   untouched, but a Settings → Global skills flip mid-conversation now shows up as a reminder message
   rather than a prompt change — the container check is that `web/src/lib/messages.ts` folds it cleanly.
 - *worker steering* — `subagent-control.ts`: pending steer de-dupe entries now expire
-  (`REMOTE_SUBAGENT_MESSAGE_DEDUPE_PENDING_TTL_MS`), so a stuck steer no longer poisons retries;
-  steering a local `codex_<thread>`/`claude_<session>` id and the parent-**agent** ownership rule are
-  unchanged. `codex-app-server.ts` / `external-coding-agent.ts` / `claude-stream-session.ts`: a slow
-  Codex steer reports `queued` after 10 s (#5782) and a steer racing turn completion starts a new turn
-  (#5799); the spawn argv did not move, so the shim preflight is intact.
+  (`REMOTE_SUBAGENT_MESSAGE_DEDUPE_PENDING_TTL_MS`), so a stuck steer no longer poisons retries —
+  **dormant for the BFF**, which never sends `subagent_message` (no allowlist entry); the steers that
+  benefit are the agent's own `SendAgentMessage` calls. Steering a local `codex_<thread>`/`claude_<session>`
+  id and the parent-**agent** ownership rule are unchanged. `codex-app-server.ts` /
+  `external-coding-agent.ts` / `claude-stream-session.ts`: a slow Codex steer reports `queued` after
+  10 s (#5782) and a steer racing turn completion starts a new turn (#5799) — real for us, they sit in
+  `sendCodexMessage` under the agent's steer path; the spawn argv did not move, so the shim preflight
+  is intact.
 - `app-server-client.ts` — an opaque socket `error` no longer rejects a connect on its own; the rejection
   waits for the `close` and carries its reason (#5740). Still exactly one rejection per failed
   handshake and the constructor's permanent no-op `error` listener stands, so the BFF's process guard
@@ -256,9 +259,18 @@ Protocol drift shows up two ways:
   reconnects (#5757), MCP discovery failures are tolerated at worker launch (#5760), transcript paths
   stay inside the notification (#5805).
 - *local backend* — compaction stats gained `summary_source` (`self` / `transcript` /
-  `transcript_after_overflow` / `transcript_after_no_text`, #5774), `memory_metadata` counts messages
+  `transcript_after_overflow` / `transcript_after_no_text`, #5774 — stored on the summary message, read
+  by nothing in our tree yet), `memory_metadata` counts messages
   outside the context (#5772), and the self-compaction acknowledgement was dropped (#5804); all on the
   primary provider's path, and `turn-usage.ts` / `turn-errors.ts` parse what the stream still emits.
+  `pi-stream-adapter.ts` moved only by import reshuffle (`LocalCompactionStats` now from
+  `local-message.ts`) — inert.
+- *not watched but ours* — `src/reminders/engine.ts` (#5775): with no server-side MCP the empty MCP
+  list no longer sends the "MCP servers with available tools: None" reminder — that reminder is the
+  one `bff/src/mcp/skill.ts` documents as talking a model out of the `mcp-servers` wrapper, so local
+  agents lose a false-negative nudge. The #5776 MCP-timeout explanation is **not** ours: it lives in
+  the Cloud unified-MCP path (`runUnifiedMcpTool`, gated on `serverSideToolManagement`, false on the
+  local backend), and `bff/src/mcp-bridge/` speaks MCP itself with its own timeout.
 - `@earendil-works/pi-ai` did **not** move across this range (`^1.5.2` at both tags) — no model-catalog
   recount, no `docs/CONFIGURATION.md` count edits.
 
