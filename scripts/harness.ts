@@ -21,6 +21,11 @@
  * (which bundle a running stack actually serves), `cookieJarLine`, `chromiumExecutable`
  * and `headlessRenderArgs`. `scripts/dev-login.ts` is the shell form of the first group,
  * and `ui-check --list` / `--section <name>` runs one section instead of the suite.
+ *
+ * A **live turn** or a raw look at the wire is `scripts/frame-tap.ts` — it signs in
+ * with the helper below, opens `/ws` with that cookie, and taps every frame
+ * (`openFrameTap`) or drives a prompt to settle (`driveTurn`), failing loudly with
+ * the frames it saw instead of hanging.
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
