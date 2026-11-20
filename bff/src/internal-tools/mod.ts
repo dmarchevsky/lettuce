@@ -83,6 +83,13 @@ async function callBff(tool, ctx) {
     return { status: "error", content: "The " + tool + " tool answered HTTP " + response.status + " with no result." };
   }
   if (body.isError) return { status: "error", content: body.text };
+  if (Array.isArray(body.images) && body.images.length > 0 && ctx.cwd) {
+    try {
+      return await savePictures(body, ctx);
+    } catch (error) {
+      return body.text + "\\n(save failed: " + (error?.message ?? error) + ")";
+    }
+  }
   // pi_fetch {save}: the BFF has no path into /work — the mod runs there, so
   // the bytes travel as base64 and land in this agent's own workspace.
   if (body.content_b64 && typeof body.save_path === "string" && ctx.cwd) {
@@ -102,6 +109,44 @@ async function callBff(tool, ctx) {
     }
   }
   return body.text;
+}
+
+const IMAGE_TYPES = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif" };
+
+function mediaTypeOf(file) {
+  const ext = String(file).split(".").pop().toLowerCase();
+  return IMAGE_TYPES[ext] || "image/png";
+}
+
+// generate_image: the BFF has no path into /work, so the pictures travel as
+// base64 and land in this agent's own workspace — and they ALSO go back to
+// letta-code as image content, which is what lets the model look at its own
+// drawing. A mod return may be a content array (mods/types ModToolRunResult);
+// upstream forwards those parts to Letta as real image message parts.
+async function savePictures(body, ctx) {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const root = path.resolve(ctx.cwd);
+  const saved = [];
+  const notes = [];
+  for (const image of body.images) {
+    if (!image || typeof image.path !== "string" || typeof image.b64 !== "string") continue;
+    const dest = path.resolve(root, image.path);
+    if (dest === root || !dest.startsWith(root + path.sep)) {
+      notes.push("(save refused: the destination left the workspace)");
+      continue;
+    }
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.writeFileSync(dest, Buffer.from(image.b64, "base64"));
+    saved.push({ dest: dest, b64: image.b64 });
+  }
+  const text = notes.length ? body.text + "\\n" + notes.join("\\n") : body.text;
+  if (saved.length === 0) return text;
+  const parts = [{ type: "text", text: text }];
+  for (const one of saved) {
+    parts.push({ type: "image", source: { type: "base64", media_type: mediaTypeOf(one.dest), data: one.b64 } });
+  }
+  return parts;
 }
 
 export default function activate(letta) {
