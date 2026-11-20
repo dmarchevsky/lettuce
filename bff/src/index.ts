@@ -108,6 +108,10 @@ import {
   DEFAULT_HTTP_REFILL_PER_SECOND,
   HttpRateLimiter,
 } from "./http-rate-limit.ts";
+import { IMAGES_MOD_PATH, renderImagesMod } from "./images/mod.ts";
+import { registerImagesRoutes } from "./images/routes.ts";
+import { generateImageTool, ImagesSettingsStore } from "./images/service.ts";
+import { imagesConfigured } from "./images/settings.ts";
 import { handleInternalTools } from "./internal-tools/http.ts";
 import { type ModsIo, type RenderedMod, syncMods } from "./internal-tools/install.ts";
 import { readRenamed } from "./internal-tools/legacy.ts";
@@ -659,6 +663,13 @@ const webToolsBackends = (): WebToolsBackends => ({
   searxngUrl: config.webTools.searxngUrl,
   ddg: config.webTools.ddgMcpUrl ? ddgCaller(config.webTools.ddgMcpUrl) : null,
 });
+// Settings → Image generation (`images/`): endpoint, model and key on the
+// `bff-data` volume at 0600, never on letta-home — the agent shells mount that
+// tree read-write, and an API key is not theirs to read. The BFF makes every
+// draw itself, so the mod carries no credentials.
+const imagesSettings = new ImagesSettingsStore(config.imagesSettingsFile, (error) =>
+  log(`Image generation: settings persist failed: ${errorMessage(error)}`),
+);
 // The remote pi worker: settings, keys and captured
 // run streams are all BFF-local on `bff-data`; the BFF itself is the ssh
 // client, so nothing here crosses the upstream connection.
@@ -791,6 +802,10 @@ const googleLostAccess: LostAccessPort = {
 const toolHandlers: ReadonlyMap<string, ToolHandler> = new Map<string, ToolHandler>([
   ["web_search", (args, context) => webSearch(args, webToolsBackends(), context?.signal)],
   ["fetch_webpage", (args, context) => fetchWebpage(args, webToolsBackends(), context?.signal)],
+  [
+    "generate_image",
+    (args, context) => generateImageTool(args, { settings: () => imagesSettings.load() }, context),
+  ],
   ...bridgeHandlers(mcpCatalog, mcpClient, {
     url: config.google.mcpUrl,
     lostAccess: googleLostAccess,
@@ -866,9 +881,10 @@ async function renderAllMods(): Promise<RenderedMod[]> {
   // Three files over the connection, none of them waiting on another. A mod sync
   // runs on connect, after every settings save and on a model-list change, so
   // the two round-trips spent reading them in series were paid on every one.
-  const [web, pi, currentProvidersMod] = await Promise.all([
+  const [web, pi, images, currentProvidersMod] = await Promise.all([
     loadWebToolsSettings(codexIo),
     piService.load(),
+    imagesSettings.load(),
     codexIo.read(PROVIDERS_MOD_PATH).catch(() => null),
   ]);
   const { tools } = mcpCatalog.snapshot();
@@ -927,6 +943,16 @@ async function renderAllMods(): Promise<RenderedMod[]> {
       tools: pi.enabled && config.features.pi ? PI_TOOL_SPECS : [],
       port: config.port,
       hidden: piHidden,
+    }),
+  });
+  // Image generation: the `images` token gates it wholesale, and the stored
+  // settings have to name an endpoint and a model — a tool that cannot draw is
+  // worse for the agent than no tool at all.
+  mods.push({
+    path: IMAGES_MOD_PATH,
+    source: renderImagesMod({
+      enabled: config.features.images && imagesConfigured(images),
+      port: config.port,
     }),
   });
   // The providers mod mirrors the served model list, so it can only be
@@ -1630,6 +1656,16 @@ registerWebToolsRoutes(app, {
   backends: webToolsBackends,
   searxngUrl: config.webTools.searxngUrl,
   ddgMcpUrl: config.webTools.ddgMcpUrl,
+});
+
+// Settings → Image generation: the endpoint the agents' `generate_image` draws
+// through, its status, and a test draw — all BFF-local, all in `images/routes.ts`.
+registerImagesRoutes(app, {
+  imagesEnabled: config.features.images,
+  store: imagesSettings,
+  isReady: () => upstream.isReady(),
+  read: codexIo.read,
+  resyncMods,
 });
 
 // Settings → Providers & models: the providers the operator added and what they
