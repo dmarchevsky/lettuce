@@ -1,0 +1,697 @@
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Hono } from "hono";
+import { handleInternalTools } from "../internal-tools/http.ts";
+import type { ToolAnswer, ToolHandler } from "../internal-tools/types.ts";
+import type { RouteEnv } from "../route-env.ts";
+import {
+  type DrawedImage,
+  type DrawResult,
+  describeImageError,
+  drawImages,
+  endpointFromSettings,
+  type ImageEndpoint,
+  type ImageFetch,
+  imageRequestBody,
+} from "./client.ts";
+import { IMAGE_TOOL_SPECS, IMAGES_MOD_PATH, renderImagesMod } from "./mod.ts";
+import { registerImagesRoutes } from "./routes.ts";
+import { generateImageTool, ImagesSettingsStore, slugifyPrompt } from "./service.ts";
+import {
+  applyImagesSettingsUpdate,
+  DEFAULT_IMAGES_SETTINGS,
+  InvalidImagesSettingsError,
+  imagesConfigured,
+  imagesEndpointUrl,
+  parseStoredImagesSettings,
+  renderStoredImagesSettings,
+  toPublicImagesSettings,
+} from "./settings.ts";
+import { modErrorsFrom } from "./status.ts";
+
+/** A 1x1 PNG, for the few bytes any assertion actually needs. */
+const PNG_B64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==";
+
+const ENDPOINT: ImageEndpoint = {
+  baseUrl: "http://img.example:8000/v1",
+  apiKey: null,
+  model: "flux-dev",
+  size: "1024x1024",
+  timeoutMs: 180_000,
+};
+
+const SETTINGS = {
+  ...DEFAULT_IMAGES_SETTINGS,
+  enabled: true,
+  baseUrl: "http://img.example:8000/v1",
+  model: "flux-dev",
+  size: "1024x1024",
+};
+
+function jsonResponse(body: unknown, status = 200, type = "application/json"): Response {
+  return new Response(typeof body === "string" ? body : JSON.stringify(body), {
+    status,
+    headers: { "content-type": type },
+  });
+}
+
+function b64Reply(count = 1): Response {
+  return jsonResponse({
+    created: 1,
+    data: Array.from({ length: count }, () => ({ b64_json: PNG_B64 })),
+  });
+}
+
+/** The pictures of a result, or none — narrowing the union without a fight. */
+function pictures(result: DrawResult): DrawedImage[] {
+  return result.ok ? result.images : [];
+}
+
+/** Read one header off a recorded call, whatever shape the init put it in. */
+function headerOf(call: { init?: RequestInit } | undefined, name: string): string | undefined {
+  const headers = call?.init?.headers;
+  if (!headers) return undefined;
+  if (headers instanceof Headers) return headers.get(name) ?? undefined;
+  const entries = Object.entries(headers as Record<string, string>);
+  return entries.find(([key]) => key.toLowerCase() === name.toLowerCase())?.[1];
+}
+
+/** Records what the client actually sent, which is most of what this file asserts. */
+function spyFetch(reply: (url: string, init?: RequestInit) => Response | Promise<Response>) {
+  const calls: { url: string; init?: RequestInit; body?: Record<string, unknown> }[] = [];
+  const fetchImpl: ImageFetch = async (url, init) => {
+    calls.push({
+      url,
+      init,
+      body: init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined,
+    });
+    return reply(url, init);
+  };
+  return { fetchImpl, calls };
+}
+
+describe("images settings", () => {
+  test("parse is lenient and defaults to off with nothing configured", () => {
+    expect(parseStoredImagesSettings(null)).toEqual(DEFAULT_IMAGES_SETTINGS);
+    expect(parseStoredImagesSettings("{nope")).toEqual(DEFAULT_IMAGES_SETTINGS);
+    expect(parseStoredImagesSettings("[1,2]")).toEqual(DEFAULT_IMAGES_SETTINGS);
+    // A hand-edited size nobody can send is dropped rather than poisoning every draw.
+    expect(parseStoredImagesSettings('{"size":"huge"}').size).toBeNull();
+    expect(parseStoredImagesSettings('{"baseUrl":"http://x/v1/","timeoutMs":10}').baseUrl).toBe(
+      "http://x/v1",
+    );
+  });
+
+  test("enabling needs an endpoint and a model; a size must be WxH", () => {
+    expect(() => applyImagesSettingsUpdate(DEFAULT_IMAGES_SETTINGS, { enabled: true })).toThrow(
+      InvalidImagesSettingsError,
+    );
+    expect(() =>
+      applyImagesSettingsUpdate({ ...SETTINGS, model: null }, { enabled: true }),
+    ).toThrow(/model/);
+    expect(() => applyImagesSettingsUpdate(SETTINGS, { size: "1024" })).toThrow(/WIDTHxHEIGHT/);
+    expect(() => applyImagesSettingsUpdate(SETTINGS, { timeoutMs: 10 })).toThrow(/timeoutMs/);
+    expect(() => applyImagesSettingsUpdate(SETTINGS, { baseUrl: "ftp://x/v1" })).toThrow(/http/);
+    expect(applyImagesSettingsUpdate(SETTINGS, { enabled: false }).enabled).toBe(false);
+  });
+
+  test("the key is write-only: an empty save keeps it, clearApiKey removes it", () => {
+    const withKey = { ...SETTINGS, apiKey: "sk-secret" };
+    expect(applyImagesSettingsUpdate(withKey, { model: "other" }).apiKey).toBe("sk-secret");
+    expect(applyImagesSettingsUpdate(withKey, { apiKey: "" }).apiKey).toBe("sk-secret");
+    expect(applyImagesSettingsUpdate(withKey, { apiKey: "  " }).apiKey).toBe("sk-secret");
+    expect(applyImagesSettingsUpdate(withKey, { apiKey: "sk-new" }).apiKey).toBe("sk-new");
+    expect(applyImagesSettingsUpdate(withKey, { clearApiKey: true }).apiKey).toBeNull();
+  });
+
+  test("no payload ever carries the key back", () => {
+    const publicSettings = toPublicImagesSettings({ ...SETTINGS, apiKey: "sk-secret" });
+    expect(publicSettings.hasKey).toBe(true);
+    expect("apiKey" in publicSettings).toBe(false);
+    expect(JSON.stringify(publicSettings)).not.toContain("sk-secret");
+    expect(toPublicImagesSettings(SETTINGS).hasKey).toBe(false);
+  });
+
+  test("the endpoint is joined, and a base that already names the path stands", () => {
+    expect(imagesEndpointUrl("http://x/v1")).toBe("http://x/v1/images/generations");
+    expect(imagesEndpointUrl("http://x/v1/")).toBe("http://x/v1/images/generations");
+    expect(imagesEndpointUrl("http://x/v1/images/generations")).toBe(
+      "http://x/v1/images/generations",
+    );
+  });
+
+  test("imagesConfigured is enabled AND endpoint AND model", () => {
+    expect(imagesConfigured(DEFAULT_IMAGES_SETTINGS)).toBe(false);
+    expect(
+      imagesConfigured({ ...DEFAULT_IMAGES_SETTINGS, baseUrl: "http://x/v1", model: "m" }),
+    ).toBe(false);
+    expect(imagesConfigured(SETTINGS)).toBe(true);
+  });
+
+  test("the store round-trips through a file no agent can read", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "images-store-"));
+    const file = join(dir, "settings.json");
+    const store = new ImagesSettingsStore(file);
+    expect(await store.load()).toEqual(DEFAULT_IMAGES_SETTINGS);
+    const saved = await store.save({
+      enabled: true,
+      baseUrl: "http://img.example:8000/v1/",
+      model: "flux-dev",
+      size: "1024x1024",
+      apiKey: "sk-secret",
+    });
+    expect(saved.baseUrl).toBe("http://img.example:8000/v1");
+    expect((await store.load()).apiKey).toBe("sk-secret");
+    // 0600: agent shells mount the state tree read-write as uid 0; this file is
+    // on the bff-data volume and stays owner-only all the same.
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expect(renderStoredImagesSettings(saved)).toContain("sk-secret");
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("the universal client", () => {
+  test("the body is the minimal universal shape, and seed only when asked", () => {
+    expect(imageRequestBody({ prompt: "a fox" }, ENDPOINT, "768x768")).toEqual({
+      model: "flux-dev",
+      prompt: "a fox",
+      size: "768x768",
+      response_format: "b64_json",
+    });
+    expect(imageRequestBody({ prompt: "a fox", n: 2, seed: 7 }, ENDPOINT, null)).toEqual({
+      model: "flux-dev",
+      prompt: "a fox",
+      n: 2,
+      response_format: "b64_json",
+      seed: 7,
+    });
+    // No size configured and none passed: the field is absent, not empty.
+    expect(
+      imageRequestBody({ prompt: "a fox" }, { ...ENDPOINT, size: null }, null),
+    ).not.toHaveProperty("size");
+  });
+
+  test("Bearer is sent only when a key is set", async () => {
+    const noKey = spyFetch(() => b64Reply());
+    await drawImages(ENDPOINT, { prompt: "a fox" }, { fetchImpl: noKey.fetchImpl });
+    expect(headerOf(noKey.calls[0], "authorization")).toBeUndefined();
+
+    const keyed = spyFetch(() => b64Reply());
+    await drawImages(
+      { ...ENDPOINT, apiKey: "sk-secret" },
+      { prompt: "a fox" },
+      { fetchImpl: keyed.fetchImpl },
+    );
+    expect(headerOf(keyed.calls[0], "authorization")).toBe("Bearer sk-secret");
+  });
+
+  test("a b64_json reply becomes pictures, at the configured size", async () => {
+    const { fetchImpl, calls } = spyFetch(() => b64Reply(2));
+    const result = await drawImages(ENDPOINT, { prompt: "a fox" }, { fetchImpl });
+    expect(result.ok).toBe(true);
+    expect(pictures(result)).toHaveLength(2);
+    expect(pictures(result)[0]?.b64).toBe(PNG_B64);
+    expect(calls[0]?.url).toBe("http://img.example:8000/v1/images/generations");
+    expect(calls[0]?.body).toMatchObject({ size: "1024x1024", model: "flux-dev" });
+  });
+
+  test("a size passed by the call wins over the configured default", async () => {
+    const { fetchImpl, calls } = spyFetch(() => b64Reply());
+    await drawImages(ENDPOINT, { prompt: "a fox", size: "512x512" }, { fetchImpl });
+    expect(calls[0]?.body?.size).toBe("512x512");
+  });
+
+  test("an http url is fetched by the BFF; a data: url is decoded", async () => {
+    const http = spyFetch((_url, init) =>
+      init?.method === "POST"
+        ? jsonResponse({ data: [{ url: "http://img.example:8000/out/1.png" }] })
+        : new Response(Buffer.from(PNG_B64, "base64"), {
+            headers: { "content-type": "image/png" },
+          }),
+    );
+    const viaUrl = await drawImages(ENDPOINT, { prompt: "a fox" }, { fetchImpl: http.fetchImpl });
+    expect(pictures(viaUrl)[0]?.b64).toBe(PNG_B64);
+    expect(http.calls.map((call) => call.init?.method)).toEqual(["POST", undefined]);
+
+    const dataUrl = spyFetch(() =>
+      jsonResponse({ data: [{ url: `data:image/webp;base64,${PNG_B64}` }] }),
+    );
+    const viaData = await drawImages(
+      ENDPOINT,
+      { prompt: "a fox" },
+      { fetchImpl: dataUrl.fetchImpl },
+    );
+    expect(pictures(viaData)[0]?.b64).toBe(PNG_B64);
+    expect(pictures(viaData)[0]?.mediaType).toBe("image/webp");
+  });
+
+  test("endpointFromSettings is what the client needs — and nothing else", () => {
+    expect(endpointFromSettings({ ...SETTINGS, apiKey: "sk-secret" })).toEqual({
+      baseUrl: SETTINGS.baseUrl,
+      apiKey: "sk-secret",
+      model: SETTINGS.model,
+      size: SETTINGS.size,
+      timeoutMs: SETTINGS.timeoutMs,
+    });
+  });
+
+  test("a server that ignores response_format and answers with bytes still works", async () => {
+    const raw = spyFetch(
+      () =>
+        new Response(Buffer.from(PNG_B64, "base64"), { headers: { "content-type": "image/png" } }),
+    );
+    const result = await drawImages(ENDPOINT, { prompt: "a fox" }, { fetchImpl: raw.fetchImpl });
+    expect(pictures(result)).toHaveLength(1);
+  });
+
+  test("errors reach the agent as the server said them", async () => {
+    const plain = spyFetch(
+      () => new Response("n greater than 1 is not supported", { status: 400 }),
+    );
+    const asText = await drawImages(
+      ENDPOINT,
+      { prompt: "a fox", n: 3 },
+      { fetchImpl: plain.fetchImpl },
+    );
+    expect(asText).toEqual({
+      ok: false,
+      error: "HTTP 400: n greater than 1 is not supported",
+    });
+
+    const structured = spyFetch(() =>
+      jsonResponse(
+        { error: { message: "size 123x456 is not in the allowed set", type: "InvalidRequest" } },
+        400,
+      ),
+    );
+    expect(
+      await drawImages(
+        ENDPOINT,
+        { prompt: "x", size: "123x456" },
+        { fetchImpl: structured.fetchImpl },
+      ),
+    ).toEqual({
+      ok: false,
+      error: "size 123x456 is not in the allowed set",
+    });
+
+    // A proxy answering HTML at 200 is not a picture and must not look like one.
+    const html = spyFetch(() => jsonResponse("<html>bad gateway</html>", 200, "text/html"));
+    const nope = await drawImages(ENDPOINT, { prompt: "x" }, { fetchImpl: html.fetchImpl });
+    expect(nope.ok).toBe(false);
+    expect(!nope.ok && nope.error).toContain("bad gateway");
+
+    expect(
+      drawImages({ ...ENDPOINT, model: null }, { prompt: "x" }, { fetchImpl: html.fetchImpl }).then(
+        (r) => r,
+      ),
+    ).resolves.toEqual({ ok: false, error: "no image model is configured" });
+  });
+
+  test("a 200 whose items carry nothing says so", async () => {
+    const stub = spyFetch(() => jsonResponse({ data: [{ revised_prompt: "hmm" }] }));
+    const result = await drawImages(ENDPOINT, { prompt: "x" }, { fetchImpl: stub.fetchImpl });
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.error).toContain("carried neither b64_json nor url");
+  });
+
+  test("a url that will not download is a named problem, not a silent short list", async () => {
+    const stub = spyFetch((_url, init) =>
+      init?.method === "POST"
+        ? jsonResponse({ data: [{ url: "ftp://elsewhere/1.png" }] })
+        : jsonResponse({}),
+    );
+    const result = await drawImages(ENDPOINT, { prompt: "x" }, { fetchImpl: stub.fetchImpl });
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.error).toContain("item 1 returned a ftp URL");
+  });
+
+  test("a slow server and a stopped turn are told apart", async () => {
+    const slow: ImageFetch = (_url, init) =>
+      new Promise((_resolve, reject) => {
+        // What a real fetch does with a dead signal: it refuses to start.
+        if (init?.signal?.aborted) reject(new Error("aborted"));
+        else
+          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), {
+            once: true,
+          });
+        setTimeout(() => reject(new Error("the stub never answers")), 60_000).unref?.();
+      });
+    const timed = await drawImages(
+      { ...ENDPOINT, timeoutMs: 20 },
+      { prompt: "x" },
+      { fetchImpl: slow },
+    );
+    expect(!timed.ok && timed.error).toContain("did not answer within 0s");
+    const controller = new AbortController();
+    controller.abort();
+    const cancelled = await drawImages(
+      ENDPOINT,
+      { prompt: "x" },
+      { fetchImpl: slow, signal: controller.signal },
+    );
+    expect(!cancelled.ok && cancelled.error).toContain("cancelled because the turn stopped");
+  });
+
+  test("describeImageError keeps a message and otherwise shows the head", () => {
+    expect(describeImageError(500, "boom", null)).toBe("HTTP 500: boom");
+    expect(describeImageError(500, "", null)).toBe("HTTP 500 with no message.");
+    expect(describeImageError(400, '{"error":"plain"}', { error: "plain" })).toBe("plain");
+  });
+});
+
+describe("generate_image's handler", () => {
+  const deps = (settings: typeof SETTINGS, reply: () => Response) => ({
+    settings: async () => settings,
+    fetchImpl: spyFetch(() => reply()).fetchImpl,
+  });
+
+  test("unconfigured is a refusal that names Settings", async () => {
+    const answer = await generateImageTool(
+      { prompt: "a fox" },
+      { settings: async () => DEFAULT_IMAGES_SETTINGS },
+    );
+    expect(answer.isError).toBe(true);
+    expect(answer.text).toContain("Settings → Image generation");
+  });
+
+  test("arguments are validated before anything is asked of the server", async () => {
+    const calls: string[] = [];
+    const counting = {
+      settings: async () => SETTINGS,
+      fetchImpl: (async () => {
+        calls.push("draw");
+        return b64Reply();
+      }) satisfies ImageFetch,
+    };
+    expect((await generateImageTool({ prompt: "  " }, counting)).isError).toBe(true);
+    expect((await generateImageTool({ prompt: "x", size: "big" }, counting)).text).toContain(
+      "WIDTHxHEIGHT",
+    );
+    expect((await generateImageTool({ prompt: "x", n: 9 }, counting)).text).toContain("1 to 4");
+    expect((await generateImageTool({ prompt: "x", seed: -1 }, counting)).text).toContain("seed");
+    expect(calls).toEqual([]);
+  });
+
+  test("the answer names size, seed and where each file went, and carries the bytes", async () => {
+    const answer = await generateImageTool(
+      { prompt: "A red fox, in snow!", n: 2, seed: 42 },
+      deps(SETTINGS, () => b64Reply(2)),
+    );
+    expect(answer.isError).toBe(false);
+    expect(answer.text).toContain("Drew 2 pictures at 1024x1024 with seed 42.");
+    expect(answer.text).toContain(
+      "Saved to generated/a-red-fox-in-snow-1.png, generated/a-red-fox-in-snow-2.png.",
+    );
+    expect(answer.images).toEqual([
+      { b64: PNG_B64, path: "generated/a-red-fox-in-snow-1.png" },
+      { b64: PNG_B64, path: "generated/a-red-fox-in-snow-2.png" },
+    ]);
+    expect(slugifyPrompt("!!!")).toBe("image");
+  });
+
+  test("a jpeg answer is saved with the extension it actually is", async () => {
+    const jpeg = spyFetch(() =>
+      jsonResponse({ data: [{ url: "data:image/jpeg;base64," + PNG_B64 }] }),
+    );
+    const answer = await generateImageTool(
+      { prompt: "a fox" },
+      { settings: async () => SETTINGS, fetchImpl: jpeg.fetchImpl },
+    );
+    expect(answer.images?.[0]?.path).toBe("generated/a-fox-1.jpg");
+  });
+
+  test("the server's own refusal is the answer's text", async () => {
+    const answer = await generateImageTool(
+      { prompt: "a fox", n: 4 },
+      deps(SETTINGS, () => new Response("this server draws one image at a time", { status: 400 })),
+    );
+    expect(answer.isError).toBe(true);
+    expect(answer.text).toBe(
+      "generate_image failed: HTTP 400: this server draws one image at a time",
+    );
+  });
+
+  test("reached the way a mod reaches it: loopback POST, same answer", async () => {
+    const handlers = new Map<string, ToolHandler>([
+      [
+        "generate_image",
+        (args, context) =>
+          generateImageTool(
+            args,
+            deps(SETTINGS, () => b64Reply()),
+            context,
+          ),
+      ],
+    ]);
+    const response = await handleInternalTools(
+      new Request("http://127.0.0.1:8080/internal/tools/generate_image", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt: "a fox" }),
+      }),
+      "127.0.0.1",
+      () => handlers,
+    );
+    expect(response).not.toBeNull();
+    const answer = (await response?.json()) as ToolAnswer;
+    expect(answer.isError).toBe(false);
+    expect(answer.images?.[0]?.path).toBe("generated/a-fox-1.png");
+  });
+});
+
+describe("the rendered mod", () => {
+  const dir = mkdtempSync(join(tmpdir(), "images-mod-"));
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  async function activate(source: string) {
+    const file = join(dir, `mod-${Math.random().toString(36).slice(2)}.mjs`);
+    writeFileSync(file, source);
+    const mod = (await import(file)) as { default: (letta: unknown) => unknown };
+    const registered: Record<string, unknown>[] = [];
+    const disposer = mod.default({
+      capabilities: { tools: true },
+      tools: {
+        register(tool: Record<string, unknown>) {
+          registered.push(tool);
+          return () => {};
+        },
+      },
+    });
+    return { registered, disposer };
+  }
+
+  test("off registers nothing; on registers generate_image, auto and parallel-safe", async () => {
+    expect(await activate(renderImagesMod({ enabled: false, port: 8080 }))).toMatchObject({
+      registered: [],
+    });
+    expect(renderImagesMod({ enabled: false, port: 8080 })).toContain("registers nothing");
+
+    const { registered, disposer } = await activate(renderImagesMod({ enabled: true, port: 8080 }));
+    expect(registered.map((tool) => tool.name)).toEqual(["generate_image"]);
+    expect(registered[0]?.requiresApproval).toBe(false);
+    expect(registered[0]?.parallelSafe).toBe(true);
+    const parameters = registered[0]?.parameters as {
+      required: string[];
+      properties: Record<string, unknown>;
+    };
+    expect(parameters.required).toEqual(["prompt"]);
+    expect(Object.keys(parameters.properties)).toEqual(["prompt", "size", "n", "seed"]);
+    expect(typeof disposer).toBe("function");
+    expect(IMAGE_TOOL_SPECS[0]?.name).toBe("generate_image");
+  });
+
+  test("the mod writes each picture into the workspace and returns image content", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "images-workspace-"));
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          text: "Drew 1 picture at 1024x1024.",
+          isError: false,
+          images: [{ b64: PNG_B64, path: "generated/a-fox-1.png" }],
+        }),
+      )) as unknown as typeof fetch;
+    const { registered } = await activate(renderImagesMod({ enabled: true, port: 8080 }));
+    const run = registered[0]?.run as (ctx: unknown) => Promise<unknown>;
+    const parts = (await run({
+      args: { prompt: "a fox" },
+      cwd,
+      signal: new AbortController().signal,
+    })) as {
+      type: string;
+      text?: string;
+      source?: { type: string; media_type: string; data: string };
+    }[];
+    expect(readFileSync(join(cwd, "generated/a-fox-1.png")).toString("base64")).toBe(PNG_B64);
+    expect(parts).toHaveLength(2);
+    expect(parts[0]).toEqual({ type: "text", text: "Drew 1 picture at 1024x1024." });
+    expect(parts[1]).toEqual({
+      type: "image",
+      source: { type: "base64", media_type: "image/png", data: PNG_B64 },
+    });
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  test("a picture whose path leaves the workspace is refused, not written", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "images-workspace-"));
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          text: "Drew 1 picture.",
+          isError: false,
+          images: [{ b64: PNG_B64, path: "../escaped.png" }],
+        }),
+      )) as unknown as typeof fetch;
+    const { registered } = await activate(renderImagesMod({ enabled: true, port: 8080 }));
+    const run = registered[0]?.run as (ctx: unknown) => Promise<unknown>;
+    const answer = (await run({ args: {}, cwd, signal: new AbortController().signal })) as string;
+    // Text only, with the refusal said: no content array, and nothing outside the workspace.
+    expect(typeof answer).toBe("string");
+    expect(answer).toContain("Drew 1 picture.");
+    expect(answer).toContain("left the workspace");
+    expect(rmSync(join(cwd, "..", "escaped.png"), { force: true })).toBeUndefined();
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  test("teardown", () => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("images routes", () => {
+  async function routes(imagesEnabled = true) {
+    const dir = mkdtempSync(join(tmpdir(), "images-routes-"));
+    const store = new ImagesSettingsStore(join(dir, "settings.json"));
+    const files = new Map<string, string>([
+      [IMAGES_MOD_PATH, "export default function activate() {}"],
+    ]);
+    const resyncs: string[] = [];
+    const app = new Hono<RouteEnv>();
+    registerImagesRoutes(app, {
+      imagesEnabled,
+      store,
+      isReady: () => true,
+      read: async (path: string) => files.get(path) ?? null,
+      resyncMods: async (reason: string) => {
+        resyncs.push(reason);
+        return "reloaded";
+      },
+      fetchImpl: spyFetch(() => b64Reply()).fetchImpl,
+    });
+    return { app, store, files, resyncs, dir };
+  }
+
+  test("the token off is a 404 on all four, as if the routes were not there", async () => {
+    const { app } = await routes(false);
+    expect((await app.fetch(new Request("http://x/api/images/settings"))).status).toBe(404);
+    expect(
+      (
+        await app.fetch(
+          new Request("http://x/api/images/settings", {
+            method: "PUT",
+            body: "{}",
+            headers: { "content-type": "application/json" },
+          }),
+        )
+      ).status,
+    ).toBe(404);
+    expect((await app.fetch(new Request("http://x/api/images/status"))).status).toBe(404);
+    expect(
+      (await app.fetch(new Request("http://x/api/images/test", { method: "POST", body: "{}" })))
+        .status,
+    ).toBe(404);
+  });
+
+  test("GET never echoes the key; PUT saves, clears and re-syncs the mod", async () => {
+    const { app, resyncs } = await routes();
+    expect(
+      await (await app.fetch(new Request("http://x/api/images/settings"))).json(),
+    ).toMatchObject({
+      settings: { enabled: false, hasKey: false, baseUrl: "" },
+    });
+
+    const put = (body: unknown) =>
+      app.fetch(
+        new Request("http://x/api/images/settings", {
+          method: "PUT",
+          body: JSON.stringify(body),
+          headers: { "content-type": "application/json" },
+        }),
+      );
+
+    expect((await put({ enabled: true })).status).toBe(400);
+    const saved = await put({
+      enabled: true,
+      baseUrl: "http://img.example:8000/v1",
+      model: "flux-dev",
+      apiKey: "sk-secret",
+    });
+    expect(saved.status).toBe(200);
+    const body = (await saved.json()) as { settings: Record<string, unknown>; mod: string };
+    expect(body.mod).toBe("reloaded");
+    expect(body.settings).toMatchObject({ enabled: true, hasKey: true, model: "flux-dev" });
+    expect(JSON.stringify(body)).not.toContain("sk-secret");
+    expect(resyncs).toEqual(["Settings → Image generation"]);
+
+    // An empty key field keeps the stored one; only clearApiKey removes it.
+    expect(
+      ((await (await put({ model: "sdxl" })).json()) as { settings: Record<string, unknown> })
+        .settings.hasKey,
+    ).toBe(true);
+    expect(
+      ((await (await put({ clearApiKey: true })).json()) as { settings: Record<string, unknown> })
+        .settings.hasKey,
+    ).toBe(false);
+  });
+
+  test("status reports the mod's own load errors, not the endpoint's health", async () => {
+    const { app, files } = await routes();
+    files.set(
+      "/root/.letta/mods/diagnostics/latest.json",
+      JSON.stringify({
+        generatedAt: Date.now(),
+        report: {
+          diagnostics: [
+            { mod: { path: IMAGES_MOD_PATH }, phase: "import", message: "boom", severity: "error" },
+          ],
+        },
+      }),
+    );
+    const status = (await (
+      await app.fetch(new Request("http://x/api/images/status"))
+    ).json()) as Record<string, unknown>;
+    expect(status).toMatchObject({
+      enabled: false,
+      configured: false,
+      modInstalled: true,
+      hasKey: false,
+    });
+    expect(status.modErrors).toEqual(["import: boom"]);
+    expect(modErrorsFrom(null)).toEqual([]);
+  });
+
+  test("the test draw needs an endpoint, then returns the picture as a data URL", async () => {
+    const { app } = await routes();
+    const draw = () =>
+      app.fetch(new Request("http://x/api/images/test", { method: "POST", body: "{}" }));
+    expect((await draw()).status).toBe(400);
+
+    await app.fetch(
+      new Request("http://x/api/images/settings", {
+        method: "PUT",
+        body: JSON.stringify({ baseUrl: "http://img.example:8000/v1", model: "flux-dev" }),
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const result = (await (await draw()).json()) as Record<string, unknown>;
+    expect(result.ok).toBe(true);
+    expect(result.mediaType).toBe("image/png");
+    expect(result.dataUrl).toBe(`data:image/png;base64,${PNG_B64}`);
+  });
+});
