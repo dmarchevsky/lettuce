@@ -21,6 +21,17 @@ describe("resolveMarkdownHref", () => {
   test("passes through an absent href", () => {
     expect(resolveMarkdownHref(undefined)).toBeUndefined();
   });
+
+  test("a data: URL is already a src — an img's src uses this same rewrite", () => {
+    // `Markdown`'s `img` component resolves its src through here, so the two
+    // rules are one rule: workspace path to the download route, everything
+    // else (including a server answering a draw inline) left alone.
+    const data = "data:image/png;base64,aW1hZ2U=";
+    expect(resolveMarkdownHref(data)).toBe(data);
+    expect(resolveMarkdownHref("/work/agent-1/generated/icon.png")).toBe(
+      "/api/files/download?path=%2Fwork%2Fagent-1%2Fgenerated%2Ficon.png&inline=1",
+    );
+  });
 });
 
 describe("fileLinkTarget", () => {

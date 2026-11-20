@@ -505,12 +505,15 @@ const MessageItem = memo(function MessageItem({
     // `retn` is the folded return; null means it has not arrived yet.
     const status = retn?.status ?? null;
     const outText = retn?.text ?? "";
+    // Pictures a tool drew ride the return, and they are the one part of the
+    // result the person came to look at — so they render outside the fold.
+    const pictures = retn?.images ?? [];
     const stderr = retn?.stderr?.join("\n") ?? "";
     const showStderr = stderr.length > 0 && !outText.includes(stderr);
     const outPreview = askedQuestion
       ? ""
       : firstLine(outText) || (showStderr ? firstLine(stderr) : "");
-    const hasBody = Boolean(args) || Boolean(outText) || showStderr;
+    const hasBody = Boolean(args) || Boolean(outText) || showStderr || pictures.length > 0;
     // The running child this very call delegated to — exact `tool_call_id` match
     // only, so a row never borrows another child's log. While it runs, the row
     // gains the same event log the Tasks row opens.
@@ -586,6 +589,31 @@ const MessageItem = memo(function MessageItem({
           ) : null}
         </button>
         {summary?.subtitle ? <p className="tool-subtitle">{summary.subtitle}</p> : null}
+        {pictures.length > 0 ? (
+          // Always visible, above the Out rail: a drawing buried behind the
+          // disclosure is a drawing nobody sees. Same treatment and the same
+          // full-screen preview a picture you attached yourself gets.
+          <div className="msg-images">
+            {pictures.map((image, index) => (
+              <button
+                key={index}
+                type="button"
+                className="msg-image-thumb"
+                onClick={() => setZoom(index)}
+                aria-label={`View image ${index + 1} full size`}
+              >
+                <img src={image.dataUrl} alt="" loading="lazy" />
+              </button>
+            ))}
+          </div>
+        ) : null}
+        {zoom !== null && pictures[zoom] ? (
+          <ImageLightbox
+            src={pictures[zoom].dataUrl}
+            alt={`Image ${zoom + 1}`}
+            onClose={() => setZoom(null)}
+          />
+        ) : null}
         {open ? (
           <div className="rail">
             {args ? <span className="rail-label">In</span> : null}
