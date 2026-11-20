@@ -4212,9 +4212,9 @@ try {
         .map((text) => text.trim().split("\n")[0] ?? "")
         .filter((text) => text.length > 0);
       check(
-        `the section holds endpoint, key, model and size (${label})`,
+        `the section holds endpoint, key, model, size and the test prompt (${label})`,
         JSON.stringify(labels) ===
-          JSON.stringify(["Endpoint URL", "API key", "Model", "Default size"]),
+          JSON.stringify(["Endpoint URL", "API key", "Model", "Default size", "Prompt"]),
         labels,
       );
       check(
