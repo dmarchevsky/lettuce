@@ -15,11 +15,19 @@ When the change is more than a trivial fix, before writing UI code, in the **pla
 feature gate requires rendered mockups in the plan directory and refuses a plan without them
 (`mockupGlobs`, default `*.png`):
 
-1. Write one static mock per screen/state at `.dev-flow/<slug>/plan/mockups/<screen>.html` that **links
+1. **Never invent a mock's shell markup — capture the live surface first.** `captureSurface` (exported
+   from `scripts/harness.ts`) lifts the real DOM subtree for a selector into a self-contained shell
+   document — live `outerHTML`, the `html`/`body` classes, and a link to the app's own stylesheet — so
+   write it to `plan/mockups/shell.html` and author the mock *from that*: open the pane (`openPane`),
+   `captureSurface(page, "<pane root>", { outPath: "plan/mockups/shell.html" })` at the viewport you
+   will render at, and start there. A selector matching nothing throws loudly on purpose: a hand-invented
+   "Memory pane" burned ~40 calls and a wrong pane, twice, because its markup was imagined. If you cannot
+   name the selector, inspect the live page — do not guess one.
+2. Write one static mock per screen/state at `.dev-flow/<slug>/plan/mockups/<screen>.html` that **links
    the real stylesheet** — from `plan/mockups/` that is `../../../../web/src/styles.css` — and
    reuses the app's own class names and tokens. Fidelity is then by construction, not by effort —
    colours, type scale, borders, square corners all real.
-2. Render each one at **both widths — phone 390 and desktop 1280** with one command, one section per
+3. Render each one at **both widths — phone 390 and desktop 1280** with one command, one section per
    variant/state, and **embed every PNG in plan.md** so the plan is one reviewable document. A mock that was
    never rendered is not a mockup:
 
@@ -42,18 +50,18 @@ feature gate requires rendered mockups in the plan directory and refuses a plan 
    `plan/mockups/` where that relative depth is known — never `.dev-flow/<slug>/tmp/`, whose extra level makes
    the `../` point at nothing.
 
-3. **A surface the app hides at that width renders blank until you un-hide it, and the direction is per
+4. **A surface the app hides at that width renders blank until you un-hide it, and the direction is per
    surface.** `.rail` / `nav.rail` is `display: none` below 900px, so a 390 mock of the rail needs an explicit
    `display` override; `.where-avatar` (the 44px phone header face) is the mirror image — shown by default and
    `display: none` from 900px, so it is the **1280** mock of the header that needs the override. Guess the
    direction and you add a no-op rule to the wrong shot. Size tokens come from the stylesheet's own `:root`, so
    a mock that links it gets `--rail-w` / `--rail-row` for free — if a row collapses, check the link resolved
-   (step 2) before hand-declaring tokens. Two authoring gotchas that produce a quietly empty render: a mock's
+   (step 3) before hand-declaring tokens. Two authoring gotchas that produce a quietly empty render: a mock's
    element ids must match `getElementById` exactly (hyphens vs underscores leave a section blank), and a
    headless DOM dump never shows a top-level `const` in a classic script, so element-id globals are not
    created for script-scoped consts.
 
-4. Name a recommendation and **stop for Approve?** — the gate question is the mockup approval, and the
+5. Name a recommendation and **stop for Approve?** — the gate question is the mockup approval, and the
    approved mock is the spec.
 
 Skip mockups only for changes a screenshot of the fix would explain better than a mock (one-line

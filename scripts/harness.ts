@@ -14,16 +14,17 @@
  *
  * Named entry points, so a driver imports one instead of re-deriving it:
  * `devSignIn` / `signInPage` / `requireTestPassword` (sign-in), `openPane` (rail and
- * bottom-bar navigation), `servedBuild` / `assertServedBuild` / `requireServedBuild` /
+ * bottom-bar navigation), `captureSurface` (lift a live DOM subtree into a mockup shell),
+ * `servedBuild` / `assertServedBuild` / `requireServedBuild` /
  * `judgeServedVersion` (which bundle a running stack actually serves, and which build a
  * release may be held to)
  * (which bundle a running stack actually serves), `cookieJarLine`, `chromiumExecutable`
  * and `headlessRenderArgs`. `scripts/dev-login.ts` is the shell form of the first group,
  * and `ui-check --list` / `--section <name>` runs one section instead of the suite.
  */
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import type { Page } from "playwright";
 import { readBuildInfo, versionString } from "../bff/src/build-info.ts";
 
@@ -152,6 +153,94 @@ export async function openPane(page: Page, name: string): Promise<void> {
     await page.waitForSelector(".switcher", { state: "detached", timeout: 5_000 });
     await page.waitForTimeout(500);
   }
+}
+
+/** What `captureSurface` lifted off the live page. */
+export interface CapturedSurface {
+  /** The full mockup-shell document — write it out or use it as-is. */
+  html: string;
+  /** The viewport the page was at when the markup was lifted. */
+  width: number;
+  height: number;
+}
+
+/**
+ * Lift the real DOM subtree for `selector` into a self-contained mockup shell.
+ *
+ * This exists because flows hand-invented mockup markup and got the surface wrong: one
+ * spent ~40 calls mocking a "Memory pane" whose markup and class names were invented,
+ * twice. The live page is the only honest source of what a pane is called and contains,
+ * so capture it instead of imagining it: `openPane` to the pane, then `captureSurface`
+ * with a selector for its root, and start the mock from the returned markup.
+ *
+ * The shell links the checkout's own `web/src/styles.css` (the same fidelity trick
+ * `scripts/mockup.ts` asserts on), so the captured markup keeps styling live as the
+ * stylesheet moves. The subtree is captured as it stands — a pane whose layout depends
+ * on its parent's flex context should be captured from that parent (e.g. `.app`), and
+ * re-render at the returned width/height so media queries resolve as they were read.
+ *
+ * A selector matching nothing is a hard failure, naming the page it looked at: that is
+ * exactly the invented-pane case, and silence here is what let flows build on markup
+ * that does not exist.
+ */
+export async function captureSurface(
+  page: Page,
+  selector: string,
+  opts: {
+    /** Write the shell here (parent dirs created) and make the stylesheet link relative to it. */
+    outPath?: string;
+    /** Override the stylesheet link; default is this checkout's `web/src/styles.css`. */
+    stylesHref?: string;
+    title?: string;
+  } = {},
+): Promise<CapturedSurface> {
+  const matched = await page.locator(selector).count();
+  if (matched === 0) {
+    throw new Error(
+      `captureSurface("${selector}") matched nothing at ${page.url()}. There is no such ` +
+        "surface on the live page — do not invent one. Find the real root (DevTools, or the " +
+        "component that renders the pane) and capture that instead.",
+    );
+  }
+  const [markup, htmlClass, bodyClass] = await Promise.all([
+    page
+      .locator(selector)
+      .first()
+      .evaluate((el) => el.outerHTML),
+    page.evaluate(() => document.documentElement.className),
+    page.evaluate(() => document.body.className),
+  ]);
+  const viewport = page.viewportSize() ?? { width: 1280, height: 800 };
+  // A mock is a static document; a captured subtree carrying its page's scripts would
+  // re-run them against markup no longer wired to anything.
+  const staticMarkup = markup.replace(/<script\b[\s\S]*?<\/script>/gi, "");
+  const stylesPath = join(ROOT, "web", "src", "styles.css");
+  const href =
+    opts.stylesHref ??
+    relative(
+      dirname(opts.outPath ? resolve(opts.outPath) : join(process.cwd(), "x.html")),
+      stylesPath,
+    );
+  const doc = [
+    "<!doctype html>",
+    `<!-- captured from ${page.url()} at ${viewport.width}x${viewport.height} by captureSurface();`,
+    "     markup is the live DOM, the stylesheet link is the app's own — start here, do not invent. -->",
+    `<html lang="en"${htmlClass ? ` class="${htmlClass}"` : ""}>`,
+    '<head><meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    `<title>${opts.title ?? `captured ${selector}`}</title>`,
+    `<link rel="stylesheet" href="${href}">`,
+    "</head>",
+    `<body${bodyClass ? ` class="${bodyClass}"` : ""}>`,
+    staticMarkup,
+    "</body>",
+    "</html>",
+  ].join("\n");
+  if (opts.outPath) {
+    mkdirSync(dirname(opts.outPath), { recursive: true });
+    writeFileSync(opts.outPath, doc);
+  }
+  return { html: doc, width: viewport.width, height: viewport.height };
 }
 
 /**
