@@ -5,6 +5,9 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Added
+- **Every agent can draw.** A new `generate_image` tool talks to any OpenAI-compatible image endpoint (`POST <url>/images/generations`) — a local server or a cloud API — pointed at from the new Settings → Image generation, which carries a test draw that runs exactly what an agent's call runs. Pictures appear as thumbnails in the chat (click for full size), the agent can look at its own drawing and iterate, and each one is saved under `generated/` in the workspace. Needs the `images` compose token.
+
 ### Changed
 - The dev loop tells the truth about itself: a UI or smoke run refuses to score a container that is not the checkout it ran from, a red `lint`/`verify`/`check-docs` names the file that failed, `ui-check --section` and `screenshots --shot` re-run one part instead of the whole suite, and mockups, sign-in and the suite's scratch directories come from one shared harness.
 

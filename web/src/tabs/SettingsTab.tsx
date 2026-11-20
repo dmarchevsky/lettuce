@@ -3,6 +3,7 @@ import { AccessSection } from "../components/AccessSection.tsx";
 import { ClaudeSection } from "../components/ClaudeSection.tsx";
 import { CodexSection } from "../components/CodexSection.tsx";
 import { GoogleSection } from "../components/GoogleSection.tsx";
+import { ImagesSection } from "../components/ImagesSection.tsx";
 import { McpEditor } from "../components/McpEditor.tsx";
 import { NotificationsSection } from "../components/NotificationsSection.tsx";
 import { PiSection } from "../components/PiSection.tsx";
@@ -87,6 +88,7 @@ export function SettingsPane({
   const content: Record<GlobalSection, () => ReactNode> = {
     providers: () => <ProvidersSection session={session} />,
     web: () => <WebToolsSection />,
+    images: () => <ImagesSection />,
     mcp: () => <McpEditor session={session} />,
     google: () => <GoogleSection />,
     codex: () => <CodexSection />,

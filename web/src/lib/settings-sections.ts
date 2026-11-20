@@ -15,6 +15,7 @@ import { defaultStorage, readStored } from "./storage.ts";
 export type GlobalSection =
   | "providers"
   | "web"
+  | "images"
   | "mcp"
   | "google"
   | "codex"
@@ -51,6 +52,7 @@ export const GLOBAL_SECTION_GROUPS: { label: string; sections: SectionInfo[] }[]
     label: "Tools",
     sections: [
       { id: "web", label: "Web search", short: "Web", icon: "globe" },
+      { id: "images", label: "Image generation", short: "Images", icon: "image" },
       { id: "mcp", label: "MCP servers", short: "MCP", icon: "braces" },
       { id: "google", label: "Google Workspace", short: "Workspace", icon: "grid" },
       { id: "codex", label: "Codex workers", short: "Codex", icon: "terminal" },
@@ -96,6 +98,7 @@ export function globalSectionInfo(id: GlobalSection): SectionInfo | undefined {
 /** The profile token each gated section rides on; the rest are always visible. */
 const SECTION_FEATURE: Partial<Record<GlobalSection, FeatureName>> = {
   web: "web",
+  images: "images",
   google: "google",
   codex: "codex",
   claude: "claude",
