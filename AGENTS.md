@@ -267,9 +267,9 @@ lives in a skill — the table above says which.
 
 Worktrees per branch, then a **PR into `main`, landed as a merge commit** — a PR's commits are what
 reach `main`, so `git branch --merged main` stays truthful and `git branch -d` can delete a merged
-branch. Nothing lands on `main` except through a merged PR — a release included. **Release? is the merge
-authorization** — the operator does not merge by hand: the agent opens the PR, waits for `ci`, and
-merges it (`gh pr merge <n> --merge`). Mechanics, labels, protection and CI tiers:
+branch. Nothing lands on `main` except through a merged PR — a release included. **Release? is the
+authorization** — the operator does not merge by hand: with it, `flow release` pushes, opens the PR, waits
+for `ci`, merges, tags and records. Mechanics, labels, protection and CI tiers:
 **`lettuce-pr-and-ci`**.
 
 **Why the worktree rule is a gate and not a preference** (dev-flow enforces it — see *Definition of
@@ -295,8 +295,8 @@ its own PR.**
 `VERSION` holds the whole tag string — `v<MAJOR>.<MINOR>.<PATCH>-letta_<LETTA_CODE_VERSION>` — and is the
 only machine-readable record. MINOR is new or changed user-facing functionality, PATCH everything else
 that ships. Every shipping feature cuts its own release, and the flow owns the mechanics of when: the
-`VERSION` bump and the `## [Unreleased]` rename are one commit at `pre-release`, and the annotated tag is
-pushed by name at the merge. `.dev-flow/project.md` holds those steps; **`lettuce-releasing`** holds the
+`VERSION` bump and the `## [Unreleased]` rename are one commit at `pre-release`, and the gate tags the PR's
+merge commit. `.dev-flow/project.md` holds those steps; **`lettuce-releasing`** holds the
 tag format, the changelog voice, the bump labels and the docs-sync duty.
 
 ## Upstream sync
