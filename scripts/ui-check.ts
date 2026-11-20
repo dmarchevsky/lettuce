@@ -45,6 +45,7 @@ import {
   type PageTrouble,
   watchPage as watchPageConsole,
 } from "./page-console.ts";
+import { seedPiRuns } from "./seed-pi-runs.ts";
 
 const {
   origin: ORIGIN,
@@ -119,6 +120,7 @@ const SECTION_TITLES = [
   "Form controls share one height",
   "Sidebar conversation menu",
   "Agent model sheet",
+  "Remote pi runs (seeded)",
 ];
 
 function selected(title: string): boolean {
@@ -4602,6 +4604,66 @@ try {
     await page.keyboard.press("Escape");
     await shot(page, "desktop-agent-model");
     await page.close();
+  }
+
+  /**
+   * The Runs surface with rows it did not have to invent.
+   *
+   * Remote-pi rows come from files the BFF writes itself, so on a stack that never
+   * ran a pi job the section is empty — and an assertion written against it passes
+   * against nothing. So the section seeds the store first (`scripts/seed-pi-runs.ts`,
+   * which `docker compose cp`s meta files into the container), asserts on the rows
+   * the seed names, and clears them again: a pi-run assertion that had no seed to
+   * match fails red rather than going green over an empty list.
+   */
+  if (await go("Remote pi runs (seeded)")) {
+    const page = await open(browser, DESKTOP);
+    const runsFeatures = await readFeatures(page);
+    if (!featureOn(runsFeatures, "pi")) {
+      console.log("  SKIP  the pi token is off — the Runs pane has no remote-pi list");
+      await page.close();
+    } else {
+      const seeded = await seedPiRuns({ origin: ORIGIN, count: 4 });
+      check(
+        "the seed lands in the BFF's run store (GET /api/pi/runs)",
+        seeded.listed >= seeded.seeded,
+        seeded,
+      );
+      await openTab(page, "Runs");
+      await page.locator('p.section-note:text-is("Remote Pi runs")').waitFor({ timeout: 15_000 });
+      const rows = await page
+        .locator('.list li.task button.row:has-text("fixture:")')
+        .allInnerTexts();
+      // 4 runs over 2 sessions: the list folds runs into one row per session, so
+      // the row count is the session count, and a row must say how many it holds.
+      check("the Runs surface lists the seeded sessions", rows.length >= 2, { rows });
+      check(
+        "each seeded row carries a status chip and its run count",
+        rows.length >= 2 &&
+          rows.every((row) => /Finished|Failed|Running|Detached|Cancelled/.test(row)) &&
+          rows.some((row) => /\d+ runs/.test(row)),
+        { rows },
+      );
+      check(
+        "the failed seed row reads as failed, not as finished",
+        rows.some((row) => /Failed/.test(row) && /fixture:/.test(row)),
+        { rows },
+      );
+      const piOverflow = await overflow(page);
+      check(
+        "the seeded rows do not overflow the pane",
+        piOverflow.clipped.length === 0,
+        piOverflow,
+      );
+      await shot(page, "desktop-runs-pi-seeded");
+      await page.close();
+      const cleared = await seedPiRuns({ origin: ORIGIN, clear: true });
+      check(
+        "the seed cleans up after itself (a dev store keeps no fake rows)",
+        cleared.cleared >= seeded.seeded,
+        cleared,
+      );
+    }
   }
 } finally {
   await browser.close();
