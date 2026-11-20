@@ -98,8 +98,8 @@ Loaded from `AGENTS.md`. The sidecar is reachable by anything in the container; 
   `WORKSPACE_MCP_HOST=0.0.0.0`, a dummy client **and `USER_GOOGLE_EMAIL` set to any address** —
   listing needs no token; repeat with every level `readonly` for the second file). **A freshly recorded pair
   is not formatter-clean**: finish with `bunx biome check --write bff/src/google/fixtures`, or the next
-  flow's first `flow check` fails in `lint` over two JSON files and the gate output points at unrelated CSS
-  warnings instead of them. Recording
+  flow's first `flow check` fails in `lint` over two JSON files — the committed pair is clean, so a red
+  `lint` after a re-record is the new recording, not the tooling. Recording
   without that env is the trap: every tool then comes back *requiring* the account and the fixture
   pins a requirement the deployment never has, which reads as a breaking upstream change. A test
   asserts no listed tool requires it. `google/tools.test.ts` checks every mapped tool,

@@ -139,10 +139,13 @@ turn):
 1. **`bun run check-pin-upstream` first** — it reports `CODEX` and `CLAUDE_CODE` (with every other pin)
    against their registries. A hand probe lies both ways: npm's `latest` lags a fresh publish by hours, and
    the upstream mirror's tags lag too.
-2. **Scratch-build `docker/codex/Dockerfile`** — the file the app-server image builds `FROM
-   letta/letta:${LETTA_CODE_VERSION}` — with the new `ARG CODEX_VERSION` / `ARG CLAUDE_CODE_VERSION`,
-   `CODING_FEATURES=codex,claude`, under a throwaway tag. The build itself asserts each CLI installs and
-   answers `--version`, and it writes `/opt/lettuce/features`, all without a container being touched.
+2. **Scratch-build the app-server image** from the `docker/codex` context — that is the context the
+   Dockerfile expects, since it `COPY`s the shims and `spawn-diagnostics.cjs` by relative path — under a
+   throwaway tag: `docker build -f docker/codex/Dockerfile docker/codex --tag lettuce-app-server:probe
+   --build-arg LETTA_CODE_VERSION=<pin> --build-arg GH_VERSION=<pin> --build-arg CODEX_VERSION=<new>
+   --build-arg CODING_FEATURES=codex,claude`. `LETTA_CODE_VERSION` and `GH_VERSION` have no defaults (compose
+   supplies both), so the build only works with them spelled out. It asserts each CLI installs and answers
+   `--version` and writes `/opt/lettuce/features`, all without touching a container.
 3. **Run the two preflights the way letta-code does**, through the shims in that image, with a stub config
    so the worker switch reads on: `{"enabled": true}` at `CODEX_HOME/lettuce.json` (resp.
    `CLAUDE_CONFIG_DIR/lettuce.json`). `codex --version` and `claude auth status --json` — which must answer

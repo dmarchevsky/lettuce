@@ -19,10 +19,10 @@ flow check green
 build + run locally
 user tests it in the browser  ←── the gate, and it happens here, before any push
   │  pre-release: /flow-review, then VERSION bump + changelog rename in one commit
-  └──push──▶  PR opens (template filled, test already recorded)
+  └─flow release──▶ pushes the branch, opens the PR (pr-body.md from the template, test recorded)
               ├─ CI Tier A (`.github/workflows/ci.yml`)
-              ├─ ci green → the agent merges it (--merge) ──▶ main
-              └─ tag main's tip, push it by name ──▶ flow release-done → flow finish
+              ├─ ci green → merged (--merge) ──▶ main
+              └─ tag cut on that merge commit → the release recorded ──▶ flow finish
 ```
 
 The order is the point: **untested code never leaves the machine.** The PR is the record of a change
@@ -39,13 +39,15 @@ workflow-file trap below.
 3. **Build and run it locally, then stop for the container test.** Say what to click and what should
    happen and wait. Nothing replaces it: no type check, no unit test, no CI job. A failed test goes
    back to `bun run verify` and no PR is opened.
-4. **Then push (`git push -u origin <branch>`) and open the PR** with `gh pr create`, filling in
-   `.github/pull_request_template.md` — its container-test section records who ran it and what they
-   answered, which is a precondition of the PR rather than a review checkbox. Note `gh` bodies are
+4. **Then the gate publishes: it pushes the branch and opens the PR.** Write the body first, as
+   `.dev-flow/<slug>/pr-body.md`, from `.github/pull_request_template.md` — its container-test section
+   records who ran it and what they
+   answered, which is a precondition of the PR rather than a review checkbox. The gate **refuses** to open a
+   PR when the repo has a template and no authored body, because synthesizing one from the changelog drops
+   that gate list. (A hand `git push -u origin <branch>` plus `gh pr create` stays the fallback with no gate
+   or no `gh`.) Note `gh` bodies are
    scanned by the guard too: a body that *quotes* `docker compose stop` still trips the compose rule,
-   so pass long bodies with `--body-file`. Under dev-flow that body is authored **before** the gate runs,
-   as `.dev-flow/<slug>/pr-body.md`: `flow release` opens the PR itself and refuses when the repo has a
-   template and no authored body, because synthesizing one from the changelog drops the gate list.
+   so pass long bodies in a file (`--body-file`, or `gh api -F body=@<file>`).
 5. **CI green, then the gate merges it.** **Release? is the authorization** — the operator does not merge
    by hand: with it, `flow release` waits for CI, merges in the repo's style, cuts and pushes the tag and
    records the release, so you run no `git` or `gh` step of your own. Merging by hand (`gh pr merge <n

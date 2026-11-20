@@ -169,11 +169,14 @@ one of the two, and which import fails first decides the message — `ERR_MODULE
 temp dir, `Cannot find module './harness.ts'` unless you import the worktree path by hand
 (`../worktree/scripts/harness.ts`), or `Executable doesn't exist at
 ~/.cache/ms-playwright/chromium_headless_shell-<other>/…` from the flow dir or the main checkout, which reads
-like a machine problem and is the same cwd problem. `PLAYWRIGHT_CHROMIUM` is the override for the last one only. **This rule beats dev-flow's generic one:**
-the plugin's implement reference puts scratch in `$TMPDIR` / `mktemp`, and here that is wrong twice —
-`bun` resolves neither this worktree's Playwright nor `./harness.ts` from there, and a scratch stays
-invisible until it is *committed*, at which point `bun run lint` and `bun run verify` go red over it. So:
-worktree, deleted before `flow check`, never committed. Resolve sibling paths from the same place — the
+like a machine problem and is the same cwd problem. `PLAYWRIGHT_CHROMIUM` is the override for the last one only. **This rule beats dev-flow's generic one**
+(its implement reference puts scratch in `$TMPDIR` / `mktemp`), and the failure it prevents is quiet, not
+loud: run from the flow's tmp dir, `bun` resolves Playwright from the **main checkout's** `node_modules`;
+from a true temp dir it resolves bun's global cache — at a *different version*. Either way the probe drives
+a browser build the worktree does not use, and its result is about that. A relative `./harness.ts` import is
+the only part that fails loudly, and a scratch stays invisible until it is *committed*, at which point
+`bun run lint` and `bun run verify` go red over it. So: worktree, deleted before `flow check`, never
+committed. Resolve sibling paths from the same place — the
 upstream clone is `../letta-code` **from the main checkout** (AGENTS.md's `~/work/letta-code`), a path that
 does not exist from inside a worktree, so a probe that assumes `$repo/letta-code` reads nothing and reports
 upstream unchanged.
@@ -304,10 +307,11 @@ is not that pass and never counts as one.
   already established — or it spends half its budget re-deriving them from `letta-code/` and needs a
   steer to file a report at all.
 - **Scratch lives and runs in the worktree, under `bun`.** A probe or browser driver goes in
-  `…/worktree/scripts/` and runs with `bun` — never `/tmp`, never `node` — because that is what makes it
-  resolve *this* worktree's Playwright and its `./harness.ts`. From anywhere else it dies on module
-  resolution with a message that reads like a machine problem, and a worker with nobody to ask re-derives
-  it for several calls. Delete it before `flow check`; never commit it.
+  `…/worktree/scripts/` and runs with `bun` — never `/tmp`, never `node`. From outside the worktree it does
+  not fail loudly: bun resolves Playwright from the main checkout or from bun's global cache, at another
+  version, so the probe drives a browser build this worktree never installed and its result is about that.
+  A relative `./harness.ts` import is the part that *does* fail, and a worker with nobody to ask re-derives
+  it for several calls. Delete the scratch before `flow check`; never commit it.
 - **Sibling paths belong to the main checkout.** `letta-code/` sits beside the repo (`../letta-code` from
   the main checkout, never `$repo/letta-code`), and `docker/.env` is copied in by `setup` — a probe that
   resolves paths from its own cwd silently reads the wrong tree and reports absence as fact.
@@ -390,8 +394,10 @@ builds, and what CI compares against `VERSION` after the merge. `sync-upstream` 
       `flow-review` skill, or `flow_stage` op `review`) and every must-have and should-have finding
       fixed — on a
       code-free release branch, `check-release-hygiene --pr` over the branch stands in, named as such
-- [ ] (versioned) the CHANGELOG entry, the VERSION bump and any README / docs/CONFIGURATION.md sync in
-      that one release-prep commit, and the `bump:minor` / `bump:patch` / `bump:none` label agrees with it
+- [ ] the `## [Unreleased]` changelog entry every flow owes — an unversioned flow included — with the
+      `bump:minor` / `bump:patch` / `bump:none` label agreeing with it
+- [ ] (versioned) the VERSION bump and any README / docs/CONFIGURATION.md sync, in that same
+      release-prep commit
 - [ ] (versioned) the compose image-tag default moved with VERSION in that same commit
 - [ ] (versioned) the operator confirmed this exact tag, after being told the commit range and whether
       `app-server` gets recreated (an `app-server` recreate kills every in-flight turn; the BFF drain
@@ -451,8 +457,9 @@ that never starts, and a run still queued long after later runs finished is a st
 re-trigger by pushing a new head commit rather than keep polling.
 
 The tag *is* the publish trigger — pushing it runs `.github/workflows/publish.yml`, which pushes all five
-images to GHCR and retags `latest` — so **`release.artifact` is what proves a release shipped**:
-`flow release-done` fails if the registry does not hold the tag. It exists because two publishes came back
+images to GHCR and retags `latest` — so **`release.artifact` is what proves a release shipped**: the gate
+waits for that run and refuses to record the release while the registry does not hold the tag. It exists
+because two publishes came back
 green and pushed nothing — `lettuce-pr-and-ci` says why a green Compose build is not proof of a push. A
 green pipeline is not the artifact; the registry is. (An unversioned flow tags nothing, so this gate and
 the artifact check both stand down.)
