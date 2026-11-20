@@ -376,7 +376,12 @@ async function freshRunner() {
   // under the full-suite load of `bun run verify` (two tests flaked that way,
   // each costing a whole verify cycle). `waitFor` polls the captured settle.
   const settledRuns: string[] = [];
-  const runner = new PiRunner(store, spawner, () => now, (meta) => settledRuns.push(meta.runId));
+  const runner = new PiRunner(
+    store,
+    spawner,
+    () => now,
+    (meta) => settledRuns.push(meta.runId),
+  );
   const waitSettled = (runId: string) =>
     waitFor(`run ${runId} to settle`, () => settledRuns.includes(runId));
   return { dir, store, runner, children, setNow: (d: Date) => (now = d), waitSettled };
