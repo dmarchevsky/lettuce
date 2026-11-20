@@ -29,12 +29,13 @@ v<MAJOR>.<MINOR>.<PATCH>-letta_<LETTA_CODE_VERSION>     e.g. v0.1.0-letta_0.33.7
 - **Derive the number in `pre-release`, from your own changelog entry** — the heading rule and what
   `flow release` then refuses are in `.dev-flow/project.md`. What that means for the writing: a wrong
   derivation shows up as a wrong *number*, never as a silent collision.
-- **The tag is cut at the `release` stage, immediately after the PR merges**,
-  annotated (`git tag -a`), at `main`'s tip, and pushed **by name** (`git push origin v<x.y.z>…`).
-  **The tag is the publish trigger** — pushing it runs `.github/workflows/publish.yml`, which pushes all
-  five images to GHCR at that tag and retags `latest`, and `release.artifact` in the playbook makes
-  `flow release-done` inspect the registry before recording the release. A tag pushed while that workflow
-  fails is a release with nothing in it: read the run before `release-done`, and never pass
+- **The tag is cut by `flow release`, on the PR's merge commit** — by sha, not `origin/main`'s tip, so a
+  parallel flow that landed after that merge stays out of the tag — annotated (`git tag -a`), and pushed by
+  name. **The tag is the publish trigger** — pushing it runs `.github/workflows/publish.yml`, which pushes all
+  five images to GHCR at that tag and retags `latest`, and `release.artifact` in the playbook makes the gate
+  wait for that run and inspect the registry before it records the release (`flow release-done` is only the
+  catch-up recorder). A tag pushed while that workflow
+  fails is a release with nothing in it: read the run, and never pass
   `--no-artifact-check` to get past a registry that has no tag.
   Never `git push --follow-tags` — it silently skips annotated tags and the tag never reaches the
   remote. Nothing is tagged before the operator confirmed that specific merge

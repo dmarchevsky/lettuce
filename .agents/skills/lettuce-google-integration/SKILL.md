@@ -96,7 +96,10 @@ Loaded from `AGENTS.md`. The sidecar is reachable by anything in the container; 
   the pinned image alone with `--transport streamable-http --single-user --permissions
   gmail:full calendar:full tasks:full contacts:full --disabled-tools start_google_auth`, env
   `WORKSPACE_MCP_HOST=0.0.0.0`, a dummy client **and `USER_GOOGLE_EMAIL` set to any address** —
-  listing needs no token; repeat with every level `readonly` for the second file). Recording
+  listing needs no token; repeat with every level `readonly` for the second file). **A freshly recorded pair
+  is not formatter-clean**: finish with `bunx biome check --write bff/src/google/fixtures`, or the next
+  flow's first `flow check` fails in `lint` over two JSON files — the committed pair is clean, so a red
+  `lint` after a re-record is the new recording, not the tooling. Recording
   without that env is the trap: every tool then comes back *requiring* the account and the fixture
   pins a requirement the deployment never has, which reads as a breaking upstream change. A test
   asserts no listed tool requires it. `google/tools.test.ts` checks every mapped tool,
@@ -112,3 +115,10 @@ Loaded from `AGENTS.md`. The sidecar is reachable by anything in the container; 
   a send is the test of the guard's address parser, not an optional extra. Everything else Google
   offers (labels, filters, focus time…) is reachable through the MCP
   bridge.
+
+  **What a sidecar bump can and cannot be proven against on a dev box.** With no OAuth client and no grant on
+  either creds volume, the honest live pass is: the image reports the new version, Settings → About shows it,
+  the Google pane still renders, and the guard's unit tests pass inside the built image
+  (`docker/google-mcp/tests/`, also run by CI's `image` job). A real grant, a real read, and one send
+  through the recipient guard are always the operator's own pass. Say which of the two you ran — do not let a
+  container-only pass read as the grant-bearing one.

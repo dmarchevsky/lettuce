@@ -13,6 +13,13 @@ Loaded from `AGENTS.md`. Everything the stack runs comes from a published artifa
 drift between the checkout's current tag and the target, checks the target out (detached),
 re-pins every version site to the new release, and typechecks.
 
+**`bun run check-pin-upstream` is the first step of any component-version survey**, this one included: it
+already checks `LETTA_CODE` plus `CODEX`, `CLAUDE_CODE`, `WORKSPACE_MCP`, `DDG_MCP`, `SEARXNG`, `GH` and
+`CLOUDFLARED` against their registries in one pass. Ad-hoc probes mislead twice: the reference clone's
+`origin` is a lagging mirror, so `git ls-remote --tags origin` answered "NO" for releases that were long
+published, and a freshly published npm version can take hours to appear under `/<pkg>/latest`. A survey
+done by hand therefore reports a pin as behind or ahead of what the registry actually holds.
+
 Protocol drift shows up two ways:
 1. **Typed** — `web/` and `bff/` import from `@letta-ai/letta-code` (pinned to the npm release
    matching the running image), so `bun run typecheck` fails on any breaking protocol change.

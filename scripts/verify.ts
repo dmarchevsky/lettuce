@@ -107,7 +107,7 @@ console.log(`
                   then STOP: the operator tests it in the container and says it works
     pre-release   the review, the CHANGELOG entry + VERSION bump in one commit, then Release?
     release       one flow release does it: push the branch, open the PR, wait for CI, merge,
-                  tag main's tip, publish the release — and only then bun run deploy-check,
+                  tag the merge commit, publish the release — and only then bun run deploy-check,
                   ui-check / smoke where they apply.
 
   Production deploy is the operator's alone — the flow stops at the tag and never asks about it.
