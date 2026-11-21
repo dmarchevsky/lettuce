@@ -7,6 +7,13 @@ import { buildMessageContent, type PreparedImage } from "../lib/attachments.ts";
 import { historyShowsLoadingRow, openConversation } from "../lib/conversation-open.ts";
 import { errorMessage, friendlyServerError } from "../lib/errors.ts";
 import { consumeFreshConversation } from "../lib/fresh-conversations.ts";
+import {
+  appendOlderPage,
+  fetchHistoryPage,
+  HISTORY_MESSAGE_FLOOR,
+  loadHistoryPages,
+  olderPageStalled,
+} from "../lib/history.ts";
 import { upstreamReturned } from "../lib/link-status.ts";
 import {
   indicatorStaysOn,
@@ -131,6 +138,25 @@ export interface ConversationApi {
   /** History for the open conversation is in flight: the empty transcript must
    * say "Loading conversation…", not "No messages yet" (`MessageList`). */
   historyLoading: boolean;
+  /**
+   * The transcript holds only the newest messages: the floor stopped the read with
+   * older ones still to fetch. Rendered as the wall row, so a partial transcript
+   * never looks like a complete one.
+   */
+  historyPartial: boolean;
+  /**
+   * Older messages exist but the cursor stopped answering, so the wall says the older
+   * end could not be loaded instead of offering a button that cannot deliver.
+   */
+  historyStalled: boolean;
+  /** An older page is on its way. */
+  historyLoadingOlder: boolean;
+  /** How many messages were fetched, which is not how many rows there are. */
+  historyLoaded: number;
+  /** Bumped once per older page landed; the list anchors the scroll on this. */
+  olderPages: number;
+  /** Fetch the next page of older messages and put it above what is on screen. */
+  loadOlder: () => void;
   /** Dismiss `error` — it is shown in a box the operator closes once read. */
   clearError: () => void;
   /**
@@ -423,6 +449,21 @@ export function useConversation(
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  /**
+   * Older messages exist and were not loaded — the floor stopped the read.
+   * Rendered as the wall at the top of the transcript, never as silence.
+   */
+  const [historyPartial, setHistoryPartial] = useState(false);
+  const [historyLoadingOlder, setHistoryLoadingOlder] = useState(false);
+  /**
+   * Older messages exist but the cursor stops answering, so the wall has no button
+   * to offer — it says the older end did not answer instead.
+   */
+  const [historyStalled, setHistoryStalled] = useState(false);
+  /** How many messages the transcript was built from; what the wall counts. */
+  const [historyLoaded, setHistoryLoaded] = useState(0);
+  /** Bumped once per older page landed; what the list anchors the scroll on. */
+  const [olderPages, setOlderPages] = useState(0);
   const [cwd, setCwd] = useState<string | null>(null);
   const [skillsVersion, setSkillsVersion] = useState(0);
   const [permissionMode, setPermissionModeFromStatus] = useState<PermissionMode | null>(null);
@@ -631,6 +672,54 @@ export function useConversation(
     return () => clearInterval(timer);
   }, [processing, stopping, reprimeLiveState]);
 
+  /** Every history record held for this conversation, newest-first. */
+  const historyRecordsRef = useRef<unknown[]>([]);
+  /** Where the older pages continue from, and whether the endpoint says more exist. */
+  const historyCursorRef = useRef<{ nextBefore: string | null; hasMore: boolean }>({
+    nextBefore: null,
+    hasMore: false,
+  });
+  /** One older-page request at a time; a second click while one is in flight is noise. */
+  const olderBusyRef = useRef(false);
+
+  /**
+   * Rebuild the transcript from history records, folding in whatever is live.
+   *
+   * Shared by the cold load and by an older page landing, because both replace the
+   * transcript wholesale and both must keep the live entries that arrived while the
+   * request was in flight: the history is a snapshot taken before those frames, so
+   * its copy of a message wins and the ones it never saw are kept. The stream index
+   * is rebuilt after the fold so a later chunk of a still-streaming entry keeps its
+   * keys — an alias whose entry history replaced must not keep pointing at the
+   * discarded key, and history's own entries need no seeding, their keys are ids.
+   */
+  const commitHistory = useCallback(
+    (messages: readonly unknown[], errors: readonly TurnErrorRecord[]) => {
+      const history = transcriptFromHistory(messages);
+      mergeStreamIntoHistory(history, transcriptRef.current);
+      mergeTurnErrors(history, errors);
+      transcriptRef.current = history;
+      const survived = (key: string) => history.has(key);
+      const index = createStreamIndex();
+      for (const [alias, key] of streamIndexRef.current.byMessageId) {
+        if (survived(key)) index.byMessageId.set(alias, key);
+      }
+      for (const [alias, key] of streamIndexRef.current.byOtid) {
+        if (survived(key)) index.byOtid.set(alias, key);
+      }
+      streamIndexRef.current = index;
+      // History numbers its entries from 0 and the live ones were lifted above them
+      // by `mergeStreamIntoHistory`, so the next live entry must be numbered above
+      // everything now on screen — and the counter may already sit higher from a
+      // connection sequence number, which a rebuild must never pull back down.
+      let top = messages.length;
+      for (const entry of history.values()) top = Math.max(top, entry.seenAt + 1);
+      seqRef.current = Math.max(seqRef.current, Math.ceil(top));
+      flushSync();
+    },
+    [flushSync],
+  );
+
   const loadHistory = useCallback(
     async (afterResync = false, gen?: number) => {
       if (!conversationId) return;
@@ -642,42 +731,47 @@ export function useConversation(
       // closure is already current).
       const current = () => gen === undefined || gen === loadGenRef.current;
       setError(null);
-      // In parallel with the history request; see `mergeTurnErrors`.
-      const turnErrors = agentId ? fetchTurnErrors(agentId, conversationId) : Promise.resolve([]);
+      // In parallel with the history request; see `mergeTurnErrors`. It is optional
+      // data — a failure to read the BFF's error log must not cost the reader their
+      // wall, so it answers with nothing rather than rejecting into the catch below.
+      const turnErrors = agentId
+        ? fetchTurnErrors(agentId, conversationId).catch(() => [] as TurnErrorRecord[])
+        : Promise.resolve([] as TurnErrorRecord[]);
       refreshUsage();
       try {
-        const response = await request<{ messages?: unknown[] }>("conversation_messages_list", {
-          conversation_id: conversationId,
-          query: { limit: 200 },
+        // Read back to the floor instead of accepting one page: one page of a long
+        // conversation silently loses its beginning, with nothing on screen to tell
+        // the reader the transcript is partial (#148). The newest page is committed
+        // on its own so the transcript is not blank through every round trip; the
+        // rest land together, because every commit re-renders the whole list and a
+        // page at a time would render messages nobody has scrolled for yet.
+        let painted = false;
+        const loaded = await loadHistoryPages(request, conversationId, {
+          floor: HISTORY_MESSAGE_FLOOR,
+          onPage: (messages) => {
+            // Only paint early when nothing is on screen. A resync reload replacing a
+            // full transcript with the newest page would shrink it for a second and
+            // leave the wall counting a thousand messages over two hundred rows.
+            if (painted || !current() || transcriptRef.current.size > 0) return;
+            painted = true;
+            setHistoryLoaded(messages.length);
+            commitHistory(messages, []);
+          },
         });
         if (!current()) return;
-        const messages = Array.isArray(response?.messages) ? response.messages : [];
+        historyRecordsRef.current = loaded.messages;
+        historyCursorRef.current = { nextBefore: loaded.nextBefore, hasMore: loaded.hasMore };
+        setHistoryPartial(loaded.partial);
+        setHistoryStalled(loaded.stalled);
+        setHistoryLoaded(loaded.messages.length);
         const errors = await turnErrors;
-        // Whatever arrived live while this request was in flight stays: the
-        // history is a snapshot taken before those frames, so its copy of a
-        // message wins and its own entries are kept. The index is rebuilt after
-        // the fold so later chunks of a still-streaming entry keep its keys.
-        const before = transcriptRef.current;
-        const history = transcriptFromHistory(messages);
-        mergeStreamIntoHistory(history, before);
-        mergeTurnErrors(history, errors);
-        transcriptRef.current = history;
-        // The aliases worth carrying are the live index's own, and only for the
-        // entries that survived the fold: they are the ones a later chunk may
-        // still belong to. Rebuilt rather than kept, because an alias whose
-        // entry the history replaced must not keep pointing at the discarded
-        // key — and history's entries need no seeding, their keys are their ids.
-        const survived = (key: string) => history.has(key);
-        const index = createStreamIndex();
-        for (const [alias, key] of streamIndexRef.current.byMessageId) {
-          if (survived(key)) index.byMessageId.set(alias, key);
-        }
-        for (const [alias, key] of streamIndexRef.current.byOtid) {
-          if (survived(key)) index.byOtid.set(alias, key);
-        }
-        streamIndexRef.current = index;
-        seqRef.current = messages.length;
-        flushSync();
+        if (!current()) return;
+        // The pile is what the rows must match, and it may have grown while the turn
+        // errors were in flight: a resync reload happens with the wall on screen, so
+        // an older page can land in this window. Committing this load's own pile then
+        // would drop the page the reader just asked for.
+        setHistoryLoaded(historyRecordsRef.current.length);
+        commitHistory(historyRecordsRef.current, errors);
         // A request/response frame like this one never carries the sequence
         // number that would otherwise flip the link back to "live" on its
         // own — see session-client.ts's markResynced. Only relevant when this
@@ -700,8 +794,63 @@ export function useConversation(
         setError(friendlyServerError(errorMessage(cause)));
       }
     },
-    [agentId, conversationId, request, flushSync, markResynced, refreshUsage, reprimeLiveState],
+    [agentId, conversationId, request, commitHistory, markResynced, refreshUsage, reprimeLiveState],
   );
+
+  /**
+   * Fetch one page of older messages and put it above what is on screen.
+   *
+   * This is what makes the floor an honest limit rather than a truncation: the
+   * messages beyond it stay reachable. An older page rebuilds the whole transcript
+   * (cheap, and it is one deliberate click), which is also what keeps the ordering
+   * rule in one place — the older records join the pile and are sorted with it.
+   */
+  const loadOlder = useCallback(async () => {
+    if (!conversationId || olderBusyRef.current) return;
+    const { nextBefore } = historyCursorRef.current;
+    if (!nextBefore) return;
+    // The same supersession rule the cold load obeys: the reader may have switched
+    // conversations while this page was on its way, and its records belong to the
+    // conversation they were fetched for, not the one now on screen. The busy flag
+    // is cleared on the generation alone — by the time the page lands this call has
+    // itself replaced the pile, so the pile identity cannot answer that question.
+    const gen = loadGenRef.current;
+    const pile = historyRecordsRef.current;
+    const superseded = () => gen !== loadGenRef.current || historyRecordsRef.current !== pile;
+    olderBusyRef.current = true;
+    setHistoryLoadingOlder(true);
+    try {
+      const page = await fetchHistoryPage(request, conversationId, nextBefore);
+      if (superseded()) return;
+      const merged = appendOlderPage(pile, page.messages);
+      const errors = agentId
+        ? await fetchTurnErrors(agentId, conversationId).catch(() => [] as TurnErrorRecord[])
+        : [];
+      if (superseded()) return;
+      historyRecordsRef.current = merged.messages;
+      historyCursorRef.current = { nextBefore: page.nextBefore, hasMore: page.hasMore };
+      // A page that adds nothing while the endpoint still claims there is more is a
+      // dead cursor, not the beginning: keep saying the transcript is partial, and
+      // say plainly that the older end will not answer, rather than offering a
+      // button that fetches the same page again forever.
+      setHistoryPartial(page.hasMore && page.nextBefore !== null);
+      setHistoryStalled(olderPageStalled(page, merged.added));
+      setHistoryLoaded(merged.messages.length);
+      // The counter and the rows must land in the same render, and the counter
+      // first: it is what tells the list to hold the reader's scroll position, and
+      // a render of the new rows without it would jump them before it arrived.
+      setOlderPages((n) => n + 1);
+      commitHistory(merged.messages, errors);
+    } catch (cause) {
+      if (superseded()) return;
+      setError(friendlyServerError(errorMessage(cause)));
+    } finally {
+      if (gen === loadGenRef.current) {
+        olderBusyRef.current = false;
+        setHistoryLoadingOlder(false);
+      }
+    }
+  }, [agentId, conversationId, request, commitHistory]);
 
   // Start (or resume) the runtime for this conversation, then load its history.
   // biome-ignore lint/correctness/useExhaustiveDependencies: startNonce is the trigger itself — the recovery effect below bumps it to re-run this effect after resetting `startedRef`.
@@ -722,6 +871,14 @@ export function useConversation(
     transcriptRef.current = new Map();
     streamIndexRef.current = createStreamIndex();
     seqRef.current = 0;
+    historyRecordsRef.current = [];
+    historyCursorRef.current = { nextBefore: null, hasMore: false };
+    olderBusyRef.current = false;
+    setHistoryPartial(false);
+    setHistoryStalled(false);
+    setHistoryLoadingOlder(false);
+    setHistoryLoaded(0);
+    setOlderPages(0);
     lastActivityRef.current = null;
     setEntries([]);
     setTurnStartedAt(null);
@@ -1368,6 +1525,12 @@ export function useConversation(
     approvals,
     error,
     historyLoading,
+    historyPartial,
+    historyLoadingOlder,
+    historyStalled,
+    historyLoaded,
+    olderPages,
+    loadOlder,
     /** The box shows an action that failed; the operator closes it once read. */
     clearError: () => setError(null),
     sendMessage,

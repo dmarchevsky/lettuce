@@ -1872,3 +1872,128 @@ describe("a history load meeting live frames", () => {
     expect(sortedEntries(history).map((e) => e.text)).toEqual(["two", "one"]);
   });
 });
+
+describe("the order a history page arrives in", () => {
+  const said = (id: string, kind: string, text: string, date: string) => ({
+    id,
+    message_type: kind,
+    date,
+    content: [{ type: "text", text }],
+  });
+
+  test("the transcript follows the clock, not the array", () => {
+    // The endpoint answers newest-first today, but the transcript must not be
+    // that array's shape: a page that arrives the other way round still reads
+    // chronologically, and never puts the answer above its question.
+    const ascending = [
+      said("m1", "user_message", "the question", "2026-11-19T02:00:00.000Z"),
+      said("m2", "assistant_message", "the answer", "2026-11-19T02:00:05.000Z"),
+      said("m3", "user_message", "the follow-up", "2026-11-19T02:01:00.000Z"),
+    ];
+    expect(sortedEntries(transcriptFromHistory(ascending)).map((e) => e.text)).toEqual([
+      "the question",
+      "the answer",
+      "the follow-up",
+    ]);
+  });
+
+  test("newest-first — the shape the endpoint answers in — still reads forwards", () => {
+    const newestFirst = [
+      said("m3", "user_message", "the follow-up", "2026-11-19T02:01:00.000Z"),
+      said("m2", "assistant_message", "the answer", "2026-11-19T02:00:05.000Z"),
+      said("m1", "user_message", "the question", "2026-11-19T02:00:00.000Z"),
+    ];
+    expect(sortedEntries(transcriptFromHistory(newestFirst)).map((e) => e.text)).toEqual([
+      "the question",
+      "the answer",
+      "the follow-up",
+    ]);
+  });
+
+  test("records sharing one millisecond keep the page's own chronology", () => {
+    // A burst stored with one `date` cannot be ordered by the clock, so the page's
+    // newest-first order is the only signal — reversed, it is the true order.
+    const sameDate = [
+      said("m3", "assistant_message", "second half", "2026-11-19T02:00:00.000Z"),
+      said("m2", "assistant_message", "first half", "2026-11-19T02:00:00.000Z"),
+    ];
+    expect(sortedEntries(transcriptFromHistory(sameDate)).map((e) => e.text)).toEqual([
+      "first half",
+      "second half",
+    ]);
+  });
+
+  test("two records sharing one id both survive", () => {
+    // They used to collapse into one entry, and which one won depended on the
+    // arrival order — the silent loss of a whole user message.
+    const collided = [
+      said("dup", "assistant_message", "the answer", "2026-11-19T02:00:05.000Z"),
+      said("dup", "user_message", "the question", "2026-11-19T02:00:00.000Z"),
+    ];
+    const entries = sortedEntries(transcriptFromHistory(collided));
+    expect(entries.map((e) => e.kind)).toEqual(["user", "assistant"]);
+    expect(entries.map((e) => e.text)).toEqual(["the question", "the answer"]);
+  });
+});
+
+describe("live entries meeting a history of a different length", () => {
+  const msg = (id: string, content: string) => ({
+    id,
+    date: `2026-11-19T02:0${id.slice(1)}:00.000Z`,
+    message_type: "assistant_message",
+    content,
+  });
+
+  test("a live entry is numbered above the history, not near its top", () => {
+    // An entry that arrived first is numbered 1 by the stream, which is a place in
+    // a one-message history and nowhere near one in a hundred-message history.
+    const history = transcriptFromHistory([msg("m3", "three"), msg("m2", "two"), msg("m1", "one")]);
+    const live = transcriptFromHistory([msg("m9", "still streaming")]);
+    mergeStreamIntoHistory(history, live);
+    expect(sortedEntries(history).map((e) => e.text)).toEqual([
+      "one",
+      "two",
+      "three",
+      "still streaming",
+    ]);
+  });
+
+  test("a live entry numbered by a connection sequence stays above too", () => {
+    const history = transcriptFromHistory([msg("m3", "three"), msg("m2", "two"), msg("m1", "one")]);
+    const live: Transcript = new Map();
+    applyStreamDelta(
+      live,
+      createStreamIndex(),
+      { type: "message", id: "m9", otid: "o9", message_type: "assistant_message", content: "late" },
+      5000,
+    );
+    mergeStreamIntoHistory(history, live);
+    expect(sortedEntries(history).map((e) => e.text)).toEqual(["one", "two", "three", "late"]);
+  });
+
+  test("the survivors keep their own order among themselves", () => {
+    const history = transcriptFromHistory([msg("m1", "one")]);
+    const live: Transcript = new Map();
+    const index = createStreamIndex();
+    applyStreamDelta(
+      live,
+      index,
+      { type: "message", id: "m7", otid: "o7", message_type: "user_message", content: "typed" },
+      40,
+    );
+    applyStreamDelta(
+      live,
+      index,
+      {
+        type: "message",
+        id: "m8",
+        otid: "o8",
+        message_type: "assistant_message",
+        content: "answered",
+      },
+      41,
+    );
+    mergeStreamIntoHistory(history, live);
+    expect(sortedEntries(history).map((e) => e.text)).toEqual(["one", "typed", "answered"]);
+  });
+});

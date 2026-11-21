@@ -41,6 +41,25 @@ interface Props {
   processing: boolean;
   /** History for this conversation is in flight: say so instead of "no messages". */
   historyLoading?: boolean;
+  /**
+   * Only the newest messages are loaded; older ones are a click away. The wall row
+   * is what keeps a partial transcript from reading as a complete one.
+   */
+  historyPartial?: boolean;
+  /** An older page is on its way, so the wall shows its busy state. */
+  historyLoadingOlder?: boolean;
+  /**
+   * Older messages exist but the cursor stopped answering, so the wall says the
+   * older end did not answer rather than offering a button that fetches the same
+   * page again forever.
+   */
+  historyStalled?: boolean;
+  /** How many messages were fetched; what the wall counts out. */
+  historyLoaded?: number;
+  /** Bumped once per older page landed — what the scroll anchor is held on. */
+  olderPages?: number;
+  /** Fetch the next page of older messages. */
+  onLoadOlder?: () => void;
   session: SessionApi;
   /** The runtime's working directory, used to shorten paths in tool summaries. */
   cwd: string | null;
@@ -131,6 +150,12 @@ export function MessageList({
   entries,
   processing,
   historyLoading,
+  historyPartial,
+  historyLoadingOlder,
+  historyStalled,
+  historyLoaded,
+  olderPages = 0,
+  onLoadOlder,
   session,
   cwd,
   onOpenFile,
@@ -152,13 +177,74 @@ export function MessageList({
   stuckRef.current = stuck;
 
   // `entries` and `processing` are the trigger, not inputs: new content is what
-  // should pull the view down, and where to scroll is read from the DOM.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the deps say when to scroll, not what to read
+  // should move the view, and where to put it is read from the DOM.
+  //
+  // One scroll decision, because the two cannot be ordered: holding the reader's
+  // position when an older page lands has to happen before the stick-to-bottom
+  // decision, and a second effect gets there only after they have been dragged to
+  // the bottom. And the row to hold is measured at the click — by the time the page
+  // lands nothing is left recording where the reader was, and a hold worked out from
+  // what the list grew by is a guess that shows as a visible jump.
+  const holdRef = useRef<{ id: string; top: number }[]>([]);
+  /** `holdRef` ids are entry ids; the wall row is held by this one instead. */
+  const WALL_ANCHOR = "\u0000wall";
+  const olderSeenRef = useRef(olderPages);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the deps say when to scroll, not what to read; `olderPages` is the event the held row belongs to
   useLayoutEffect(() => {
     const container = containerRef.current;
-    if (!container || !stuckRef.current) return;
-    container.scrollTop = container.scrollHeight;
+    if (!container) return;
+    const grew = olderPages !== olderSeenRef.current;
+    olderSeenRef.current = olderPages;
+    // Consumed only by the page it was measured for: a streamed token arriving while
+    // the older page is in flight must not be what throws the measurement away, or
+    // the hold is silently gone when the rows actually land.
+    const wanted = grew ? holdRef.current : [];
+    if (grew) holdRef.current = [];
+    const box = container.getBoundingClientRect();
+    for (const hold of wanted) {
+      const el = container.querySelector<HTMLElement>(
+        hold.id === WALL_ANCHOR ? ".history-wall" : `[data-entry="${CSS.escape(hold.id)}"]`,
+      );
+      if (!el) continue;
+      container.scrollTop += el.getBoundingClientRect().top - box.top - hold.top;
+      return;
+    }
+    if (stuckRef.current) container.scrollTop = container.scrollHeight;
   }, [entries, processing]);
+
+  /**
+   * Press the wall: remember what the reader is looking at, then ask for the older
+   * page that lands above it. The click is the only moment that still knows — by the
+   * time the page lands nothing records where they were, and a hold worked out from
+   * what the list grew by is a guess that shows as a jump.
+   *
+   * Two anchors, in order: the wall itself, because the reader pressed it and the
+   * older messages should appear just under it rather than far above the viewport;
+   * then the first row with an element of its own, because the older page that
+   * completes a transcript is also the one that takes the wall away. A top with
+   * nothing holdable (a collapsed steps run) leaves the list to just grow.
+   */
+  const loadOlderPressed = () => {
+    const container = containerRef.current;
+    holdRef.current = [];
+    if (container) {
+      const top = container.getBoundingClientRect().top;
+      const wall = container.querySelector<HTMLElement>(".history-wall");
+      if (wall && wall.getBoundingClientRect().bottom > top) {
+        holdRef.current.push({ id: WALL_ANCHOR, top: wall.getBoundingClientRect().top - top });
+      }
+      const row = Array.from(container.querySelectorAll<HTMLElement>("[data-entry]")).find(
+        (el) => el.getBoundingClientRect().bottom > top,
+      );
+      if (row) {
+        holdRef.current.push({
+          id: row.dataset.entry as string,
+          top: row.getBoundingClientRect().top - top,
+        });
+      }
+    }
+    onLoadOlder?.();
+  };
 
   useEffect(() => {
     const container = containerRef.current;
@@ -326,6 +412,26 @@ export function MessageList({
                 that was about to fill. */}
             {historyLoading ? "Loading conversation…" : "No messages yet. Say something below."}
           </p>
+        ) : null}
+
+        {historyPartial && !historyLoading ? (
+          // The floor stopped the read, so say so where the missing messages would
+          // have been — a transcript that is only partly loaded must not read as a
+          // conversation that started here.
+          <div className="history-wall">
+            <span className="history-wall-note">
+              {historyStalled
+                ? "Some older messages could not be loaded"
+                : `Showing the newest ${historyLoaded?.toLocaleString() ?? "loaded"} messages`}
+            </span>
+            {historyStalled ? null : historyLoadingOlder ? (
+              <span className="pill history-wall-busy">Loading older messages…</span>
+            ) : (
+              <button type="button" className="pill as-button" onClick={loadOlderPressed}>
+                Load older messages
+              </button>
+            )}
+          </div>
         ) : null}
 
         {items.map((item) => {
@@ -771,7 +877,10 @@ const MessageItem = memo(function MessageItem({
   // A subagent's reply is a step, not the answer; it keeps the plain label.
   const who = entry.kind === "user" ? "You" : entry.subagentId ? "Subagent" : label;
   return (
-    <div className={`entry ${entry.kind}${entry.subagentId ? " subagent" : ""}`}>
+    <div
+      className={`entry ${entry.kind}${entry.subagentId ? " subagent" : ""}`}
+      data-entry={entry.id}
+    >
       <div className="role">
         <span className="who">{who}</span>
         {/* Arrived from Telegram/Slack rather than typed here — still you. */}

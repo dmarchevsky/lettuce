@@ -5,6 +5,12 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.48.1-letta_0.34.67] - 2026-11-20
+
+### Fixed
+- Fix a long conversation opening with only its newest messages; the rest are now one tap away, and the transcript says what is loaded.
+- Fix messages rendering out of order, or vanishing from the transcript, when two of them share an id.
+
 ## [v0.48.0-letta_0.34.67] - 2026-11-20
 
 ### Changed

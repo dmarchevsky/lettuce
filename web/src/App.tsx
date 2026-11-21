@@ -959,6 +959,12 @@ function Workspace({ status }: { status: Status }) {
               entries={visibleEntries}
               processing={conversation.processing}
               historyLoading={conversation.historyLoading}
+              historyPartial={conversation.historyPartial}
+              historyLoadingOlder={conversation.historyLoadingOlder}
+              historyStalled={conversation.historyStalled}
+              historyLoaded={conversation.historyLoaded}
+              olderPages={conversation.olderPages}
+              onLoadOlder={conversation.loadOlder}
               session={session}
               cwd={conversation.cwd}
               onOpenFile={setOpenFile}

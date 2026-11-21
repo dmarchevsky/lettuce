@@ -1292,10 +1292,13 @@ function applyMessage(
   }
 
   // History carries a stable id and no otid, so it still keys by id and the
-  // replay path is unchanged.
+  // replay path is unchanged — except that it gets the same kind namespacing the
+  // stream path applies, so two records sharing one id can never overwrite each
+  // other (see `historyKey`).
+  const base = id || otid;
   const key = options.index
     ? resolveCanonicalKey(options.index, transcript, id, otid, kind)
-    : id || otid;
+    : historyKey(transcript, base, kind);
   if (!key) return;
 
   const existing = transcript.get(key);
@@ -1671,17 +1674,60 @@ export function applyStreamDelta(
 }
 
 /**
+ * The key a history record lands on, namespace-guarded against a collision.
+ *
+ * Two records sharing one `id` used to collapse into one entry, and which of them
+ * survived depended on the order the page arrived in — so a conversation could
+ * lose its user messages silently. The stream path already namespaces on a kind
+ * collision for exactly this reason; the history path is now held to the same
+ * rule instead of trusting ids to be unique.
+ */
+function historyKey(transcript: Transcript, base: string, kind: EntryKind): string {
+  const existing = transcript.get(base);
+  return existing && existing.kind !== kind ? `${kind}:${base}` : base;
+}
+
+/**
+ * One page of history read oldest-first, without trusting how it arrived.
+ *
+ * `conversation_messages_list` answers newest-first (upstream's default order,
+ * `letta-code src/websocket/listener/commands/agents-conversations.ts`), and
+ * `seenAt` drives the render order — but the transcript must not be *that*
+ * array's shape. Ordering each record by its own `date` means a page that arrives
+ * in any other order still reads chronologically, and records that share a
+ * `date` (or carry none at all) keep the page's own newest-first reversal, which
+ * is the true chronology of a same-millisecond burst.
+ */
+function oldestFirstOrder(messages: readonly unknown[]): unknown[] {
+  const dated = messages.map((message, index) => {
+    const date =
+      message &&
+      typeof message === "object" &&
+      typeof (message as Record<string, unknown>).date === "string"
+        ? ((message as Record<string, unknown>).date as string)
+        : "";
+    return { date, index };
+  });
+  dated.sort((a, b) => {
+    if (a.date && b.date && a.date !== b.date) return a.date < b.date ? -1 : 1;
+    // A tie (or neither carries a date): the page runs newest-first, so the later
+    // array slot is the earlier message.
+    return b.index - a.index;
+  });
+  return dated.map(({ index }) => messages[index]);
+}
+
+/**
  * Rebuild a transcript from `conversation_messages_list`.
  *
- * That endpoint returns messages NEWEST FIRST (verified against the backend:
- * the array runs descending by `date`). `seenAt` drives the render order, so
- * using the raw array index put the newest message at the top and rendered the
- * whole conversation backwards — the reply above the question that prompted it.
+ * Entries are numbered `0..n-1` in chronological order — the same base every
+ * later live entry is numbered above (see `mergeStreamIntoHistory` and the
+ * caller's sequence counter), so history and stream cannot hand out the same
+ * `seenAt` and fall back to comparing id strings.
  */
 export function transcriptFromHistory(messages: readonly unknown[]): Transcript {
   const transcript: Transcript = new Map();
-  const oldestFirst = [...messages].reverse();
-  oldestFirst.forEach((message, index) => {
+  oldestFirstOrder(messages).forEach((message, index) => {
     applyMessage(transcript, message, { streaming: false, seq: index });
   });
   for (const entry of transcript.values()) entry.streaming = false;
@@ -1699,10 +1745,27 @@ export function transcriptFromHistory(messages: readonly unknown[]): Transcript 
  * answered, and a history load that assigns `transcriptRef` wholesale would
  * otherwise delete them mid-flight. Nothing re-fetches them: the frames are
  * live-only and the server has not stored the turn yet.
+ *
+ * The survivors are renumbered above every history entry, in their own relative
+ * order: an entry numbered 1 because it arrived first must not render near the
+ * top of a two-hundred-message history, and one numbered by a connection sequence
+ * must not tie with a history index and land wherever its id sorts. The caller
+ * keeps its own counter at least as high, so entries that arrive later stay
+ * above this transcript too.
  */
 export function mergeStreamIntoHistory(history: Transcript, stream: Transcript): void {
+  const extras: Array<[string, TranscriptEntry]> = [];
   for (const [key, entry] of stream) {
-    if (!history.has(key)) history.set(key, entry);
+    if (!history.has(key)) extras.push([key, entry]);
+  }
+  if (extras.length === 0) return;
+  let next = 0;
+  for (const entry of history.values()) next = Math.max(next, entry.seenAt + 1);
+  extras.sort((a, b) => a[1].seenAt - b[1].seenAt);
+  for (const [key, entry] of extras) {
+    entry.seenAt = next;
+    next += 1;
+    history.set(key, entry);
   }
 }
 
