@@ -365,7 +365,6 @@ What that means:
   `openrouter/z-ai/glm-5.3-flash`. An agent set to an `openrouter/…` model before
   keeps its handle.
 - **The models are the catalog bundled with letta-code** (pi-ai's), with the
-<<<<<<< HEAD
   capabilities and context windows it records. The OpenRouter chat-model count is
   deliberately not written here: it moves every time the pinned pi-ai catalog
   moves, and every count written down has rotted once (image-generation and
