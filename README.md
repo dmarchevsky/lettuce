@@ -84,6 +84,9 @@ before exposing anything.
   tool needs approval — with per-device preferences and a test button.
 - **Reconnects and replays.** Come back after an hour away and the transcript
   is intact, including failures that would otherwise have been lost.
+- **Long conversations load the whole way through.** Opening one reads back to
+  its first message, and past a thousand it offers **Load older messages**
+  where the rest would otherwise have been silently missing.
 - **Filter what the transcript shows.** The composer's funnel hides a whole kind
   of message — you, the agent, tools, tasks, system — and behind **Details** the
   narrower cuts: thinking, the steps folded inside a run, and what the agent
