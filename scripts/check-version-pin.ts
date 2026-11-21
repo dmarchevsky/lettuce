@@ -136,10 +136,10 @@ const docs = await Bun.file(`${ROOT}docs/CONFIGURATION.md`).text();
 for (const name of COMPONENT_VARS) {
   const places: [string, string][] = [];
   for (const m of compose.matchAll(new RegExp(`\\$\\{${name}:-([^}]*)\\}`, "g"))) {
-    places.push(["docker/compose.yml", m[1]]);
+    places.push(["docker/compose.yml", m[1] ?? ""]);
   }
   const doc = docs.match(new RegExp(`\`${name}\` \\| \`([^\`]+)\``));
-  if (doc) places.push(["docs/CONFIGURATION.md", doc[1]]);
+  if (doc) places.push(["docs/CONFIGURATION.md", doc[1] ?? ""]);
   if (places.length === 0) {
     problems.push(`${name}: no pin found in docker/compose.yml`);
     continue;
@@ -155,8 +155,9 @@ for (const name of COMPONENT_VARS) {
     );
     continue;
   }
+  const [shown = ""] = [...values];
   console.log(
-    `    ${[...values][0].padEnd(16)} ${name} (${places.length} place${places.length > 1 ? "s" : ""})`,
+    `    ${shown.padEnd(16)} ${name} (${places.length} place${places.length > 1 ? "s" : ""})`,
   );
 }
 

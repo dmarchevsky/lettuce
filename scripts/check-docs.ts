@@ -102,9 +102,10 @@ function check(ok: boolean, label: string, detail?: string) {
  */
 function isYamlScalar(value: string): boolean {
   if (value === "") return true;
-  if (value[0] === "'" || value[0] === '"') return true; // quoted: colons are inert inside
+  const first = value[0] ?? "";
+  if (first === "'" || first === '"') return true; // quoted: colons are inert inside
   // Anchors, aliases, block scalars and flow collections are not plain scalars.
-  if ("[&*!|>`{[".includes(value[0])) return false;
+  if ("[&*!|>`{[".includes(first)) return false;
   return !value.includes(": ") && !value.endsWith(":");
 }
 
@@ -371,7 +372,7 @@ for (const dir of skillDirs) {
     // helper belongs to the async subprocess), and reading it once printed
     // `undefinedundefined` as the "reason" for every failure this sub-check
     // reported — a red gate with no lead in it.
-    const decode = (bytes: ArrayBuffer | null): string =>
+    const decode = (bytes: ArrayBuffer | ArrayBufferView | null): string =>
       bytes === null ? "" : new TextDecoder().decode(bytes);
     const out = `${decode(run.stdout)}${decode(run.stderr)}`.trim();
     check(

@@ -15,7 +15,7 @@
  */
 
 import { MAX_REPLAY_FRAMES } from "../bff/src/session/buffer.ts";
-import { devSignIn, parseArgs, requireServedBuild } from "./harness.ts";
+import { devSignIn, openDevSocket, parseArgs, requireServedBuild } from "./harness.ts";
 
 const { origin: ORIGIN, staleBuild } = parseArgs(process.argv.slice(2));
 const WS_ORIGIN = ORIGIN.replace(/^http/, "ws");
@@ -44,7 +44,8 @@ async function login(): Promise<string> {
 /** The few `/api/status` fields this suite asserts on, typed instead of `any`. */
 interface StatusBody {
   sessions: number;
-  upstream: { state: string };
+  /** `generation` counts upstream socket re-establishments — the invariant this suite asserts. */
+  upstream: { state: string; generation: number };
 }
 
 async function status(cookie?: string): Promise<StatusBody> {
@@ -63,7 +64,7 @@ interface Session {
 
 function openSession(cookie: string): Promise<Session> {
   return new Promise((resolve, reject) => {
-    const socket = new WebSocket(`${WS_ORIGIN}/ws`, { headers: { cookie } } as any);
+    const socket = openDevSocket(`${WS_ORIGIN}/ws`, cookie);
     const frames: any[] = [];
     const waiters: { predicate: (f: any) => boolean; resolve: (f: any) => void }[] = [];
 

@@ -113,7 +113,7 @@ export function decideBump(input: PrInput): { bump: Bump | "unknown"; why: strin
   const subject = (input.commitSubject ?? "").trim();
   const match = subject.match(/^(feat|fix|chore|docs|refactor|perf|test|build|ci|style|revert)\b/i);
   if (match) {
-    const kind = match[1].toLowerCase();
+    const kind = (match[1] ?? "").toLowerCase();
     if (kind === "feat") return { bump: "minor", why: `commit subject "${kind}"` };
     if (kind === "docs") return { bump: "none", why: `commit subject "${kind}"` };
     return { bump: "patch", why: `commit subject "${kind}"` };

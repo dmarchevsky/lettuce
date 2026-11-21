@@ -41,7 +41,7 @@
  * ```
  */
 import { frameScopeKey, scopeKeyOf } from "../bff/src/session/buffer.ts";
-import { devSignIn, requireTestPassword } from "./harness.ts";
+import { devSignIn, openDevSocket, requireTestPassword } from "./harness.ts";
 
 /** Default: a local model can spend minutes prefilling before it answers. */
 export const DEFAULT_TURN_TIMEOUT_MS = 300_000;
@@ -100,16 +100,15 @@ export async function openFrameTap(opts: ConnectFrameTap): Promise<FrameTap> {
   const origin = opts.origin.replace(/\/$/, "");
   const cookie = opts.cookie ?? (await devSignIn(origin));
   const wsUrl = `${origin.replace(/^http/, "ws")}/ws`;
-  const socket = new WebSocket(wsUrl, { headers: { cookie } } as ConstructorParameters<
-    typeof WebSocket
-  >[1]);
+  const socket = openDevSocket(wsUrl, cookie);
 
   const frames: Record<string, unknown>[] = [];
-  const waiters: {
+  type Waiter = {
     predicate: (frame: Record<string, unknown>) => boolean;
     resolve: (frame: Record<string, unknown>) => void;
     timer?: ReturnType<typeof setTimeout>;
-  }[] = [];
+  };
+  const waiters: Waiter[] = [];
   const pending = new Map<
     string,
     { resolve: (f: Record<string, unknown>) => void; reject: (e: Error) => void; sentAt: number }
@@ -187,7 +186,7 @@ export async function openFrameTap(opts: ConnectFrameTap): Promise<FrameTap> {
       const existing = sinceIndex === undefined ? frames.find(predicate) : undefined;
       if (existing) return Promise.resolve(existing);
       return new Promise((resolve, reject) => {
-        const waiter = { predicate, resolve };
+        const waiter: Waiter = { predicate, resolve };
         waiter.timer = setTimeout(() => {
           const index = waiters.indexOf(waiter);
           if (index >= 0) waiters.splice(index, 1);

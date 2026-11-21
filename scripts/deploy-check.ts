@@ -142,7 +142,7 @@ function declaredStateDir(): string | null {
   for (const line of text.split("\n")) {
     const match = line.match(/^\s*(?:export\s+)?LETTA_STATE_DIR\s*=\s*(.*)$/);
     if (!match) continue;
-    const value = match[1]
+    const value = (match[1] ?? "")
       .trim()
       .replace(/^"(.*)"$/, "$1")
       .replace(/^'(.*)'$/, "$1");

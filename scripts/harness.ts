@@ -110,6 +110,25 @@ export async function devSignIn(origin: string): Promise<string> {
 }
 
 /**
+ * A Bun WebSocket carrying the session cookie, from driver code.
+ *
+ * Bun's global accepts an options bag (`{ headers }`); the lib.dom `WebSocket`
+ * the typechecker sees in these scripts accepts only protocols — the drivers are
+ * one program that needs `document` for their `page.evaluate` bodies, so lib.dom
+ * wins the global and Bun's own `WebSocketInit` is unreachable. Naming the real
+ * constructor once here beats a cast at every call site (and a `as any`, which is
+ * what it was). At runtime under `bun` the global really is Bun's.
+ */
+export function openDevSocket(url: string | URL, cookie: string): WebSocket {
+  // SAFETY: under `bun` the global WebSocket is Bun's and does take an options bag.
+  const BunWebSocket = WebSocket as unknown as new (
+    url: string | URL,
+    init?: { headers?: Record<string, string>; protocols?: string | string[] },
+  ) => WebSocket;
+  return new BunWebSocket(url, { headers: { cookie } });
+}
+
+/**
  * Land a page on the app with a session, by whatever method this stack signed in
  * with. A password field on the page is how `SIGNIN=password` shows up here.
  */
@@ -457,6 +476,7 @@ export function parseArgs(argv: string[], fallbackOrigin = "http://127.0.0.1:809
     list: false,
     shots: [],
     staleBuild: envAllowStaleBuild(),
+    fixture: "",
   };
   const list = true;
   for (let i = 0; i < argv.length; i += 1) {

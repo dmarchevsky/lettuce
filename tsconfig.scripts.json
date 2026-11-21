@@ -1,0 +1,26 @@
+{
+  // The third typecheck program, run by the root `typecheck` script next to bff and web.
+  //
+  // `scripts/` and `tests/` are tooling, not a workspace, so they sat outside every tsconfig
+  // and `bun run typecheck` never looked at them — which is how `browser.on("page", …)`
+  // (an event Playwright stopped emitting) and a required `HarnessArgs.fixture` nobody ever
+  // set shipped quietly. This program is the gate for that code.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    // The drivers run under `bun` (Bun.spawnSync, Bun.file, `bun test` in tests/), and they
+    // import `node:fs` and friends directly, so both type sets are theirs. `bun` alone pulls
+    // `@types/node` transitively through a `/// <reference>`; naming both is what says so out
+    // loud and keeps the pass honest if bun-types ever stops re-exporting it.
+    "types": ["bun", "node"],
+    // Node + Playwright on the outside, but most of what these scripts *do* is run callbacks
+    // INSIDE the page (page.evaluate / locator.evaluate), and those bodies use document,
+    // window, getComputedStyle and HTMLElement as if they were DOM code — because at runtime
+    // they are (~150 uses across ui-check, harness and screenshots). The cost of one program
+    // is that a stray `document` in driver code typechecks, and that lib.dom's `WebSocket`
+    // wins the global over Bun's options-bag one — see `openDevSocket` in harness.ts, which
+    // names that constructor once instead of casting at every call site.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "noEmit": true
+  },
+  "include": ["scripts/**/*.ts", "tests/**/*.ts"]
+}

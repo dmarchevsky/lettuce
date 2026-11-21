@@ -660,8 +660,13 @@ const browser = await chromium.launch({
 });
 // Every page this browser produces, however it arrives — a section's own newPage,
 // a target="_blank" link the app renders — is watched, so coverage is not a
-// convention a future section can forget.
-browser.on("page", watchPage);
+// convention a future section can forget. Pages arrive per **context**
+// (`browser.newPage()` gets its own implicit one) and Playwright has no
+// browser-level `page` event: the typed surface offers `context` and
+// `disconnected`, and a `browser.on("page")` listener is never called (verified
+// against 1.62.1 — a newPage and a target=_blank popup produced zero hits). So the
+// watch attaches per context, as each one appears.
+browser.on("context", (context) => context.on("page", watchPage));
 
 try {
   // ── Phone ────────────────────────────────────────────────────────────────
@@ -900,10 +905,11 @@ try {
     // No seam: the list's own box ends on the bar's top edge, or a strip of the chat
     // sits between the list and the control that closes it.
     const listBox = await switcher.boundingBox();
+    const listBottom = listBox ? listBox.y + listBox.height : null;
     check(
       "the list ends on the bar with nothing between",
-      listBox !== null && Math.abs(listBox.y + listBox.height - barTop) < 2,
-      { listBottom: listBox?.y + (listBox?.height ?? 0), barTop },
+      listBottom !== null && Math.abs(listBottom - barTop) < 2,
+      { listBottom, barTop },
     );
     await shot(page, "phone-switcher");
     await switcher.locator(".switcher-bar .sheet-close").click();
@@ -2361,10 +2367,7 @@ try {
     if ((await otherAgent.count()) > 0) {
       const otherId = await otherAgent.getAttribute("data-agent-id");
       const otherTitle = (await otherAgent.getAttribute("title")) ?? "";
-      const otherName = otherTitle
-        .replace(/\s*\(pinned\)/, "")
-        .split(" —")[0]
-        .trim();
+      const otherName = (otherTitle.replace(/\s*\(pinned\)/, "").split(" —")[0] ?? "").trim();
       // A borrow is a peek's business: a pinned panel is a column you are reading
       // and does not change agents under you. Un-pin, then put the peek away, or
       // there is nothing for the hover to open.
@@ -2920,12 +2923,13 @@ try {
     await page.locator('.section-tabs button:text-is("Tools")').click();
     await page.waitForTimeout(700);
     const toolsFeatures = await readFeatures(page);
-    const expectedToolChips = [
+    const toolChipTargets: [string, string][] = [
       ["google", "Google"],
       ["codex", "Codex"],
       ["claude", "Claude"],
       ["pi", "Remote Pi"],
-    ]
+    ];
+    const expectedToolChips = toolChipTargets
       .filter(([key]) => featureOn(toolsFeatures, key))
       .map(([, label]) => label);
     const toolChipLabels = (
