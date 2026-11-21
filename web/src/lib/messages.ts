@@ -88,9 +88,10 @@ export interface TranscriptEntry {
   /** user: arrived over a channel (telegram, slack) rather than being typed. */
   channel?: string;
   /**
-   * user: images attached to the message, lifted from base64 image content
-   * parts — present on the local echo, the queued echo and history alike,
-   * because all three carry the parts (`readContentParts`).
+   * Images lifted from base64 image content parts — present on the local echo,
+   * the queued echo and history alike, because all three carry the parts
+   * (`readContentParts`). User messages carry what you attached; a promoted tool
+   * card carries what the tool drew, and exactly one row holds them.
    */
   images?: TranscriptImage[];
   /**
@@ -416,11 +417,11 @@ function toolResultText(body: string): string {
   const parts = [...body.matchAll(/<text>([\s\S]*?)<\/text>/g)].map((m) =>
     unescapeResultText(m[1] ?? "").trim(),
   );
+  // The tool's prose is kept as it came — a backgrounded tool may return
+  // markdown, and squashing its whitespace would be the UI editing the agent's
+  // words. Only the retired sentence is taken out.
   const text = (parts.length > 0 ? parts.join("\n") : unescapeResultText(body)).trim();
-  return text
-    .replace(RETIRED_COACHING, "")
-    .replace(/\s{2,}/g, " ")
-    .trim();
+  return text.split(` ${RETIRED_COACHING}`).join("").replace(RETIRED_COACHING, "").trim();
 }
 
 /** `External tool generate_image completed` → `generate_image`. */
@@ -506,35 +507,14 @@ function splitInjectedBlocks(entry: TranscriptEntry): TranscriptEntry[] {
   const out: TranscriptEntry[] = [];
   // When several completions coalesce into one message the wire has flattened
   // their image parts out of text order, so the pictures cannot be split per
-  // card: they ride the first card (their pair comes first in the message), and
-  // every card still names its own saved files. Never duplicated, never lost.
-  let picturesToPlace = pictures;
+  // card: they ride the first card that actually drew something, and every card
+  // still names its own saved files. Never duplicated, never lost.
+  let leftToPlace = pictures;
   blocks.forEach((block, index) => {
     const base: TranscriptEntry = { ...entry, id: `${entry.id}:block:${index}` };
     delete base.images; // they belong to one row, not to every block of the message
     if (block.tag === TOOL_RESULT_TAG) {
-      const text = toolResultText(block.body);
-      const images = picturesToPlace;
-      picturesToPlace = undefined;
-      const host = lastTaskEntry(out);
-      if (host) {
-        out[out.indexOf(host)] = {
-          ...host,
-          text,
-          promoted: true,
-          ...(images ? { images } : {}),
-        };
-      } else {
-        // A result with no receipt to fold into is still the tool's own words.
-        out.push({
-          ...base,
-          kind: "task",
-          title: undefined,
-          text,
-          promoted: true,
-          ...(images ? { images } : {}),
-        });
-      }
+      leftToPlace = foldToolResult(out, base, block.body, leftToPlace);
       return;
     }
     if (block.kind === "task") {
@@ -551,14 +531,56 @@ function splitInjectedBlocks(entry: TranscriptEntry): TranscriptEntry[] {
 
   // A message that was nothing but injected blocks leaves no user bubble behind.
   if (prose) out.push({ ...entry, text: prose });
+  // Nothing consumed the pictures, so they go back where they were: an inbound
+  // Telegram photo is a `<channel-notification>` block with image parts and no
+  // prose, and that block is the person's own message. The rule is that images
+  // move, never that they disappear.
+  if (leftToPlace) {
+    const home = out.find((item) => item.kind === "user") ?? out[out.length - 1];
+    if (home) home.images = leftToPlace;
+  }
   return out;
 }
 
-/** The last task row built so far — the receipt a tool's result belongs to. */
+/**
+ * Fold one `<external-tool-result>` into the receipt it belongs to, or give it a
+ * row of its own when no receipt is beside it. Returns the pictures still unlost,
+ * so a receipt that drew nothing (a failed call) does not swallow them.
+ */
+function foldToolResult(
+  out: TranscriptEntry[],
+  base: TranscriptEntry,
+  body: string,
+  pictures: TranscriptImage[] | undefined,
+): TranscriptImage[] | undefined {
+  const text = toolResultText(body);
+  const host = lastTaskEntry(out);
+  const take = host?.status === "error" ? undefined : pictures;
+  const card: TranscriptEntry = host
+    ? { ...host, text, promoted: true, ...(take ? { images: take } : {}) }
+    : // A result with no receipt to fold into is still the tool's own words.
+      {
+        ...base,
+        kind: "task",
+        title: undefined,
+        text,
+        promoted: true,
+        ...(take ? { images: take } : {}),
+      };
+  if (host) out[out.indexOf(host)] = card;
+  else out.push(card);
+  return host?.status === "error" ? pictures : undefined;
+}
+
+/** The last tool receipt built so far — what a tool's result folds into. */
 function lastTaskEntry(entries: readonly TranscriptEntry[]): TranscriptEntry | undefined {
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const entry = entries[i];
-    if (entry?.kind === "task" && !entry.promoted) return entry;
+    // Only a receipt that names its tool is a tool receipt: an AskUserQuestion
+    // answer is a `task` entry too, and its real UI is the question card, which
+    // drops any other entry with the same id — folding a drawing in there would
+    // take the drawing out of the transcript.
+    if (entry?.kind === "task" && !entry.promoted && entry.toolName) return entry;
   }
   return undefined;
 }

@@ -980,6 +980,62 @@ describe("a backgrounded tool's own result", () => {
     expect(card?.images).toBeUndefined();
   });
 
+  test("the tool's own prose keeps its paragraphs", () => {
+    // The card shows the tool's words, so the UI must not edit them: a
+    // backgrounded MCP tool may hand back markdown, and whitespace is part of it.
+    const prose = "Summary of the run.\n\nFindings:\n\n- one\n- two";
+    const entries = entriesForContent(drawnMessage([text(`<text>${prose}</text>`), picture()]));
+    expect(entries[0]!.text).toBe(prose);
+  });
+
+  test("a failed draw does not take the successful one's picture", () => {
+    // Two completions coalesced into one message. The failed call drew nothing,
+    // so the picture belongs to the card that says it drew one.
+    const entries = entriesForContent([
+      text(notification("External tool generate_image failed", "failed")),
+      text("\n<external-tool-result>"),
+      text("<text>generate_image failed: HTTP 400 bad size</text>"),
+      text("</external-tool-result>"),
+      ...drawnMessage([text(`<text>${drawn}</text>`), picture()]),
+    ]);
+    const cards = entries.filter((entry) => entry.promoted);
+    expect(cards).toHaveLength(2);
+    expect(cards[0]!.status).toBe("error");
+    expect(cards[0]!.images).toBeUndefined();
+    expect(cards[1]!.status).toBe("success");
+    expect(cards[1]!.images).toHaveLength(1);
+  });
+
+  test("only a receipt that names its tool hosts a tool's result", () => {
+    // A question answer and a Monitor firing are `task` entries too, and a
+    // question's real UI is its card, which drops any other entry with its id.
+    // A result that folds into one of those would leave the transcript with the
+    // picture, so it takes a row of its own.
+    const entries = entriesForContent([
+      text(
+        `<task-notification>\n<task-id>task_9</task-id>\n<summary>Monitor fired</summary>\n<result><event>errors in deploy.log</event></result>\n</task-notification>`,
+      ),
+      ...drawnMessage([text(`<text>${drawn}</text>`), picture()]),
+    ]);
+    const card = entries.find((entry) => entry.promoted);
+    expect(card?.text).toBe(drawn);
+    expect(card?.images).toHaveLength(1);
+    expect(entries.filter((entry) => entry.kind === "task")).toHaveLength(2);
+  });
+
+  test("a picture rides the person's row when no tool asked for it", () => {
+    // An inbound Telegram photo is a `<channel-notification>` block with image
+    // parts and no prose. Splitting the message must move a picture, never drop
+    // it.
+    const entries = entriesForContent([
+      text('<channel-notification channel="telegram">photo</channel-notification>'),
+      picture(),
+    ]);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.channel).toBe("telegram");
+    expect(entries[0]!.images).toHaveLength(1);
+  });
+
   test("an ordinary subagent receipt is untouched by the pairing", () => {
     const entries = entriesForContent([text(notification('Agent "look" completed'))]);
     expect(entries).toHaveLength(1);
