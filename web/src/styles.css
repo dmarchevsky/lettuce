@@ -1436,6 +1436,17 @@ nav.rail.rail-collapsed {
   background: var(--surface-2);
   font-size: 14px;
 }
+/* A finished background tool that drew pictures: the strip sits between the
+   header and its result line, on the same inset the tool rows use. */
+.entry.task .msg-images {
+  margin: 2px 0 0;
+}
+/* How long the tool ran, beside its name — muted, because it is a fact about
+   the wait rather than the thing that came back. */
+.entry.task .tool-head .duration {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
 /* Machine-injected blocks lifted out of a user message. Muted like every other
    System entry — they used to wear the accent-blue "you" bubble, which credited
    them to the person. */

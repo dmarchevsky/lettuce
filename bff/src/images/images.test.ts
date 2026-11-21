@@ -446,6 +446,9 @@ describe("generate_image's handler", () => {
     expect(answer.text).toContain(
       "Saved to generated/a-red-fox-in-snow-1.png, generated/a-red-fox-in-snow-2.png.",
     );
+    // Facts only: the coaching sentence belongs to the tool description, and a
+    // slow draw shows this text in the transcript.
+    expect(answer.text).not.toContain("attached to this result");
     expect(answer.images).toEqual([
       { b64: PNG_B64, path: "generated/a-red-fox-in-snow-1.png" },
       { b64: PNG_B64, path: "generated/a-red-fox-in-snow-2.png" },
