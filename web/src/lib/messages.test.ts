@@ -857,10 +857,7 @@ describe("a backgrounded tool's own result", () => {
   });
   const text = (t: string) => ({ type: "text", text: t });
 
-  const notification = (
-    summary = "External tool generate_image completed",
-    status = "completed",
-  ) =>
+  const notification = (summary = "External tool generate_image completed", status = "completed") =>
     `<task-notification>\n<task-id>external_a1</task-id>\n<status>${status}</status>\n<summary>${summary}</summary>\n<result>The tool result follows this notification as text and image parts.</result>\n<usage>duration_ms: 34000</usage>\n</task-notification>`;
 
   const drawn = "Drew 1 picture at 1024x1024. Saved to generated/a-panda-1.png.";
@@ -910,9 +907,7 @@ describe("a backgrounded tool's own result", () => {
   });
 
   test("it stands on its own row, and answers to the Tasks switch", () => {
-    const entries = entriesForContent(
-      drawnMessage([text(`<text>${drawn}</text>`), picture()]),
-    );
+    const entries = entriesForContent(drawnMessage([text(`<text>${drawn}</text>`), picture()]));
     // Never inside a collapsed run: the drawing is the point of the turn.
     expect(groupTranscript(entries).map((item) => item.kind)).toEqual(["message"]);
     expect(filterEntries(entries, new Set<FilterGroup>(["tasks"]))).toHaveLength(1);

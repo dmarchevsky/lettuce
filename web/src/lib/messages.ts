@@ -403,10 +403,7 @@ function innerTag(body: string, tag: string): string | undefined {
 
 /** Undo the escaping upstream applied to a tool return before wrapping it. */
 function unescapeResultText(text: string): string {
-  return text
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&amp;/g, "&");
+  return text.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
 }
 
 /**
@@ -420,7 +417,10 @@ function toolResultText(body: string): string {
     unescapeResultText(m[1] ?? "").trim(),
   );
   const text = (parts.length > 0 ? parts.join("\n") : unescapeResultText(body)).trim();
-  return text.replace(RETIRED_COACHING, "").replace(/\s{2,}/g, " ").trim();
+  return text
+    .replace(RETIRED_COACHING, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 /** `External tool generate_image completed` → `generate_image`. */
