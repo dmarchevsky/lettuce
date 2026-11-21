@@ -131,3 +131,119 @@ export async function removeFace(
     cleared: string[];
   };
 }
+
+// ── Drawing a face from a description ──────────────────────────────────────
+// The picture is drawn by the BFF (`bff/src/images/face.ts`) because the image
+// endpoint's key lives there and never reaches a browser. What comes back is a
+// picture, nothing more: the sheet puts it through the same crop-resize-upload
+// path a chosen file takes, so the face library stays the only place faces live.
+
+/** What the sheet may keep of a long draw: the bytes and the size drawn. */
+export interface DrawnFace {
+  blob: Blob;
+  size: string | null;
+}
+
+/** Whether the Draw tab has anything to draw with, and how long to wait for it. */
+export interface FaceDrawCapability {
+  drawable: boolean;
+  /** The per-draw ceiling the BFF enforces, so the browser's bound matches it. */
+  timeoutMs: number;
+  /** The style line the BFF puts in front of every prompt, for the sheet to show. */
+  prefix: string;
+}
+
+/** Mirrors `MAX_FACE_PROMPT_CHARS` in `bff/src/images/face.ts`. */
+export const MAX_FACE_PROMPT_CHARS = 400;
+
+/** What the browser falls back to when it never learned the configured ceiling. */
+const DEFAULT_DRAW_TIMEOUT_MS = 180_000;
+
+/**
+ * Whether a face can be drawn here. `GET /api/images/settings` answers 404 while the
+ * `images` compose token is off, which is the same practical answer as an endpoint
+ * nobody has configured: there is nothing to draw with, so the Draw tab is not shown
+ * rather than shown and broken.
+ */
+export async function fetchDrawCapability(): Promise<FaceDrawCapability> {
+  const absent: FaceDrawCapability = {
+    drawable: false,
+    timeoutMs: DEFAULT_DRAW_TIMEOUT_MS,
+    prefix: "",
+  };
+  let response: Response;
+  try {
+    response = await fetch("/api/images/settings");
+  } catch {
+    return absent;
+  }
+  if (!response.ok) return absent;
+  const answer = (await response.json().catch(() => null)) as {
+    settings?: { baseUrl?: string; model?: string | null; timeoutMs?: number };
+    faceStylePrefix?: string;
+  } | null;
+  const settings = answer?.settings;
+  return {
+    drawable: Boolean(settings?.baseUrl && settings?.model),
+    timeoutMs: settings?.timeoutMs ?? DEFAULT_DRAW_TIMEOUT_MS,
+    prefix: answer?.faceStylePrefix ?? "",
+  };
+}
+
+/**
+ * Draws one face. The refusal a user needs is the server's own sentence, and the
+ * route sends it as JSON on a 502, so the body is parsed before its status decides
+ * what the sheet shows — `HTTP 502` on its own tells nobody anything.
+ *
+ * The bound is the configured `timeoutMs` plus slack for the round trip, because a
+ * queued NPU draw really can take minutes and a browser with no bound would leave
+ * the button spinning forever. `signal` is how closing the sheet stops the wait.
+ */
+export async function drawFace(
+  prompt: string,
+  options: { timeoutMs?: number; signal?: AbortSignal } = {},
+): Promise<DrawnFace> {
+  const bound = (options.timeoutMs ?? DEFAULT_DRAW_TIMEOUT_MS) + 10_000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), bound);
+  options.signal?.addEventListener("abort", () => controller.abort(), { once: true });
+  let response: Response;
+  try {
+    response = await fetch("/api/images/draw-face", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt }),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    clearTimeout(timer);
+    if (options.signal?.aborted) throw new Error("Cancelled.");
+    throw error instanceof Error ? error : new Error(String(error));
+  }
+  clearTimeout(timer);
+  const text = await response.text();
+  let answer: { ok?: boolean; error?: string; dataUrl?: string; size?: string | null } | null =
+    null;
+  try {
+    answer = JSON.parse(text);
+  } catch {
+    answer = null;
+  }
+  if (!answer) throw new Error(text || `HTTP ${response.status}`);
+  if (answer.ok !== true || !answer.dataUrl) {
+    throw new Error(answer.error || `HTTP ${response.status}`);
+  }
+  return { blob: dataUrlToBlob(answer.dataUrl), size: answer.size ?? null };
+}
+
+/** The bytes behind a `data:` URL, without paying a second fetch for them. */
+function dataUrlToBlob(dataUrl: string): Blob {
+  const comma = dataUrl.indexOf(",");
+  const meta = comma < 0 ? "" : dataUrl.slice(5, comma);
+  const payload = comma < 0 ? "" : dataUrl.slice(comma + 1);
+  const mediaType = meta.split(";")[0] || "image/png";
+  const binary = atob(payload);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mediaType });
+}

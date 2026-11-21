@@ -16,7 +16,7 @@ import type { Hono } from "hono";
 import { errorMessage } from "../errors.ts";
 import type { RouteEnv } from "../route-env.ts";
 import { drawImages, endpointFromSettings, type ImageFetch } from "./client.ts";
-import { drawFace, facePromptRefusal } from "./face.ts";
+import { drawFace, FACE_STYLE_PREFIX, facePromptRefusal } from "./face.ts";
 import type { ImagesSettingsStore } from "./service.ts";
 import {
   InvalidImagesSettingsError,
@@ -56,7 +56,13 @@ export function registerImagesRoutes<Env extends RouteEnv>(
   app.get("/api/images/settings", async (c) => {
     if (!imagesEnabled) return c.text(OFF, 404);
     try {
-      return c.json({ settings: toPublicImagesSettings(await store.load()) });
+      // `faceStylePrefix` rides along so the avatar sheet can show the style line it
+      // is about to put in front of a description, in the words the draw will use —
+      // a hint copied into the UI is a hint that silently disagrees with the server.
+      return c.json({
+        settings: toPublicImagesSettings(await store.load()),
+        faceStylePrefix: FACE_STYLE_PREFIX,
+      });
     } catch (error) {
       return c.text(errorMessage(error), 502);
     }
