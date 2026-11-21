@@ -482,6 +482,59 @@ describe("drawing a face", () => {
     });
   }
 
+  test("one face at a time per endpoint, whoever asks", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { fetchImpl, calls } = spyFetch(async () => {
+      await gate;
+      return b64Reply();
+    });
+    const first = drawFace(FACE, "an owl", { fetchImpl });
+    // This press lands while the first is still waiting on the server, and the server
+    // runs one image request anyway: saying so now beats a longer wait for nothing.
+    const second = await drawFace(FACE, "another owl", { fetchImpl });
+    expect(second).toEqual({
+      ok: false,
+      error: "one face at a time — the last one is still being drawn.",
+    });
+    expect(calls.length).toBe(1);
+    release();
+    expect((await first).ok).toBe(true);
+  });
+
+  test("a ladder that ran out starts the next press at the server's own default", async () => {
+    // Every named size refused, and the omitted one answered with a size-shaped refusal
+    // too (a refusal that is not about the size would have stopped at the first rung).
+    const first = ladderFetch((size) =>
+      size === null ? openaiRefusal("auto") : fluxRefusal(size),
+    );
+    const exhausted = await drawFace(FACE, "an owl", { fetchImpl: first.fetchImpl });
+    expect(exhausted.ok).toBe(false);
+    expect(sizesAsked(first.calls)).toEqual(["512x512", "256x256", "1024x1024", null]);
+    expect(faceSizes.remembered(FACE)).toBeNull();
+
+    // And it is remembered: the next press does not pay for the three named rungs again.
+    const next = ladderFetch(() => null);
+    expect((await drawFace(FACE, "an owl", { fetchImpl: next.fetchImpl })).ok).toBe(true);
+    expect(sizesAsked(next.calls)).toEqual([null]);
+  });
+
+  test("a server that draws a GIF cannot make a face", async () => {
+    // The face library reads its types from magic bytes and knows three; catching it
+    // here is the difference between a refusal now and one after a paid draw.
+    const gif = spyFetch(
+      () =>
+        new Response(new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61]), {
+          headers: { "content-type": "image/gif" },
+        }),
+    );
+    const drawn = await drawFace(FACE, "an owl", { fetchImpl: gif.fetchImpl });
+    expect(drawn.ok).toBe(false);
+    if (!drawn.ok) expect(drawn.error).toContain("image/gif");
+  });
+
   test("the style prefix is applied to the typed description, not stored with it", async () => {
     const { fetchImpl, calls } = spyFetch(() => b64Reply());
     const drawn = await drawFace(FACE, "  a grumpy pixel owl  ", { fetchImpl });
@@ -536,6 +589,14 @@ describe("drawing a face", () => {
     // The OpenAI-family shape never says the word `size`; the quoted value is the tell.
     expect(sizeShapedRefusal(400, openaiRefusal("512x512"), "512x512")).toBe(true);
     expect(sizeShapedRefusal(400, "prompt is too long", "512x512")).toBe(false);
+    // Saying the word "size" is not enough: a prompt-length refusal is the same answer
+    // at every rung, and walking the ladder would spend four real draws repeating it.
+    expect(
+      sizeShapedRefusal(400, "the size of your prompt exceeds the model's context", "512x512"),
+    ).toBe(false);
+    // A server that lists what it serves in `WxH` form is answering the question even
+    // when it never quotes what was asked.
+    expect(sizeShapedRefusal(400, "size must be one of: 512x512, 1024x1024", "256x256")).toBe(true);
     // A size-shaped sentence at the wrong status is somebody else's problem.
     expect(sizeShapedRefusal(500, fluxRefusal("512x512"), "512x512")).toBe(false);
     expect(sizeShapedRefusal(null, fluxRefusal("512x512"), "512x512")).toBe(false);
@@ -878,6 +939,18 @@ describe("images routes", () => {
         )
       ).status,
     ).toBe(404);
+  });
+
+  test("a body that is not JSON is a 400, not a crash", async () => {
+    const { app } = await routes();
+    const plain = await app.fetch(
+      new Request("http://x/api/images/draw-face", {
+        method: "POST",
+        body: "an owl in a scarf",
+        headers: { "content-type": "text/plain" },
+      }),
+    );
+    expect(plain.status).toBe(400);
   });
 
   test("GET hands the Draw tab the style line it must show, in the draw's own words", async () => {

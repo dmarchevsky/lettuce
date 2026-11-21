@@ -144,7 +144,12 @@ export function registerImagesRoutes<Env extends RouteEnv>(
         400,
       );
     }
-    const drawn = await drawFace(endpointFromSettings(settings), body?.prompt, fetchOptions);
+    // The browser's own abort rides along: the sheet closing is the user saying they do
+    // not want that face, and the next rung would otherwise be paid for anyway.
+    const drawn = await drawFace(endpointFromSettings(settings), body?.prompt, {
+      ...fetchOptions,
+      signal: c.req.raw.signal,
+    });
     if (!drawn.ok) return c.json({ ok: false, error: drawn.error }, 502);
     return c.json({
       ok: true,

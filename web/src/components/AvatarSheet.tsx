@@ -491,7 +491,6 @@ export function AvatarSheet({
               value={promptText}
               placeholder="a green dragon with round glasses"
               aria-label="Describe a face"
-              disabled={drawing}
               onChange={(event) => setPromptText(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter") void onDraw();
@@ -500,7 +499,7 @@ export function AvatarSheet({
             <button
               type="button"
               className="button compact"
-              disabled={drawing || promptText.trim() === "" || promptTooLong}
+              disabled={busy || promptText.trim() === "" || promptTooLong}
               onClick={() => void onDraw()}
             >
               {drawing ? "Drawing…" : lastDrawn ? "Draw again" : "Draw"}
