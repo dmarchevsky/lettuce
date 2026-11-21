@@ -882,7 +882,9 @@ describe("images routes", () => {
 
   test("GET hands the Draw tab the style line it must show, in the draw's own words", async () => {
     const { app } = await routes();
-    const answer = (await (await app.fetch(new Request("http://x/api/images/settings"))).json()) as {
+    const answer = (await (
+      await app.fetch(new Request("http://x/api/images/settings"))
+    ).json()) as {
       faceStylePrefix?: string;
     };
     // A hint written into the UI would be a hint that silently disagrees with what is
