@@ -10,12 +10,11 @@ Loaded from `AGENTS.md`. letta-code spawns the real CLIs; a shim makes them fit 
 - **Codex workers: letta-code runs them, a shim makes them fit this container.** Since 0.33,
   `Task` / `launch_subagent` accept `subagent_type: "codex"` and spawn `codex app-server
   --stdio` from PATH (`tools/impl/external-coding-agent.ts`, `codex-app-server.ts`). Our
-  app-server image (`docker/codex/Dockerfile`) installs the real CLI under `/opt/codex` only
-  when the `codex` profile token is in `CODING_FEATURES` (see "Compose profiles are the one
-  feature list" in `AGENTS.md`) — the **published** image is always built with `codex,claude`, so
-  prod carries both CLIs and the token there is only the Settings gate — and always puts
-  `docker/codex/codex-shim.mjs` on PATH as `codex` — with the
-  CLI absent the shim's preflight fails with ENOENT and the task reports it. Upstream
+  app-server image (`docker/codex/Dockerfile`) installs the real CLI under `/opt/codex` **always**
+  — there is no build-time coding token any more (`CODING_FEATURES` is gone), so a local image holds
+  what the published one holds and a profile token is only the Settings gate — and always puts
+  `docker/codex/codex-shim.mjs` on PATH as `codex` — with an image old enough to lack the
+  CLI the shim's preflight fails with ENOENT and the task reports it. Upstream
   unmodified.
   - The shim's one rewrite: letta sends a `sandboxPolicy` on every `turn/start`, and the shim
     replaces **whatever value it carries** with `{type: "externalSandbox", networkAccess:
@@ -28,8 +27,13 @@ Loaded from `AGENTS.md`. letta-code spawns the real CLIs; a shim makes them fit 
     network included — the UI offers no network toggle. Spike detail (`use_legacy_landlock`,
     `requirements.toml` `allowed_sandbox_modes`, the placeholder `auth.json`):
     docs/upstream-notes.md#codex-spike-findings-2026-09-27-codex-01571-measured-in-the-container.
-  - **The preflight is `codex --version`** (since 0.33.3). With workers disabled the shim fails
-    it, so the task reports "Codex executable is not ready: <our disabled message>".
+  - **The preflight is `codex --version`** (since 0.33.3), and the shim answers it **whatever the
+    Settings switch says**: naming the CLI is not execution, and it is how the image marker (written
+    by the Dockerfile, which runs the real binary) and an operator read what is here. So with
+    workers disabled the preflight passes and the refusal lands one step later, on the
+    `codex app-server` spawn — upstream puts that stderr in the task error, which reads "Codex
+    app-server closed (exit code 1): <our disabled message>". Version flags measured on 0.169.1:
+    `--version` and `-V`; `-v` is a CLI error, so the shim does not treat it as one.
   - **The spawn is not always `app-server` first.** Since 0.34.44 letta-code can prepend Codex CLI
     overrides (`-c key=value`) when it proxies a worker's model calls for tracing — a Cloud-only path
     that cannot fire on the local backend — so the shim finds its subcommand in the first **non-option**
@@ -78,8 +82,8 @@ Loaded from `AGENTS.md`. letta-code spawns the real CLIs; a shim makes them fit 
   also accepts `subagent_type: "claude-code"` and spawns `claude --print --input-format
   stream-json --output-format stream-json …` with the prompt on stdin
   (`tools/impl/claude-stream-session.ts`). The image installs the real CLI under
-  `/opt/claude-code` only when the `claude` profile token is in `CODING_FEATURES` (like Codex
-  above) and always puts `docker/codex/claude-shim.mjs` on PATH as `claude`; the shim rewrites
+  `/opt/claude-code` always, like Codex above, and puts `docker/codex/claude-shim.mjs` on PATH as
+  `claude`; the shim rewrites
   nothing (argv and stdin pass through verbatim) — its whole job is env injection and the
   switch.
   - **Two auth modes, `mode` in `lettuce.json`** (in `CLAUDE_CONFIG_DIR=/root/.letta/claude`,
@@ -112,8 +116,10 @@ Loaded from `AGENTS.md`. letta-code spawns the real CLIs; a shim makes them fit 
     so in endpoint mode the shim injects a placeholder when none was configured (a proxy that
     checks the token fails honestly at request time); `CLAUDE_CODE_OAUTH_TOKEN` alone satisfies it
     too (`authMethod: "oauth_token"`), unvalidated, so a bad or expired subscription token also
-    fails only at the first request. Disabled workers: the shim refuses every call with our message,
-    which the task reports as "claude-code authentication is not ready: …".
+    fails only at the first request. Disabled workers: the shim refuses every call that could run a
+    worker with our message, which the task reports as "claude-code authentication is not ready: …".
+    `--version` (measured: also `-v` and `-V`) is the exception and answers with the switch off, on
+    the inherited env with nothing injected — the gate is on execution, not on naming the CLI.
   - **Runs live in Claude's own transcripts**, `$CLAUDE_CONFIG_DIR/projects/<cwd-slug>/
     <session-id>.jsonl` (slug = absolute cwd, non-alphanumerics → `-`), appended live. Session
     ids are plain UUIDv4 — not Codex's UUIDv7 — and the listing has no mtimes, so recency comes
@@ -143,9 +149,11 @@ turn):
    Dockerfile expects, since it `COPY`s the shims and `spawn-diagnostics.cjs` by relative path — under a
    throwaway tag: `docker build -f docker/codex/Dockerfile docker/codex --tag lettuce-app-server:probe
    --build-arg LETTA_CODE_VERSION=<pin> --build-arg GH_VERSION=<pin> --build-arg CODEX_VERSION=<new>
-   --build-arg CODING_FEATURES=codex,claude`. `LETTA_CODE_VERSION` and `GH_VERSION` have no defaults (compose
+   --build-arg CLAUDE_CODE_VERSION=<new>`. `LETTA_CODE_VERSION` and `GH_VERSION` have no defaults (compose
    supplies both), so the build only works with them spelled out. It asserts each CLI installs and answers
-   `--version` and writes `/opt/lettuce/features`, all without touching a container.
+   `--version` and writes `/opt/lettuce/features` — one `<name> <version>` line per CLI the image holds,
+   coding CLIs and `gh`, whatever any token says — all without touching a container. Read it back with
+   `docker run --rm --entrypoint cat lettuce-app-server:probe /opt/lettuce/features`.
 3. **Run the two preflights the way letta-code does**, through the shims in that image, with a stub config
    so the worker switch reads on: `{"enabled": true}` at `CODEX_HOME/lettuce.json` (resp.
    `CLAUDE_CONFIG_DIR/lettuce.json`). `codex --version` and `claude auth status --json` — which must answer

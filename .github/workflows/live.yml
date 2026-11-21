@@ -64,9 +64,10 @@ jobs:
 
       # docker/.env is gitignored, so CI writes the smallest thing that boots: state
       # under the runner temp dir, local mode (dev bypass, no Cloudflare Access) and
-      # NO compose profiles, which means no cloudflared and no sidecars — the image
-      # also skips the Codex and Claude CLIs, because CODING_FEATURES is derived from
-      # this same string. Three things the first two runs had to learn:
+      # NO compose profiles, which means no cloudflared and no sidecars. The
+      # app-server image no longer reads this string at all: it always carries both
+      # coding CLIs, so a CI build is the same shape as the published one. Three
+      # things the first two runs had to learn:
       #   • SESSION_SECRET must be ≥32 characters or the BFF refuses to start.
       #   • there are TWO binds. BFF_BIND is the host side of Compose's published
       #     port (keep it loopback on a runner); the BFF's own bind is separate, and

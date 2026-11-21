@@ -160,8 +160,9 @@ only record of what an agent has learned.
 
 ### Compose profiles are the one feature list
 
-Every optional piece of the stack hangs off `COMPOSE_PROFILES`, and each token there also decides what
-the app-server image contains. **Sidecars are opt-in: `google-mcp` has `profiles: ["google"]`,
+Every optional piece of the stack hangs off `COMPOSE_PROFILES`, which decides what the app offers,
+not what the app-server image holds (that is one shape).
+**Sidecars are opt-in: `google-mcp` has `profiles: ["google"]`,
 `searxng` and `ddg-mcp` share `["search"]`, `channel-gateway` has `["telegram"]`
 (`lettuce-telegram-channels`), `cloudflared` has `["cloudflared"]`.** Prod runs
 `COMPOSE_PROFILES=cloudflared,google,search,codex,claude,images`. Nothing `depends_on` a sidecar, and
@@ -172,8 +173,9 @@ command — `COMPOSE_PROFILES=<…,pi> docker compose -f docker/compose.yml up -
 the `.env` file, `LETTA_MODE` carries the string to the BFF, and the next un-prefixed `up` reverts it.
 
 Four tokens are **virtual**: no service declares one, none starts a container. `codex` and `claude`
-decide what the app-server *image* contains; `pi` (Remote Pi) and `images` (image generation, Settings
-config) install nothing. Every token is matched as an exact comma-delimited entry
+gate the coding workers at runtime only (both CLIs are in every image); `pi` (Remote Pi) and
+`images` (image generation, Settings config) install nothing. Every token is matched as an exact
+comma-delimited entry
 (`bff/src/config.ts` `hasProfile`), and `config.features` = `web`⇐`search`, `google`⇐`google`,
 `codex`⇐`codex`, `claude`⇐`claude`, `pi`⇐`pi`, `images`⇐`images`, `telegram`⇐`telegram`.
 
@@ -183,11 +185,11 @@ config) install nothing. Every token is matched as an exact comma-delimited entr
   the shims refuse (the stored endpoint/model/key survive, so re-enabling is one switch flip). Their
   Settings and worker routes answer 404 while the token is off, and `web/` hides the matching sections,
   Tasks run lists and the Tools chip's rows from `features` in `/api/status` (absent = all on).
-- **The coding tokens and the image marker (`CODING_FEATURES`, `/opt/lettuce/features`,
-  `coding_installed`) are the `lettuce-coding-workers` skill: toggling one needs an app-server
-  rebuild locally, because a local image tag does not change with the token list** — the published
-  images bake both CLIs, so in prod it is a Settings flip. A Compose warning about unknown profiles is
-  fine — `docker compose config` accepts tokens no service declares.
+- **The coding tokens, the image marker (`/opt/lettuce/features`, `coding_installed`) and the shims
+  are the `lettuce-coding-workers` skill: every image bakes and versions both CLIs, so a token is a
+  Settings flip, never a rebuild, and the shims gate a run while `--version` answers.** A Compose
+  warning about unknown profiles is fine — `docker compose config` accepts tokens no
+  service declares.
 
 ## Where the details live
 

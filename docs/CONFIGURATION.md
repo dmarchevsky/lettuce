@@ -63,10 +63,8 @@ Several others are Compose's own wiring and have no business in
 `docker/.env`: `LETTA_LOCAL_BACKEND_EXPERIMENTAL` and `LETTA_LOCAL_BACKEND_DIR`
 (where conversations live, under `/data`), `USER_CWD` (`/work`), `GH_CONFIG_DIR`,
 `CODEX_HOME` and `CLAUDE_CONFIG_DIR` (worker state on the state root),
-`SIGNIN_DIR` (the password hash, deliberately on its own named volume),
-`PUSH_SUBSCRIPTIONS_FILE`, and `CODING_FEATURES` — which is just
-`COMPOSE_PROFILES` handed to the image build so it knows which coding CLIs to
-install.
+`SIGNIN_DIR` (the password hash, deliberately on its own named volume), and
+`PUSH_SUBSCRIPTIONS_FILE`.
 
 ## Modes and profiles
 
@@ -87,8 +85,8 @@ Other profiles are orthogonal to access:
 | `google` | the Gmail / Calendar / Tasks / Contacts sidecar + Settings → Google Workspace |
 | `search` | SearXNG + `ddg-mcp`, behind the agents' web tools + Settings → Web |
 | `telegram` | the messaging channel gateway + Settings → Telegram |
-| `codex` | virtual: installs the Codex CLI into the app-server image + Settings → Codex workers |
-| `claude` | virtual: installs the Claude Code CLI + Settings → Claude Code workers |
+| `codex` | virtual: Settings → Codex workers — the CLI is in every app-server image, the token only decides whether the worker may run |
+| `claude` | virtual: Settings → Claude Code workers, same arrangement |
 | `pi` | virtual: Settings → Remote Pi — agents dispatch coding tasks to a `pi` install on another host over SSH (nothing installs on that host, and the program itself is configurable — `pi-bolt`, an absolute path, plus fixed flags); Tools gives an agent its own folder, command or host |
 | `images` | virtual: Settings → Image generation — the agents' `generate_image` tool, drawing through any OpenAI-compatible `/images/generations` endpoint you configure (nothing installs; the endpoint may be local or cloud) |
 
@@ -101,12 +99,12 @@ switch is treated as disabled, the matching Settings section disappears from
 the app, and the save routes refuse. The stored settings themselves survive,
 so re-adding the token restores the setup.
 
-The two **virtual** coding tokens install at **build** time and change no image
-tag, so adding or removing one REQUIRES rebuilding `app-server`
-(`docker compose -f docker/compose.yml build app-server`): `up -d` alone
-silently keeps the previous image, and the BFF logs a mismatch warning when a
-token is on but the CLI is not in the image it talks to. When you add one to a
-running deployment, rebuild before — not after — flipping `COMPOSE_PROFILES`.
+The two **virtual** coding tokens install nothing at **build** time: every
+app-server image carries both CLIs and records them (`/opt/lettuce/features`,
+read as `coding_installed`), so adding or removing one is a Settings flip and
+needs no rebuild — locally or in prod. The BFF still logs a mismatch warning when
+a token is on but the CLI is not in the image it talks to, which only an image
+built before that arrangement can trigger.
 
 `cloudflared` only creates the tunnel; what it means for who gets in is
 [`ACCESS`](#access) and [`SIGNIN`](#sign-in) — two settings, because "where is it
@@ -853,7 +851,7 @@ in this stack, and a remote one simply lacks it:
 | Web search, page reading, the Google tools, the MCP bridge, the Codex/Claude worker policy | They are letta-code **mods** that call back into the BFF at `http://127.0.0.1:<bff-port>/internal/tools/…`, and those routes answer loopback clients only — loopback is how the BFF knows it is the app-server calling. On another host that loopback is a different machine. |
 | The SearXNG / ddg-mcp / google-mcp sidecars | Addressed by service name on Compose's network (`http://google-mcp:8000/mcp`); a remote app-server resolves neither. |
 | Agent workspaces | `/work` is a bind mount of the **BFF host's** `LETTA_STATE_DIR/workspaces`. Another host has other files, or none. |
-| The Codex and Claude Code CLIs | They are installed into *our* app-server image (`docker/codex/Dockerfile`); a stock `letta server` elsewhere does not carry them, and the image marker (`coding_installed`) will not match the Settings switches. |
+| The Codex and Claude Code CLIs | They are installed into *our* app-server image (`docker/codex/Dockerfile`); a stock `letta server` elsewhere does not carry them, and it has no image marker at all, so `coding_installed` says nothing about what is really there. |
 | Telegram's `channel-gateway` and the BFF-owned reconnect guarantees | They exist in the same shared network namespace, next to that app-server. |
 
 So this is a **development shape** — reading code on a laptop while an app-server

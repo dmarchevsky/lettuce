@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // Plain .mjs shipped in the app-server image; outside both packages' typecheck.
@@ -96,5 +97,60 @@ describe("settings", () => {
     expect(shim.isAppServerInvocation(["--version"])).toBe(false);
     expect(shim.isAppServerInvocation(["exec", "-"])).toBe(false);
     expect(shim.isAppServerInvocation([])).toBe(false);
+  });
+});
+
+/**
+ * The entry script as PATH runs it, against a stub real binary — the switch and
+ * its one exception, end to end. `CODEX_REAL_BIN` is the shim's own test hook.
+ */
+const SHIM = new URL("./codex-shim.mjs", import.meta.url).pathname;
+const STUB = (() => {
+  const dir = mkdtempSync(join(tmpdir(), "codex-shim-bin-"));
+  const file = join(dir, "real-codex");
+  writeFileSync(file, '#!/bin/sh\necho "real-codex $*"\n');
+  chmodSync(file, 0o755);
+  return file;
+})();
+
+function runShim(args: string[], enabled: boolean | null) {
+  const home = mkdtempSync(join(tmpdir(), "codex-home-"));
+  if (enabled !== null) {
+    writeFileSync(join(home, shim.SETTINGS_FILE), JSON.stringify({ enabled }));
+  }
+  return spawnSync(process.execPath, [SHIM, ...args], {
+    encoding: "utf8",
+    env: { ...process.env, CODEX_HOME: home, CODEX_REAL_BIN: STUB },
+  });
+}
+
+describe("the switch, at the entry script", () => {
+  test("--version answers with the worker off, and runs the real CLI", () => {
+    for (const flag of ["--version", "-V"]) {
+      const out = runShim([flag], false);
+      expect([out.status, out.stdout.trim()]).toEqual([0, `real-codex ${flag}`]);
+    }
+  });
+
+  test("a version flag beside anything else is not a version call", () => {
+    const out = runShim(["--version", "app-server"], false);
+    expect(out.status).toBe(1);
+    expect(out.stderr).toContain(shim.DISABLED_MESSAGE);
+  });
+
+  test("execution is refused with the worker off, both disabled spellings", () => {
+    for (const enabled of [false, null] as const) {
+      const out = runShim(["app-server", "--stdio"], enabled);
+      expect(out.status).toBe(1);
+      expect(out.stderr).toContain(shim.DISABLED_MESSAGE);
+      expect(out.stdout).toBe("");
+    }
+  });
+
+  test("the same calls run once the worker is enabled", () => {
+    expect(runShim(["--version"], true).stdout.trim()).toBe("real-codex --version");
+    expect(runShim(["app-server", "--stdio"], true).stdout.trim()).toBe(
+      "real-codex app-server --stdio",
+    );
   });
 });

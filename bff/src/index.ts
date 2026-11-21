@@ -539,9 +539,10 @@ const codexIo: CodexFileIo = {
 // Which coding CLIs the app-server image actually installed, read from the
 // marker the Dockerfile writes (docker/codex/Dockerfile). `null` = not read
 // yet, or an image that predates the marker — the mismatch check says which.
-// The same image tag can be built with or without the CLIs (CODING_FEATURES is
-// a build arg, not a tag suffix), so a profile token can be on against an image
-// that was built without it: without this check that would fail silently.
+// Every image built from today's Dockerfile holds both CLIs whatever the tokens
+// say, so what is left to catch is the stale one: an image from before the CLIs
+// stopped being a build choice, which a token can still be on against. Kept
+// because a running container is always older than the tree that describes it.
 // The marker moved to /opt/lettuce with the `letta-ui` rename; the old path is
 // still tried because the marker lives in the image, and the image is only
 // rebuilt when letta-code is bumped.
@@ -552,7 +553,7 @@ async function checkCodingMarker(): Promise<void> {
   if (text === null) {
     log(
       `Coding CLIs: the app-server image predates the install marker (${CODING_MARKER_PATH}); ` +
-        `nothing can be verified against it — rebuild app-server to change what is installed.`,
+        `nothing can be verified against it — rebuild app-server to get an image that records what it carries.`,
     );
     return;
   }
