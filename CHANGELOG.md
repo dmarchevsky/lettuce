@@ -13,13 +13,18 @@ All notable user-facing changes to lettuce, newest first. Version tags and
   preview — and it answers to the Tasks switch. Old conversations read the same
   way, because the fix is in how the transcript is parsed. The tool's return also
   stops repeating instructions the model was already given.
->>>>>>> 01849cc (docs(changelog): a finished drawing is the tool's card, not a message from you)
+- **A picture the agent points at from its own prose renders too.** A markdown
+  image naming a file relative to the agent's own directory was a broken-image
+  box — the app has no route into the workspace — and now resolves the way a
+  relative file link already did, so the drawing shows where the model chose to
+  show it.
 
 ## [v0.48.1-letta_0.34.67] - 2026-11-20
 
 ### Fixed
 - Fix a long conversation opening with only its newest messages; the rest are now one tap away, and the transcript says what is loaded.
 - Fix messages rendering out of order, or vanishing from the transcript, when two of them share an id.
+
 
 ## [v0.48.0-letta_0.34.67] - 2026-11-20
 
