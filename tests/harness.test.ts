@@ -9,7 +9,12 @@
  * against a running stack.
  */
 import { describe, expect, test } from "bun:test";
-import { cookieJarLine, judgeServedBuild, parseArgs } from "../scripts/harness.ts";
+import {
+  cookieJarLine,
+  judgeServedBuild,
+  judgeServedVersion,
+  parseArgs,
+} from "../scripts/harness.ts";
 
 describe("judgeServedBuild", () => {
   const SHA = "a921f630";
@@ -57,6 +62,55 @@ describe("judgeServedBuild", () => {
   });
 });
 
+describe("judgeServedVersion", () => {
+  // The release gate's question — tag AND commit — mirroring the seven cases above,
+  // because the two judges must not drift into meaning "this build" differently.
+  const TAG = "v0.48.0-letta_0.34.67";
+  const EXPECTED = `${TAG}+a921f630`;
+
+  test("the whole release string matches", () => {
+    expect(judgeServedVersion(EXPECTED, EXPECTED)).toEqual({
+      ok: true,
+      unstamped: false,
+      why: `both at ${EXPECTED}`,
+    });
+  });
+
+  test("a different commit on the right tag is refused with both sides named", () => {
+    const verdict = judgeServedVersion(`${TAG}+e75909d5`, EXPECTED);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.why).toContain("e75909d5");
+    expect(verdict.why).toContain(EXPECTED);
+  });
+
+  test("the right commit on the wrong tag is refused — this is the tag's gate", () => {
+    // The dev judge deliberately ignores the tag; the release gate is the one place
+    // a wrong tag must not read as a match.
+    const verdict = judgeServedVersion("v9.9.9-letta_0.99.99+a921f630", EXPECTED);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.why).toContain("v9.9.9");
+  });
+
+  test("+unknown is on the tag but is only believed when the caller allows it", () => {
+    expect(judgeServedVersion(`${TAG}+unknown`, EXPECTED).ok).toBe(false);
+    const allowed = judgeServedVersion(`${TAG}+unknown`, EXPECTED, true);
+    expect(allowed.ok).toBe(true);
+    expect(allowed.unstamped).toBe(true);
+    expect(allowed.why).toContain(TAG);
+  });
+
+  test("a dirty tree on the right release still counts, unstamped too", () => {
+    expect(judgeServedVersion(`${EXPECTED}-dirty`, EXPECTED).ok).toBe(true);
+    expect(judgeServedVersion(`${TAG}+unknown-dirty`, EXPECTED, true).ok).toBe(true);
+  });
+
+  test("the text of a failed request is not a version", () => {
+    expect(judgeServedVersion("HTTP 404", EXPECTED).ok).toBe(false);
+    expect(judgeServedVersion("", EXPECTED).ok).toBe(false);
+    expect(judgeServedVersion("HTTP 404", EXPECTED, true).ok).toBe(false);
+  });
+});
+
 describe("parseArgs", () => {
   test("the bare argument is the origin, as it always was", () => {
     const args = parseArgs(["http://127.0.0.1:9999"]);
@@ -88,6 +142,23 @@ describe("parseArgs", () => {
 
   test("the positional caller decides what it means (screenshots: an output dir)", () => {
     expect(parseArgs(["/tmp/shots", "--shot", "chat"], "").positional).toBe("/tmp/shots");
+  });
+
+  test("--fixture keeps its path verbatim and never becomes the positional", () => {
+    // `--section` and `--shot` lowercase their value for substring matching; a path
+    // is case-bearing, and a fixture that lands in `positional` becomes an output
+    // directory (or a shot name) instead of data.
+    const args = parseArgs(["--fixture", "/tmp/Fixtures/Memory Tree.json"]);
+    expect(args.fixture).toBe("/tmp/Fixtures/Memory Tree.json");
+    expect(args.positional).toBe("");
+    expect(args.origin).toBe("http://127.0.0.1:8090");
+  });
+
+  test("--fixture rides alongside a real positional and an origin", () => {
+    const args = parseArgs(["/tmp/shots", "--fixture", "/tmp/Big-Tree.json", "--shot", "memory"]);
+    expect(args.positional).toBe("/tmp/shots");
+    expect(args.fixture).toBe("/tmp/Big-Tree.json");
+    expect(args.shots).toEqual(["memory"]);
   });
 
   test("--allow-stale-build is the escape hatch, and the env sets it too", () => {
