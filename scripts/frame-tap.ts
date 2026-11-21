@@ -106,6 +106,7 @@ export async function openFrameTap(opts: ConnectFrameTap): Promise<FrameTap> {
   type Waiter = {
     predicate: (frame: Record<string, unknown>) => boolean;
     resolve: (frame: Record<string, unknown>) => void;
+    reject: (error: Error) => void;
     timer?: ReturnType<typeof setTimeout>;
   };
   const waiters: Waiter[] = [];
@@ -113,20 +114,19 @@ export async function openFrameTap(opts: ConnectFrameTap): Promise<FrameTap> {
     string,
     { resolve: (f: Record<string, unknown>) => void; reject: (e: Error) => void; sentAt: number }
   >();
-  let settled = false;
 
   const bail = (error: Error) => {
-    if (!settled) {
-      // Never connected: the connect waiter below turns this into the hello
-      // failure, and in-flight requests (there are none yet) would hang.
-      for (const [, p] of pending) p.reject(error);
-      pending.clear();
-      return;
-    }
-    // Already connected: fail every waiter and every in-flight request, so a
-    // close can never leave a probe waiting on a dead socket.
+    // A dead socket must leave nobody waiting — and that includes the connect
+    // waiter, which is a waiter like any other. The first version skipped the
+    // waiters when the close arrived before `__bff_hello` (reasoning: "there are
+    // none yet"), so a refusal that closes at 4401 reported
+    // "Timed out waiting for __bff_hello" eight seconds later and named a
+    // timeout instead of the close code that was the whole diagnosis. Same for a
+    // close mid-turn: `driveTurn`'s settle wait is a waitFor, and a waiter
+    // spliced without a reject is the silent hang this file exists to prevent.
     for (const waiter of waiters.splice(0)) {
       if (waiter.timer) clearTimeout(waiter.timer);
+      waiter.reject(error);
     }
     for (const [, p] of pending) p.reject(error);
     pending.clear();
@@ -186,7 +186,7 @@ export async function openFrameTap(opts: ConnectFrameTap): Promise<FrameTap> {
       const existing = sinceIndex === undefined ? frames.find(predicate) : undefined;
       if (existing) return Promise.resolve(existing);
       return new Promise((resolve, reject) => {
-        const waiter: Waiter = { predicate, resolve };
+        const waiter: Waiter = { predicate, resolve, reject };
         waiter.timer = setTimeout(() => {
           const index = waiters.indexOf(waiter);
           if (index >= 0) waiters.splice(index, 1);
@@ -274,7 +274,6 @@ export async function openFrameTap(opts: ConnectFrameTap): Promise<FrameTap> {
         "a 4401 close means the session was refused; no frames at all means the BFF is not answering.",
     );
   }
-  settled = true;
   // Announce the scope without claiming to be a visible tab: a watched scope
   // suppresses push notifications, and a probe is nobody's foreground tab.
   socket.send(
@@ -310,7 +309,7 @@ export interface TurnResult {
   terminal: Record<string, unknown>[];
   /** The messages the app-server stores for the conversation when the turn settled. */
   messages: Record<string, unknown>[];
-  /** Last assistant text found in `messages` — a convenience, not a parse contract. */
+  /** Newest assistant text found in `messages` (see `newestReply`) — a convenience, not a parse contract. */
   reply: string | null;
   tap: FrameTap | null;
   waitedMs: number;
@@ -328,6 +327,40 @@ const textOf = (content: unknown): string => {
   }
   return "";
 };
+
+/** How far a clock difference between this process and the app-server can be forgiven. */
+const CLOCK_SLACK_MS = 5_000;
+
+/**
+ * The newest assistant text in a `conversation_messages_list` response — this
+ * turn's reply.
+ *
+ * The endpoint answers **newest-first** (verified live against a running
+ * app-server), which is the trap: the obvious loop that keeps the last match
+ * walked the page in the wrong direction and handed back the OLDEST assistant
+ * message in the conversation. That is a wrong answer every time
+ * `--conversation <id>` names a conversation with history, and it looks like a
+ * plausible one. Two rules so neither the page order nor a missing timestamp
+ * decides the result: a message dated before the prompt is not this turn's
+ * reply, and of what remains the newest `date` wins (the first one found when
+ * nothing is dated).
+ */
+export function newestReply(messages: Record<string, unknown>[], sentAt: number): string | null {
+  let best: { text: string; when: number } | null = null;
+  for (const message of messages) {
+    const assistant = message.role === "assistant" || message.message_type === "assistant_message";
+    if (!assistant) continue;
+    const text = textOf(message.content);
+    if (!text.trim()) continue;
+    const stamped = Date.parse(String(message.date ?? message.created_at ?? ""));
+    // Undated messages cannot be excluded by age, so they survive the cut below
+    // and sort behind everything that carries a date.
+    const when = Number.isNaN(stamped) ? Number.NEGATIVE_INFINITY : stamped;
+    if (when !== Number.NEGATIVE_INFINITY && when < sentAt - CLOCK_SLACK_MS) continue;
+    if (best === null || when > best.when) best = { text, when };
+  }
+  return best?.text ?? null;
+}
 
 /**
  * Wait for the turn the prompt started to end, and say which frame said so.
@@ -450,15 +483,7 @@ export async function driveTurn(opts: DriveTurnOptions): Promise<TurnResult> {
     const messages = Array.isArray(listed.messages)
       ? (listed.messages as Record<string, unknown>[])
       : [];
-    let reply: string | null = null;
-    for (const message of messages) {
-      const assistant =
-        message.role === "assistant" || message.message_type === "assistant_message";
-      if (assistant) {
-        const text = textOf(message.content);
-        if (text.trim()) reply = text;
-      }
-    }
+    const reply = newestReply(messages, sentAt);
 
     if (!opts.keepOpen) tap.close();
     return {
