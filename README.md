@@ -108,7 +108,8 @@ before exposing anything.
   Turning a level down revokes the token, and an allowed-recipients list limits whom agents
   can email or invite.
 - **GitHub pull-request watching** through the GitHub CLI.
-- **Any MCP server** you add, in one list shared by every agent.
+- **Any MCP server** you add, in one list shared by every agent. A bearer token or API-key header
+  (Home Assistant, for one) stays on the server and is never shown to an agent.
 - **Tool approvals.** A tool call that needs permission surfaces as a sheet you
   can allow or deny, from any device — and sends a push if nobody is watching.
 - **Structured questions.** An agent can ask a multiple-choice question that

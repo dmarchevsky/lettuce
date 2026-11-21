@@ -5,7 +5,14 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Added
+- **Sign in to an MCP server.** Settings → MCP servers takes a bearer token and custom headers for http and
+  sse servers — a Home Assistant long-lived token, an `X-API-Key` — kept on the Lettuce server: no agent can
+  read one, and a token is only ever sent to the host it was entered for.
+
 ### Fixed
+- **Editing an MCP server no longer wipes its environment.** A stdio server's env variables are shown by
+  name, write-only, and survive an edit.
 - **Which Codex is in this image, answered without a build.** The feature marker under
   `/opt/lettuce/features` now names the version of every coding CLI the image holds, and
   `codex --version` / `claude --version` answer even while that worker is switched off in Settings.

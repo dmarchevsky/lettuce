@@ -19,11 +19,28 @@ export const MCP_SKILL_NAME = "mcp-servers";
 export const MCP_SKILL_DIR = `${MCP_HOME}/skill/${MCP_SKILL_NAME}`;
 const WRAPPER = `/root/.letta/skills/${MCP_SKILL_NAME}/scripts/mcp.sh`;
 
-/** Files relative to `MCP_SKILL_DIR`'s parent, like `readSkillTree` returns. */
-export function renderMcpSkill(servers: readonly McpServer[]): SkillFile[] {
+/**
+ * Files relative to `MCP_SKILL_DIR`'s parent, like `readSkillTree` returns.
+ *
+ * `credentialed` names the servers whose token or headers only the BFF holds
+ * (`credentials.ts`): the wrapper reads the shared file, which has none of
+ * them, so it would get a 401 — those servers are marked as reachable through
+ * the native `mcp_*` tools only.
+ */
+export function renderMcpSkill(
+  servers: readonly McpServer[],
+  credentialed: ReadonlySet<string> = new Set(),
+): SkillFile[] {
   // letta-code's frontmatter parser is line-based and takes the value verbatim
   // (no YAML quoting), so a name must never carry a line break into it.
-  const names = servers.map((server) => server.name.replace(/\s+/g, " "));
+  const label = (server: McpServer) => {
+    const name = server.name.replace(/\s+/g, " ");
+    return credentialed.has(server.name) ? `${name} (mcp_* tools only)` : name;
+  };
+  const names = servers.map(label);
+  const nativeOnly = servers
+    .filter((server) => credentialed.has(server.name))
+    .map((server) => server.name.replace(/\s+/g, " "));
   // The description is the one line every agent sees on every turn, and a
   // model that skips loading the skill never reads the body — which is where
   // the two traps were explained. Observed on a local model (2026-09-28): it
@@ -72,7 +89,16 @@ sh ${WRAPPER} call <tool-name> --args '{"key":"value"}'
 
 Tool names are \`mcp__<server>__<tool>\`. Output is JSON; the result text is in \`content[].text\`.
 Every call connects to the server fresh, so there is no session state between calls.
-
+${
+  nativeOnly.length > 0
+    ? `
+**${nativeOnly.join(", ")}:** reachable through the native \`mcp_*\` tools only (\`mcp_search\`, \`mcp_describe\`,
+\`mcp_call\`, \`mcp_call_write\`). Their token is
+held by the Lettuce server and is not in the list this wrapper reads, so the wrapper gets a 401 —
+do not retry it, and do not look for the token: it is deliberately out of your reach.
+`
+    : ""
+}
 For web search and reading web pages, use your native \`web_search\` and \`fetch_webpage\` tools,
 not an MCP server.
 
