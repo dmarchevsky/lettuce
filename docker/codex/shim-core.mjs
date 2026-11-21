@@ -39,6 +39,27 @@ export function isEnabled(settings) {
 }
 
 /**
+ * Whether the invocation only asks the CLI to name itself — one version flag,
+ * nothing else.
+ *
+ * Reporting a version is not execution: no worker starts, no model is called,
+ * nothing the Settings switch governs happens. So the shim answers it even with
+ * the worker switched off, which is what makes "which Codex is really in this
+ * image?" answerable from a running container (`codex --version` on PATH is the
+ * shim) as well as at build time, when the marker is written. Anything beyond a
+ * bare flag belongs to whatever else was asked for and stays gated.
+ *
+ * Duplicated in `claude-shim-core.mjs` on purpose: each shim directory is copied
+ * into the image on its own and stays self-contained.
+ *
+ * Forms measured on Codex 0.169.1: `--version` and `-V` print the version, `-v`
+ * is an error the CLI itself reports, so only the two real flags pass the gate.
+ */
+export function isVersionInvocation(args) {
+  return args.length === 1 && (args[0] === "--version" || args[0] === "-V");
+}
+
+/**
  * The container is the isolation boundary this stack keeps (see CLAUDE.md,
  * "letta-code's filesystem sandbox is OFF"), so Codex is told so rather than
  * asked to build its own bubblewrap sandbox inside it. Under an external

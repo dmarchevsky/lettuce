@@ -9,7 +9,15 @@
  * against a running stack.
  */
 import { describe, expect, test } from "bun:test";
-import { cookieJarLine, judgeServedBuild, parseArgs } from "../scripts/harness.ts";
+import { dirname, join, resolve } from "node:path";
+import {
+  cookieJarLine,
+  judgeServedBuild,
+  judgeServedVersion,
+  mockupShell,
+  mockupStylesHref,
+  parseArgs,
+} from "../scripts/harness.ts";
 
 describe("judgeServedBuild", () => {
   const SHA = "a921f630";
@@ -57,6 +65,55 @@ describe("judgeServedBuild", () => {
   });
 });
 
+describe("judgeServedVersion", () => {
+  // The release gate's question — tag AND commit — mirroring the seven cases above,
+  // because the two judges must not drift into meaning "this build" differently.
+  const TAG = "v0.48.0-letta_0.34.67";
+  const EXPECTED = `${TAG}+a921f630`;
+
+  test("the whole release string matches", () => {
+    expect(judgeServedVersion(EXPECTED, EXPECTED)).toEqual({
+      ok: true,
+      unstamped: false,
+      why: `both at ${EXPECTED}`,
+    });
+  });
+
+  test("a different commit on the right tag is refused with both sides named", () => {
+    const verdict = judgeServedVersion(`${TAG}+e75909d5`, EXPECTED);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.why).toContain("e75909d5");
+    expect(verdict.why).toContain(EXPECTED);
+  });
+
+  test("the right commit on the wrong tag is refused — this is the tag's gate", () => {
+    // The dev judge deliberately ignores the tag; the release gate is the one place
+    // a wrong tag must not read as a match.
+    const verdict = judgeServedVersion("v9.9.9-letta_0.99.99+a921f630", EXPECTED);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.why).toContain("v9.9.9");
+  });
+
+  test("+unknown is on the tag but is only believed when the caller allows it", () => {
+    expect(judgeServedVersion(`${TAG}+unknown`, EXPECTED).ok).toBe(false);
+    const allowed = judgeServedVersion(`${TAG}+unknown`, EXPECTED, true);
+    expect(allowed.ok).toBe(true);
+    expect(allowed.unstamped).toBe(true);
+    expect(allowed.why).toContain(TAG);
+  });
+
+  test("a dirty tree on the right release still counts, unstamped too", () => {
+    expect(judgeServedVersion(`${EXPECTED}-dirty`, EXPECTED).ok).toBe(true);
+    expect(judgeServedVersion(`${TAG}+unknown-dirty`, EXPECTED, true).ok).toBe(true);
+  });
+
+  test("the text of a failed request is not a version", () => {
+    expect(judgeServedVersion("HTTP 404", EXPECTED).ok).toBe(false);
+    expect(judgeServedVersion("", EXPECTED).ok).toBe(false);
+    expect(judgeServedVersion("HTTP 404", EXPECTED, true).ok).toBe(false);
+  });
+});
+
 describe("parseArgs", () => {
   test("the bare argument is the origin, as it always was", () => {
     const args = parseArgs(["http://127.0.0.1:9999"]);
@@ -90,9 +147,100 @@ describe("parseArgs", () => {
     expect(parseArgs(["/tmp/shots", "--shot", "chat"], "").positional).toBe("/tmp/shots");
   });
 
+  test("--fixture keeps its path verbatim and never becomes the positional", () => {
+    // `--section` and `--shot` lowercase their value for substring matching; a path
+    // is case-bearing, and a fixture that lands in `positional` becomes an output
+    // directory (or a shot name) instead of data.
+    const args = parseArgs(["--fixture", "/tmp/Fixtures/Memory Tree.json"]);
+    expect(args.fixture).toBe("/tmp/Fixtures/Memory Tree.json");
+    expect(args.positional).toBe("");
+    expect(args.origin).toBe("http://127.0.0.1:8090");
+  });
+
+  test("--fixture rides alongside a real positional and an origin", () => {
+    const args = parseArgs(["/tmp/shots", "--fixture", "/tmp/Big-Tree.json", "--shot", "memory"]);
+    expect(args.positional).toBe("/tmp/shots");
+    expect(args.fixture).toBe("/tmp/Big-Tree.json");
+    expect(args.shots).toEqual(["memory"]);
+  });
+
   test("--allow-stale-build is the escape hatch, and the env sets it too", () => {
     expect(parseArgs([]).staleBuild).toBe(false);
     expect(parseArgs(["--allow-stale-build"]).staleBuild).toBe(true);
+  });
+});
+
+describe("mockupShell", () => {
+  const parts = {
+    markup: '<div class="pane"><h2>Memory</h2></div>',
+    stylesHref: "../../web/src/styles.css",
+    source: "http://127.0.0.1:8090/",
+    width: 1280,
+    height: 800,
+  };
+
+  test("the shell says where the markup came from and keeps it verbatim", () => {
+    const doc = mockupShell({
+      ...parts,
+      htmlClass: "theme-dark",
+      bodyClass: "pane-open",
+      title: "mem",
+    });
+    expect(doc.startsWith("<!doctype html>")).toBe(true);
+    expect(doc).toContain("captured from http://127.0.0.1:8090/ at 1280x800");
+    expect(doc).toContain('<html lang="en" class="theme-dark">');
+    expect(doc).toContain('<body class="pane-open">');
+    expect(doc).toContain("<title>mem</title>");
+    expect(doc).toContain(parts.markup);
+  });
+
+  test("no class means no empty attribute, and a title default exists", () => {
+    const doc = mockupShell(parts);
+    expect(doc).toContain('<html lang="en">');
+    expect(doc).toContain("<body>");
+    expect(doc).toContain("<title>captured surface</title>");
+  });
+
+  test("a class attribute cannot escape its quotes and start a tag", () => {
+    // The live page's own class list is app-built text interpolated into an
+    // attribute; a `"` in it used to close the attribute and open whatever came
+    // next. The markup is left alone — it is already markup.
+    const doc = mockupShell({
+      ...parts,
+      htmlClass: 'x" onmouseover="alert(1)',
+      bodyClass: '"><script>alert(2)</script>',
+    });
+    expect(doc).not.toContain('onmouseover="');
+    expect(doc).not.toContain("<script>");
+    expect(doc).toContain('class="x&quot; onmouseover=&quot;alert(1)');
+  });
+
+  test("a title cannot end its own element", () => {
+    const doc = mockupShell({ ...parts, title: "</title><body onload=x>" });
+    expect(doc).toContain("<title>&lt;/title&gt;&lt;body onload=x&gt;</title>");
+  });
+
+  test("the stylesheet link is quoted like any other attribute", () => {
+    expect(mockupShell({ ...parts, stylesHref: '", "onclick="x' })).not.toContain('onclick="');
+  });
+});
+
+describe("mockupStylesHref", () => {
+  const ROOT = "/repo";
+  const styles = join(ROOT, "web", "src", "styles.css");
+
+  test("a mock written deep in the tree links the stylesheet and still finds it", () => {
+    const outPath = join(ROOT, ".dev-flow", "x", "worktree", "plan", "mockups", "m.html");
+    const href = mockupStylesHref(outPath, ROOT);
+    expect(href.endsWith("web/src/styles.css")).toBe(true);
+    // The property that matters, not the exact number of `..`:
+    expect(resolve(dirname(outPath), href)).toBe(styles);
+  });
+
+  test("a deeper mock needs more `..`, never fewer", () => {
+    const shallow = mockupStylesHref(join(ROOT, "m.html"), ROOT);
+    const deep = mockupStylesHref(join(ROOT, "a", "b", "c", "m.html"), ROOT);
+    expect(deep.split("../").length).toBeGreaterThan(shallow.split("../").length);
   });
 });
 

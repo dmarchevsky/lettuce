@@ -12,9 +12,12 @@
  *   hands over the same literal that picks its tag (`pinVersions`).
  *
  * A component whose token is off has no row: something that does not exist has no
- * version worth showing. A token that is ON says `not installed` when the image
- * has no CLI in it, and `unknown` when the image predates versioned markers —
- * that mismatch is the whole reason the marker exists.
+ * version worth showing. The marker describes what the image *holds*, and every
+ * current image holds both coding CLIs — so the tokens decide which rows appear,
+ * never what the marker says. A token that is ON says `not installed` when the
+ * image has no CLI in it, and `unknown` when the image predates versioned
+ * markers; both mean a stale image, and that mismatch is the reason the marker
+ * exists.
  */
 
 /** Where the app-server image records what it installed. */

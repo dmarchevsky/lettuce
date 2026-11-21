@@ -226,7 +226,7 @@ for (const pin of PINS) {
     process.exitCode = 1;
     continue;
   }
-  const pinned = found[1];
+  const pinned = found[1] ?? "";
   try {
     const remote = await latestFor(pin.source);
     const latest = remote.latest.replace(/^v/, "");

@@ -1,22 +1,20 @@
-# The app-server image: upstream's letta/letta, unmodified, plus optionally the
-# Codex and Claude Code CLIs that letta-code's external coding workers run, and
-# always the GitHub CLI its `WatchPR` tool shells out to, and the variables that
+# The app-server image: upstream's letta/letta, unmodified, plus the Codex and
+# Claude Code CLIs that letta-code's external coding workers run, and always the
+# GitHub CLI its `WatchPR` tool shells out to, and the variables that
 # send what agents install to /opt/agent-tools (the end). Build context is this
 # directory only (see compose.yml), so nothing else from the repo — least of
 # all docker/.env — ever reaches the daemon.
 #
-# CODING_FEATURES is the raw COMPOSE_PROFILES string (see docker/compose.yml):
-# `codex` is installed only when it carries the exact token `codex`, and
-# `claude` only when it carries `claude`. Compose cannot substring-test
-# COMPOSE_PROFILES in YAML, so the word-match lives here instead — which also
-# means the SAME image tag can be built with or without the CLIs, and a token
-# change is only picked up by a rebuild. What was actually installed is written
-# to /opt/lettuce/features, one name per line, so the BFF can log loudly at
-# connect when a token is on but the CLI is not in the image.
+# There is no build-time choice about the coding CLIs: BOTH are always installed,
+# which is what the published image has always been built with. The `codex` and
+# `claude` profile tokens are a runtime Settings switch only (see docker/compose.yml);
+# there used to be a `CODING_FEATURES` build arg carrying COMPOSE_PROFILES in, so
+# the same tag could be built with or without the CLIs, a local toggle needed a
+# rebuild no tag recorded, and nothing running could say which CLIs the image
+# held. `/opt/lettuce/features` is that record now: one line per CLI the image
+# really carries, whatever the switches say.
 ARG LETTA_CODE_VERSION
 FROM letta/letta:${LETTA_CODE_VERSION}
-
-ARG CODING_FEATURES=
 
 # The install manifest, read by the BFF on every connect. Always written, even
 # when empty — a missing file means an image that predates this mechanism, and
@@ -24,26 +22,27 @@ ARG CODING_FEATURES=
 # from the CLI itself in the step that installs it, so About can show what the
 # image really runs instead of repeating a pin that a stale image disproves.
 # (An old image has bare names; the BFF reads a missing version as unknown.)
+# A version line is written for every CLI in the image because the question the
+# marker answers is what is HERE, not what is switched on.
 RUN mkdir -p /opt/lettuce && : > /opt/lettuce/features
 
 # The real CLI stays off PATH; `codex` on PATH is always the shim
-# (codex-shim.mjs), installed even when the real CLI is not — its preflight
-# refusal ("not installed") is the clean answer for a worker task, and the BFF
-# additionally writes `enabled: false` while the token is off.
+# (codex-shim.mjs). The shim answers `--version` whatever the Settings switch
+# says — that is how a running container reports its Codex — and refuses every
+# invocation that would run a worker while the worker is off.
 ARG CODEX_VERSION
-RUN case ",${CODING_FEATURES}," in *,codex,*) \
-      npm install --global --prefix /opt/codex "@openai/codex@${CODEX_VERSION}" \
-      && v="$(/opt/codex/bin/codex --version | grep -oE '[0-9]+\.[0-9]+[^ ]*' | head -1)" \
-      && test -n "$v" && printf 'codex %s\n' "$v" >> /opt/lettuce/features ;; esac
+RUN npm install --global --prefix /opt/codex "@openai/codex@${CODEX_VERSION}" \
+    && v="$(/opt/codex/bin/codex --version | grep -oE '[0-9]+\.[0-9]+[^ ]*' | head -1)" \
+    && test -n "$v" && printf 'codex %s\n' "$v" >> /opt/lettuce/features
 
 # Same arrangement for Claude Code (`subagent_type: "claude-code"`): the real
 # CLI off PATH, `claude` on PATH is the shim (claude-shim.mjs), which injects
-# the Anthropic-compatible endpoint settings as env and refuses when disabled.
+# the Anthropic-compatible endpoint settings as env and refuses a run when
+# disabled, while `--version` still answers.
 ARG CLAUDE_CODE_VERSION
-RUN case ",${CODING_FEATURES}," in *,claude,*) \
-      npm install --global --prefix /opt/claude-code "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
-      && v="$(/opt/claude-code/bin/claude --version | grep -oE '[0-9]+\.[0-9]+[^ ]*' | head -1)" \
-      && test -n "$v" && printf 'claude %s\n' "$v" >> /opt/lettuce/features ;; esac
+RUN npm install --global --prefix /opt/claude-code "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
+    && v="$(/opt/claude-code/bin/claude --version | grep -oE '[0-9]+\.[0-9]+[^ ]*' | head -1)" \
+    && test -n "$v" && printf 'claude %s\n' "$v" >> /opt/lettuce/features
 
 # Logs the real errno of a failed child spawn, which letta-code discards (a
 # subagent that could not start reports only "exited with code unknown"). In

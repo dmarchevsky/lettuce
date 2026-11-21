@@ -55,7 +55,7 @@ const STAGES: Stage[] = [
   {
     name: "typecheck",
     cmd: ["bun", "run", "typecheck"],
-    why: "also the protocol-drift detector",
+    why: "bff + web + scripts/tests; also the protocol-drift detector",
   },
   { name: "test", cmd: ["bun", "run", "test"], why: "bun:test, including the harness guard" },
   { name: "build", cmd: ["bun", "run", "build"], why: "writes web/dist" },

@@ -71,20 +71,15 @@ services:
     # login lives in GH_CONFIG_DIR, under the persisted /root/.letta, so it
     # survives recreates; sign in once with `gh auth login --with-token`.
     #
-    # CODING_FEATURES is the raw COMPOSE_PROFILES string: the image installs
-    # the Codex CLI only when it contains the token `codex`, and the Claude
-    # Code CLI only when it contains `claude` — two VIRTUAL profiles, tokens no
-    # service declares, so they install no container and gate no sidecar; they
-    # decide the build and the BFF's feature flags together. The image then
-    # writes what it actually baked into /opt/lettuce/features, and the BFF
-    # logs loudly when a token is on but the CLI is missing.
-    #
-    # The PUBLISHED image always bakes both coding CLIs (the publish workflow
-    # builds it with `COMPOSE_PROFILES=codex,claude`), so toggling a coding token
-    # in prod is a Settings flip, not a rebuild. A local build is still gated by
-    # the token list above, and its tag does not change with it, so toggling one
-    # locally REQUIRES a rebuild — `compose up` without `--build` silently keeps
-    # the old image. Enabling needs the exact comma-delimited token: `…codex…,`.
+    # The `codex` and `claude` tokens are two VIRTUAL profiles, tokens no
+    # service declares: they install no container and gate no sidecar, and since
+    # the image always bakes both coding CLIs they no longer decide the build
+    # either — they are the BFF's feature flags and nothing else, so toggling one
+    # is a Settings flip locally as well as in prod, with no rebuild. What the
+    # image really carries is what it writes into /opt/lettuce/features, and the
+    # BFF logs loudly when a token is on but the CLI is missing — only an image
+    # built before that marker can say so now. Enabling a token needs the exact
+    # comma-delimited entry: `…,codex,…`.
     #
     # Default container hardening (seccomp, AppArmor, default capabilities) is
     # deliberately left intact: this is the one service agent-authored shell
@@ -99,7 +94,6 @@ services:
         CODEX_VERSION: ${CODEX_VERSION:-0.169.1}
         GH_VERSION: ${GH_VERSION:-2.102.0}
         CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-2.1.327}
-        CODING_FEATURES: ${COMPOSE_PROFILES:-}
     # Tagged by release, not by pins: what is inside is what the tag's commit
     # built, and /opt/lettuce/features plus Settings → About report the CLIs.
     image: ${LETTA_IMAGE_NS:-}lettuce-app-server:${LETTA_IMAGE_TAG:-v0.48.2-letta_0.34.67}

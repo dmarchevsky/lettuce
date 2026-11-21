@@ -45,6 +45,7 @@ import {
   type PageTrouble,
   watchPage as watchPageConsole,
 } from "./page-console.ts";
+import { seedPiRuns } from "./seed-pi-runs.ts";
 
 const {
   origin: ORIGIN,
@@ -119,6 +120,7 @@ const SECTION_TITLES = [
   "Form controls share one height",
   "Sidebar conversation menu",
   "Agent model sheet",
+  "Remote pi runs (seeded)",
 ];
 
 function selected(title: string): boolean {
@@ -658,8 +660,13 @@ const browser = await chromium.launch({
 });
 // Every page this browser produces, however it arrives — a section's own newPage,
 // a target="_blank" link the app renders — is watched, so coverage is not a
-// convention a future section can forget.
-browser.on("page", watchPage);
+// convention a future section can forget. Pages arrive per **context**
+// (`browser.newPage()` gets its own implicit one) and Playwright has no
+// browser-level `page` event: the typed surface offers `context` and
+// `disconnected`, and a `browser.on("page")` listener is never called (verified
+// against 1.62.1 — a newPage and a target=_blank popup produced zero hits). So the
+// watch attaches per context, as each one appears.
+browser.on("context", (context) => context.on("page", watchPage));
 
 try {
   // ── Phone ────────────────────────────────────────────────────────────────
@@ -898,10 +905,11 @@ try {
     // No seam: the list's own box ends on the bar's top edge, or a strip of the chat
     // sits between the list and the control that closes it.
     const listBox = await switcher.boundingBox();
+    const listBottom = listBox ? listBox.y + listBox.height : null;
     check(
       "the list ends on the bar with nothing between",
-      listBox !== null && Math.abs(listBox.y + listBox.height - barTop) < 2,
-      { listBottom: listBox?.y + (listBox?.height ?? 0), barTop },
+      listBottom !== null && Math.abs(listBottom - barTop) < 2,
+      { listBottom, barTop },
     );
     await shot(page, "phone-switcher");
     await switcher.locator(".switcher-bar .sheet-close").click();
@@ -2359,10 +2367,7 @@ try {
     if ((await otherAgent.count()) > 0) {
       const otherId = await otherAgent.getAttribute("data-agent-id");
       const otherTitle = (await otherAgent.getAttribute("title")) ?? "";
-      const otherName = otherTitle
-        .replace(/\s*\(pinned\)/, "")
-        .split(" —")[0]
-        .trim();
+      const otherName = (otherTitle.replace(/\s*\(pinned\)/, "").split(" —")[0] ?? "").trim();
       // A borrow is a peek's business: a pinned panel is a column you are reading
       // and does not change agents under you. Un-pin, then put the peek away, or
       // there is nothing for the hover to open.
@@ -2918,12 +2923,13 @@ try {
     await page.locator('.section-tabs button:text-is("Tools")').click();
     await page.waitForTimeout(700);
     const toolsFeatures = await readFeatures(page);
-    const expectedToolChips = [
+    const toolChipTargets: [string, string][] = [
       ["google", "Google"],
       ["codex", "Codex"],
       ["claude", "Claude"],
       ["pi", "Remote Pi"],
-    ]
+    ];
+    const expectedToolChips = toolChipTargets
       .filter(([key]) => featureOn(toolsFeatures, key))
       .map(([, label]) => label);
     const toolChipLabels = (
@@ -4602,6 +4608,85 @@ try {
     await page.keyboard.press("Escape");
     await shot(page, "desktop-agent-model");
     await page.close();
+  }
+
+  /**
+   * The Runs surface with rows it did not have to invent.
+   *
+   * Remote-pi rows come from files the BFF writes itself, so on a stack that never
+   * ran a pi job the section is empty — and an assertion written against it passes
+   * against nothing. So the section seeds the store first (`scripts/seed-pi-runs.ts`,
+   * which `docker compose cp`s meta files into the container), asserts on the rows
+   * the seed names, and clears them again: a pi-run assertion that had no seed to
+   * match fails red rather than going green over an empty list.
+   */
+  if (await go("Remote pi runs (seeded)")) {
+    const page = await open(browser, DESKTOP);
+    const runsFeatures = await readFeatures(page);
+    if (!featureOn(runsFeatures, "pi")) {
+      // Named out loud, and named as a skip: whoever asked for this section by
+      // `--section pi` must learn that the token — not a passing suite — is why
+      // nothing was measured. Silence here reads as "nothing to report".
+      console.log(
+        `  SKIP  the pi token is off${
+          SECTION_FILTERS.length > 0
+            ? ` (--section ${SECTION_FILTERS.join(",")} asked for this)`
+            : ""
+        } — the Runs pane has no remote-pi list, so nothing here was measured`,
+      );
+      await page.close();
+    } else {
+      let seeded = { seeded: 0, listed: 0 };
+      try {
+        seeded = await seedPiRuns({ origin: ORIGIN, count: 4 });
+        check(
+          "the seed lands in the BFF's run store (GET /api/pi/runs)",
+          seeded.listed >= seeded.seeded,
+          seeded,
+        );
+        await openTab(page, "Runs");
+        await page.locator('p.section-note:text-is("Remote Pi runs")').waitFor({ timeout: 15_000 });
+        const rows = await page
+          .locator('.list li.task button.row:has-text("fixture:")')
+          .allInnerTexts();
+        // 4 runs over 2 sessions: the list folds runs into one row per session, so
+        // the row count is the session count, and a row must say how many it holds.
+        check("the Runs surface lists the seeded sessions", rows.length >= 2, { rows });
+        check(
+          "each seeded row carries a status chip and its run count",
+          rows.length >= 2 &&
+            rows.every((row) => /Finished|Failed|Running|Detached|Cancelled/.test(row)) &&
+            rows.some((row) => /\d+ runs/.test(row)),
+          { rows },
+        );
+        check(
+          "the failed seed row reads as failed, not as finished",
+          rows.some((row) => /Failed/.test(row) && /fixture:/.test(row)),
+          { rows },
+        );
+        const piOverflow = await overflow(page);
+        check(
+          "the seeded rows do not overflow the pane",
+          piOverflow.clipped.length === 0,
+          piOverflow,
+        );
+        await shot(page, "desktop-runs-pi-seeded");
+      } finally {
+        // The rows live in the **shared** container's run store, so a throw
+        // half-way through this section — a 15 s wait, a failed shot — must not
+        // hand four fixture runs to whoever opens Tasks next. `finally`, and only
+        // for a seed that actually happened.
+        await page.close().catch(() => {});
+        if (seeded.seeded > 0) {
+          const cleared = await seedPiRuns({ origin: ORIGIN, clear: true });
+          check(
+            "the seed cleans up after itself (a dev store keeps no fake rows)",
+            cleared.cleared >= seeded.seeded,
+            cleared,
+          );
+        }
+      }
+    }
   }
 } finally {
   await browser.close();

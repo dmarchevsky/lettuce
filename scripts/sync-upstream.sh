@@ -178,6 +178,23 @@ say "Syncing $(git rev-parse --short "$CURRENT") -> $(git rev-parse --short "$TA
 git --no-pager log --oneline "$CURRENT".."$TARGET" | head -40 || true
 echo "  ($(git rev-list --count "$CURRENT".."$TARGET") commits)"
 
+# ── 1b. Watched-file drift — the countable summary ────────────────────────
+# A sync flow that hand-lists watched paths at plan stage silently files
+# whatever it forgot as unchanged — one wrote "only three watched files moved"
+# into an approved plan while these arrays answered eleven. This section is the
+# one honest count: the real diff intersected with the script's OWN lists, so a
+# plan adjudicates from script output and never from a hand-picked subset.
+say "Watched-file drift (diff ∩ the script's own lists)"
+WATCHED_COUNT=$(( ${#PROTOCOL_FILES[@]} + ${#BEHAVIOR_FILES[@]} ))
+MOVED=$(git diff --name-only "$CURRENT" "$TARGET" -- "${PROTOCOL_FILES[@]}" "${BEHAVIOR_FILES[@]}" || true)
+if [[ -z "$MOVED" ]]; then
+  echo "  0 of $WATCHED_COUNT watched files moved"
+else
+  MOVED_N=$(printf '%s\n' "$MOVED" | wc -l | xargs)
+  warn "  $MOVED_N of $WATCHED_COUNT watched files moved:"
+  while IFS= read -r f; do echo "    - $f"; done <<< "$MOVED"
+fi
+
 # ── 2. Protocol drift ─────────────────────────────────────────────────────────
 say "Protocol drift"
 PROTO_CHANGED=0

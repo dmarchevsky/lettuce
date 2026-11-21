@@ -14,14 +14,23 @@
  *
  * Named entry points, so a driver imports one instead of re-deriving it:
  * `devSignIn` / `signInPage` / `requireTestPassword` (sign-in), `openPane` (rail and
- * bottom-bar navigation), `servedBuild` / `assertServedBuild` / `requireServedBuild`
+ * bottom-bar navigation), `captureSurface` (lift a live DOM subtree into a mockup shell,
+ * built by the pure `mockupShell` + `mockupStylesHref`),
+ * `servedBuild` / `assertServedBuild` / `requireServedBuild` /
+ * `judgeServedVersion` (which bundle a running stack actually serves, and which build a
+ * release may be held to)
  * (which bundle a running stack actually serves), `cookieJarLine`, `chromiumExecutable`
  * and `headlessRenderArgs`. `scripts/dev-login.ts` is the shell form of the first group,
  * and `ui-check --list` / `--section <name>` runs one section instead of the suite.
+ *
+ * A **live turn** or a raw look at the wire is `scripts/frame-tap.ts` — it signs in
+ * with the helper below, opens `/ws` with that cookie, and taps every frame
+ * (`openFrameTap`) or drives a prompt to settle (`driveTurn`), failing loudly with
+ * the frames it saw instead of hanging.
  */
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import type { Page } from "playwright";
 import { readBuildInfo, versionString } from "../bff/src/build-info.ts";
 
@@ -102,6 +111,25 @@ export async function devSignIn(origin: string): Promise<string> {
 }
 
 /**
+ * A Bun WebSocket carrying the session cookie, from driver code.
+ *
+ * Bun's global accepts an options bag (`{ headers }`); the lib.dom `WebSocket`
+ * the typechecker sees in these scripts accepts only protocols — the drivers are
+ * one program that needs `document` for their `page.evaluate` bodies, so lib.dom
+ * wins the global and Bun's own `WebSocketInit` is unreachable. Naming the real
+ * constructor once here beats a cast at every call site (and a `as any`, which is
+ * what it was). At runtime under `bun` the global really is Bun's.
+ */
+export function openDevSocket(url: string | URL, cookie: string): WebSocket {
+  // SAFETY: under `bun` the global WebSocket is Bun's and does take an options bag.
+  const BunWebSocket = WebSocket as unknown as new (
+    url: string | URL,
+    init?: { headers?: Record<string, string>; protocols?: string | string[] },
+  ) => WebSocket;
+  return new BunWebSocket(url, { headers: { cookie } });
+}
+
+/**
  * Land a page on the app with a session, by whatever method this stack signed in
  * with. A password field on the page is how `SIGNIN=password` shows up here.
  */
@@ -150,6 +178,157 @@ export async function openPane(page: Page, name: string): Promise<void> {
     await page.waitForSelector(".switcher", { state: "detached", timeout: 5_000 });
     await page.waitForTimeout(500);
   }
+}
+
+/** What `captureSurface` lifted off the live page. */
+export interface CapturedSurface {
+  /** The full mockup-shell document — write it out or use it as-is. */
+  html: string;
+  /** The viewport the page was at when the markup was lifted. */
+  width: number;
+  height: number;
+}
+
+/**
+ * Escape text destined for an HTML attribute or a `<title>`.
+ *
+ * Capture markup is untrusted in the boring but real sense: a page's `class`
+ * attribute and a document title are strings the app built, and an injected `"`
+ * ends the attribute and starts a tag. The captured subtree is left alone (it is
+ * already markup); only what this shell interpolates is escaped.
+ */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/** The pieces `mockupShell` assembles; every one already read off the live page. */
+export interface MockupShellParts {
+  /** The captured subtree, trusted markup (scripts stripped by the caller). */
+  markup: string;
+  /** `document.documentElement.className`, verbatim — escaped on the way in. */
+  htmlClass?: string;
+  /** `document.body.className`, verbatim — escaped on the way in. */
+  bodyClass?: string;
+  /** Where the stylesheet lives, relative to wherever this mock will be written. */
+  stylesHref: string;
+  title?: string;
+  /** What to name in the header comment (the page the markup came from). */
+  source?: string;
+  width?: number;
+  height?: number;
+}
+
+/**
+ * The mockup document around captured markup — pure, so its escaping is testable.
+ *
+ * Split out of `captureSurface` because everything interesting about the shell is
+ * string work: the header that tells the next person the markup is real, the
+ * stylesheet link that keeps it styled, and the two class attributes that used to
+ * be interpolated raw.
+ */
+export function mockupShell(parts: MockupShellParts): string {
+  const size = parts.width && parts.height ? ` at ${parts.width}x${parts.height}` : "";
+  const classAttr = (name: string, value?: string): string =>
+    value ? ` ${name}="${escapeHtml(value)}"` : "";
+  return [
+    "<!doctype html>",
+    `<!-- captured from ${escapeHtml(parts.source ?? "(unknown source)")}${size} by captureSurface();`,
+    "     markup is the live DOM, the stylesheet link is the app's own — start here, do not invent. -->",
+    `<html lang="en"${classAttr("class", parts.htmlClass)}>`,
+    '<head><meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    `<title>${escapeHtml(parts.title ?? "captured surface")}</title>`,
+    `<link rel="stylesheet" href="${escapeHtml(parts.stylesHref)}">`,
+    "</head>",
+    `<body${classAttr("class", parts.bodyClass)}>`,
+    parts.markup,
+    "</body>",
+    "</html>",
+  ].join("\n");
+}
+
+/**
+ * The stylesheet link for a mock written to `outPath`, relative to it.
+ *
+ * `dirname(outPath)` is what makes a mock under `plan/mockups/` keep its styling;
+ * with no out path the mock is assumed to land in the checkout root.
+ */
+export function mockupStylesHref(outPath?: string, root: string = ROOT): string {
+  return relative(
+    dirname(outPath ? resolve(outPath) : join(process.cwd(), "x.html")),
+    join(root, "web", "src", "styles.css"),
+  );
+}
+
+/**
+ * Lift the real DOM subtree for `selector` into a self-contained mockup shell.
+ *
+ * This exists because flows hand-invented mockup markup and got the surface wrong: one
+ * spent ~40 calls mocking a "Memory pane" whose markup and class names were invented,
+ * twice. The live page is the only honest source of what a pane is called and contains,
+ * so capture it instead of imagining it: `openPane` to the pane, then `captureSurface`
+ * with a selector for its root, and start the mock from the returned markup.
+ *
+ * The shell links the checkout's own `web/src/styles.css` (the same fidelity trick
+ * `scripts/mockup.ts` asserts on), so the captured markup keeps styling live as the
+ * stylesheet moves. The subtree is captured as it stands — a pane whose layout depends
+ * on its parent's flex context should be captured from that parent (e.g. `.app`), and
+ * re-render at the returned width/height so media queries resolve as they were read.
+ *
+ * A selector matching nothing is a hard failure, naming the page it looked at: that is
+ * exactly the invented-pane case, and silence here is what let flows build on markup
+ * that does not exist.
+ */
+export async function captureSurface(
+  page: Page,
+  selector: string,
+  opts: {
+    /** Write the shell here (parent dirs created) and make the stylesheet link relative to it. */
+    outPath?: string;
+    /** Override the stylesheet link; default is this checkout's `web/src/styles.css`. */
+    stylesHref?: string;
+    title?: string;
+  } = {},
+): Promise<CapturedSurface> {
+  const matched = await page.locator(selector).count();
+  if (matched === 0) {
+    throw new Error(
+      `captureSurface("${selector}") matched nothing at ${page.url()}. There is no such ` +
+        "surface on the live page — do not invent one. Find the real root (DevTools, or the " +
+        "component that renders the pane) and capture that instead.",
+    );
+  }
+  const [markup, htmlClass, bodyClass] = await Promise.all([
+    page
+      .locator(selector)
+      .first()
+      .evaluate((el) => el.outerHTML),
+    page.evaluate(() => document.documentElement.className),
+    page.evaluate(() => document.body.className),
+  ]);
+  const viewport = page.viewportSize() ?? { width: 1280, height: 800 };
+  // A mock is a static document; a captured subtree carrying its page's scripts would
+  // re-run them against markup no longer wired to anything.
+  const staticMarkup = markup.replace(/<script\b[\s\S]*?<\/script>/gi, "");
+  const doc = mockupShell({
+    markup: staticMarkup,
+    htmlClass,
+    bodyClass,
+    stylesHref: opts.stylesHref ?? mockupStylesHref(opts.outPath),
+    title: opts.title ?? `captured ${selector}`,
+    source: page.url(),
+    width: viewport.width,
+    height: viewport.height,
+  });
+  if (opts.outPath) {
+    mkdirSync(dirname(opts.outPath), { recursive: true });
+    writeFileSync(opts.outPath, doc);
+  }
+  return { html: doc, width: viewport.width, height: viewport.height };
 }
 
 /**
@@ -220,6 +399,34 @@ export function judgeServedBuild(
     return { ok: false, dirty, why: `serving ${served}, this checkout is ${expectedSha}` };
   }
   return { ok: true, dirty, why: `both at ${expectedSha}` };
+}
+
+/**
+ * Does the string a stack answers at `/versionz` name this checkout's whole
+ * release — tag and commit? The release gate's question, where an image is
+ * held to its tag (a deploy-manager build may stamp `+unknown` and still be
+ * on the tag; the dev gate's `judgeServedBuild` deliberately does not accept
+ * that, because a local build always has a commit to name).
+ *
+ * The one place that decides "this build" for both gates, so a dev check and
+ * a release check cannot drift into meaning different things by it: `-dirty`
+ * is forgiven the same way, the tag/sha split is parsed the same way.
+ */
+export function judgeServedVersion(
+  served: string,
+  expected: string,
+  allowUnstamped = false,
+): { ok: boolean; unstamped: boolean; why: string } {
+  const clean = served.replace(/-dirty$/, "");
+  if (clean === expected) return { ok: true, unstamped: false, why: `both at ${expected}` };
+  const base = expected.split("+")[0] ?? expected;
+  if (allowUnstamped && clean === `${base}+unknown`) {
+    // The whole point of accepting it: the tag is verifiable, the commit is not,
+    // and pretending otherwise would make a deploy-manager build impossible to
+    // check.
+    return { ok: true, unstamped: true, why: `on the release tag ${base}, unstamped` };
+  }
+  return { ok: false, unstamped: false, why: `serving ${clean}, expected ${expected}` };
 }
 
 export async function servedBuild(origin: string): Promise<BuildIdentity> {
@@ -321,6 +528,8 @@ export interface HarnessArgs {
   list: boolean;
   shots: string[];
   staleBuild: boolean;
+  /** `--fixture <file>` — synthetic data for a hermetic generator; empty when unset. */
+  fixture: string;
 }
 
 export function parseArgs(argv: string[], fallbackOrigin = "http://127.0.0.1:8090"): HarnessArgs {
@@ -331,6 +540,7 @@ export function parseArgs(argv: string[], fallbackOrigin = "http://127.0.0.1:809
     list: false,
     shots: [],
     staleBuild: envAllowStaleBuild(),
+    fixture: "",
   };
   const list = true;
   for (let i = 0; i < argv.length; i += 1) {
@@ -349,6 +559,13 @@ export function parseArgs(argv: string[], fallbackOrigin = "http://127.0.0.1:809
     };
     if (arg === "--section" || arg === "--sections") {
       split(next());
+    } else if (arg === "--fixture") {
+      // Read verbatim, not through `next()` — which lowercases, and a path is
+      // case-bearing. And taken here rather than left to fall through, or the
+      // path lands in `positional` (an output dir, a shot name, whatever the
+      // caller's positional means) — the trap `--timeout 240` springs in frame-tap.
+      i += 1;
+      args.fixture = (argv[i] ?? "").trim();
     } else if (arg === "--shot" || arg === "--shots") {
       args.shots.push(
         ...next()

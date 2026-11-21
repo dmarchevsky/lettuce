@@ -371,14 +371,26 @@ async function freshRunner() {
   let now = new Date("2026-10-05T12:00:00.000Z");
   const store = new DirPiRunStore(dir);
   const { children, spawner } = harness();
-  const runner = new PiRunner(store, spawner, () => now);
-  return { dir, store, runner, children, setNow: (d: Date) => (now = d) };
+  // The runner settles a run exactly once, after its final durable write, so a
+  // test waits on the settle hook instead of `Bun.sleep(10)`: a fixed guess lost
+  // under the full-suite load of `bun run verify` (two tests flaked that way,
+  // each costing a whole verify cycle). `waitFor` polls the captured settle.
+  const settledRuns: string[] = [];
+  const runner = new PiRunner(
+    store,
+    spawner,
+    () => now,
+    (meta) => settledRuns.push(meta.runId),
+  );
+  const waitSettled = (runId: string) =>
+    waitFor(`run ${runId} to settle`, () => settledRuns.includes(runId));
+  return { dir, store, runner, children, setNow: (d: Date) => (now = d), waitSettled };
 }
 
 const SESSION = "01a10e10-08ec-705d-a364-5cfa40e1a963";
 
 test("a completed run records session, settled and files", async () => {
-  const { dir, store, runner, children } = await freshRunner();
+  const { dir, store, runner, children, waitSettled } = await freshRunner();
   const meta = await runner.start(
     BASE,
     { keyFile: "/k", knownHostsFile: "/kh" },
@@ -388,7 +400,7 @@ test("a completed run records session, settled and files", async () => {
   child.emit(`{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/tmp"}\n`);
   child.emit(`{"type":"agent_settled"}\n`);
   child.finish(0);
-  await Bun.sleep(10);
+  await waitSettled(meta.runId);
   expect(meta.state).toBe("completed");
   expect(meta.session).toBe(SESSION);
   const readBack = await store.read(meta.runId);
@@ -398,7 +410,7 @@ test("a completed run records session, settled and files", async () => {
 });
 
 test("killing the local ssh detaches, never claims the remote stopped", async () => {
-  const { store, runner, children } = await freshRunner();
+  const { store, runner, children, waitSettled } = await freshRunner();
   const meta = await runner.start(
     BASE,
     { keyFile: "/k", knownHostsFile: "/kh" },
@@ -408,14 +420,14 @@ test("killing the local ssh detaches, never claims the remote stopped", async ()
   child.emit(`{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/tmp"}\n`);
   expect(runner.isRunning(meta.runId)).toBe(true);
   expect(runner.stop(meta.runId)).toBe(true);
-  await Bun.sleep(10);
+  await waitSettled(meta.runId);
   expect(meta.state).toBe("detached");
   expect((await store.read(meta.runId))?.state).toBe("detached");
   expect(runner.stop(meta.runId)).toBe(false);
 });
 
 test("ssh failing before any output is a failure with the stderr tail", async () => {
-  const { runner, children } = await freshRunner();
+  const { runner, children, waitSettled } = await freshRunner();
   const meta = await runner.start(
     BASE,
     { keyFile: "/k", knownHostsFile: "/kh" },
@@ -423,7 +435,7 @@ test("ssh failing before any output is a failure with the stderr tail", async ()
   );
   const child = only(children);
   child.finish(255);
-  await Bun.sleep(10);
+  await waitSettled(meta.runId);
   expect(meta.state).toBe("failed");
 });
 
@@ -570,8 +582,9 @@ test("the remote pid captured from stderr reaches the durable meta", async () =>
   );
   const child = only(children);
   child.emitErr?.("lettuce-remote-pid 4242\n");
-  await Bun.sleep(10);
-  expect((await store.read(meta.runId))?.remotePid).toBe(4242);
+  // The durable remotePid lands through the runner's write chain, not a settle:
+  // poll the store for the value instead of guessing how long the flush takes.
+  await waitFor("remote pid flush", async () => (await store.read(meta.runId))?.remotePid === 4242);
   child.finish(255);
 });
 
@@ -1175,7 +1188,7 @@ test("a clean exit with no settle line is a completed run, not a mystery", async
   // The bug that taught agents to poll: the run finished, ssh exited 0, and
   // because the stream never carried `agent_settled` we called it detached and
   // told no one.
-  const { store, runner, children } = await freshRunner();
+  const { store, runner, children, waitSettled } = await freshRunner();
   const meta = await runner.start(
     BASE,
     { keyFile: "/k", knownHostsFile: "/kh" },
@@ -1184,7 +1197,7 @@ test("a clean exit with no settle line is a completed run, not a mystery", async
   const child = only(children);
   child.emit(`{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/tmp"}\n`);
   child.finish(0);
-  await Bun.sleep(10);
+  await waitSettled(meta.runId);
   expect(meta.state).toBe("completed");
   expect(meta.settled).toBe(false); // the fact is still recorded separately
   expect((await store.read(meta.runId))?.state).toBe("completed");
@@ -1194,7 +1207,7 @@ test("a pi that crashes mid-run is failed with its own exit code, not a detach",
   // The bug this exists for: a run that streamed and then died was filed as
   // `detached` with `error: null` (ssh's stderr was only kept for a run that
   // captured nothing), and the agent reading that blamed the network.
-  const { store, runner, children } = await freshRunner();
+  const { store, runner, children, waitSettled } = await freshRunner();
   const meta = await runner.start(
     BASE,
     { keyFile: "/k", knownHostsFile: "/kh" },
@@ -1205,7 +1218,7 @@ test("a pi that crashes mid-run is failed with its own exit code, not a detach",
   child.emitErr?.("lettuce-remote-pid 4711\n");
   child.emitErr?.("Killed\nlettuce-remote-exit 137\n");
   child.finish(137); // the wrapper reported pi's own death by SIGKILL
-  await Bun.sleep(10);
+  await waitSettled(meta.runId);
   expect(meta.state).toBe("failed");
   expect(meta.remoteExit).toBe(137);
   expect(meta.error).toContain("pi exited 137");
@@ -1214,7 +1227,7 @@ test("a pi that crashes mid-run is failed with its own exit code, not a detach",
 });
 
 test("a connection that dies mid-run says the pipe went away, with ssh's own words", async () => {
-  const { runner, children } = await freshRunner();
+  const { runner, children, waitSettled } = await freshRunner();
   const meta = await runner.start(
     BASE,
     { keyFile: "/k", knownHostsFile: "/kh" },
@@ -1224,7 +1237,7 @@ test("a connection that dies mid-run says the pipe went away, with ssh's own wor
   child.emit(`{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/tmp"}\n`);
   child.emitErr?.("Connection to pi.example.invalid closed by remote host.\n");
   child.finish(255); // ssh's own code, and no exit marker: pi never reported
-  await Bun.sleep(10);
+  await waitSettled(meta.runId);
   expect(meta.state).toBe("detached");
   expect(meta.remoteExit).toBeNull();
   expect(meta.error).toContain("never reported its exit");
@@ -1232,7 +1245,7 @@ test("a connection that dies mid-run says the pipe went away, with ssh's own wor
 });
 
 test("a detach we were asked for says so, instead of reading like a crash", async () => {
-  const { runner, children } = await freshRunner();
+  const { runner, children, waitSettled } = await freshRunner();
   const meta = await runner.start(
     BASE,
     { keyFile: "/k", knownHostsFile: "/kh" },
@@ -1241,7 +1254,7 @@ test("a detach we were asked for says so, instead of reading like a crash", asyn
   const child = only(children);
   child.emit(`{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/tmp"}\n`);
   runner.stop(meta.runId); // closes the local capture; the fake kill exits ssh
-  await Bun.sleep(10);
+  await waitSettled(meta.runId);
   expect(meta.state).toBe("detached");
   expect(meta.error).toContain("capture stopped on request");
 });
@@ -1249,7 +1262,7 @@ test("a detach we were asked for says so, instead of reading like a crash", asyn
 test("a stop we asked for outranks the exit code the worker reported", async () => {
   // The kill path can land a marker alongside the stop. Our choice is still the
   // story the run gets — with the code named, not hidden.
-  const { runner, children } = await freshRunner();
+  const { runner, children, waitSettled } = await freshRunner();
   const meta = await runner.start(
     BASE,
     { keyFile: "/k", knownHostsFile: "/kh" },
@@ -1260,14 +1273,14 @@ test("a stop we asked for outranks the exit code the worker reported", async () 
   runner.stop(meta.runId);
   child.emitErr?.("Killed\nlettuce-remote-exit 137\n");
   child.finish(137);
-  await Bun.sleep(10);
+  await waitSettled(meta.runId);
   expect(meta.state).toBe("detached");
   expect(meta.error).toContain("capture stopped on request");
   expect(meta.error).toContain("pi exited 137");
 });
 
 test("a settled run stays completed even when the wrapper reports a late non-zero exit", async () => {
-  const { runner, children } = await freshRunner();
+  const { runner, children, waitSettled } = await freshRunner();
   const meta = await runner.start(
     BASE,
     { keyFile: "/k", knownHostsFile: "/kh" },
@@ -1278,7 +1291,7 @@ test("a settled run stays completed even when the wrapper reports a late non-zer
   child.emit(`{"type":"agent_settled"}\n`);
   child.emitErr?.("lettuce-remote-exit 1\n");
   child.finish(1);
-  await Bun.sleep(10);
+  await waitSettled(meta.runId);
   expect(meta.state).toBe("completed");
   expect(meta.remoteExit).toBe(1); // the fact is kept, the verdict is pi's
 });
@@ -1286,7 +1299,7 @@ test("a settled run stays completed even when the wrapper reports a late non-zer
 test("the error a run carries is the reason, not the wrapper's protocol or a dump", async () => {
   // The tail lands in a conversation and on a card. `brief` drops the marker lines
   // and caps the length, so what an agent reads is a clause, not 2 kB of noise.
-  const { runner, children } = await freshRunner();
+  const { runner, children, waitSettled } = await freshRunner();
   const meta = await runner.start(
     BASE,
     { keyFile: "/k", knownHostsFile: "/kh" },
@@ -1296,7 +1309,7 @@ test("the error a run carries is the reason, not the wrapper's protocol or a dum
   child.emit(`{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/tmp"}\n`);
   child.emitErr?.(`${"noise\n".repeat(400)}out of memory\nlettuce-remote-exit 134\n`);
   child.finish(134);
-  await Bun.sleep(10);
+  await waitSettled(meta.runId);
   expect(meta.state).toBe("failed");
   expect(meta.error).toContain("out of memory");
   expect(meta.error).not.toContain("lettuce-remote-");
@@ -1304,7 +1317,7 @@ test("the error a run carries is the reason, not the wrapper's protocol or a dum
 });
 
 test("an interrupted capture still detaches, and a run with no output still fails", async () => {
-  const { store, runner, children } = await freshRunner();
+  const { store, runner, children, waitSettled } = await freshRunner();
   const meta = await runner.start(
     BASE,
     { keyFile: "/k", knownHostsFile: "/kh" },
@@ -1313,7 +1326,7 @@ test("an interrupted capture still detaches, and a run with no output still fail
   const child = only(children);
   child.emit(`{"type":"session","version":3,"id":"${SESSION}","timestamp":"t","cwd":"/tmp"}\n`);
   child.finish(255); // ssh died mid-stream: we stopped watching, that is all we know
-  await Bun.sleep(10);
+  await waitSettled(meta.runId);
   expect(meta.state).toBe("detached");
   const failed = await runner.start(
     BASE,
@@ -1321,7 +1334,7 @@ test("an interrupted capture still detaches, and a run with no output still fail
     { kind: "run", prompt: "hi again" },
   );
   only(children.slice(-1)).finish(0); // exit 0, but nothing was ever captured
-  await Bun.sleep(10);
+  await waitSettled(failed.runId);
   expect(failed.state).toBe("failed");
   void store;
 });

@@ -73,6 +73,19 @@ describe("deploymentComponents", () => {
     );
   });
 
+  it("shows a row per token even though the marker names both CLIs in the image", () => {
+    // What the image holds and what the deployment switched on are different
+    // questions: every current image carries both coding CLIs, so the marker
+    // names both whatever COMPOSE_PROFILES says, and a row still appears only for
+    // the token that is on.
+    expect(
+      rows({
+        features: { ...OFF, codex: true },
+        marker: parseCodingMarker("codex 0.169.1\nclaude 2.1.327\ngh 2.102.0"),
+      }),
+    ).toEqual(["Codex CLI=0.169.1", "GitHub CLI=2.102.0"]);
+  });
+
   it("shows the tunnel only where the tunnel container exists", () => {
     expect(rows({ tunnel: true })).toContain("Cloudflare Tunnel=2026.10.0");
     expect(rows({})).toEqual([]);
