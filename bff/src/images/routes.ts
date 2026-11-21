@@ -16,6 +16,7 @@ import type { Hono } from "hono";
 import { errorMessage } from "../errors.ts";
 import type { RouteEnv } from "../route-env.ts";
 import { drawImages, endpointFromSettings, type ImageFetch } from "./client.ts";
+import { drawFace, facePromptRefusal } from "./face.ts";
 import type { ImagesSettingsStore } from "./service.ts";
 import {
   InvalidImagesSettingsError,
@@ -111,6 +112,39 @@ export function registerImagesRoutes<Env extends RouteEnv>(
       mediaType: first.mediaType,
       size: settings.size,
       dataUrl: `data:${first.mediaType};base64,${first.b64}`,
+    });
+  });
+
+  // The avatar sheet's Draw tab: one face from a description, returned inline as
+  // a data URL. The browser crops and shrinks it and posts it through
+  // `/api/avatars`, so the BFF rasterises nothing and the drawn face lands in the
+  // one face library there is. A refusal is the server's own message, key
+  // redacted — `face.ts` already walked the size ladder by then, so what reaches
+  // the user is a queue, an auth problem, or a server that refuses every size.
+  app.post("/api/images/draw-face", async (c) => {
+    if (!imagesEnabled) return c.text(OFF, 404);
+    const body = (await c.req.json().catch(() => null)) as { prompt?: unknown } | null;
+    // Checked before the store is read: a prompt over the budget is caught here
+    // rather than cut silently by the server.
+    const refusal = facePromptRefusal(body?.prompt);
+    if (refusal) return c.text(refusal, 400);
+    const settings = await store.load();
+    if (!imagesEndpointUsable(settings)) {
+      return c.json(
+        {
+          ok: false,
+          error: "Set an endpoint URL and a model first — there is nothing to draw with yet.",
+        },
+        400,
+      );
+    }
+    const drawn = await drawFace(endpointFromSettings(settings), body?.prompt, fetchOptions);
+    if (!drawn.ok) return c.json({ ok: false, error: drawn.error }, 502);
+    return c.json({
+      ok: true,
+      mediaType: drawn.mediaType,
+      size: drawn.size,
+      dataUrl: `data:${drawn.mediaType};base64,${drawn.b64}`,
     });
   });
 }
