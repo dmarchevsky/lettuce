@@ -5,6 +5,13 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Changed
+- The playbook absorbed eighteen lessons from recent flows. A few now cost something to ignore: a bare
+  `docker restart` on a container, or a hand-typed unscoped `up`, stops for confirmation the way a compose
+  `down` always did; a docs flow that edits a project script has to say which checks it actually ran; a
+  screen invented after the plan was approved has to be rendered or named unseen; and a seeded state the
+  operator is meant to click has to be there when they click.
+
 ## [v0.48.2-letta_0.34.67] - 2026-11-21
 
 ### Fixed

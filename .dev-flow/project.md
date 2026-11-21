@@ -12,6 +12,8 @@ worktreeDir = .dev-flow/{slug}/worktree
 ```
 
 ```flow-guard
+confirm \bdocker\s+(?:restart|stop|kill|rm)\b[^\n]*lettuce- :: a bare docker command on a compose container tears the namespace holding bff and channel-gateway
+confirm \bdocker\b[^\n]*\bcompose\b[^\n]*\bup\b(?:\s+-d|\s+--detach)\s*$ :: an unscoped `up` recreates app-server and every turn in flight — name the service, or route it through flow verify
 confirm \bdocker\b[^\n]*\bcompose\b[^\n]*\b(?:rm|down|stop|kill)\b :: stops running containers
 confirm \bdocker\b[^\n]*\bcompose\b[^\n]*\brestart\b      :: drops the permanent upstream connection and any turn in flight
 confirm \bdocker\b[^\n]*\bcompose\b[^\n]*\bup\b[^\n]*(?:^|\s)app-server(?=\s|$) :: that service shares a network namespace with two others
@@ -30,6 +32,14 @@ happened.
 
 A `flow-guard` rule matches shell text, not intent: a `gh pr create --body "…docker compose down…"` trips
 the confirm rule, so a body that quotes a command goes in a file and comes in with `--body-file`.
+
+The lifecycle confirms are not only about `compose`. A bare `docker restart lettuce-app-server-1` — no word
+`compose` anywhere — tears down the same network namespace that holds `bff` and `channel-gateway`, so `bff`
+loses its upstream route and every turn in flight with no drain, exactly as a compose stop would; one flow
+did that in a chained call to make the app re-read a file it already reads off disk, and lost six minutes of
+app plus another session's deploy. And a hand-typed unscoped `up -d` from a worktree silently recreates
+`app-server` on the shared stack, so it confirms too: name the service, or route it through `flow verify`,
+which owns the question of who is being displaced.
 
 A force push needs no rule of its own: dev-flow asks the operator before any `git push --force` /
 `--force-with-lease`, and their word is the `DEV_FLOW_ALLOW_REWRITE=1` prefix. A pushed branch is still
@@ -104,9 +114,26 @@ model before driving a turn" is the special case of a wider duty: name what the 
 output in plan.md. A roadmap brief's claim that "the image carries `gh` plus a persisted login" went into
 an approved plan unproven and died at implement, where `gh auth status` in the container answered *not
 logged into any GitHub hosts* and the feature could not be exercised at all. A brief's assertion is not
-evidence.
+evidence. The same probe settles a bullet that needs a compose profile token: quote `/api/status`'s
+`features` for the token, or write the bullet as **waived at plan time** — a bullet that needs `codex` or
+`claude` (or `images`, or `telegram`) on a stack that does not carry it is discovered unwalkable at the
+checkpoint, where the only close left is a verbal gap.
 
 An asked-for *skill* settles its harness **before the flow starts**: `.agents/skills/` is this repo's dev harness — pi reads it in the checkout, and nothing mounts this checkout into a container, so it reaches no agent — while `docker/agent-skills/` is what ships: the bff image carries it and `bff/src/agent-skills.ts` installs it into `/root/.letta/skills` on every connect, global to every agent (Settings → Global skills). Ask which one is meant when it is ambiguous; guessing wrong once cost a whole extra unversioned flow for a skill that could never reach the app, plus a modify/delete rebase conflict when the harness copy was deleted.
+
+**An Approve? answer carries more than a yes.** When it names a class — "Approve patch" — it names the
+**bump class**, not the `--patch` flow mode, and a mode cannot be added to a started feature (the refusal
+only hints at `--ui`): record the class in plan.md and pass it later as `--version=<class>` at verify. Same
+for `--ui`: turning it on for a plan-stage flow is `flow start <slug> --ui` **in place**, never
+abort-and-restart, which throws away the flow identity for nothing.
+
+**A `--ui` plan answers direction before it paints.** Open direction questions go in a chat beat *before*
+`plan.md` and the mockups: an Approve? that arrives with questions *and* finished renders means every render
+may have to be redone — six mockups were rendered, the operator then said "make configuration universal",
+and all six were redone. And **a plan-named verification step is a debt the checkpoint must see**: a step
+plan.md names ("capture a real `tool_return_message` with an image part before trusting the shape") survives
+approve, both implement workers and the first Verified? unless the Verified? message lists every such step
+as done or waived — the tier-2 counter carries playbook items only, so nothing else notices.
 
 Anything user-visible starts with `flow start <slug> --ui`. A docs-only change (nothing under `bff/`,
 `web/` or `docker/`) still needs a flow: `flow start <slug> --docs` — and `--patch` / `--docs` are the
@@ -206,7 +233,25 @@ build at web/dist`, a Playwright that cannot resolve); when a screenshot is the 
 moment its branch touches `bff/`, `web/` or `docker/`** — even a comment-only edit — while `flow check`
 keeps printing "project commands skipped": docs mode runs zero checks over a tree that ships. The instant
 the diff leaves the doc paths, run `bun run verify` by hand before Verified?, and say plainly in the PR
-that the container pass was skipped and why.
+that the container pass was skipped and why. **`scripts/` is gate code, not prose** — mode is decided by path,
+and a `--docs` branch that edits `scripts/*.ts` has run nothing over the thing that runs every other check (PR
+#149 shipped `scripts/harness.ts` and `scripts/verify.ts` edits exactly that way, and the review brief told the
+reviewer not to build either). So: hand-run at least `check-docs`, `lint`, `typecheck` and `test` in the
+worktree, and name in the PR body which checks ran and which the mode skipped.
+
+**A compose-profile token lives in as many copies as there are worktrees.** `setup` copies `docker/.env` into
+each worktree and every flow deploys from **its own** copy, so a token added to the main checkout alone silently
+drops on the next parallel `up -d` — and the app then tells the operator the feature is off. After flipping a
+token, list it from every copy and quote the listing in the handoff:
+`for f in docker/.env .dev-flow/*/worktree/docker/.env; do echo "$f"; grep COMPOSE_PROFILES "$f"; done`, run
+from the main checkout so the glob reaches them all. If a parallel deploy reverted it before you did, say that
+instead of letting the operator rediscover it.
+
+**Commit, then build, then measure.** The bff image bakes the git sha into `BUILD_INFO`, so a commit made
+after `build:bff` leaves the stack serving the previous sha and the served-build gate refuses with what reads
+like someone else's redeploy ("serving …+58046b8d, this checkout is 01849ccb") — one flow paid two full image
+builds and a full `ui-check` pass, and first concluded another session had redeployed over it, before finding
+its own sha had moved after the build.
 
 **Verify is two steps, and the first one is the deploy.** `flow verify` (no `--confirmed`) rebases the
 branch onto `origin/main` when it is behind, then runs `dev` itself — `build:bff`, then `up -d` — proves
@@ -289,7 +334,11 @@ run them records **what it probed in the container** instead — in the PR's *Wh
 plainly that a human pass on the sign-in path is still owed. `flow verify` deploying and probing `/readyz`
 is not that pass and never counts as one.
 
-**A `flow_stage` worker gets six more lines in its brief, because it has no operator to ask.**
+**A `flow_stage` worker gets seven more lines in its brief, because it has no operator to ask.**
+- **Plan artifacts belong to the driver.** `plan/plan.md` and `plan/mockups/` sit outside the worktree, so a
+  worker asked to re-link or re-render a mockup is asked to write where its guard forbids writes — and it will
+  spend calls patching `../../` paths through bash instead of saying so. Brief it to render into the worktree,
+  or do the re-render in the driving session.
 - **Never type a compose lifecycle command — `down`, `stop`, `kill`, `rm`, `restart`.** The compose file pins
   `name: lettuce`, so a `down -v` typed in a copy of the file still tears down the real one-per-machine stack
   and its named volumes. Prove compose interpolation with `docker compose config` in a scratch directory and
@@ -341,6 +390,26 @@ which starts sidecars and can recreate `app-server`: name that in the handoff ra
       parallel flow landed since, update first (`git merge origin/main` in the worktree; once the branch is
       pushed, merging is also the `## global` rule — never rebase a pushed branch) and re-run the checks
 
+**(ui) A state invented after Approve? is still a changed surface.** The mockup gate stops at plan, so copy or
+a view added during implement — a review finding's error line, a new empty state — can reach a release with no
+render and, often, no reachable browser path to it (a copy that only appears when a backend call fails cannot be
+clicked at all). Re-render anything new into `plan/mockups/` with `scripts/mockup.ts`, or name it explicitly
+waived at Verified? — the same rule as a plan-named measurement, one beat later.
+
+**A probe that measures the scroll must measure a keyed row.** When a check asserts the viewport held its place,
+record the anchor row's own identity and offset at interaction time (`[data-entry]`'s
+`getBoundingClientRect()` relative to the scroller) and look it up by that identity again. Never infer the
+anchor from "the topmost row the query found": rows scrolled past are still in the DOM and will answer, and
+their verdict reads exactly like broken code. One flow spent six build-deploy-probe cycles (~40 min) debugging a
+hold that was already exact (the wall sat at 10px before and after each page landed, at both 1280 and 390),
+because its probe compared against the new first row.
+
+**A repro that needed seeded data must be clickable at Verified?.** If the plan told you to delete what you
+planted (it did: planted state destabilises `ui-check`), the headline state is gone with it, and the operator's
+Verified? would be spoken over an app that cannot show the feature. Re-plant before the deploy, hand the seed
+back for the click-through, delete it after, and say in the checkpoint that the state needed the seed — measured
+by the agent is not seen by the human.
+
 ## pre-release
 
 ```flow
@@ -377,6 +446,20 @@ CI) goes under `### Changed` — the heading rule above reads only at a versione
 label is what CI derives from and a harness flow carries `bump:none`. Parallel branches collide on `VERSION`
 and `CHANGELOG.md`: merge `main` in and re-derive
 the version before asking Release?, because the gate refuses a tag that already exists.
+
+**A behaviour change that lands after Verified? is not covered by it.** Whether it is a review fix or a
+"fold it in" the operator asked for mid-checkpoint, a behaviour-changing commit after the word goes back
+through `flow verify` before `flow release` — at pre-release that redeploys and re-asks Verified? over the
+current tree, and the gate's own refusal says so. Which means review fixes belong *before* Verified? whenever
+there is still an implement turn to take; once the word is given, one message asks Verified? again and
+Release? only after. And a gate refusal is never answered with `--confirmed` in the same turn: the standing
+word was already spent on the question the gate just re-asked, and re-running immediately is refused again.
+
+**Never probe the release gate on a versioned path before the bump word.** A `--docs` flow asked to release
+tries a versioned `flow release`, and the next tag may already belong to a parallel flow while `Unreleased`
+holds leftovers from earlier `--no-version` flows — and a failed versioned release is not a free probe, because
+it pushes the branch before it refuses. A docs flow asks the bump class (or unversioned) in the same breath as
+Release?, then runs the gate **once** with the answer (`--no-version`, or the named version).
 
 **A code-free release flow** (its only commit is the bump) inverts the order above: `flow verify` refuses
 a branch with nothing committed, so the release-prep commit is cut at implement, and pre-release only
@@ -454,7 +537,12 @@ registered yet — which reads exactly like nothing-to-wait-for and invites a me
 again (a short sleep, re-run) until checks actually appear, and only then treat a green watch as green. The
 sibling failure is a run stuck in `queued`: `gh run watch` will spend your whole shell timeout on a run
 that never starts, and a run still queued long after later runs finished is a stuck slot, not a backlog —
-re-trigger by pushing a new head commit rather than keep polling.
+re-trigger by pushing a new head commit rather than keep polling. The third shape is a **stale check-run**: the
+workflow run has completed and its job reports `success`, but the check-run itself is still `in_progress` and
+never clears on its own — one release waited three 30-minute gate windows (~90 min) on an `actionlint` check
+whose job had finished green minutes earlier. Probe the job, not the check: `gh api
+repos/<owner>/<repo>/actions/jobs/<job-id>`; on `conclusion=success`, push the new head commit (the merge that
+was already due) and let the fresh run stamp the check.
 
 The tag *is* the publish trigger — pushing it runs `.github/workflows/publish.yml`, which pushes all five
 images to GHCR and retags `latest` — so **`release.artifact` is what proves a release shipped**: the gate
