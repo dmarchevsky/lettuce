@@ -5,6 +5,16 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Fixed
+- **A finished drawing is the tool's card, not a message from you.** A draw that
+  outlived its foreground window came back as a **You** bubble holding raw
+  `<external-tool-result>` tags; it now renders as the tool's own card — the
+  tool, whether it worked, how long it took, and the pictures with a full-size
+  preview — and it answers to the Tasks switch. Old conversations read the same
+  way, because the fix is in how the transcript is parsed. The tool's return also
+  stops repeating instructions the model was already given.
+>>>>>>> 01849cc (docs(changelog): a finished drawing is the tool's card, not a message from you)
+
 ## [v0.48.1-letta_0.34.67] - 2026-11-20
 
 ### Fixed
