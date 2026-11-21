@@ -785,15 +785,19 @@ export function useConversation(
     try {
       const page = await fetchHistoryPage(request, conversationId, nextBefore);
       const merged = appendOlderPage(historyRecordsRef.current, page.messages);
+      // A cursor the server does not know answers with the newest page again, so
+      // a page that adds nothing means the transcript is complete — say that rather
+      // than offer the same dead button again.
       historyRecordsRef.current = merged.messages;
       historyCursorRef.current = { nextBefore: page.nextBefore, hasMore: page.hasMore };
-      // Nothing new arrived: the cursor was stale or the server lost the thread, so
-      // say the transcript is complete rather than offer the same dead button.
       setHistoryPartial(page.hasMore && page.nextBefore !== null && merged.added > 0);
       setHistoryLoaded(merged.messages.length);
       const errors = agentId ? await fetchTurnErrors(agentId, conversationId) : [];
-      commitHistory(merged.messages, errors);
+      // The counter and the rows must land in the same render, and the counter
+      // first: it is what tells the list to hold the reader's scroll position, and
+      // a render of the new rows without it would jump them before it arrived.
       setOlderPages((n) => n + 1);
+      commitHistory(merged.messages, errors);
     } catch (cause) {
       setError(friendlyServerError(errorMessage(cause)));
     } finally {

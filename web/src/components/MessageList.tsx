@@ -170,31 +170,55 @@ export function MessageList({
   stuckRef.current = stuck;
 
   // `entries` and `processing` are the trigger, not inputs: new content is what
-  // should pull the view down, and where to scroll is read from the DOM.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the deps say when to scroll, not what to read
-  useLayoutEffect(() => {
-    const container = containerRef.current;
-    if (!container || !stuckRef.current) return;
-    container.scrollTop = container.scrollHeight;
-  }, [entries, processing]);
-
-  // An older page lands above the viewport, where the reader of a partial
-  // transcript already is — so without a word from the browser the text they were
-  // reading jumps down by the height of everything inserted. Scroll anchoring is
-  // not something to trust here (it is exactly the case it handles worst), so the
-  // height the insert added is measured and the scroll position pushed by it.
-  const heightRef = useRef(0);
+  // should move the view, and where to put it is read from the DOM.
+  //
+  // One scroll decision, because the two cannot be ordered: holding the reader's
+  // position when an older page lands has to happen before the stick-to-bottom
+  // decision, and a second effect gets there only after they have been dragged to
+  // the bottom. And the row to hold is measured at the click — by the time the page
+  // lands nothing is left recording where the reader was, and a hold worked out from
+  // what the list grew by is a guess that shows as a visible jump.
+  const holdRef = useRef<{ id: string; top: number } | null>(null);
   const olderSeenRef = useRef(olderPages);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `olderPages` is the event, not an input
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the deps say when to scroll, not what to read; `olderPages` is the event the held row belongs to
   useLayoutEffect(() => {
     const container = containerRef.current;
+    if (!container) return;
     const grew = olderPages !== olderSeenRef.current;
     olderSeenRef.current = olderPages;
-    const delta = container ? container.scrollHeight - heightRef.current : 0;
-    heightRef.current = container?.scrollHeight ?? 0;
-    if (!container || !grew || stuckRef.current || delta <= 0) return;
-    container.scrollTop += delta;
-  }, [entries, olderPages]);
+    const held = grew ? holdRef.current : null;
+    holdRef.current = null;
+    const anchor = held
+      ? container.querySelector<HTMLElement>(`[data-entry="${CSS.escape(held.id)}"]`)
+      : null;
+    if (anchor && held) {
+      container.scrollTop +=
+        anchor.getBoundingClientRect().top - container.getBoundingClientRect().top - held.top;
+    } else if (stuckRef.current) {
+      container.scrollTop = container.scrollHeight;
+    }
+  }, [entries, processing]);
+
+  /**
+   * Press the wall: remember what the reader is looking at, then ask for the older
+   * page that lands above it.
+   *
+   * The click is the only moment that still knows. A row with no element of its own
+   * (a collapsed steps run) leaves nothing to hold, and the list just grows.
+   */
+  const loadOlderPressed = () => {
+    const container = containerRef.current;
+    if (container) {
+      const top = container.getBoundingClientRect().top;
+      const row = Array.from(container.querySelectorAll<HTMLElement>("[data-entry]")).find(
+        (el) => el.getBoundingClientRect().bottom > top,
+      );
+      holdRef.current = row
+        ? { id: row.dataset.entry as string, top: row.getBoundingClientRect().top - top }
+        : null;
+    }
+    onLoadOlder?.();
+  };
 
   useEffect(() => {
     const container = containerRef.current;
@@ -375,7 +399,7 @@ export function MessageList({
             {historyLoadingOlder ? (
               <span className="pill history-wall-busy">Loading older messages…</span>
             ) : (
-              <button type="button" className="pill as-button" onClick={onLoadOlder}>
+              <button type="button" className="pill as-button" onClick={loadOlderPressed}>
                 Load older messages
               </button>
             )}
@@ -825,7 +849,10 @@ const MessageItem = memo(function MessageItem({
   // A subagent's reply is a step, not the answer; it keeps the plain label.
   const who = entry.kind === "user" ? "You" : entry.subagentId ? "Subagent" : label;
   return (
-    <div className={`entry ${entry.kind}${entry.subagentId ? " subagent" : ""}`}>
+    <div
+      className={`entry ${entry.kind}${entry.subagentId ? " subagent" : ""}`}
+      data-entry={entry.id}
+    >
       <div className="role">
         <span className="who">{who}</span>
         {/* Arrived from Telegram/Slack rather than typed here — still you. */}
