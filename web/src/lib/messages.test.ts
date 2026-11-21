@@ -1036,6 +1036,27 @@ describe("a backgrounded tool's own result", () => {
     expect(entries[0]!.images).toHaveLength(1);
   });
 
+  test("a picture nothing can hold gets a row of its own", () => {
+    // The worst coalescing: the only draw failed and the only other block is a
+    // reminder, so every row that exists either refuses the picture (a failed
+    // card) or cannot draw one (a disclosure). It still has to be on screen.
+    const entries = entriesForContent([
+      text("<system-reminder>the time is 07:46</system-reminder>"),
+      text(notification("External tool generate_image failed", "failed")),
+      text("\n<external-tool-result>"),
+      text("<text>generate_image failed: HTTP 400 bad size</text>"),
+      picture(),
+      text("</external-tool-result>"),
+    ]);
+    const carrier = entries.find((entry) => entry.images?.length);
+    expect(carrier?.kind).toBe("user");
+    expect(carrier?.reminder).toBeUndefined();
+    // And it stands on its own row: a picture inside a collapsed fold is a
+    // picture nobody scrolls to find.
+    const items = groupTranscript(entries);
+    expect(items.some((item) => item.kind === "message" && item.entry.images?.length)).toBe(true);
+  });
+
   test("an ordinary subagent receipt is untouched by the pairing", () => {
     const entries = entriesForContent([text(notification('Agent "look" completed'))]);
     expect(entries).toHaveLength(1);

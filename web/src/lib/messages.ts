@@ -534,10 +534,16 @@ function splitInjectedBlocks(entry: TranscriptEntry): TranscriptEntry[] {
   // Nothing consumed the pictures, so they go back where they were: an inbound
   // Telegram photo is a `<channel-notification>` block with image parts and no
   // prose, and that block is the person's own message. The rule is that images
-  // move, never that they disappear.
+  // move, never that they disappear — so the row that takes them has to be one
+  // that draws them. A reminder disclosure or a failed card would accept the
+  // pictures and show nothing, and a coalesced message is exactly where the only
+  // rows are those two, so a leftover with no home gets a row of its own.
   if (leftToPlace) {
-    const home = out.find((item) => item.kind === "user") ?? out[out.length - 1];
+    const home =
+      out.find((item) => item.kind === "user") ??
+      out.find((item) => item.kind === "task" && item.promoted && item.status !== "error");
     if (home) home.images = leftToPlace;
+    else out.push({ ...entry, id: `${entry.id}:images`, text: "", images: leftToPlace });
   }
   return out;
 }
@@ -1087,23 +1093,6 @@ export function stepLabel(entry: TranscriptEntry): string {
 }
 
 /**
- * Fold the agent's work between messages into runs.
- *
- * The transcript used to render every thinking block, tool call and reminder at
- * the same weight as the question and the answer, so a ten-step turn buried the
- * reply. Each run of consecutive steps becomes one collapsible item; messages
- * and notices stay standalone — a notice is often the error that ended the
- * turn, and must never be hidden inside a fold. The caller removes tool returns
- * it renders folded into their call before grouping, so they are not counted.
- *
- * The agent's narration between steps ("Scan done. Selecting the batch:")
- * belongs to the run, not between runs: splitting on it turned one turn into a
- * ladder of bubble / "3 steps" pairs. So a whole turn's work is one run, headed
- * by its latest narration, and only the turn's final text stands as the
- * answer. Blank text is dropped outright. Live, the agent's newest text is an
- * answer until a step follows it, then it folds into the run above.
- */
-/**
  * Entries that stand on their own row instead of folding into a run of steps.
  *
  * A question has to be seen to be answered; a remote-pi card is live; a channel
@@ -1120,6 +1109,23 @@ function standsAlone(entry: TranscriptEntry): boolean {
   );
 }
 
+/**
+ * Fold the agent's work between messages into runs.
+ *
+ * The transcript used to render every thinking block, tool call and reminder at
+ * the same weight as the question and the answer, so a ten-step turn buried the
+ * reply. Each run of consecutive steps becomes one collapsible item; messages
+ * and notices stay standalone — a notice is often the error that ended the
+ * turn, and must never be hidden inside a fold. The caller removes tool returns
+ * it renders folded into their call before grouping, so they are not counted.
+ *
+ * The agent's narration between steps ("Scan done. Selecting the batch:")
+ * belongs to the run, not between runs: splitting on it turned one turn into a
+ * ladder of bubble / "3 steps" pairs. So a whole turn's work is one run, headed
+ * by its latest narration, and only the turn's final text stands as the
+ * answer. Blank text is dropped outright. Live, the agent's newest text is an
+ * answer until a step follows it, then it folds into the run above.
+ */
 export function groupTranscript(entries: readonly TranscriptEntry[]): TranscriptItem[] {
   const items: TranscriptItem[] = [];
   const narration = narrationIds(entries);
