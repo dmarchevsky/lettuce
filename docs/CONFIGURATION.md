@@ -336,6 +336,13 @@ draw** box is the reachability probe. The key is stored on the `bff-data` volume
 owner-only and is never sent back to the browser. Drawn pictures land in the
 agent's workspace under `generated/` and appear in the conversation itself.
 
+The same endpoint also draws **agent avatars**: Agent → Avatar → **Draw** takes a
+description, and the face joins the shared face library like an uploaded one does.
+The tab is hidden while no endpoint is configured, and it asks for a small square
+size first and falls back through smaller, larger, then no size at all — servers
+disagree about which sizes they serve, so there is nothing to configure here, and
+whatever comes back is cropped and shrunk in the browser.
+
 ## Providers that name models `vendor/model`
 
 Settings → Providers & models → **Add provider** registers a provider you name

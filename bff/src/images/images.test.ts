@@ -880,6 +880,16 @@ describe("images routes", () => {
     ).toBe(404);
   });
 
+  test("GET hands the Draw tab the style line it must show, in the draw's own words", async () => {
+    const { app } = await routes();
+    const answer = (await (await app.fetch(new Request("http://x/api/images/settings"))).json()) as {
+      faceStylePrefix?: string;
+    };
+    // A hint written into the UI would be a hint that silently disagrees with what is
+    // sent; the sheet renders this string instead of a copy of it.
+    expect(answer.faceStylePrefix).toBe(FACE_STYLE_PREFIX);
+  });
+
   test("GET never echoes the key; PUT saves, clears and re-syncs the mod", async () => {
     const { app, resyncs } = await routes();
     expect(
