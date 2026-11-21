@@ -131,6 +131,21 @@ function isExternalHref(url: string): boolean {
   return /^[a-z][a-z0-9+.-]*:/i.test(url) || url.startsWith("#") || url.startsWith("//");
 }
 
+/**
+ * A markdown image's `src` as a workspace path, so a picture the agent names
+ * renders instead of breaking.
+ *
+ * `generate_image` reports "Saved to generated/x.png" — relative to the agent's
+ * own directory — and the model quotes what it was given, so `![dog](generated/x.png)`
+ * is the shape prose arrives in. The SPA has no route under the workspace, so a
+ * relative src went to the browser and came back a broken-image box. Anything
+ * already real (a scheme, an anchor, a protocol-relative URL) is left exactly as
+ * written, and so is a relative path with no workspace to resolve it against.
+ */
+export function markdownImageTarget(src: string, cwd: string | null): string {
+  return isExternalHref(src) ? src : (resolveWorkspacePath(src, cwd) ?? src);
+}
+
 /** Resolve a token to an absolute path inside `/work/`, or `null` to leave as text. */
 export function resolveWorkspacePath(token: string, cwd: string | null): string | null {
   let raw: string;
