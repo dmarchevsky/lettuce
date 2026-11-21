@@ -720,28 +720,36 @@ export function useConversation(
       // closure is already current).
       const current = () => gen === undefined || gen === loadGenRef.current;
       setError(null);
-      // In parallel with the history request; see `mergeTurnErrors`.
-      const turnErrors = agentId ? fetchTurnErrors(agentId, conversationId) : Promise.resolve([]);
+      // In parallel with the history request; see `mergeTurnErrors`. It is optional
+      // data — a failure to read the BFF's error log must not cost the reader their
+      // wall, so it answers with nothing rather than rejecting into the catch below.
+      const turnErrors = agentId
+        ? fetchTurnErrors(agentId, conversationId).catch(() => [] as TurnErrorRecord[])
+        : Promise.resolve([] as TurnErrorRecord[]);
       refreshUsage();
       try {
         // Read back to the floor instead of accepting one page: one page of a long
         // conversation silently loses its beginning, with nothing on screen to tell
-        // the reader the transcript is partial (#148). Each page is committed as it
-        // arrives, so the newest messages appear while the older ones are still
-        // arriving rather than all at once after the last round trip.
+        // the reader the transcript is partial (#148). The newest page is committed
+        // on its own so the transcript is not blank through every round trip; the
+        // rest land together, because every commit re-renders the whole list and a
+        // page at a time would render messages nobody has scrolled for yet.
+        let painted = false;
         const loaded = await loadHistoryPages(request, conversationId, {
           floor: HISTORY_MESSAGE_FLOOR,
           onPage: (messages) => {
-            if (current()) commitHistory(messages, []);
+            if (painted || !current()) return;
+            painted = true;
+            commitHistory(messages, []);
           },
         });
-        if (!current()) return;
-        const errors = await turnErrors;
         if (!current()) return;
         historyRecordsRef.current = loaded.messages;
         historyCursorRef.current = { nextBefore: loaded.nextBefore, hasMore: loaded.hasMore };
         setHistoryPartial(loaded.partial);
         setHistoryLoaded(loaded.messages.length);
+        const errors = await turnErrors;
+        if (!current()) return;
         commitHistory(loaded.messages, errors);
         // A request/response frame like this one never carries the sequence
         // number that would otherwise flip the link back to "live" on its
@@ -780,29 +788,39 @@ export function useConversation(
     if (!conversationId || olderBusyRef.current) return;
     const { nextBefore } = historyCursorRef.current;
     if (!nextBefore) return;
+    // The same supersession rule the cold load obeys: the reader may have switched
+    // conversations while this page was on its way, and its records belong to the
+    // conversation they were fetched for, not the one now on screen.
+    const gen = loadGenRef.current;
+    const pile = historyRecordsRef.current;
+    const stillCurrent = () => gen === loadGenRef.current && historyRecordsRef.current === pile;
     olderBusyRef.current = true;
     setHistoryLoadingOlder(true);
     try {
       const page = await fetchHistoryPage(request, conversationId, nextBefore);
-      const merged = appendOlderPage(historyRecordsRef.current, page.messages);
-      // A cursor the server does not know answers with the newest page again, so
-      // a page that adds nothing means the transcript is complete — say that rather
-      // than offer the same dead button again.
+      if (!stillCurrent()) return;
+      const merged = appendOlderPage(pile, page.messages);
+      const errors = agentId
+        ? await fetchTurnErrors(agentId, conversationId).catch(() => [] as TurnErrorRecord[])
+        : [];
+      if (!stillCurrent()) return;
       historyRecordsRef.current = merged.messages;
       historyCursorRef.current = { nextBefore: page.nextBefore, hasMore: page.hasMore };
-      setHistoryPartial(page.hasMore && page.nextBefore !== null && merged.added > 0);
+      setHistoryPartial(page.hasMore && page.nextBefore !== null);
       setHistoryLoaded(merged.messages.length);
-      const errors = agentId ? await fetchTurnErrors(agentId, conversationId) : [];
       // The counter and the rows must land in the same render, and the counter
       // first: it is what tells the list to hold the reader's scroll position, and
       // a render of the new rows without it would jump them before it arrived.
       setOlderPages((n) => n + 1);
       commitHistory(merged.messages, errors);
     } catch (cause) {
+      if (!stillCurrent()) return;
       setError(friendlyServerError(errorMessage(cause)));
     } finally {
-      olderBusyRef.current = false;
-      setHistoryLoadingOlder(false);
+      if (stillCurrent()) {
+        olderBusyRef.current = false;
+        setHistoryLoadingOlder(false);
+      }
     }
   }, [agentId, conversationId, request, commitHistory]);
 

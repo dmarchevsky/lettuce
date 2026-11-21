@@ -187,7 +187,10 @@ export function MessageList({
     const grew = olderPages !== olderSeenRef.current;
     olderSeenRef.current = olderPages;
     const held = grew ? holdRef.current : null;
-    holdRef.current = null;
+    // Consumed only by the page it was measured for: a streamed token arriving
+    // while the older page is in flight must not be what throws the measurement
+    // away, or the hold is silently gone when the rows actually land.
+    if (grew) holdRef.current = null;
     const anchor = held
       ? container.querySelector<HTMLElement>(`[data-entry="${CSS.escape(held.id)}"]`)
       : null;

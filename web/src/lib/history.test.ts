@@ -111,27 +111,32 @@ describe("loadHistoryPages", () => {
     expect(loaded.nextBefore).toBe("p3");
   });
 
-  test("a cursor the server does not know ends the read instead of looping", async () => {
+  test("a cursor the server does not know stops the read, and is still reported partial", async () => {
     // Measured against the local backend: an unknown `before` answers with the
     // newest page again rather than refusing, so paging on it would never end.
+    // Stopping is right; calling that a complete transcript would be the silent
+    // truncation this module exists to prevent, because `has_more` said otherwise.
     const page = { messages: msgs("c", "b"), has_more: true, next_before: "p2" };
     const { request, calls } = server([page, page]);
     const loaded = await loadHistoryPages(request, "conv-1", { floor: 100 });
     expect(loaded.messages.map((m) => (m as { id: string }).id)).toEqual(["c", "b"]);
     expect(calls).toEqual([null, "p2"]);
-    expect(loaded.partial).toBe(false);
+    expect(loaded.partial).toBe(true);
   });
 
-  test("reports the pile after every page, so the newest one paints first", async () => {
+  test("hands back the newest page and leaves the rest to the final commit", async () => {
+    // Every commit re-renders the whole list, so the caller gets one early paint
+    // (the newest page, so the transcript is not blank) and then the whole pile.
     const { request } = server([
-      { messages: msgs("d", "c"), has_more: true, next_before: "p2" },
+      { messages: msgs("f", "e"), has_more: true, next_before: "p2" },
+      { messages: msgs("d", "c"), has_more: true, next_before: "p3" },
       { messages: msgs("b", "a"), has_more: false, next_before: null },
     ]);
     const sizes: number[] = [];
     await loadHistoryPages(request, "conv-1", {
       onPage: (messages) => sizes.push(messages.length),
     });
-    expect(sizes).toEqual([2, 4]);
+    expect(sizes).toEqual([2]);
   });
 
   test("the pile handed to onPage is a copy", async () => {
@@ -168,5 +173,25 @@ describe("appendOlderPage", () => {
   test("keeps a record with no id rather than losing it to a dedupe", () => {
     const merged = appendOlderPage([{ id: "x" }, {}], [{}, { id: "y" }]);
     expect(merged.messages).toHaveLength(4);
+  });
+
+  test("two records sharing one id are two records, not a repeat", () => {
+    // The transcript keeps both by namespaceing them on kind, so the paging dedupe
+    // has to agree — deduping on the bare id here would drop one before it ever
+    // got there, which is the loss `historyKey` exists to prevent.
+    const merged = appendOlderPage(
+      [{ id: "dup", message_type: "assistant_message" }],
+      [{ id: "dup", message_type: "user_message" }],
+    );
+    expect(merged.added).toBe(1);
+    expect(merged.messages).toHaveLength(2);
+  });
+
+  test("the same record arriving again is dropped", () => {
+    const merged = appendOlderPage(
+      [{ id: "dup", message_type: "user_message" }],
+      [{ id: "dup", message_type: "user_message" }],
+    );
+    expect(merged.messages).toHaveLength(1);
   });
 });

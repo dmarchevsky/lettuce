@@ -65,23 +65,32 @@ export interface HistoryLoad extends HistoryPage {
   partial: boolean;
 }
 
-/** The id a record can be recognised by, or null when it has none. */
-function idOf(message: unknown): string | null {
+/**
+ * The identity a record is deduped by — its kind and id, not its id alone.
+ *
+ * Two records in one conversation can share an `id`, and the transcript keeps both
+ * by namespaceing them on kind (see `historyKey` in `messages.ts`). Deduping on the
+ * bare id here would drop the second one before it ever reached that step, which
+ * would re-create the silent loss this whole path exists to prevent.
+ */
+function identityOf(message: unknown): string | null {
   if (!message || typeof message !== "object") return null;
-  const id = (message as { id?: unknown }).id;
-  return typeof id === "string" && id.length > 0 ? id : null;
+  const record = message as { id?: unknown; message_type?: unknown };
+  if (typeof record.id !== "string" || record.id.length === 0) return null;
+  const kind = typeof record.message_type === "string" ? record.message_type : "";
+  return `${kind}\u0000${record.id}`;
 }
 
-/** Append a page to a newest-first pile, skipping any id already held. */
+/** Append a page to a newest-first pile, skipping any record already held. */
 function append(into: unknown[], seen: Set<string>, page: readonly unknown[]): number {
   let added = 0;
   for (const message of page) {
-    const id = idOf(message);
+    const identity = identityOf(message);
     // A record with no id cannot be recognised as a repeat, so it is kept: losing
     // a message to a dedupe is worse than showing one twice.
-    if (id !== null) {
-      if (seen.has(id)) continue;
-      seen.add(id);
+    if (identity !== null) {
+      if (seen.has(identity)) continue;
+      seen.add(identity);
     }
     into.push(message);
     added += 1;
@@ -102,8 +111,8 @@ export function appendOlderPage(
   const messages = into.slice();
   const seen = new Set<string>();
   for (const message of messages) {
-    const id = idOf(message);
-    if (id !== null) seen.add(id);
+    const identity = identityOf(message);
+    if (identity !== null) seen.add(identity);
   }
   return { messages, added: append(messages, seen, page) };
 }
@@ -111,10 +120,17 @@ export function appendOlderPage(
 /**
  * Read a conversation's history, newest-first, up to `floor` messages.
  *
- * `onPage` runs after every page with the pile so far, so the caller can paint the
- * newest page immediately instead of holding a blank transcript through every
- * round trip. `partial` is true only when the floor stopped the read with a
- * usable cursor left over — the one state that deserves a wall.
+ * `onPage` runs with the pile after the pages arrive, so the caller can paint the
+ * newest page immediately instead of holding a blank transcript through every round
+ * trip. It is deliberately called once, not per page: every commit rebuilds the
+ * transcript and re-renders every row, so a fifth page would cost a fifth full
+ * render for messages the reader has not asked for yet.
+ *
+ * `partial` is true whenever older messages are known to exist with a cursor to
+ * reach them — including the case where that cursor stops answering. Claiming a
+ * transcript is complete when the server said there was more is the silent
+ * truncation this module exists to prevent, so it is reported as partial and the
+ * caller keeps offering the wall.
  */
 export async function loadHistoryPages(
   request: HistoryRequest,
@@ -139,13 +155,10 @@ export async function loadHistoryPages(
     hasMore = page.hasMore;
     nextBefore = page.nextBefore;
     // A cursor the server does not recognise answers with the newest page again
-    // (measured against the local backend), which would loop forever and show the
-    // same messages twice. A page that adds nothing is the end of the road.
-    if (added === 0) {
-      hasMore = false;
-      break;
-    }
-    options.onPage?.(messages.slice(), page);
+    // (measured against the local backend), so paging on it would loop and show the
+    // same messages twice. Stop — but do not call that the end of the conversation:
+    // `has_more` said otherwise, and the wall stays up.
+    if (added === 0) break;
   }
 
   return { messages, hasMore, nextBefore, partial: hasMore && nextBefore !== null };
