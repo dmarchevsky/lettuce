@@ -179,6 +179,8 @@ export function MessageList({
   // lands nothing is left recording where the reader was, and a hold worked out from
   // what the list grew by is a guess that shows as a visible jump.
   const holdRef = useRef<{ id: string; top: number } | null>(null);
+  /** `holdRef` ids are entry ids; the wall row is held by this one instead. */
+  const WALL_ANCHOR = "\u0000wall";
   const olderSeenRef = useRef(olderPages);
   // biome-ignore lint/correctness/useExhaustiveDependencies: the deps say when to scroll, not what to read; `olderPages` is the event the held row belongs to
   useLayoutEffect(() => {
@@ -192,7 +194,9 @@ export function MessageList({
     // away, or the hold is silently gone when the rows actually land.
     if (grew) holdRef.current = null;
     const anchor = held
-      ? container.querySelector<HTMLElement>(`[data-entry="${CSS.escape(held.id)}"]`)
+      ? container.querySelector<HTMLElement>(
+          held.id === WALL_ANCHOR ? ".history-wall" : `[data-entry="${CSS.escape(held.id)}"]`,
+        )
       : null;
     if (anchor && held) {
       container.scrollTop +=
@@ -206,18 +210,28 @@ export function MessageList({
    * Press the wall: remember what the reader is looking at, then ask for the older
    * page that lands above it.
    *
-   * The click is the only moment that still knows. A row with no element of its own
-   * (a collapsed steps run) leaves nothing to hold, and the list just grows.
+   * The click is the only moment that still knows. The wall itself is the anchor when
+   * it is on screen — the reader pressed it, so the row they are looking at is the
+   * wall, and the older messages should appear just under it rather than far above
+   * the viewport. A row with no element of its own (a collapsed steps run) leaves
+   * nothing to hold, and the list just grows.
    */
   const loadOlderPressed = () => {
     const container = containerRef.current;
     if (container) {
       const top = container.getBoundingClientRect().top;
-      const row = Array.from(container.querySelectorAll<HTMLElement>("[data-entry]")).find(
-        (el) => el.getBoundingClientRect().bottom > top,
-      );
+      const wall = container.querySelector<HTMLElement>(".history-wall");
+      const row =
+        wall && wall.getBoundingClientRect().bottom > top
+          ? wall
+          : Array.from(container.querySelectorAll<HTMLElement>("[data-entry]")).find(
+              (el) => el.getBoundingClientRect().bottom > top,
+            );
       holdRef.current = row
-        ? { id: row.dataset.entry as string, top: row.getBoundingClientRect().top - top }
+        ? {
+            id: row === wall ? WALL_ANCHOR : (row.dataset.entry as string),
+            top: row.getBoundingClientRect().top - top,
+          }
         : null;
     }
     onLoadOlder?.();

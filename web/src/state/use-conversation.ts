@@ -790,20 +790,22 @@ export function useConversation(
     if (!nextBefore) return;
     // The same supersession rule the cold load obeys: the reader may have switched
     // conversations while this page was on its way, and its records belong to the
-    // conversation they were fetched for, not the one now on screen.
+    // conversation they were fetched for, not the one now on screen. The busy flag
+    // is cleared on the generation alone — by the time the page lands this call has
+    // itself replaced the pile, so the pile identity cannot answer that question.
     const gen = loadGenRef.current;
     const pile = historyRecordsRef.current;
-    const stillCurrent = () => gen === loadGenRef.current && historyRecordsRef.current === pile;
+    const superseded = () => gen !== loadGenRef.current || historyRecordsRef.current !== pile;
     olderBusyRef.current = true;
     setHistoryLoadingOlder(true);
     try {
       const page = await fetchHistoryPage(request, conversationId, nextBefore);
-      if (!stillCurrent()) return;
+      if (superseded()) return;
       const merged = appendOlderPage(pile, page.messages);
       const errors = agentId
         ? await fetchTurnErrors(agentId, conversationId).catch(() => [] as TurnErrorRecord[])
         : [];
-      if (!stillCurrent()) return;
+      if (superseded()) return;
       historyRecordsRef.current = merged.messages;
       historyCursorRef.current = { nextBefore: page.nextBefore, hasMore: page.hasMore };
       setHistoryPartial(page.hasMore && page.nextBefore !== null);
@@ -814,10 +816,10 @@ export function useConversation(
       setOlderPages((n) => n + 1);
       commitHistory(merged.messages, errors);
     } catch (cause) {
-      if (!stillCurrent()) return;
+      if (superseded()) return;
       setError(friendlyServerError(errorMessage(cause)));
     } finally {
-      if (stillCurrent()) {
+      if (gen === loadGenRef.current) {
         olderBusyRef.current = false;
         setHistoryLoadingOlder(false);
       }
