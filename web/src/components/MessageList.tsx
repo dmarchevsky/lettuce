@@ -48,6 +48,12 @@ interface Props {
   historyPartial?: boolean;
   /** An older page is on its way, so the wall shows its busy state. */
   historyLoadingOlder?: boolean;
+  /**
+   * Older messages exist but the cursor stopped answering, so the wall says the
+   * older end did not answer rather than offering a button that fetches the same
+   * page again forever.
+   */
+  historyStalled?: boolean;
   /** How many messages were fetched; what the wall counts out. */
   historyLoaded?: number;
   /** Bumped once per older page landed — what the scroll anchor is held on. */
@@ -146,6 +152,7 @@ export function MessageList({
   historyLoading,
   historyPartial,
   historyLoadingOlder,
+  historyStalled,
   historyLoaded,
   olderPages = 0,
   onLoadOlder,
@@ -178,7 +185,7 @@ export function MessageList({
   // the bottom. And the row to hold is measured at the click — by the time the page
   // lands nothing is left recording where the reader was, and a hold worked out from
   // what the list grew by is a guess that shows as a visible jump.
-  const holdRef = useRef<{ id: string; top: number } | null>(null);
+  const holdRef = useRef<{ id: string; top: number }[]>([]);
   /** `holdRef` ids are entry ids; the wall row is held by this one instead. */
   const WALL_ANCHOR = "\u0000wall";
   const olderSeenRef = useRef(olderPages);
@@ -188,51 +195,53 @@ export function MessageList({
     if (!container) return;
     const grew = olderPages !== olderSeenRef.current;
     olderSeenRef.current = olderPages;
-    const held = grew ? holdRef.current : null;
-    // Consumed only by the page it was measured for: a streamed token arriving
-    // while the older page is in flight must not be what throws the measurement
-    // away, or the hold is silently gone when the rows actually land.
-    if (grew) holdRef.current = null;
-    const anchor = held
-      ? container.querySelector<HTMLElement>(
-          held.id === WALL_ANCHOR ? ".history-wall" : `[data-entry="${CSS.escape(held.id)}"]`,
-        )
-      : null;
-    if (anchor && held) {
-      container.scrollTop +=
-        anchor.getBoundingClientRect().top - container.getBoundingClientRect().top - held.top;
-    } else if (stuckRef.current) {
-      container.scrollTop = container.scrollHeight;
+    // Consumed only by the page it was measured for: a streamed token arriving while
+    // the older page is in flight must not be what throws the measurement away, or
+    // the hold is silently gone when the rows actually land.
+    const wanted = grew ? holdRef.current : [];
+    if (grew) holdRef.current = [];
+    const box = container.getBoundingClientRect();
+    for (const hold of wanted) {
+      const el = container.querySelector<HTMLElement>(
+        hold.id === WALL_ANCHOR ? ".history-wall" : `[data-entry="${CSS.escape(hold.id)}"]`,
+      );
+      if (!el) continue;
+      container.scrollTop += el.getBoundingClientRect().top - box.top - hold.top;
+      return;
     }
+    if (stuckRef.current) container.scrollTop = container.scrollHeight;
   }, [entries, processing]);
 
   /**
    * Press the wall: remember what the reader is looking at, then ask for the older
-   * page that lands above it.
+   * page that lands above it. The click is the only moment that still knows — by the
+   * time the page lands nothing records where they were, and a hold worked out from
+   * what the list grew by is a guess that shows as a jump.
    *
-   * The click is the only moment that still knows. The wall itself is the anchor when
-   * it is on screen — the reader pressed it, so the row they are looking at is the
-   * wall, and the older messages should appear just under it rather than far above
-   * the viewport. A row with no element of its own (a collapsed steps run) leaves
-   * nothing to hold, and the list just grows.
+   * Two anchors, in order: the wall itself, because the reader pressed it and the
+   * older messages should appear just under it rather than far above the viewport;
+   * then the first row with an element of its own, because the older page that
+   * completes a transcript is also the one that takes the wall away. A top with
+   * nothing holdable (a collapsed steps run) leaves the list to just grow.
    */
   const loadOlderPressed = () => {
     const container = containerRef.current;
+    holdRef.current = [];
     if (container) {
       const top = container.getBoundingClientRect().top;
       const wall = container.querySelector<HTMLElement>(".history-wall");
-      const row =
-        wall && wall.getBoundingClientRect().bottom > top
-          ? wall
-          : Array.from(container.querySelectorAll<HTMLElement>("[data-entry]")).find(
-              (el) => el.getBoundingClientRect().bottom > top,
-            );
-      holdRef.current = row
-        ? {
-            id: row === wall ? WALL_ANCHOR : (row.dataset.entry as string),
-            top: row.getBoundingClientRect().top - top,
-          }
-        : null;
+      if (wall && wall.getBoundingClientRect().bottom > top) {
+        holdRef.current.push({ id: WALL_ANCHOR, top: wall.getBoundingClientRect().top - top });
+      }
+      const row = Array.from(container.querySelectorAll<HTMLElement>("[data-entry]")).find(
+        (el) => el.getBoundingClientRect().bottom > top,
+      );
+      if (row) {
+        holdRef.current.push({
+          id: row.dataset.entry as string,
+          top: row.getBoundingClientRect().top - top,
+        });
+      }
     }
     onLoadOlder?.();
   };
@@ -411,9 +420,11 @@ export function MessageList({
           // conversation that started here.
           <div className="history-wall">
             <span className="history-wall-note">
-              Showing the newest {historyLoaded?.toLocaleString() ?? "loaded"} messages
+              {historyStalled
+                ? "Some older messages could not be loaded"
+                : `Showing the newest ${historyLoaded?.toLocaleString() ?? "loaded"} messages`}
             </span>
-            {historyLoadingOlder ? (
+            {historyStalled ? null : historyLoadingOlder ? (
               <span className="pill history-wall-busy">Loading older messages…</span>
             ) : (
               <button type="button" className="pill as-button" onClick={loadOlderPressed}>

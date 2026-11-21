@@ -961,6 +961,7 @@ function Workspace({ status }: { status: Status }) {
               historyLoading={conversation.historyLoading}
               historyPartial={conversation.historyPartial}
               historyLoadingOlder={conversation.historyLoadingOlder}
+              historyStalled={conversation.historyStalled}
               historyLoaded={conversation.historyLoaded}
               olderPages={conversation.olderPages}
               onLoadOlder={conversation.loadOlder}

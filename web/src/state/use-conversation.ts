@@ -12,6 +12,7 @@ import {
   fetchHistoryPage,
   HISTORY_MESSAGE_FLOOR,
   loadHistoryPages,
+  olderPageStalled,
 } from "../lib/history.ts";
 import { upstreamReturned } from "../lib/link-status.ts";
 import {
@@ -143,6 +144,11 @@ export interface ConversationApi {
    * never looks like a complete one.
    */
   historyPartial: boolean;
+  /**
+   * Older messages exist but the cursor stopped answering, so the wall says the older
+   * end could not be loaded instead of offering a button that cannot deliver.
+   */
+  historyStalled: boolean;
   /** An older page is on its way. */
   historyLoadingOlder: boolean;
   /** How many messages were fetched, which is not how many rows there are. */
@@ -449,6 +455,11 @@ export function useConversation(
    */
   const [historyPartial, setHistoryPartial] = useState(false);
   const [historyLoadingOlder, setHistoryLoadingOlder] = useState(false);
+  /**
+   * Older messages exist but the cursor stops answering, so the wall has no button
+   * to offer — it says the older end did not answer instead.
+   */
+  const [historyStalled, setHistoryStalled] = useState(false);
   /** How many messages the transcript was built from; what the wall counts. */
   const [historyLoaded, setHistoryLoaded] = useState(0);
   /** Bumped once per older page landed; what the list anchors the scroll on. */
@@ -738,8 +749,12 @@ export function useConversation(
         const loaded = await loadHistoryPages(request, conversationId, {
           floor: HISTORY_MESSAGE_FLOOR,
           onPage: (messages) => {
-            if (painted || !current()) return;
+            // Only paint early when nothing is on screen. A resync reload replacing a
+            // full transcript with the newest page would shrink it for a second and
+            // leave the wall counting a thousand messages over two hundred rows.
+            if (painted || !current() || transcriptRef.current.size > 0) return;
             painted = true;
+            setHistoryLoaded(messages.length);
             commitHistory(messages, []);
           },
         });
@@ -747,10 +762,16 @@ export function useConversation(
         historyRecordsRef.current = loaded.messages;
         historyCursorRef.current = { nextBefore: loaded.nextBefore, hasMore: loaded.hasMore };
         setHistoryPartial(loaded.partial);
+        setHistoryStalled(loaded.stalled);
         setHistoryLoaded(loaded.messages.length);
         const errors = await turnErrors;
         if (!current()) return;
-        commitHistory(loaded.messages, errors);
+        // The pile is what the rows must match, and it may have grown while the turn
+        // errors were in flight: a resync reload happens with the wall on screen, so
+        // an older page can land in this window. Committing this load's own pile then
+        // would drop the page the reader just asked for.
+        setHistoryLoaded(historyRecordsRef.current.length);
+        commitHistory(historyRecordsRef.current, errors);
         // A request/response frame like this one never carries the sequence
         // number that would otherwise flip the link back to "live" on its
         // own — see session-client.ts's markResynced. Only relevant when this
@@ -808,7 +829,12 @@ export function useConversation(
       if (superseded()) return;
       historyRecordsRef.current = merged.messages;
       historyCursorRef.current = { nextBefore: page.nextBefore, hasMore: page.hasMore };
+      // A page that adds nothing while the endpoint still claims there is more is a
+      // dead cursor, not the beginning: keep saying the transcript is partial, and
+      // say plainly that the older end will not answer, rather than offering a
+      // button that fetches the same page again forever.
       setHistoryPartial(page.hasMore && page.nextBefore !== null);
+      setHistoryStalled(olderPageStalled(page, merged.added));
       setHistoryLoaded(merged.messages.length);
       // The counter and the rows must land in the same render, and the counter
       // first: it is what tells the list to hold the reader's scroll position, and
@@ -849,6 +875,7 @@ export function useConversation(
     historyCursorRef.current = { nextBefore: null, hasMore: false };
     olderBusyRef.current = false;
     setHistoryPartial(false);
+    setHistoryStalled(false);
     setHistoryLoadingOlder(false);
     setHistoryLoaded(0);
     setOlderPages(0);
@@ -1500,6 +1527,7 @@ export function useConversation(
     historyLoading,
     historyPartial,
     historyLoadingOlder,
+    historyStalled,
     historyLoaded,
     olderPages,
     loadOlder,

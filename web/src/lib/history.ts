@@ -63,6 +63,8 @@ export async function fetchHistoryPage(
 export interface HistoryLoad extends HistoryPage {
   /** Older messages exist and were deliberately not loaded. */
   partial: boolean;
+  /** Older messages exist, but the cursor stops answering. */
+  stalled: boolean;
 }
 
 /**
@@ -118,19 +120,33 @@ export function appendOlderPage(
 }
 
 /**
+ * Has the older end stopped answering? A page that adds nothing while `has_more`
+ * still promises more is the signature of a cursor the backend no longer recognises
+ * — it answers with the newest page again, measured against the local backend. That
+ * is not the beginning of the conversation, and it is not worth another press of the
+ * same dead button, so the wall says so instead of offering the button.
+ */
+export function olderPageStalled(page: Pick<HistoryPage, "hasMore">, added: number): boolean {
+  return page.hasMore && added === 0;
+}
+
+/**
  * Read a conversation's history, newest-first, up to `floor` messages.
  *
- * `onPage` runs with the pile after the pages arrive, so the caller can paint the
- * newest page immediately instead of holding a blank transcript through every round
- * trip. It is deliberately called once, not per page: every commit rebuilds the
- * transcript and re-renders every row, so a fifth page would cost a fifth full
+ * `onPage` runs once, with the newest page, before the older ones are fetched, so
+ * the caller can paint something instead of holding a blank transcript through
+ * every round trip. It is deliberately not called per page: every commit rebuilds
+ * the transcript and re-renders every row, so a fifth page would cost a fifth full
  * render for messages the reader has not asked for yet.
  *
  * `partial` is true whenever older messages are known to exist with a cursor to
- * reach them — including the case where that cursor stops answering. Claiming a
- * transcript is complete when the server said there was more is the silent
- * truncation this module exists to prevent, so it is reported as partial and the
- * caller keeps offering the wall.
+ * reach them. Claiming a transcript is complete when the server said there was more
+ * is the silent truncation this module exists to prevent.
+ *
+ * `stalled` is the case where that promise breaks: the cursor was offered, used, and
+ * answered with nothing new while `has_more` still said there was more. The older
+ * end is unreachable, which the caller says out loud rather than offering a button
+ * that fetches the same page forever.
  */
 export async function loadHistoryPages(
   request: HistoryRequest,
@@ -149,6 +165,7 @@ export async function loadHistoryPages(
   let { hasMore, nextBefore } = page;
   options.onPage?.(messages.slice(), page);
 
+  let stalled = false;
   while (hasMore && nextBefore && messages.length < floor) {
     page = await fetchHistoryPage(request, conversationId, nextBefore);
     const added = append(messages, seen, page.messages);
@@ -156,10 +173,18 @@ export async function loadHistoryPages(
     nextBefore = page.nextBefore;
     // A cursor the server does not recognise answers with the newest page again
     // (measured against the local backend), so paging on it would loop and show the
-    // same messages twice. Stop — but do not call that the end of the conversation:
-    // `has_more` said otherwise, and the wall stays up.
-    if (added === 0) break;
+    // same messages twice. Stop — and say that the older end stopped answering.
+    if (added === 0) {
+      stalled = olderPageStalled(page, added);
+      break;
+    }
   }
 
-  return { messages, hasMore, nextBefore, partial: hasMore && nextBefore !== null };
+  return {
+    messages,
+    hasMore,
+    nextBefore,
+    partial: hasMore && nextBefore !== null,
+    stalled,
+  };
 }

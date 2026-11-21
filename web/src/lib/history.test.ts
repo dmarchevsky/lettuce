@@ -5,6 +5,7 @@ import {
   HISTORY_PAGE_SIZE,
   type HistoryRequest,
   loadHistoryPages,
+  olderPageStalled,
 } from "./history.ts";
 
 /**
@@ -74,6 +75,7 @@ describe("loadHistoryPages", () => {
     const loaded = await loadHistoryPages(request, "conv-1");
     expect(loaded.messages.map((m) => (m as { id: string }).id)).toEqual(["c", "b", "a"]);
     expect(loaded.partial).toBe(false);
+    expect(loaded.stalled).toBe(false);
     expect(calls).toEqual([null]);
   });
 
@@ -122,6 +124,7 @@ describe("loadHistoryPages", () => {
     expect(loaded.messages.map((m) => (m as { id: string }).id)).toEqual(["c", "b"]);
     expect(calls).toEqual([null, "p2"]);
     expect(loaded.partial).toBe(true);
+    expect(loaded.stalled).toBe(true);
   });
 
   test("hands back the newest page and leaves the rest to the final commit", async () => {
@@ -151,6 +154,20 @@ describe("loadHistoryPages", () => {
       },
     });
     expect(firstLength).toBe(2);
+  });
+});
+
+describe("olderPageStalled", () => {
+  test("a page that adds nothing while more is promised is a dead cursor", () => {
+    expect(olderPageStalled({ hasMore: true }, 0)).toBe(true);
+  });
+
+  test("a page that brings messages is not", () => {
+    expect(olderPageStalled({ hasMore: true }, 200)).toBe(false);
+  });
+
+  test("the end of the conversation is not", () => {
+    expect(olderPageStalled({ hasMore: false }, 0)).toBe(false);
   });
 });
 
