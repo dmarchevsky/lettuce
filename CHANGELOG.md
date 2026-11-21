@@ -5,6 +5,8 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.48.2-letta_0.34.67] - 2026-11-21
+
 ### Fixed
 - **A finished drawing is the tool's card, not a message from you.** A draw that
   outlived its foreground window came back as a **You** bubble holding raw
