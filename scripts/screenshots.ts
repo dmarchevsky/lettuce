@@ -33,10 +33,22 @@
  *
  * ```json
  * {
- *   "ws":   { "list_memory": { "entries": [ … ], "memfs_enabled": true } },
+ *   "ws": {
+ *     "list_memory": {
+ *       "memfs_enabled": true,
+ *       "entries": [{ "relative_path": "projects/lettuce/notes/deploy.md" }, … ]
+ *     }
+ *   },
  *   "http": { "/api/pi/runs": { "runs": [ … ], "other": 0 } }
  * }
  * ```
+ *
+ * A memory entry is shaped the way the pane reads it: `relative_path` is what
+ * builds the tree (`web/src/lib/memory-tree.ts`), and entries carrying `path`
+ * instead answer 200 with an empty tree — the fixture looks fine and the PNG is
+ * blank. Note too that the built-in fixture models no `list_memory` at all (no
+ * README shot opens the pane), so the `agent-memory` image is a picture of
+ * nothing but what this file supplies.
  *
  * `ws` is keyed by app-server command `type`, `http` by pathname. A key with a
  * trailing `/` matches a prefix (`"/api/codex/": …`). The value merges ONE level

@@ -102,7 +102,12 @@ so re-adding the token restores the setup.
 The two **virtual** coding tokens install nothing at **build** time: every
 app-server image carries both CLIs and records them (`/opt/lettuce/features`,
 read as `coding_installed`), so adding or removing one is a Settings flip and
-needs no rebuild — locally or in prod. The BFF still logs a mismatch warning when
+needs no rebuild — locally or in prod. **One exception, and it costs once:** an
+image built before that arrangement holds no coding CLI at all, so the first
+rebuild after it is the one that pulls both (roughly 1 GB downloaded and
+installed, and it recreates `app-server`, so do it between turns). After that
+image is in place, turning a coding worker on or off is a Settings flip and
+nothing else ever rebuilds. The BFF still logs a mismatch warning when
 a token is on but the CLI is not in the image it talks to, which only an image
 built before that arrangement can trigger.
 

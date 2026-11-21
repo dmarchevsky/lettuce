@@ -56,20 +56,67 @@ async function status(cookie?: string): Promise<StatusBody> {
 
 interface Session {
   socket: WebSocket;
-  frames: any[];
-  waitFor: (predicate: (frame: any) => boolean, timeoutMs?: number) => Promise<any>;
+  frames: Frame[];
+  waitFor: (predicate: (frame: Frame) => boolean, timeoutMs?: number) => Promise<Frame>;
   send: (command: Record<string, unknown>) => void;
   close: () => void;
 }
 
+/**
+ * A frame as it arrives: a flat object of fields this suite reads one at a time.
+ *
+ * This used to be `any` in one place and radiated out from there, so every read
+ * compiled whether or not the field existed — a rename upstream turns into a check
+ * that compares `undefined` to `undefined` instead of a red line. Each reader
+ * below returns what the old `undefined` would have collapsed to, so the checks
+ * behave exactly as they did.
+ */
+type Frame = Record<string, unknown>;
+
+/** The string a frame field holds; "" when it holds anything else. */
+const str = (frame: Frame, key: string): string =>
+  typeof frame[key] === "string" ? (frame[key] as string) : "";
+/** The number a frame field holds; undefined when it holds anything else. */
+const num = (frame: Frame, key: string): number | undefined =>
+  typeof frame[key] === "number" ? (frame[key] as number) : undefined;
+/** A nested record on a frame (`conversation`, `device_status`, `connected`). */
+const obj = (frame: Frame, key: string): Frame | undefined => {
+  const value = frame[key];
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Frame)
+    : undefined;
+};
+/** A list of records on a frame (`agents`, `entries`, `tasks`), empty when it is not one. */
+const list = (frame: Frame, key: string): Frame[] =>
+  Array.isArray(frame[key]) ? (frame[key] as Frame[]) : [];
+/** The id of the first record in a list field — `agents[0].id`. */
+const firstId = (frame: Frame, key: string): string | undefined => {
+  const id = list(frame, key)[0]?.id;
+  return typeof id === "string" ? id : undefined;
+};
+/** The id of a nested record — `conversation.id`, `task.id`. */
+const nestedId = (frame: Frame, key: string): string | undefined => {
+  const id = obj(frame, key)?.id;
+  return typeof id === "string" ? id : undefined;
+};
+
 function openSession(cookie: string): Promise<Session> {
   return new Promise((resolve, reject) => {
     const socket = openDevSocket(`${WS_ORIGIN}/ws`, cookie);
-    const frames: any[] = [];
-    const waiters: { predicate: (f: any) => boolean; resolve: (f: any) => void }[] = [];
+    const frames: Frame[] = [];
+    const waiters: { predicate: (f: Frame) => boolean; resolve: (f: Frame) => void }[] = [];
 
     socket.addEventListener("message", (event: MessageEvent) => {
-      const frame = JSON.parse(String(event.data));
+      let frame: Frame;
+      try {
+        frame = JSON.parse(String(event.data)) as Frame;
+      } catch {
+        // The BFF only ever sends JSON, so anything else is a broken frame rather
+        // than a test failure — but say it out loud instead of letting it vanish,
+        // which is how a proxy eating its own response would read as a timeout.
+        console.log(`  NOTE  a non-JSON frame arrived on /ws: ${String(event.data).slice(0, 80)}`);
+        return;
+      }
       frames.push(frame);
       for (let i = waiters.length - 1; i >= 0; i -= 1) {
         if (waiters[i]!.predicate(frame)) {
@@ -88,7 +135,8 @@ function openSession(cookie: string): Promise<Session> {
             const existing = frames.find(predicate);
             if (existing) return res(existing);
             const timer = setTimeout(
-              () => rej(new Error(`Timed out; saw: ${frames.map((f) => f.type).join(", ")}`)),
+              () =>
+                rej(new Error(`Timed out; saw: ${frames.map((f) => str(f, "type")).join(", ")}`)),
               timeoutMs,
             );
             waiters.push({
@@ -119,7 +167,7 @@ section("1. Session routing");
 const a = await openSession(cookie);
 const hello = await a.waitFor((f) => f.type === "__bff_hello");
 check("receives __bff_hello", Boolean(hello.session_id));
-check("upstream is connected", hello.upstream === "connected", hello.upstream);
+check("upstream is connected", hello.upstream === "connected", str(hello, "upstream"));
 
 a.send({ type: "agent_list", request_id: "web-1", query: { limit: 5 } });
 const agentList = await a.waitFor((f) => f.type === "agent_list_response");
@@ -165,7 +213,7 @@ a.send({ type: "terminal_spawn", request_id: "web-term", terminal_id: "t1", cols
 const denied = await a.waitFor((f) => f.type === "__bff_error" && f.request_id === "web-term");
 check(
   "terminal_spawn is refused from a browser session",
-  denied.message.includes("not permitted"),
+  str(denied, "message").includes("not permitted"),
   denied,
 );
 
@@ -206,7 +254,7 @@ check("resume from the live head replays nothing", resumed.replayed === 0, resum
 // rather than assuming the buffer is small.
 c.send({ type: "__bff_resume", from_seq: 0, scopes: [] });
 const stale = await c.waitFor((f) => f.type === "__bff_resume_result" && f.from_seq === 0);
-if (stale.latest_seq <= MAX_REPLAY_FRAMES) {
+if ((num(stale, "latest_seq") ?? Number.POSITIVE_INFINITY) <= MAX_REPLAY_FRAMES) {
   check(
     "an unwrapped buffer under the cap serves an old cursor without a resync",
     stale.resync_required === false,
@@ -242,8 +290,8 @@ await d.waitFor((f) => f.type === "__bff_hello");
 
 d.send({ type: "agent_list", request_id: "agents", query: { limit: 5 } });
 const agents = await d.waitFor((f) => f.request_id === "agents");
-const agentId: string | undefined = agents.agents?.[0]?.id;
-check("at least one agent exists", typeof agentId === "string", agents.agents?.length);
+const agentId: string | undefined = firstId(agents, "agents");
+check("at least one agent exists", typeof agentId === "string", list(agents, "agents").length);
 
 if (agentId) {
   d.send({ type: "conversation_create", request_id: "conv", body: { agent_id: agentId } });
@@ -252,7 +300,7 @@ if (agentId) {
   // conversations that flood sits ahead of every command in the queue. Measured
   // 20-25 s at 134 conversations; a warm answer is ~0.2 s.
   const created = await d.waitFor((f) => f.request_id === "conv", 45_000);
-  const conversationId: string | undefined = created.conversation?.id;
+  const conversationId: string | undefined = nestedId(created, "conversation");
   check(
     "conversation_create succeeds",
     created.success === true && Boolean(conversationId),
@@ -294,8 +342,8 @@ if (agentId) {
     const renamed = await d.waitFor((f) => f.request_id === "ren");
     check(
       "rename applies",
-      renamed.conversation?.summary === "Smoke test",
-      renamed.conversation?.summary,
+      obj(renamed, "conversation")?.summary === "Smoke test",
+      obj(renamed, "conversation")?.summary,
     );
 
     d.send({
@@ -307,8 +355,8 @@ if (agentId) {
     const archived = await d.waitFor((f) => f.request_id === "arc");
     check(
       "archive applies natively",
-      archived.conversation?.archived === true,
-      archived.conversation,
+      obj(archived, "conversation")?.archived === true,
+      obj(archived, "conversation"),
     );
 
     d.send({
@@ -323,7 +371,11 @@ if (agentId) {
 
 d.send({ type: "list_models", request_id: "models" });
 const models = await d.waitFor((f) => f.request_id === "models");
-check("model catalog is available", (models.entries?.length ?? 0) > 0, models.entries?.length);
+check(
+  "model catalog is available",
+  list(models, "entries").length > 0,
+  list(models, "entries").length,
+);
 
 // A runtime scope subscribes the connection, so status frames should arrive.
 const statusFrames = d.frames.filter((f) => f.type === "update_device_status");
@@ -338,12 +390,12 @@ await e.waitFor((f) => f.type === "__bff_hello");
 
 e.send({ type: "agent_list", request_id: "ag2", query: { limit: 5 } });
 const ag2 = await e.waitFor((f) => f.request_id === "ag2");
-const agent2: string | undefined = ag2.agents?.[0]?.id;
+const agent2: string | undefined = firstId(ag2, "agents");
 
 if (agent2) {
   e.send({ type: "conversation_list", request_id: "cl2", query: { agent_id: agent2, limit: 5 } });
   const cl2 = await e.waitFor((f) => f.request_id === "cl2");
-  const conv2: string | undefined = cl2.conversations?.[0]?.id;
+  const conv2: string | undefined = firstId(cl2, "conversations");
 
   if (conv2) {
     e.send({
@@ -357,12 +409,10 @@ if (agent2) {
   }
 
   const deviceStatus = await e.waitFor((f) => f.type === "update_device_status");
-  const cwd: string = deviceStatus.device_status?.current_working_directory ?? "/workspace";
-  check(
-    "device status carries a working directory",
-    typeof cwd === "string" && cwd.length > 0,
-    cwd,
-  );
+  const cwdField = obj(deviceStatus, "device_status")?.current_working_directory;
+  const hasCwd = typeof cwdField === "string" && cwdField.length > 0;
+  const cwd: string = hasCwd ? (cwdField as string) : "/workspace";
+  check("device status carries a working directory", hasCwd, cwdField);
 
   // Files: write, list, read, search. get_tree returns paths RELATIVE to its
   // root, and the search parameter is `query` — both were wrong on first pass.
@@ -378,7 +428,7 @@ if (agent2) {
 
   e.send({ type: "get_tree", request_id: "gt", path: cwd, depth: 1 });
   const gt = await e.waitFor((f) => f.request_id === "gt");
-  const treePaths: string[] = (gt.entries ?? []).map((entry: any) => entry.path);
+  const treePaths: string[] = list(gt, "entries").map((entry) => str(entry, "path"));
   check("get_tree lists the new file", treePaths.includes("smoke-probe.md"), treePaths);
   check(
     "get_tree paths are relative to the root",
@@ -449,15 +499,15 @@ if (agent2) {
     max_results: 20,
   });
   const gf = await e.waitFor((f) => f.request_id === "gf");
-  check("grep_in_files finds the token", (gf.matches?.length ?? 0) > 0, gf.error ?? gf);
+  check("grep_in_files finds the token", list(gf, "matches").length > 0, gf.error ?? gf);
 
   // Memory
   e.send({ type: "list_memory", request_id: "lm2", agent_id: agent2 });
   const lm2 = await e.waitFor((f) => f.request_id === "lm2");
   check(
     "list_memory returns blocks",
-    (lm2.entries?.length ?? 0) > 0,
-    lm2.error ?? lm2.entries?.length,
+    list(lm2, "entries").length > 0,
+    lm2.error ?? list(lm2, "entries").length,
   );
 
   // Tasks: full CRUD round trip
@@ -473,16 +523,16 @@ if (agent2) {
     timezone: "UTC",
   });
   const ca = await e.waitFor((f) => f.request_id === "ca");
-  check("cron_add creates a task", ca.success === true && Boolean(ca.task?.id), ca.error);
+  check("cron_add creates a task", ca.success === true && Boolean(nestedId(ca, "task")), ca.error);
 
-  const taskId: string | undefined = ca.task?.id;
+  const taskId: string | undefined = nestedId(ca, "task");
   if (taskId) {
     e.send({ type: "cron_list", request_id: "cls", agent_id: agent2 });
     const cls = await e.waitFor((f) => f.request_id === "cls");
     check(
       "cron_list includes it",
-      (cls.tasks ?? []).some((t: any) => t.id === taskId),
-      cls.tasks?.length,
+      list(cls, "tasks").some((task) => task.id === taskId),
+      list(cls, "tasks").length,
     );
 
     e.send({ type: "cron_update", request_id: "cu2", task_id: taskId, name: "smoke task renamed" });
@@ -504,13 +554,14 @@ await g.waitFor((f) => f.type === "__bff_hello");
 
 g.send({ type: "list_connect_providers", request_id: "prov", target: "local" });
 const prov = await g.waitFor((f) => f.request_id === "prov");
-const llama = (prov.providers ?? []).find((p: any) => p.id === "llama-cpp");
-check("provider catalog loads", (prov.providers?.length ?? 0) > 0, prov.error);
-check("llama.cpp is offered as a local provider", Boolean(llama), prov.providers?.length);
+const llama = list(prov, "providers").find((p) => p.id === "llama-cpp");
+check("provider catalog loads", list(prov, "providers").length > 0, prov.error);
+check("llama.cpp is offered as a local provider", Boolean(llama), list(prov, "providers").length);
+const llamaConnected = llama ? obj(llama, "connected")?.is_connected : undefined;
 check(
   "connection state uses is_connected",
-  llama ? typeof llama.connected?.is_connected === "boolean" : false,
-  llama?.connected,
+  typeof llamaConnected === "boolean",
+  llama ? obj(llama, "connected") : undefined,
 );
 
 // MCP: one shared list, kept out of upstream's settings.json (the app-server
@@ -694,7 +745,7 @@ g.send({ type: "channels_list", request_id: "chan" });
 const chanRefusal = await g.waitFor((f) => f.type === "__bff_error" && f.request_id === "chan");
 check(
   "channel commands are refused rather than left hanging",
-  chanRefusal.message.includes("not permitted"),
+  str(chanRefusal, "message").includes("not permitted"),
   chanRefusal,
 );
 

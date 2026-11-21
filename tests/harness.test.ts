@@ -9,10 +9,13 @@
  * against a running stack.
  */
 import { describe, expect, test } from "bun:test";
+import { dirname, join, resolve } from "node:path";
 import {
   cookieJarLine,
   judgeServedBuild,
   judgeServedVersion,
+  mockupShell,
+  mockupStylesHref,
   parseArgs,
 } from "../scripts/harness.ts";
 
@@ -164,6 +167,80 @@ describe("parseArgs", () => {
   test("--allow-stale-build is the escape hatch, and the env sets it too", () => {
     expect(parseArgs([]).staleBuild).toBe(false);
     expect(parseArgs(["--allow-stale-build"]).staleBuild).toBe(true);
+  });
+});
+
+describe("mockupShell", () => {
+  const parts = {
+    markup: '<div class="pane"><h2>Memory</h2></div>',
+    stylesHref: "../../web/src/styles.css",
+    source: "http://127.0.0.1:8090/",
+    width: 1280,
+    height: 800,
+  };
+
+  test("the shell says where the markup came from and keeps it verbatim", () => {
+    const doc = mockupShell({
+      ...parts,
+      htmlClass: "theme-dark",
+      bodyClass: "pane-open",
+      title: "mem",
+    });
+    expect(doc.startsWith("<!doctype html>")).toBe(true);
+    expect(doc).toContain("captured from http://127.0.0.1:8090/ at 1280x800");
+    expect(doc).toContain('<html lang="en" class="theme-dark">');
+    expect(doc).toContain('<body class="pane-open">');
+    expect(doc).toContain("<title>mem</title>");
+    expect(doc).toContain(parts.markup);
+  });
+
+  test("no class means no empty attribute, and a title default exists", () => {
+    const doc = mockupShell(parts);
+    expect(doc).toContain('<html lang="en">');
+    expect(doc).toContain("<body>");
+    expect(doc).toContain("<title>captured surface</title>");
+  });
+
+  test("a class attribute cannot escape its quotes and start a tag", () => {
+    // The live page's own class list is app-built text interpolated into an
+    // attribute; a `"` in it used to close the attribute and open whatever came
+    // next. The markup is left alone — it is already markup.
+    const doc = mockupShell({
+      ...parts,
+      htmlClass: 'x" onmouseover="alert(1)',
+      bodyClass: '"><script>alert(2)</script>',
+    });
+    expect(doc).not.toContain('onmouseover="');
+    expect(doc).not.toContain("<script>");
+    expect(doc).toContain('class="x&quot; onmouseover=&quot;alert(1)');
+  });
+
+  test("a title cannot end its own element", () => {
+    const doc = mockupShell({ ...parts, title: "</title><body onload=x>" });
+    expect(doc).toContain("<title>&lt;/title&gt;&lt;body onload=x&gt;</title>");
+  });
+
+  test("the stylesheet link is quoted like any other attribute", () => {
+    expect(mockupShell({ ...parts, stylesHref: '", "onclick="x' })).not.toContain('onclick="');
+  });
+});
+
+describe("mockupStylesHref", () => {
+  const ROOT = "/repo";
+  const styles = join(ROOT, "web", "src", "styles.css");
+
+  test("a mock written deep in the tree links the stylesheet and still finds it", () => {
+    const outPath = join(ROOT, ".dev-flow", "x", "worktree", "plan", "mockups", "m.html");
+    const href = mockupStylesHref(outPath, ROOT);
+    expect(href.endsWith("web/src/styles.css")).toBe(true);
+    // The property that matters, not the exact number of `..`:
+    expect(resolve(dirname(outPath), href)).toBe(styles);
+  });
+
+  test("a deeper mock needs more `..`, never fewer", () => {
+    const shallow = mockupStylesHref(join(ROOT, "m.html"), ROOT);
+    const deep = mockupStylesHref(join(ROOT, "a", "b", "c", "m.html"), ROOT);
+    expect(deep.split("../").length).toBeGreaterThan(shallow.split("../").length);
   });
 });
 

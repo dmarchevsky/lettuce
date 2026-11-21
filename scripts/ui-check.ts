@@ -4624,49 +4624,68 @@ try {
     const page = await open(browser, DESKTOP);
     const runsFeatures = await readFeatures(page);
     if (!featureOn(runsFeatures, "pi")) {
-      console.log("  SKIP  the pi token is off — the Runs pane has no remote-pi list");
+      // Named out loud, and named as a skip: whoever asked for this section by
+      // `--section pi` must learn that the token — not a passing suite — is why
+      // nothing was measured. Silence here reads as "nothing to report".
+      console.log(
+        `  SKIP  the pi token is off${
+          SECTION_FILTERS.length > 0
+            ? ` (--section ${SECTION_FILTERS.join(",")} asked for this)`
+            : ""
+        } — the Runs pane has no remote-pi list, so nothing here was measured`,
+      );
       await page.close();
     } else {
-      const seeded = await seedPiRuns({ origin: ORIGIN, count: 4 });
-      check(
-        "the seed lands in the BFF's run store (GET /api/pi/runs)",
-        seeded.listed >= seeded.seeded,
-        seeded,
-      );
-      await openTab(page, "Runs");
-      await page.locator('p.section-note:text-is("Remote Pi runs")').waitFor({ timeout: 15_000 });
-      const rows = await page
-        .locator('.list li.task button.row:has-text("fixture:")')
-        .allInnerTexts();
-      // 4 runs over 2 sessions: the list folds runs into one row per session, so
-      // the row count is the session count, and a row must say how many it holds.
-      check("the Runs surface lists the seeded sessions", rows.length >= 2, { rows });
-      check(
-        "each seeded row carries a status chip and its run count",
-        rows.length >= 2 &&
-          rows.every((row) => /Finished|Failed|Running|Detached|Cancelled/.test(row)) &&
-          rows.some((row) => /\d+ runs/.test(row)),
-        { rows },
-      );
-      check(
-        "the failed seed row reads as failed, not as finished",
-        rows.some((row) => /Failed/.test(row) && /fixture:/.test(row)),
-        { rows },
-      );
-      const piOverflow = await overflow(page);
-      check(
-        "the seeded rows do not overflow the pane",
-        piOverflow.clipped.length === 0,
-        piOverflow,
-      );
-      await shot(page, "desktop-runs-pi-seeded");
-      await page.close();
-      const cleared = await seedPiRuns({ origin: ORIGIN, clear: true });
-      check(
-        "the seed cleans up after itself (a dev store keeps no fake rows)",
-        cleared.cleared >= seeded.seeded,
-        cleared,
-      );
+      let seeded = { seeded: 0, listed: 0 };
+      try {
+        seeded = await seedPiRuns({ origin: ORIGIN, count: 4 });
+        check(
+          "the seed lands in the BFF's run store (GET /api/pi/runs)",
+          seeded.listed >= seeded.seeded,
+          seeded,
+        );
+        await openTab(page, "Runs");
+        await page.locator('p.section-note:text-is("Remote Pi runs")').waitFor({ timeout: 15_000 });
+        const rows = await page
+          .locator('.list li.task button.row:has-text("fixture:")')
+          .allInnerTexts();
+        // 4 runs over 2 sessions: the list folds runs into one row per session, so
+        // the row count is the session count, and a row must say how many it holds.
+        check("the Runs surface lists the seeded sessions", rows.length >= 2, { rows });
+        check(
+          "each seeded row carries a status chip and its run count",
+          rows.length >= 2 &&
+            rows.every((row) => /Finished|Failed|Running|Detached|Cancelled/.test(row)) &&
+            rows.some((row) => /\d+ runs/.test(row)),
+          { rows },
+        );
+        check(
+          "the failed seed row reads as failed, not as finished",
+          rows.some((row) => /Failed/.test(row) && /fixture:/.test(row)),
+          { rows },
+        );
+        const piOverflow = await overflow(page);
+        check(
+          "the seeded rows do not overflow the pane",
+          piOverflow.clipped.length === 0,
+          piOverflow,
+        );
+        await shot(page, "desktop-runs-pi-seeded");
+      } finally {
+        // The rows live in the **shared** container's run store, so a throw
+        // half-way through this section — a 15 s wait, a failed shot — must not
+        // hand four fixture runs to whoever opens Tasks next. `finally`, and only
+        // for a seed that actually happened.
+        await page.close().catch(() => {});
+        if (seeded.seeded > 0) {
+          const cleared = await seedPiRuns({ origin: ORIGIN, clear: true });
+          check(
+            "the seed cleans up after itself (a dev store keeps no fake rows)",
+            cleared.cleared >= seeded.seeded,
+            cleared,
+          );
+        }
+      }
     }
   }
 } finally {

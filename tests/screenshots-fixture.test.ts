@@ -110,7 +110,42 @@ function clientRouteLiterals(): Set<string> {
   return literals;
 }
 
+/** Every `web/src` source, concatenated — the haystack the shot's selectors live in. */
+function webSource(): string {
+  const chunks: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) walk(path);
+      else if (/\.tsx?$/.test(entry.name) && !entry.name.includes(".test.")) {
+        chunks.push(readFileSync(path, "utf8"));
+      }
+    }
+  };
+  walk(join(ROOT, "web", "src"));
+  return chunks.join("\n");
+}
+
 const modelled = modeledRoutes();
+const shotSource = readFileSync(join(ROOT, "scripts/screenshots.ts"), "utf8");
+
+/**
+ * The `agent-memory` shot's handles, in both halves.
+ *
+ * The shot clicks a section tab, presses a button and screenshots a tree — all
+ * markup the app owns — and nothing in `bun run verify` renders it, so a rename in
+ * `web/src` would be found at generation time in someone else's week. This is the
+ * cheap static guard: each handle must still be named by the shot AND still exist
+ * in `web/src`. The trade-off is deliberate and partial — it proves the selectors
+ * exist, not that the pane renders them (that is what the render itself is for),
+ * and a rename that leaves both strings somewhere in the source would slip through.
+ */
+const MEMORY_SHOT_HANDLES = [
+  { label: "the Memory section tab", shot: 'text-is("Memory")', app: 'memory: "Memory"' },
+  { label: "the tab bar it lives in", shot: ".section-tabs", app: "section-tabs" },
+  { label: 'the "Expand all" button', shot: 'text-is("Expand all")', app: '"Expand all"' },
+  { label: "the memory tree the shot captures", shot: "ul.memory-tree", app: "memory-tree" },
+];
 
 describe("screenshots fixture ↔ web client contract", () => {
   test("the fixture models every boot route the client asks for", () => {
@@ -151,6 +186,22 @@ describe("screenshots fixture ↔ web client contract", () => {
             "and to BOOT_ROUTES here.",
         ).toBe(true);
       }
+    }
+  });
+
+  test("the agent-memory shot's selectors still exist in the app", () => {
+    const web = webSource();
+    for (const handle of MEMORY_SHOT_HANDLES) {
+      expect(
+        shotSource.includes(handle.shot),
+        `scripts/screenshots.ts no longer uses ${handle.shot} — the ${handle.label} handle moved ` +
+          "there, so update this pin and the shot together.",
+      ).toBe(true);
+      expect(
+        web.includes(handle.app),
+        `web/src no longer contains ${handle.app} — ${handle.label} moved; the agent-memory shot ` +
+          "clicks for it and will hang waiting on it.",
+      ).toBe(true);
     }
   });
 });

@@ -14,7 +14,8 @@
  *
  * Named entry points, so a driver imports one instead of re-deriving it:
  * `devSignIn` / `signInPage` / `requireTestPassword` (sign-in), `openPane` (rail and
- * bottom-bar navigation), `captureSurface` (lift a live DOM subtree into a mockup shell),
+ * bottom-bar navigation), `captureSurface` (lift a live DOM subtree into a mockup shell,
+ * built by the pure `mockupShell` + `mockupStylesHref`),
  * `servedBuild` / `assertServedBuild` / `requireServedBuild` /
  * `judgeServedVersion` (which bundle a running stack actually serves, and which build a
  * release may be held to)
@@ -189,6 +190,81 @@ export interface CapturedSurface {
 }
 
 /**
+ * Escape text destined for an HTML attribute or a `<title>`.
+ *
+ * Capture markup is untrusted in the boring but real sense: a page's `class`
+ * attribute and a document title are strings the app built, and an injected `"`
+ * ends the attribute and starts a tag. The captured subtree is left alone (it is
+ * already markup); only what this shell interpolates is escaped.
+ */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/** The pieces `mockupShell` assembles; every one already read off the live page. */
+export interface MockupShellParts {
+  /** The captured subtree, trusted markup (scripts stripped by the caller). */
+  markup: string;
+  /** `document.documentElement.className`, verbatim — escaped on the way in. */
+  htmlClass?: string;
+  /** `document.body.className`, verbatim — escaped on the way in. */
+  bodyClass?: string;
+  /** Where the stylesheet lives, relative to wherever this mock will be written. */
+  stylesHref: string;
+  title?: string;
+  /** What to name in the header comment (the page the markup came from). */
+  source?: string;
+  width?: number;
+  height?: number;
+}
+
+/**
+ * The mockup document around captured markup — pure, so its escaping is testable.
+ *
+ * Split out of `captureSurface` because everything interesting about the shell is
+ * string work: the header that tells the next person the markup is real, the
+ * stylesheet link that keeps it styled, and the two class attributes that used to
+ * be interpolated raw.
+ */
+export function mockupShell(parts: MockupShellParts): string {
+  const size = parts.width && parts.height ? ` at ${parts.width}x${parts.height}` : "";
+  const classAttr = (name: string, value?: string): string =>
+    value ? ` ${name}="${escapeHtml(value)}"` : "";
+  return [
+    "<!doctype html>",
+    `<!-- captured from ${escapeHtml(parts.source ?? "(unknown source)")}${size} by captureSurface();`,
+    "     markup is the live DOM, the stylesheet link is the app's own — start here, do not invent. -->",
+    `<html lang="en"${classAttr("class", parts.htmlClass)}>`,
+    '<head><meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    `<title>${escapeHtml(parts.title ?? "captured surface")}</title>`,
+    `<link rel="stylesheet" href="${escapeHtml(parts.stylesHref)}">`,
+    "</head>",
+    `<body${classAttr("class", parts.bodyClass)}>`,
+    parts.markup,
+    "</body>",
+    "</html>",
+  ].join("\n");
+}
+
+/**
+ * The stylesheet link for a mock written to `outPath`, relative to it.
+ *
+ * `dirname(outPath)` is what makes a mock under `plan/mockups/` keep its styling;
+ * with no out path the mock is assumed to land in the checkout root.
+ */
+export function mockupStylesHref(outPath?: string, root: string = ROOT): string {
+  return relative(
+    dirname(outPath ? resolve(outPath) : join(process.cwd(), "x.html")),
+    join(root, "web", "src", "styles.css"),
+  );
+}
+
+/**
  * Lift the real DOM subtree for `selector` into a self-contained mockup shell.
  *
  * This exists because flows hand-invented mockup markup and got the surface wrong: one
@@ -238,28 +314,16 @@ export async function captureSurface(
   // A mock is a static document; a captured subtree carrying its page's scripts would
   // re-run them against markup no longer wired to anything.
   const staticMarkup = markup.replace(/<script\b[\s\S]*?<\/script>/gi, "");
-  const stylesPath = join(ROOT, "web", "src", "styles.css");
-  const href =
-    opts.stylesHref ??
-    relative(
-      dirname(opts.outPath ? resolve(opts.outPath) : join(process.cwd(), "x.html")),
-      stylesPath,
-    );
-  const doc = [
-    "<!doctype html>",
-    `<!-- captured from ${page.url()} at ${viewport.width}x${viewport.height} by captureSurface();`,
-    "     markup is the live DOM, the stylesheet link is the app's own — start here, do not invent. -->",
-    `<html lang="en"${htmlClass ? ` class="${htmlClass}"` : ""}>`,
-    '<head><meta charset="utf-8">',
-    '<meta name="viewport" content="width=device-width, initial-scale=1">',
-    `<title>${opts.title ?? `captured ${selector}`}</title>`,
-    `<link rel="stylesheet" href="${href}">`,
-    "</head>",
-    `<body${bodyClass ? ` class="${bodyClass}"` : ""}>`,
-    staticMarkup,
-    "</body>",
-    "</html>",
-  ].join("\n");
+  const doc = mockupShell({
+    markup: staticMarkup,
+    htmlClass,
+    bodyClass,
+    stylesHref: opts.stylesHref ?? mockupStylesHref(opts.outPath),
+    title: opts.title ?? `captured ${selector}`,
+    source: page.url(),
+    width: viewport.width,
+    height: viewport.height,
+  });
   if (opts.outPath) {
     mkdirSync(dirname(opts.outPath), { recursive: true });
     writeFileSync(opts.outPath, doc);
