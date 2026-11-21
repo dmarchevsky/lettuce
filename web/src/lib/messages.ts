@@ -77,12 +77,21 @@ export interface TranscriptEntry {
   title?: string;
   /** task: the originating task id. */
   taskId?: string;
+  /** task: how long the backgrounded tool ran, read out of the notification. */
+  durationMs?: number;
+  /**
+   * task: a backgrounded tool's own result was folded into this receipt, so the
+   * row stands on its own instead of hiding in a collapsed run — the result is
+   * the thing the person asked for (a drawing), not a step to skip past.
+   */
+  promoted?: boolean;
   /** user: arrived over a channel (telegram, slack) rather than being typed. */
   channel?: string;
   /**
-   * user: images attached to the message, lifted from base64 image content
-   * parts — present on the local echo, the queued echo and history alike,
-   * because all three carry the parts (`readContentParts`).
+   * Images lifted from base64 image content parts — present on the local echo,
+   * the queued echo and history alike, because all three carry the parts
+   * (`readContentParts`). User messages carry what you attached; a promoted tool
+   * card carries what the tool drew, and exactly one row holds them.
    */
   images?: TranscriptImage[];
   /**
@@ -280,7 +289,24 @@ const INJECTED_BLOCKS: Record<string, EntryKind> = {
   // A person talking from another device, not machine noise — stays a user
   // message, just labelled with where it came from.
   "channel-notification": "user",
+  // A backgrounded tool's own return (`external-tool-result`): model-facing
+  // framing that arrives in the SAME message as its `<task-notification>`. The
+  // pairing is what renders it, so the kind here is only the fallback for a
+  // block that turns up with no notification beside it.
+  "external-tool-result": "system",
 };
+
+/** The tag a backgrounded external tool's result arrives inside. */
+const TOOL_RESULT_TAG = "external-tool-result";
+
+/**
+ * What the image tool used to end its return with: a sentence coaching the
+ * model, which is now said in the tool's own description instead. Retired
+ * history still carries it, so it is dropped on read — the same kind of legacy
+ * tolerance `<system-alert>` gets.
+ */
+const RETIRED_COACHING =
+  "The pictures are attached to this result: look at them and refine the prompt, or link them from prose as /work paths.";
 
 const INJECTED_BLOCK_RE = new RegExp(
   // The tag may carry attributes (`<skill_content name="...">`). The closing tag
@@ -376,6 +402,40 @@ function innerTag(body: string, tag: string): string | undefined {
   return match?.[1]?.trim() || undefined;
 }
 
+/** Undo the escaping upstream applied to a tool return before wrapping it. */
+function unescapeResultText(text: string): string {
+  return text.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+}
+
+/**
+ * The body of one `<external-tool-result>` block: each `<text>` part upstream
+ * wrapped and escaped, back as prose. Anything without a `<text>` wrapper is
+ * kept verbatim rather than dropped — the row may look odd, but it may never
+ * lose what the tool said.
+ */
+function toolResultText(body: string): string {
+  const parts = [...body.matchAll(/<text>([\s\S]*?)<\/text>/g)].map((m) =>
+    unescapeResultText(m[1] ?? "").trim(),
+  );
+  // The tool's prose is kept as it came — a backgrounded tool may return
+  // markdown, and squashing its whitespace would be the UI editing the agent's
+  // words. Only the retired sentence is taken out.
+  const text = (parts.length > 0 ? parts.join("\n") : unescapeResultText(body)).trim();
+  return text.split(` ${RETIRED_COACHING}`).join("").replace(RETIRED_COACHING, "").trim();
+}
+
+/** `External tool generate_image completed` → `generate_image`. */
+function toolNameInSummary(summary: string | undefined): string | undefined {
+  if (!summary) return undefined;
+  return /^(?:External tool|Tool) (\S+) (?:completed|failed)$/.exec(summary)?.[1];
+}
+
+/** `<usage>duration_ms: 34000</usage>` → 34000. */
+function durationInUsage(usage: string | undefined): number | undefined {
+  const ms = usage ? /duration_ms:\s*(\d+)/.exec(usage)?.[1] : undefined;
+  return ms ? Number(ms) : undefined;
+}
+
 /**
  * Task notifications come in three incompatible shapes — the full subagent/Bash
  * form, a Monitor variant with no status and a nested <event>, and a reflection
@@ -387,6 +447,8 @@ function taskEntry(base: TranscriptEntry, body: string): TranscriptEntry {
   const status = innerTag(body, "status");
   const result = innerTag(body, "result");
   const taskId = innerTag(body, "task-id");
+  const toolName = toolNameInSummary(summary);
+  const durationMs = durationInUsage(innerTag(body, "usage"));
   // An answer to an AskUserQuestion card is a task notification too —
   // `prepareAskUserQuestionNotif` wraps it in exactly this tag. Lift it so the
   // card can render read-only with the chosen answers, live and after a
@@ -403,6 +465,10 @@ function taskEntry(base: TranscriptEntry, body: string): TranscriptEntry {
     // Never an empty card: without a summary the raw block is still readable.
     ...(summary ? { title: summary } : { title: body.slice(0, 120) }),
     ...(taskId ? { taskId } : {}),
+    // The tool's own name reads better than "Task · External tool generate_image
+    // completed", which says the same thing twice.
+    ...(toolName ? { toolName, title: undefined } : {}),
+    ...(durationMs !== undefined ? { durationMs } : {}),
     // Absent status (Monitor) must not read as a failure, so no badge at all.
     ...(status ? { status: status === "completed" ? "success" : "error" } : {}),
     ...(questionResponse ? { questionResponse } : {}),
@@ -431,19 +497,98 @@ function splitInjectedBlocks(entry: TranscriptEntry): TranscriptEntry[] {
   const { blocks, prose } = extractBlocks(entry.text);
   if (blocks.length === 0) return [entry];
 
-  const out: TranscriptEntry[] = blocks.map((block, index) => {
+  // A finished background tool sends its receipt and its return as two blocks of
+  // ONE message, so they render as one row: the pictures belong to the tool, and
+  // the notification's "the result follows this notification" line is what the
+  // wrapper defers to. Each wrapper pairs with the notification before it, which
+  // is what keeps two drawings finishing at once on two rows.
+  const pictures = prose || !entry.images || entry.images.length === 0 ? undefined : entry.images;
+
+  const out: TranscriptEntry[] = [];
+  // When several completions coalesce into one message the wire has flattened
+  // their image parts out of text order, so the pictures cannot be split per
+  // card: they ride the first card that actually drew something, and every card
+  // still names its own saved files. Never duplicated, never lost.
+  let leftToPlace = pictures;
+  blocks.forEach((block, index) => {
     const base: TranscriptEntry = { ...entry, id: `${entry.id}:block:${index}` };
-    if (block.kind === "task") return taskEntry(base, block.body);
+    delete base.images; // they belong to one row, not to every block of the message
+    if (block.tag === TOOL_RESULT_TAG) {
+      leftToPlace = foldToolResult(out, base, block.body, leftToPlace);
+      return;
+    }
+    if (block.kind === "task") {
+      out.push(taskEntry(base, block.body));
+      return;
+    }
     if (block.kind === "user") {
       const channel = channelName(block.attrs);
-      return { ...base, text: block.body, ...(channel ? { channel } : {}) };
+      out.push({ ...base, text: block.body, ...(channel ? { channel } : {}) });
+      return;
     }
-    return { ...base, kind: "system", reminder: true, text: block.body };
+    out.push({ ...base, kind: "system", reminder: true, text: block.body });
   });
 
   // A message that was nothing but injected blocks leaves no user bubble behind.
   if (prose) out.push({ ...entry, text: prose });
+  // Nothing consumed the pictures, so they go back where they were: an inbound
+  // Telegram photo is a `<channel-notification>` block with image parts and no
+  // prose, and that block is the person's own message. The rule is that images
+  // move, never that they disappear — so the row that takes them has to be one
+  // that draws them. A reminder disclosure or a failed card would accept the
+  // pictures and show nothing, and a coalesced message is exactly where the only
+  // rows are those two, so a leftover with no home gets a row of its own.
+  if (leftToPlace) {
+    const home =
+      out.find((item) => item.kind === "user") ??
+      out.find((item) => item.kind === "task" && item.promoted && item.status !== "error");
+    if (home) home.images = leftToPlace;
+    else out.push({ ...entry, id: `${entry.id}:images`, text: "", images: leftToPlace });
+  }
   return out;
+}
+
+/**
+ * Fold one `<external-tool-result>` into the receipt it belongs to, or give it a
+ * row of its own when no receipt is beside it. Returns the pictures still unlost,
+ * so a receipt that drew nothing (a failed call) does not swallow them.
+ */
+function foldToolResult(
+  out: TranscriptEntry[],
+  base: TranscriptEntry,
+  body: string,
+  pictures: TranscriptImage[] | undefined,
+): TranscriptImage[] | undefined {
+  const text = toolResultText(body);
+  const host = lastTaskEntry(out);
+  const take = host?.status === "error" ? undefined : pictures;
+  const card: TranscriptEntry = host
+    ? { ...host, text, promoted: true, ...(take ? { images: take } : {}) }
+    : // A result with no receipt to fold into is still the tool's own words.
+      {
+        ...base,
+        kind: "task",
+        title: undefined,
+        text,
+        promoted: true,
+        ...(take ? { images: take } : {}),
+      };
+  if (host) out[out.indexOf(host)] = card;
+  else out.push(card);
+  return host?.status === "error" ? pictures : undefined;
+}
+
+/** The last tool receipt built so far — what a tool's result folds into. */
+function lastTaskEntry(entries: readonly TranscriptEntry[]): TranscriptEntry | undefined {
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const entry = entries[i];
+    // Only a receipt that names its tool is a tool receipt: an AskUserQuestion
+    // answer is a `task` entry too, and its real UI is the question card, which
+    // drops any other entry with the same id — folding a drawing in there would
+    // take the drawing out of the transcript.
+    if (entry?.kind === "task" && !entry.promoted && entry.toolName) return entry;
+  }
+  return undefined;
 }
 
 /**
@@ -948,6 +1093,23 @@ export function stepLabel(entry: TranscriptEntry): string {
 }
 
 /**
+ * Entries that stand on their own row instead of folding into a run of steps.
+ *
+ * A question has to be seen to be answered; a remote-pi card is live; a channel
+ * send is the point of the turn; and a finished background tool's result is the
+ * content the person asked for — a drawing that waits behind a collapsed
+ * "1 step · Task" fold is a drawing nobody sees.
+ */
+function standsAlone(entry: TranscriptEntry): boolean {
+  return (
+    entry.kind === "question" ||
+    entry.kind === "pi_run" ||
+    entry.kind === "channel_send" ||
+    (entry.kind === "task" && entry.promoted === true)
+  );
+}
+
+/**
  * Fold the agent's work between messages into runs.
  *
  * The transcript used to render every thinking block, tool call and reminder at
@@ -977,22 +1139,7 @@ export function groupTranscript(entries: readonly TranscriptEntry[]): Transcript
       run = null;
       continue;
     }
-    if (entry.kind === "question") {
-      // Standalone, never inside a run: a question the user has to see and
-      // answer cannot hide behind a collapsed "5 steps" fold.
-      items.push({ kind: "message", entry });
-      run = null;
-      continue;
-    }
-    if (entry.kind === "pi_run") {
-      // Same as a question: the live run card must never hide inside a fold.
-      items.push({ kind: "message", entry });
-      run = null;
-      continue;
-    }
-    if (entry.kind === "channel_send") {
-      // Same again: the message the agent put on Telegram is the point of the
-      // turn, so it stands under the run rather than inside it.
+    if (standsAlone(entry)) {
       items.push({ kind: "message", entry });
       run = null;
       continue;

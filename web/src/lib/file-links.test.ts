@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   collectFileTokens,
   LINKABLE_EXTENSIONS,
+  markdownImageTarget,
   remarkFilePaths,
   resolveWorkspacePath,
   wholeToken,
@@ -68,6 +69,37 @@ describe("resolveWorkspacePath", () => {
   test("a path that climbs out of /work is rejected", () => {
     expect(resolveWorkspacePath("../../etc/passwd.txt", CWD)).toBeNull();
     expect(resolveWorkspacePath("../../../root.md", CWD)).toBeNull();
+  });
+});
+
+describe("markdownImageTarget", () => {
+  test("the path `generate_image` reports renders as a picture", () => {
+    // The tool says "Saved to generated/x.png" and the model quotes it, so this
+    // is the shape prose arrives in — it used to be a broken-image box.
+    expect(markdownImageTarget("generated/a-panda-1.png", CWD)).toBe(
+      "/work/agent-abc/generated/a-panda-1.png",
+    );
+  });
+
+  test("an absolute /work path passes through", () => {
+    expect(markdownImageTarget("/work/agent-abc/generated/a-panda-1.png", CWD)).toBe(
+      "/work/agent-abc/generated/a-panda-1.png",
+    );
+  });
+
+  test("a src that names somewhere real is left as written", () => {
+    expect(markdownImageTarget("https://example.com/a.png", CWD)).toBe("https://example.com/a.png");
+    expect(markdownImageTarget("data:image/png;base64,AAA", CWD)).toBe("data:image/png;base64,AAA");
+    expect(markdownImageTarget("//example.com/a.png", CWD)).toBe("//example.com/a.png");
+  });
+
+  test("with no workspace to resolve against, a relative src stays as written", () => {
+    expect(markdownImageTarget("generated/a-panda-1.png", null)).toBe("generated/a-panda-1.png");
+  });
+
+  test("a src that climbs out of /work is not rewritten", () => {
+    expect(markdownImageTarget("../../etc/passwd.png", CWD)).toBe("../../etc/passwd.png");
+    expect(markdownImageTarget("/etc/passwd.png", CWD)).toBe("/etc/passwd.png");
   });
 });
 

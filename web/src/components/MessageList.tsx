@@ -23,13 +23,14 @@ import { resolveLiveWorkerRun, workerKindOf } from "../lib/run-link.ts";
 import type { LiveSubagent } from "../lib/subagents.ts";
 import { formatEntryTime, formatEntryTimeFull } from "../lib/timestamps.ts";
 import { parseToolArgs, summarizeToolCall } from "../lib/tool-summary.ts";
+import { formatElapsed } from "../lib/working.ts";
 import { type FileLinks, useFileLinks } from "../state/use-file-links.ts";
 import type { SessionApi } from "../state/use-session.ts";
 import { ChannelSendCard } from "./ChannelSendCard.tsx";
 import { ClaudeRunSheet } from "./ClaudeRunSheet.tsx";
 import { CodexRunSheet } from "./CodexRunSheet.tsx";
 import { Icon } from "./Icon.tsx";
-import { ImageLightbox } from "./ImageLightbox.tsx";
+import { ImageStrip } from "./ImageStrip.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { PiRunCard } from "./PiRunCard.tsx";
 import { QuestionCard } from "./QuestionCard.tsx";
@@ -530,8 +531,6 @@ const MessageItem = memo(function MessageItem({
     | { kind: "claude"; sessionId: string }
     | null
   >(null);
-  // Index into `entry.images` of the image shown full-size, if any.
-  const [zoom, setZoom] = useState<number | null>(null);
   const label = KIND_LABEL[entry.kind] ?? entry.kind;
 
   // Look up every filename this entry mentions so `Markdown` can link the real
@@ -699,26 +698,7 @@ const MessageItem = memo(function MessageItem({
           // Always visible, above the Out rail: a drawing buried behind the
           // disclosure is a drawing nobody sees. Same treatment and the same
           // full-screen preview a picture you attached yourself gets.
-          <div className="msg-images">
-            {pictures.map((image, index) => (
-              <button
-                key={index}
-                type="button"
-                className="msg-image-thumb"
-                onClick={() => setZoom(index)}
-                aria-label={`View image ${index + 1} full size`}
-              >
-                <img src={image.dataUrl} alt="" loading="lazy" />
-              </button>
-            ))}
-          </div>
-        ) : null}
-        {zoom !== null && pictures[zoom] ? (
-          <ImageLightbox
-            src={pictures[zoom].dataUrl}
-            alt={`Image ${zoom + 1}`}
-            onClose={() => setZoom(null)}
-          />
+          <ImageStrip images={pictures} />
         ) : null}
         {open ? (
           <div className="rail">
@@ -814,6 +794,11 @@ const MessageItem = memo(function MessageItem({
     // Header always readable — what finished and whether it worked — with the
     // result body (genuine markdown) behind the same disclosure tool output uses.
     const hasResult = entry.text.trim().length > 0;
+    // A promoted row IS the tool's result (the wrapper was parsed into it), so it
+    // shows everything: no disclosure, and the tool's own name where the generic
+    // "Task" tag and the summary that repeats it used to sit.
+    const promoted = entry.promoted === true;
+    const pictures = entry.images ?? [];
     // A Codex worker's report is only its last message; the run itself —
     // every command and its output — is in Codex's rollout (CodexRunSheet).
     const codexThread = codexThreadInTaskText(entry.text);
@@ -825,21 +810,34 @@ const MessageItem = memo(function MessageItem({
           type="button"
           className="tool-head"
           onClick={() => setOpen((v) => !v)}
-          disabled={!hasResult}
+          disabled={!hasResult || promoted}
         >
-          <Icon name="task" />
-          <span className="tag">Task</span>
+          <Icon name={pictures.length > 0 ? "image" : "task"} />
+          {entry.toolName ? <code>{entry.toolName}</code> : <span className="tag">Task</span>}
           {entry.status ? (
             <span className={`tag${entry.status === "error" ? " bad" : " ok-tag"}`}>
               {entry.status === "error" ? "failed" : "completed"}
             </span>
           ) : null}
+          {entry.durationMs !== undefined ? (
+            // How long the tool ran in the background — the wait this row is
+            // explaining, and free on the wire (`<usage>duration_ms`).
+            <span className="duration">{formatElapsed(entry.durationMs)}</span>
+          ) : null}
           <span className="grow-text">{entry.title ?? ""}</span>
-          {hasResult ? (
+          {hasResult && !promoted ? (
             <Icon name={open ? "chevron-down" : "chevron-right"} className="chevron" />
           ) : null}
         </button>
-        {open && hasResult ? <div className="bubble task-result">{md(entry.text)}</div> : null}
+        {pictures.length > 0 ? (
+          // The drawing is why the tool was called, so it is never behind a
+          // disclosure — same strip and full-screen preview a picture you
+          // attached yourself gets.
+          <ImageStrip images={pictures} />
+        ) : null}
+        {hasResult && (promoted || open) ? (
+          <div className="bubble task-result">{md(entry.text)}</div>
+        ) : null}
         {codexThread ? (
           <button type="button" className="link small pad-x" onClick={() => setCodexOpen(true)}>
             Show Codex run
@@ -908,33 +906,7 @@ const MessageItem = memo(function MessageItem({
         // Thumbnails above the text; tap opens the full image in the app.
         // A data: URL cannot be navigated to (browsers refuse top-level
         // `data:` from a click), so the preview lives in this entry.
-        <div className="msg-images">
-          {entry.images.map((image, index) => (
-            // The thumbnails of one message are fixed once it is rendered, and
-            // the index is also what `setZoom` shows — they are one array, so
-            // the position is the only identity they have. (No `biome-ignore`
-            // here: the formatter keeps `key` off the element's own line, and a
-            // suppression comment has to sit directly above what it excuses.)
-            <button
-              key={index}
-              type="button"
-              className="msg-image-thumb"
-              onClick={() => setZoom(index)}
-              aria-label={`View image ${index + 1} full size`}
-            >
-              {/* The button's aria-label is the accessible name; the image
-                  itself is decorative beside it. */}
-              <img src={image.dataUrl} alt="" loading="lazy" />
-            </button>
-          ))}
-        </div>
-      ) : null}
-      {zoom !== null && entry.images?.[zoom] ? (
-        <ImageLightbox
-          src={entry.images[zoom].dataUrl}
-          alt={`Image ${zoom + 1}`}
-          onClose={() => setZoom(null)}
-        />
+        <ImageStrip images={entry.images} />
       ) : null}
       {/* An image-only message has no text bubble to draw; the thumbnails are
           the message. */}

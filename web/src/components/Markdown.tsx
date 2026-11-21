@@ -2,7 +2,7 @@ import { memo, useMemo } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { downloadUrl } from "../lib/download.ts";
-import { remarkFilePaths } from "../lib/file-links.ts";
+import { markdownImageTarget, remarkFilePaths } from "../lib/file-links.ts";
 import { settledPrefixLength } from "../lib/markdown-stream.ts";
 import { WORKSPACE_ROOT } from "../lib/workspace.ts";
 
@@ -125,16 +125,18 @@ const MarkdownBlocks = memo(function MarkdownBlocks({
           {children}
         </pre>
       ),
-      // A picture the agent points at. The one form it can name is a workspace
-      // path (`generate_image` saves there, and prose quotes what it saved), and
-      // the SPA has no route under /work, so that src is rewritten to the BFF's
-      // inline download route exactly as a link's href is; anything else — a
-      // data: URL, a site URL, a relative path — passes through and does what
-      // the browser would. Capped in measure by `.md img`.
+      // A picture the agent points at. The form it can name is a workspace path —
+      // absolute, or relative to the agent's own directory, which is what
+      // `generate_image` reports — and the SPA has no route under /work, so that
+      // src is rewritten to the BFF's inline download route exactly as a link's
+      // href is; anything else — a data: URL, a site URL — passes through and
+      // does what the browser would. Capped in measure by `.md img`.
       img: ({ src, alt, ...props }) => (
         <img
           {...props}
-          src={resolveMarkdownHref(typeof src === "string" ? src : undefined)}
+          src={resolveMarkdownHref(
+            typeof src === "string" ? markdownImageTarget(src, cwd ?? null) : undefined,
+          )}
           alt={typeof alt === "string" ? alt : ""}
           loading="lazy"
         />
@@ -145,7 +147,7 @@ const MarkdownBlocks = memo(function MarkdownBlocks({
         </div>
       ),
     }),
-    [onOpenFile],
+    [onOpenFile, cwd],
   );
 
   return (

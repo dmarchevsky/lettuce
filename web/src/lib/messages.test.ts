@@ -838,6 +838,243 @@ Full transcript available at: /tmp/letta-background-tRlfjO/task_2.log`;
   test("a task notification never titles a conversation", () => {
     expect(stripInjectedBlocks(TASK)).toBe("");
   });
+
+  test("how long it ran comes out of <usage>", () => {
+    expect(entriesFor(TASK)[0]!.durationMs).toBe(972873);
+  });
+});
+
+describe("a backgrounded tool's own result", () => {
+  // The shape `buildExternalToolNotificationContent` emits, part for part
+  // (letta-code src/queue/turn-queue-runtime.ts): the notification, the opening
+  // wrapper, the escaped result, the image parts, the closing wrapper — all in
+  // ONE message, whose role is "user".
+  const PNG =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aF9sAAAAASUVORK5CYII=";
+  const picture = (n = 1) => ({
+    type: "image",
+    source: { type: "base64", media_type: "image/png", data: `${PNG}${n === 2 ? "AA" : ""}` },
+  });
+  const text = (t: string) => ({ type: "text", text: t });
+
+  const notification = (summary = "External tool generate_image completed", status = "completed") =>
+    `<task-notification>\n<task-id>external_a1</task-id>\n<status>${status}</status>\n<summary>${summary}</summary>\n<result>The tool result follows this notification as text and image parts.</result>\n<usage>duration_ms: 34000</usage>\n</task-notification>`;
+
+  const drawn = "Drew 1 picture at 1024x1024. Saved to generated/a-panda-1.png.";
+  const coaching =
+    " The pictures are attached to this result: look at them and refine the prompt, or link them from prose as /work paths.";
+
+  const drawnMessage = (parts: unknown[]) => [
+    text(notification()),
+    text("\n<external-tool-result>"),
+    ...parts,
+    text("</external-tool-result>"),
+  ];
+
+  const entriesForContent = (content: unknown) =>
+    sortedEntries(transcriptFromHistory([{ id: "u1", message_type: "user_message", content }]));
+
+  test("the pair becomes one card of the tool's own, not a You bubble", () => {
+    const entries = entriesForContent(
+      drawnMessage([text(`<text>${drawn}${coaching}</text>`), picture()]),
+    );
+    expect(entries).toHaveLength(1);
+    const card = entries[0]!;
+    expect(card.kind).toBe("task");
+    expect(card.promoted).toBe(true);
+    // The header reads the tool out of the summary instead of repeating it.
+    expect(card.toolName).toBe("generate_image");
+    expect(card.title).toBeUndefined();
+    expect(card.status).toBe("success");
+    expect(card.durationMs).toBe(34000);
+    // The notification's placeholder is gone, replaced by what it deferred to —
+    // and the retired coaching sentence with it.
+    expect(card.text).toBe("Drew 1 picture at 1024x1024. Saved to generated/a-panda-1.png.");
+    // The pictures belong to the card, and to nothing else.
+    expect(card.images).toHaveLength(1);
+  });
+
+  test("nothing renders the wrapper or its escaping", () => {
+    const entries = entriesForContent(
+      drawnMessage([text(`<text>${drawn}${coaching}</text>`), picture()]),
+    );
+    for (const entry of entries) {
+      expect(entry.text).not.toContain("external-tool-result");
+      expect(entry.text).not.toContain("<text>");
+      expect(entry.text).not.toContain("&lt;");
+      expect(entry.kind).not.toBe("user");
+    }
+  });
+
+  test("it stands on its own row, and answers to the Tasks switch", () => {
+    const entries = entriesForContent(drawnMessage([text(`<text>${drawn}</text>`), picture()]));
+    // Never inside a collapsed run: the drawing is the point of the turn.
+    expect(groupTranscript(entries).map((item) => item.kind)).toEqual(["message"]);
+    expect(filterEntries(entries, new Set<FilterGroup>(["tasks"]))).toHaveLength(1);
+    expect(filterEntries(entries, new Set<FilterGroup>(["user"]))).toHaveLength(0);
+  });
+
+  test("three pictures ride one card", () => {
+    const entries = entriesForContent([
+      text(notification()),
+      text("\n<external-tool-result>"),
+      text("<text>Drew 3 pictures at 1024x1024 with seed 42.</text>"),
+      picture(),
+      picture(2),
+      picture(),
+      text("</external-tool-result>"),
+    ]);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.images).toHaveLength(3);
+  });
+
+  test("escaped markup comes back as the text it was quoting", () => {
+    const entries = entriesForContent(
+      drawnMessage([
+        text("<text>The prompt &lt;forest&gt; &amp; more were used.</text>"),
+        picture(),
+      ]),
+    );
+    expect(entries[0]!.text).toBe("The prompt <forest> & more were used.");
+  });
+
+  test("a failed draw keeps its error and shows no pictures", () => {
+    const entries = entriesForContent([
+      text(notification("External tool generate_image failed", "failed")),
+      text("\n<external-tool-result>"),
+      text("<text>generate_image failed: HTTP 400 bad size</text>"),
+      text("</external-tool-result>"),
+    ]);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.status).toBe("error");
+    expect(entries[0]!.text).toContain("HTTP 400");
+    expect(entries[0]!.images).toBeUndefined();
+  });
+
+  test("two drawings finishing at once are two cards", () => {
+    const one = drawnMessage([text(`<text>${drawn}</text>`), picture()]);
+    const two = drawnMessage([text("<text>Drew 1 picture at 512x512.</text>")]);
+    const entries = entriesForContent([...one, text("\n"), ...two]);
+    const cards = entries.filter((entry) => entry.promoted);
+    expect(cards).toHaveLength(2);
+    expect(cards[1]!.text).toBe("Drew 1 picture at 512x512.");
+    // The flattened image parts cannot be split per card, so they ride the first
+    // pair's row rather than duplicating across both.
+    expect(cards[0]!.images).toHaveLength(1);
+    expect(cards[1]!.images).toBeUndefined();
+  });
+
+  test("a message that also holds a typed photo keeps the photo yours", () => {
+    // Queue merging can fold a typed message into the same turn; the pictures
+    // cannot be split by position (the wire flattens image parts out of text
+    // order), so they stay with the person rather than vanishing onto a card.
+    const entries = entriesForContent([
+      text("a photo of my dog"),
+      picture(),
+      ...drawnMessage([text(`<text>${drawn}</text>`)]),
+    ]);
+    const user = entries.find((entry) => entry.kind === "user");
+    const card = entries.find((entry) => entry.promoted);
+    expect(user?.text).toContain("my dog");
+    expect(user?.images).toHaveLength(1);
+    expect(card?.images).toBeUndefined();
+  });
+
+  test("the tool's own prose keeps its paragraphs", () => {
+    // The card shows the tool's words, so the UI must not edit them: a
+    // backgrounded MCP tool may hand back markdown, and whitespace is part of it.
+    const prose = "Summary of the run.\n\nFindings:\n\n- one\n- two";
+    const entries = entriesForContent(drawnMessage([text(`<text>${prose}</text>`), picture()]));
+    expect(entries[0]!.text).toBe(prose);
+  });
+
+  test("a failed draw does not take the successful one's picture", () => {
+    // Two completions coalesced into one message. The failed call drew nothing,
+    // so the picture belongs to the card that says it drew one.
+    const entries = entriesForContent([
+      text(notification("External tool generate_image failed", "failed")),
+      text("\n<external-tool-result>"),
+      text("<text>generate_image failed: HTTP 400 bad size</text>"),
+      text("</external-tool-result>"),
+      ...drawnMessage([text(`<text>${drawn}</text>`), picture()]),
+    ]);
+    const cards = entries.filter((entry) => entry.promoted);
+    expect(cards).toHaveLength(2);
+    expect(cards[0]!.status).toBe("error");
+    expect(cards[0]!.images).toBeUndefined();
+    expect(cards[1]!.status).toBe("success");
+    expect(cards[1]!.images).toHaveLength(1);
+  });
+
+  test("only a receipt that names its tool hosts a tool's result", () => {
+    // A question answer and a Monitor firing are `task` entries too, and a
+    // question's real UI is its card, which drops any other entry with its id.
+    // A result that folds into one of those would leave the transcript with the
+    // picture, so it takes a row of its own.
+    const entries = entriesForContent([
+      text(
+        `<task-notification>\n<task-id>task_9</task-id>\n<summary>Monitor fired</summary>\n<result><event>errors in deploy.log</event></result>\n</task-notification>`,
+      ),
+      ...drawnMessage([text(`<text>${drawn}</text>`), picture()]),
+    ]);
+    const card = entries.find((entry) => entry.promoted);
+    expect(card?.text).toBe(drawn);
+    expect(card?.images).toHaveLength(1);
+    expect(entries.filter((entry) => entry.kind === "task")).toHaveLength(2);
+  });
+
+  test("a picture rides the person's row when no tool asked for it", () => {
+    // An inbound Telegram photo is a `<channel-notification>` block with image
+    // parts and no prose. Splitting the message must move a picture, never drop
+    // it.
+    const entries = entriesForContent([
+      text('<channel-notification channel="telegram">photo</channel-notification>'),
+      picture(),
+    ]);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.channel).toBe("telegram");
+    expect(entries[0]!.images).toHaveLength(1);
+  });
+
+  test("a picture nothing can hold gets a row of its own", () => {
+    // The worst coalescing: the only draw failed and the only other block is a
+    // reminder, so every row that exists either refuses the picture (a failed
+    // card) or cannot draw one (a disclosure). It still has to be on screen.
+    const entries = entriesForContent([
+      text("<system-reminder>the time is 07:46</system-reminder>"),
+      text(notification("External tool generate_image failed", "failed")),
+      text("\n<external-tool-result>"),
+      text("<text>generate_image failed: HTTP 400 bad size</text>"),
+      picture(),
+      text("</external-tool-result>"),
+    ]);
+    const carrier = entries.find((entry) => entry.images?.length);
+    expect(carrier?.kind).toBe("user");
+    expect(carrier?.reminder).toBeUndefined();
+    // And it stands on its own row: a picture inside a collapsed fold is a
+    // picture nobody scrolls to find.
+    const items = groupTranscript(entries);
+    expect(items.some((item) => item.kind === "message" && item.entry.images?.length)).toBe(true);
+  });
+
+  test("an ordinary subagent receipt is untouched by the pairing", () => {
+    const entries = entriesForContent([text(notification('Agent "look" completed'))]);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.promoted).toBeUndefined();
+    expect(entries[0]!.toolName).toBeUndefined();
+    expect(entries[0]!.title).toBe('Agent "look" completed');
+  });
+
+  test("a wrapper with no notification beside it still shows its text", () => {
+    const entries = entriesForContent([
+      text("\n<external-tool-result>"),
+      text("<text>Orphan result body</text>"),
+      text("</external-tool-result>"),
+    ]);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.kind).toBe("task");
+    expect(entries[0]!.text).toBe("Orphan result body");
+  });
 });
 
 describe("skill blocks with open-ended tag names", () => {

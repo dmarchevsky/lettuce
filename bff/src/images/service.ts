@@ -206,7 +206,9 @@ export async function generateImageTool(
   const text = [
     `${describe(result.images, size, parsed.seed)}.`,
     `Saved to ${images.map((image) => image.path).join(", ")}.`,
-    "The pictures are attached to this result: look at them and refine the prompt, or link them from prose as /work paths.",
+    // Facts only. Telling the model to look at the pictures it can see, or that
+    // they are saved where Files can reach them, is the tool description's job
+    // (`mod.ts`); here the same sentence is what a person reads in the transcript.
   ].join(" ");
   return { text, isError: false, images };
 }
