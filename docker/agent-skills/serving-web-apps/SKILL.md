@@ -25,6 +25,10 @@ the user.
    Node `server.listen(3000, "0.0.0.0")`.
 
 3. **Run it detached, with a log, so it outlives your turn and your shell:**
+   (A server never exits, so it has no place in the foreground: a command that cannot
+   move to the background is terminated at the default 2-minute Bash timeout, and even an
+   auto-backgrounded one is a task of this turn, not a process of yours. The detached
+   form below is the only one that keeps answering after you are done.)
 
    ```bash
    mkdir -p "$PWD/logs"

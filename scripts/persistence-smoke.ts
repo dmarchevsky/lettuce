@@ -16,12 +16,12 @@
 
 import { MAX_REPLAY_FRAMES } from "../bff/src/session/buffer.ts";
 import {
+  type BffSession,
   devSignIn,
   driveTurn,
   openBffSession,
   parseArgs,
   requireServedBuild,
-  type BffSession,
 } from "./harness.ts";
 
 const { origin: ORIGIN, staleBuild } = parseArgs(process.argv.slice(2));
@@ -775,7 +775,6 @@ check(
   authStatus,
 );
 
-
 // ── 11. Turn settling (scripted provider) ───────────────────────────────────
 // A scripted OpenAI-compatible endpoint answers with a complete SSE chat
 // completion that ends properly after `data: [DONE]`. The shared harness
@@ -812,7 +811,9 @@ try {
         const body = (await req.json()) as { stream?: boolean };
         if (!body.stream) {
           return Response.json({
-            choices: [{ message: { role: "assistant", content: "SETTLE-OK" }, finish_reason: "stop" }],
+            choices: [
+              { message: { role: "assistant", content: "SETTLE-OK" }, finish_reason: "stop" },
+            ],
           });
         }
         // A complete completion, then `[DONE]`, then the response ends — the
@@ -821,9 +822,19 @@ try {
         return new Response(
           new ReadableStream({
             start(controller) {
-              controller.enqueue(sseFrame({ choices: [{ index: 0, delta: { content: "SETTLE" }, finish_reason: null }] }));
-              controller.enqueue(sseFrame({ choices: [{ index: 0, delta: { content: "-OK" }, finish_reason: null }] }));
-              controller.enqueue(sseFrame({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }] }));
+              controller.enqueue(
+                sseFrame({
+                  choices: [{ index: 0, delta: { content: "SETTLE" }, finish_reason: null }],
+                }),
+              );
+              controller.enqueue(
+                sseFrame({
+                  choices: [{ index: 0, delta: { content: "-OK" }, finish_reason: null }],
+                }),
+              );
+              controller.enqueue(
+                sseFrame({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }] }),
+              );
               controller.enqueue(sseFrame("[DONE]"));
               controller.close();
             },
@@ -850,7 +861,11 @@ try {
 
   const w = await openSession(cookie);
   const helloW = await w.waitFor((f) => str(f, "type") === "__bff_hello");
-  check("the settle session sees a connected upstream", str(helloW, "upstream") === "connected", helloW);
+  check(
+    "the settle session sees a connected upstream",
+    str(helloW, "upstream") === "connected",
+    helloW,
+  );
 
   w.send({
     type: "create_agent",
@@ -861,7 +876,8 @@ try {
   });
   const madeAgent = await w.waitFor((f) => f.request_id === "settle-agent", 30_000);
   const settleAgentId: string | undefined =
-    (madeAgent.agent as { id?: string } | undefined)?.id ?? (str(madeAgent, "agent_id") || undefined);
+    (madeAgent.agent as { id?: string } | undefined)?.id ??
+    (str(madeAgent, "agent_id") || undefined);
   check("a throwaway agent is created on the scripted model", Boolean(settleAgentId), madeAgent);
 
   if (settleAgentId) {
@@ -887,7 +903,11 @@ try {
         "Reply with exactly: SETTLE-OK",
         180_000,
       );
-      check("the turn settles with turn_finished", str(settleFrame, "type") === "turn_finished", settleFrame);
+      check(
+        "the turn settles with turn_finished",
+        str(settleFrame, "type") === "turn_finished",
+        settleFrame,
+      );
 
       w.send({
         type: "conversation_messages_list",
@@ -897,7 +917,11 @@ try {
       });
       const histW = await w.waitFor((f) => f.request_id === "settle-hist");
       const stored = JSON.stringify(histW.messages ?? []);
-      check("the scripted answer is stored in the conversation", stored.includes("SETTLE-OK"), stored.slice(0, 300));
+      check(
+        "the scripted answer is stored in the conversation",
+        stored.includes("SETTLE-OK"),
+        stored.slice(0, 300),
+      );
     }
 
     w.send({ type: "agent_delete", request_id: "settle-del", agent_id: settleAgentId });

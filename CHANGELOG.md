@@ -6,6 +6,8 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 ## [Unreleased]
 
 ### Changed
+- **letta-code 0.34.67 → 0.34.68.** An agent's long-running commands are now honest about time: a foreground command that can't move to the background ends at the default 2-minute timeout instead of hanging forever, so agents that start something slow either get a task they're notified about or a clean timeout — and the shipped agent guidance teaches both. The smoke suite gained a real end-to-end turn check that needs no model installed: a scripted provider answers one live turn and the turn must settle and store its answer.
+### Changed
 - The playbook fold's tail: four more lessons from recent flows. The lifecycle guard now lets the cleanup
   it mandates pass (an `exec`ed `rm` inside the owning container); a dev-port replace-or-wait that a long
   unattended chain will hit is asked when the holder first shows; conflict markers get swept before the
