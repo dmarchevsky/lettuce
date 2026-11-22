@@ -5,6 +5,12 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Added
+- **A message that never arrived says so, and can be sent again.** When the connection to the app-server
+  drops mid-send, the message now reads **Not sent** or **Delivery unconfirmed** under itself with a
+  **Send again**, instead of sitting there looking delivered; requests that are safe to repeat are
+  retried on their own the moment the link is back.
+
 ### Changed
 - The playbook fold's tail: four more lessons from recent flows. The lifecycle guard now lets the cleanup
   it mandates pass (an `exec`ed `rm` inside the owning container); a dev-port replace-or-wait that a long
