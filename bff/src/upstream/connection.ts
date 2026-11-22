@@ -64,6 +64,15 @@ export interface UpstreamOptions {
   /** How often the periodic sweep runs. Tests shorten it to exercise the
    * overlap guard without waiting five minutes; production leaves it alone. */
   sweepIntervalMs?: number;
+  /**
+   * Called after a reconnect has finished re-subscribing every known scope — never after the first
+   * connect, because there is nothing yet that could have been lost.
+   *
+   * The order is the whole point: a re-sent command is only routed by the app-server if this connection is
+   * already subscribed to its scope again, so anything that wants to replay in-flight work has to wait for
+   * this rather than watching `onStateChange("connected")`, which fires before the re-subscribe starts.
+   */
+  onReconnected?: (generation: number) => void | Promise<void>;
 }
 
 /** What a socket-level error event actually says, under either runtime. */
@@ -595,6 +604,14 @@ export class UpstreamConnection {
         // Re-subscribe to every scope we owned before the drop, so the
         // app-server routes their events back to us.
         await this.resubscribe();
+        // Only now is a re-send routable — see `onReconnected`.
+        if (this.generation > 1) {
+          try {
+            await this.options.onReconnected?.(this.generation);
+          } catch (error) {
+            this.log(`Reconnect follow-up failed: ${errorMessage(error)}`);
+          }
+        }
         // Then pick up every scope we've never touched at all — see
         // `subscribeToAllScopes`'s own doc comment for why this exists.
         void this.subscribeToAllScopes();
