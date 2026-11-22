@@ -60,6 +60,14 @@ describe("classify", () => {
     ).toBe("uncertain");
   });
 
+  test("`list_memory` is uncertain, because its answer is a chunk stream", () => {
+    // The one read that looks idempotent and is not: the registry merges the chunks of every response
+    // into one accumulator under the request id, so a re-send appends a second copy of every memory
+    // entry onto the first. Retrying it would corrupt the answer, not repeat it.
+    expect(
+      classify({ type: "list_memory", request_id: "bff-s-9", payload: { view: "documents" } }),
+    ).toBe("uncertain");
+  });
   test("a read is safe to re-send, a mutation is not", () => {
     expect(classify({ type: "read_file", request_id: "bff-1", path: "/work/a" })).toBe("retry");
     expect(classify({ type: "conversation_list", request_id: "bff-1" })).toBe("retry");

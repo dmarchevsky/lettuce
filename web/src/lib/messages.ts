@@ -523,6 +523,9 @@ function splitInjectedBlocks(entry: TranscriptEntry): TranscriptEntry[] {
   blocks.forEach((block, index) => {
     const base: TranscriptEntry = { ...entry, id: `${entry.id}:block:${index}` };
     delete base.images; // they belong to one row, not to every block of the message
+    // A delivery note is about the message, and one click on `Send again` clears it for all of them, so
+    // only the first card wears it — N notes under one message is not what the mock shows.
+    if (index > 0) delete base.delivery;
     if (block.tag === TOOL_RESULT_TAG) {
       leftToPlace = foldToolResult(out, base, block.body, leftToPlace);
       return;

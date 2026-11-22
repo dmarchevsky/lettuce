@@ -13,12 +13,17 @@ function setup(ready = true) {
   const sent: Record<string, unknown>[] = [];
   const toBrowser: Record<string, unknown>[] = [];
   let isReady = ready;
+  let sendThrowsOnce = false;
   const reconnectListeners: (() => void)[] = [];
   const upstream = {
     getState: () => "connected",
     getInfo: () => null,
     isReady: () => isReady,
     send: (frame: Record<string, unknown>) => {
+      if (sendThrowsOnce) {
+        sendThrowsOnce = false;
+        throw new Error("socket closed mid-write");
+      }
       if (!isReady) throw new Error("App-server connection is not ready");
       sent.push(frame);
     },
@@ -43,6 +48,10 @@ function setup(ready = true) {
     errors: () => toBrowser.filter((m) => m.type === "__bff_error"),
     down: () => {
       isReady = false;
+    },
+    /** Make the next `send` throw — the socket dying between the re-subscribe and a re-send. */
+    failNextSend: () => {
+      sendThrowsOnce = true;
     },
     up: () => {
       isReady = true;
@@ -151,5 +160,17 @@ describe("after a reconnect", () => {
     registry.remove(sessionId);
     registry.handleUpstreamReconnected();
     expect(errors()).toHaveLength(0);
+  });
+
+  test("a re-send that cannot be written is reported uncertain, never as never-sent", () => {
+    // The socket died again between the re-subscribe and the write. The first attempt *was* written to a
+    // live socket, so `not_sent` would claim the command did not run — and the tab would resend freely
+    // something that may already have run.
+    const { registry, sent, errors, send, failNextSend } = setup();
+    send(userMessage("cm-1"));
+    failNextSend();
+    registry.handleUpstreamReconnected();
+    expect(sent).toHaveLength(1); // the re-send never made it out
+    expect(errors()[0]).toMatchObject({ code: "delivery_uncertain", request_id: "web-1" });
   });
 });

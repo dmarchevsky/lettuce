@@ -957,7 +957,7 @@ const MessageItem = memo(function MessageItem({
  * tooltip, because there is nothing second-level to reveal: the state is the whole story.
  */
 const DELIVERY_WORDING: Record<"unsent" | "uncertain", string> = {
-  unsent: "Not sent — the app-server restarted before it confirmed",
+  unsent: "Not sent — it never reached the app-server",
   uncertain: "Delivery unconfirmed — the connection dropped before it answered",
 };
 

@@ -547,7 +547,13 @@ export class SessionRegistry {
     if (!reSent && !uncertain) return;
     const parts = [`${reSent} re-sent`, `${uncertain} uncertain`];
     if (pass.expired) parts.push(`${pass.expired} past their TTL`);
-    this.log(`In-flight after reconnect: ${parts.join(", ")}`);
+    // The scope keys are what the operator greps for when a message goes missing: they say which
+    // conversation the journal was holding work for.
+    const scopes = new Set<string>();
+    for (const entry of [...pass.resend, ...pass.report]) scopes.add(entry.scopeKey);
+    this.log(
+      `retry-after-close: ${parts.join(", ")} (${[...scopes].slice(0, 4).join(", ")}${scopes.size > 4 ? ` +${scopes.size - 4} more` : ""})`,
+    );
   }
 
   /**

@@ -103,9 +103,10 @@ function hasClientMessageId(command: Record<string, unknown>): boolean {
 }
 
 /**
- * How long an entry is worth re-sending. Past this the asking tab has already given up — its own request
- * timeout is shorter than the worst reconnect this is meant to survive — and a command applied late is
- * worse than one that is lost, so it is dropped rather than replayed.
+ * How long an entry is worth re-sending. Past this the answer is no longer a replay candidate: a stale
+ * command applied late is worse than one that is lost. The entry is still reported as uncertain — the
+ * asking tab may well still be waiting (its own request timeout is 30 s, longer than this) — it just
+ * never goes out again.
  */
 export const INFLIGHT_TTL_MS = 25_000;
 

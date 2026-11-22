@@ -463,6 +463,13 @@ export function useConversation(
   /** Mirror of `processing`, so `forceSend` can decide whether to abort. */
   const processingRef = useRef(false);
   /**
+   * Mirror of `ready`, for a verdict that arrives after the send that asked for it. A rejection's closure
+   * holds the `ready` from the render that sent the message, which is the wrong moment: the link dropping
+   * on the way back — phone backgrounding, the routine case — would read as a live link.
+   */
+  const readyRef = useRef(ready);
+  readyRef.current = ready;
+  /**
    * Set while force-send aborts a turn it is about to replace. The aborted
    * turn's `turn_finished` lands after the resend is already in flight and
    * the queue is empty (the resend started directly, it was never queued),
@@ -1163,9 +1170,22 @@ export function useConversation(
           ...(responseFormat ? { response_format: responseFormat } : {}),
         },
       }).then(
-        // Accepted. Any note still on the bubble was wrong, so it goes — and with it the payload, since
-        // there is nothing left to resend.
-        () => {
+        // The answer came back. An `input_accepted` can say *no* — a scope switching computers, a ledger at
+        // capacity, an input the listener refuses — and that is a verdict that nothing ran, not delivery:
+        // the message is marked undelivered with the app-server's reason, and its payload stays so the note
+        // can offer the resend. Any other answer means the input was taken, so a note still on the bubble
+        // was wrong and goes, and with it the payload there is nothing left to resend.
+        (frame) => {
+          const ack = frame as { type?: unknown; accepted?: unknown; error?: unknown };
+          if (ack?.type === "input_accepted" && ack.accepted === false) {
+            setError(
+              typeof ack.error === "string" && ack.error
+                ? ack.error
+                : "The app-server refused that message.",
+            );
+            if (markDelivery(transcriptRef.current, clientMessageId, "unsent")) flushSync();
+            return;
+          }
           resendableRef.current.delete(clientMessageId);
           if (clearDelivery(transcriptRef.current, clientMessageId)) flushSync();
         },
@@ -1179,7 +1199,7 @@ export function useConversation(
             // The optimistic "working" state is only unwound when the tab's own link is down, because that
             // is the one case that proves no turn can be running. A codeless failure with a live link is a
             // silence, and something may well be working — frames, not this promise, decide that.
-            if (!ready) setProcessing(false);
+            if (!readyRef.current) setProcessing(false);
             return;
           }
           if (markDelivery(transcriptRef.current, clientMessageId, deliveryForCode(code)))
@@ -1188,7 +1208,7 @@ export function useConversation(
         },
       );
     },
-    [scope, request, ready, flushSync],
+    [scope, request, flushSync],
   );
 
   /**
