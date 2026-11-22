@@ -5,6 +5,13 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Changed
+- The playbook fold's tail: four more lessons from recent flows. The lifecycle guard now lets the cleanup
+  it mandates pass (an `exec`ed `rm` inside the owning container); a dev-port replace-or-wait that a long
+  unattended chain will hit is asked when the holder first shows; conflict markers get swept before the
+  next commit after a hand-resolved rebase; and a promised work item in a patch plan line has to be
+  closed — landed or dropped — before release.
+
 ## [v0.49.0-letta_0.34.67] - 2026-11-21
 
 ### Added
@@ -19,11 +26,7 @@ All notable user-facing changes to lettuce, newest first. Version tags and
   `docker restart` on a container, or a hand-typed unscoped `up`, stops for confirmation the way a compose
   `down` always did; a docs flow that edits a project script has to say which checks it actually ran; a
   screen invented after the plan was approved has to be rendered or named unseen; and a seeded state the
-  operator is meant to click has to be there when they click. Four more from the tail of that sweep: the
-  lifecycle guard now lets the cleanup it mandates pass (an `exec`ed `rm` inside the owning container),
-  a dev-port replace-or-wait that a long unattended chain will hit is asked when the holder first shows,
-  conflict markers get swept before the next commit after a hand-resolved rebase, and a promised work
-  item in a patch plan line has to be closed — landed or dropped — before release.
+  operator is meant to click has to be there when they click.
 
 ### Fixed
 - **Which Codex is in this image, answered without a build.** The feature marker under
