@@ -14,7 +14,7 @@ worktreeDir = .dev-flow/{slug}/worktree
 ```flow-guard
 confirm \bdocker\s+(?:container\s+)?(?:restart|stop|kill|rm)\b[^\n]*(?:lettuce|app-server|channel-gateway) :: a bare docker command on a compose container tears the namespace holding bff and channel-gateway
 confirm \bdocker\b[^\n]*\bcompose\b[^\n]*\bup\b(?!.*--no-deps)                                    :: an unscoped `up` recreates app-server and every turn in flight — scope it (`up -d --no-deps bff`), or route it through flow verify
-confirm \bdocker\b[^\n]*\bcompose\b(?![^\n]*\bexec\b)[^\n]*\b(?:rm|down|stop|kill)\b            :: stops running containers — an `exec`ed command is exempt: removing root-owned residue INSIDE the owning container is the sanctioned cleanup shape
+confirm \bdocker\b[^\n]*\bcompose\b(?:(?!\bexec\b)[^\n])*?\b(?:rm|down|stop|kill)\b        :: stops running containers — a command `exec`ed INSIDE the owning container is exempt (removing root-owned residue there is the sanctioned cleanup shape), so keep the word `exec` out of the rest of the command
 confirm \bdocker\b[^\n]*\bcompose\b[^\n]*\brestart\b                                              :: drops the permanent upstream connection and any turn in flight
 confirm \bdocker\b[^\n]*\bcompose\b[^\n]*\bup\b[^\n]*(?:^|\s)app-server(?=\s|$)                    :: that service shares a network namespace with two others
 protect docker/.env*                                                                               :: gitignored live secrets and their backups — never echo the values
@@ -105,7 +105,8 @@ be paid at pre-release. And **a step or measurement the plan names as a gate mus
 outlived**: a step plan.md names ("capture a real `tool_return_message` with an image part before trusting the
 shape") survives approve, both implement workers and the first Verified? unless the Verified? message lists
 every such step as done or waived — the tier-2 counter carries playbook items only, so nothing else notices.
-The duty reads the same for a plan line's *work* items: a `--patch`/`--docs` flow whose approved line
+The duty reads the same for a plan line's *work* items (one beat later than the steps above, at pre-release):
+a `--patch`/`--docs` flow whose approved line
 promises a slice ("last one: the render-test env") lists every named item as landed or dropped at
 pre-release — PR-body prose is not a checkpoint, and one promised slice once rode into a merged PR as a
 Notes disclosure nobody was asked about.
@@ -172,9 +173,9 @@ holder it names (slug, stage, commit) and never pick for them. A holder already 
 replaced by verify itself (dev-flow releases after 0.90.1): nobody is reviewing that deploy. `servedBuild` reads the `sha=` line the image bakes into
 `BUILD_INFO`; verify refuses when it is not the worktree's HEAD, which is the "still serving the previous
 bundle" failure `deploy-check` exists for, caught before the operator is asked. **A dev-port choice a long
-unattended stretch will eventually hit is a first-beat question, not a last one:** if another flow's deploy
-is already the holder at the first `flow check`/status beat and you are about to launch a worker chain that
-cannot answer, ask replace-or-wait then — the gate re-checks the holder at verify anyway, so the early ask
+unattended stretch will eventually hit is a first-beat question, not a last one:** if `flow status` already
+names another flow's deploy as the holder and you are about to launch a worker chain that cannot answer, ask
+replace-or-wait then — verify re-checks the holder at deploy and keeps the final say anyway, so the early ask
 is free, while the late one ends an overnight chain on an operator word (one asked at 02:52 was answered at
 20:13).
 
@@ -272,9 +273,12 @@ parallel flow released while this one was open, merge `origin/main` into the wor
 Verified?: the collision is `CHANGELOG.md`, which verify's own auto-rebase cannot resolve, and a question
 discarded by the moved gate has to be re-asked after a hand rebase plus a full verify re-run. A
 rebase that stops on conflicts is aborted and handed back: resolve it in the worktree, then re-run — and
-after any hand-resolved rebase or merge, `git grep -n '^<<<<<<< '` the tree before the next commit: conflict
-markers ride into commits silently (one rode four commits in a tracked doc before the next worker's `verify`
-found it; dev-flow gh#164 closed without a plugin-side gate, so the discipline is repo-side). When
+after any hand-resolved rebase or merge, sweep for conflict markers before the next commit:
+`git grep -nE '^(<<<<<<<|\|\|\|\|\|\|\||>>>>>>>)'` — let it stand alone, since `git grep` exits 1 when the tree
+is clean and would silently take your `&& git commit` down with it. The release gate refuses branch-added
+markers, but it fires only at release and a `--docs` flow skips the tier-1 hygiene scan that would otherwise
+catch them — the window is exactly the hand-resolved rebase, and one such marker rode several commits in a
+tracked doc before the next worker's `verify` found it. When
 the operator asks you to "deploy this branch", `flow verify` is that command. `health` is a single `/readyz` probe; dev-flow
 retries it within `healthWait`.
 
@@ -349,7 +353,9 @@ is not that pass and never counts as one.
   worker asked to re-link or re-render a mockup is asked to write where its guard forbids writes — and it will
   spend calls patching `../../` paths through bash instead of saying so. Brief it to render into the worktree,
   or do the re-render in the driving session.
-- **Never type a compose lifecycle command — `down`, `stop`, `kill`, `rm`, `restart`.** The compose file pins
+- **Never type a compose lifecycle command — `down`, `stop`, `kill`, `rm`, `restart`** on the stack — compose's
+  own verbs; removing root-owned residue *exec'ed inside* the owning container is the exception the guard block
+  names. The compose file pins
   `name: lettuce`, so a `down -v` typed in a copy of the file still tears down the real one-per-machine stack
   and its named volumes. Prove compose interpolation with `docker compose config` in a scratch directory and
   nothing else. (A review worker told to "run any probe that proves a claim" reached for exactly this; the
