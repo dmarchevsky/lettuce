@@ -5541,7 +5541,9 @@ textarea.mono {
   border-radius: var(--radius-round);
 }
 
-/* Two choices, so two equal halves rather than a tab strip with an underline. */
+/* Two choices, so two equal halves rather than a tab strip with an underline — and a
+   third when an image endpoint is configured, which takes its equal share too, so the
+   strip is halves or thirds and never a ragged pair beside a narrow tab. */
 .avatar-tabs {
   display: flex;
   gap: 6px;
@@ -5608,6 +5610,25 @@ textarea.mono {
   color: var(--muted);
   font-size: 13px;
   cursor: pointer;
+}
+
+/* A description, then the press that draws it. Shaped like `.avatar-custom` on the glyph
+   tab because the act is the same — a field that takes what it can and a button that
+   keeps its own width — and the wrap is what keeps 390px honest: the field gives up its
+   180px share before the button drops to its own line. */
+.avatar-draw {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  font-weight: 400;
+}
+.avatar-draw input {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.avatar-draw .button {
+  flex: 0 0 auto;
 }
 
 .avatar-lib {

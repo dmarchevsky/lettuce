@@ -15,6 +15,8 @@
  * source jpeg has no alpha to keep and simply covers the colour.
  */
 
+import { edgeKeyColour, keyOut } from "./face-key.ts";
+
 /** The edge length every stored face is resized to. */
 export const FACE_SIZE = 128;
 
@@ -89,8 +91,16 @@ function encode(canvas: HTMLCanvasElement): Promise<Blob> {
  * Centre-crop rather than fit-or-letterbox because the face is drawn in a circle:
  * letterboxing would put the agent's colour through the bars and read as part of
  * the picture, and stretching distorts whatever it is.
+ *
+ * `keyBackground` is for a drawn face: it cuts out the flat background the draw was
+ * asked for, so the agent's colour shows through it (`face-key.ts`). An uploaded file is
+ * never keyed — its transparency is the author's, not ours to guess at.
  */
-export async function resizeToFace(source: Blob, size = FACE_SIZE): Promise<Blob> {
+export async function resizeToFace(
+  source: Blob,
+  size = FACE_SIZE,
+  options: { keyBackground?: boolean } = {},
+): Promise<Blob> {
   const bitmap = await loadBitmap(source);
   if (!bitmap.width || !bitmap.height) throw new Error("That image has no pixels");
   const side = Math.min(bitmap.width, bitmap.height);
@@ -107,6 +117,14 @@ export async function resizeToFace(source: Blob, size = FACE_SIZE): Promise<Blob
   }
   try {
     context.drawImage(bitmap.source, offset, offsetTop, side, side, 0, 0, size, size);
+    if (options.keyBackground) {
+      // Keyed after the crop, on the small buffer: 128² is 16k pixels of array work, and
+      // a face that came back without a flat background simply keeps what it came with.
+      const frame = context.getImageData(0, 0, size, size);
+      const key = edgeKeyColour(frame.data, size, size);
+      if (key) keyOut(frame.data, size, size, key);
+      context.putImageData(frame, 0, 0);
+    }
   } finally {
     // A decoded bitmap is the biggest thing this page holds — a 4000×3000 photo is
     // ~48 MB of pixels — and a throw on the way out, from a browser that refused to
