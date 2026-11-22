@@ -55,6 +55,16 @@ export interface BffError {
   type: "__bff_error";
   message: string;
   request_id?: string;
+  /**
+   * Whether the refused command can be sent again without asking whether the first one landed.
+   *
+   * `not_sent` means the frame never reached the app-server, so a resend is free; `delivery_uncertain`
+   * means it was written and the connection died before anything answered, so it may have been applied.
+   * Absent is an ordinary refusal (a rate limit, a bad path) where neither claim is made — and, on this
+   * side, what a request timeout is reported as: the absence of an answer never marks anything.
+   * Mirrors `bff/src/session/protocol.ts`.
+   */
+  code?: "not_sent" | "delivery_uncertain";
 }
 
 export type ConnectionState = "connecting" | "connected" | "disconnected";

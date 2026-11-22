@@ -1214,6 +1214,60 @@ nav.rail.rail-collapsed {
 .entry.user .role {
   justify-content: flex-end;
 }
+/* A send the app-server never confirmed: the note lives under its own message,
+   scrolls with it, and offers the one action that is safe — a resend under the
+   same client_message_id, which the listener de-dupes. The entry's own rule
+   carries the verdict the same way the rails carry every other state: red for
+   never sent, amber for an outcome nobody knows. Web-only and live-session
+   only (web/src/lib/delivery.ts): history has no undelivered messages. */
+.entry.user.undelivered {
+  border-right-color: color-mix(in srgb, var(--warn) 70%, var(--border));
+}
+.entry.user.undelivered.failed {
+  border-right-color: color-mix(in srgb, var(--bad) 70%, var(--border));
+}
+.delivery-note {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-end;
+  max-width: 100%;
+  margin: 6px 0 0;
+  padding: 5px 9px;
+  border: 1px solid color-mix(in srgb, var(--warn) 32%, transparent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: left;
+  color: color-mix(in srgb, var(--warn) 80%, var(--text));
+}
+.entry.user.undelivered.failed .delivery-note {
+  border-color: color-mix(in srgb, var(--bad) 32%, transparent);
+  background: color-mix(in srgb, var(--bad) 10%, transparent);
+  color: color-mix(in srgb, var(--bad) 78%, var(--text));
+}
+.delivery-note .icon {
+  width: 14px;
+  height: 14px;
+  align-self: start;
+  margin-top: 2px;
+}
+.delivery-action {
+  font-weight: 600;
+  text-decoration: underline;
+  white-space: nowrap;
+  justify-self: end;
+}
+@media (hover: hover) {
+  .delivery-note:hover {
+    background: color-mix(in srgb, var(--warn) 18%, transparent);
+  }
+  .entry.user.undelivered.failed .delivery-note:hover {
+    background: color-mix(in srgb, var(--bad) 18%, transparent);
+  }
+}
 .entry.assistant:not(.subagent) {
   align-self: stretch;
   border-left: 2px solid var(--agent);
