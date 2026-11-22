@@ -15,10 +15,16 @@
  */
 
 import { MAX_REPLAY_FRAMES } from "../bff/src/session/buffer.ts";
-import { devSignIn, openDevSocket, parseArgs, requireServedBuild } from "./harness.ts";
+import {
+  devSignIn,
+  driveTurn,
+  openBffSession,
+  parseArgs,
+  requireServedBuild,
+  type BffSession,
+} from "./harness.ts";
 
 const { origin: ORIGIN, staleBuild } = parseArgs(process.argv.slice(2));
-const WS_ORIGIN = ORIGIN.replace(/^http/, "ws");
 
 await requireServedBuild(ORIGIN, staleBuild);
 
@@ -54,13 +60,8 @@ async function status(cookie?: string): Promise<StatusBody> {
   ).json() as Promise<StatusBody>;
 }
 
-interface Session {
-  socket: WebSocket;
-  frames: Frame[];
-  waitFor: (predicate: (frame: Frame) => boolean, timeoutMs?: number) => Promise<Frame>;
-  send: (command: Record<string, unknown>) => void;
-  close: () => void;
-}
+/** The shared frame-capturing BFF session, typed once in `scripts/harness.ts`. */
+type Session = BffSession;
 
 /**
  * A frame as it arrives: a flat object of fields this suite reads one at a time.
@@ -100,59 +101,7 @@ const nestedId = (frame: Frame, key: string): string | undefined => {
   return typeof id === "string" ? id : undefined;
 };
 
-function openSession(cookie: string): Promise<Session> {
-  return new Promise((resolve, reject) => {
-    const socket = openDevSocket(`${WS_ORIGIN}/ws`, cookie);
-    const frames: Frame[] = [];
-    const waiters: { predicate: (f: Frame) => boolean; resolve: (f: Frame) => void }[] = [];
-
-    socket.addEventListener("message", (event: MessageEvent) => {
-      let frame: Frame;
-      try {
-        frame = JSON.parse(String(event.data)) as Frame;
-      } catch {
-        // The BFF only ever sends JSON, so anything else is a broken frame rather
-        // than a test failure — but say it out loud instead of letting it vanish,
-        // which is how a proxy eating its own response would read as a timeout.
-        console.log(`  NOTE  a non-JSON frame arrived on /ws: ${String(event.data).slice(0, 80)}`);
-        return;
-      }
-      frames.push(frame);
-      for (let i = waiters.length - 1; i >= 0; i -= 1) {
-        if (waiters[i]!.predicate(frame)) {
-          waiters.splice(i, 1)[0]!.resolve(frame);
-        }
-      }
-    });
-
-    socket.addEventListener("error", reject);
-    socket.addEventListener("open", () =>
-      resolve({
-        socket,
-        frames,
-        waitFor: (predicate, timeoutMs = 10_000) =>
-          new Promise((res, rej) => {
-            const existing = frames.find(predicate);
-            if (existing) return res(existing);
-            const timer = setTimeout(
-              () =>
-                rej(new Error(`Timed out; saw: ${frames.map((f) => str(f, "type")).join(", ")}`)),
-              timeoutMs,
-            );
-            waiters.push({
-              predicate,
-              resolve: (f) => {
-                clearTimeout(timer);
-                res(f);
-              },
-            });
-          }),
-        send: (command) => socket.send(JSON.stringify(command)),
-        close: () => socket.close(),
-      }),
-    );
-  });
-}
+const openSession = (cookie: string): Promise<Session> => openBffSession(ORIGIN, cookie);
 
 const cookie = await login();
 console.log(`Authenticated: ${cookie.split("=")[0]}`);
@@ -825,6 +774,146 @@ check(
     typeof authStatus.latest_seq === "number",
   authStatus,
 );
+
+
+// ── 11. Turn settling (scripted provider) ───────────────────────────────────
+// A scripted OpenAI-compatible endpoint answers with a complete SSE chat
+// completion that ends properly after `data: [DONE]`. The shared harness
+// turn-driver sends a real message through a throwaway agent wired to it, and
+// the turn must settle end-to-end: `turn_finished` arrives and the answer is
+// stored. This is the smoke-shaped wire guard for BFF turn settling — it needs
+// no real model on the machine, so it runs on every host that runs the suite.
+section("11. Turn settling (scripted provider)");
+const PROBE_PREFIX = "smoke-settle";
+const PROBE_MODEL = `${PROBE_PREFIX}/probe`;
+const settleCookie = cookie;
+
+// The app-server dials the baseUrl from inside its container, so the host must
+// be reachable from there: docker's host alias, or an override for hosts that
+// resolve it differently. No literal address is stored here (check-prod-info).
+const hostAddress = process.env.SMOKE_HOST_ADDRESS ?? "host.docker.internal";
+let probeServer: ReturnType<typeof Bun.serve> | undefined;
+let agentDeleted = false;
+
+function sseFrame(payload: unknown): Uint8Array {
+  return new TextEncoder().encode(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+try {
+  probeServer = Bun.serve({
+    hostname: "0.0.0.0",
+    port: 0,
+    async fetch(req) {
+      const path = new URL(req.url).pathname;
+      if (path === "/v1/models") {
+        return Response.json({ object: "list", data: [{ id: "probe", object: "model" }] });
+      }
+      if (path === "/v1/chat/completions") {
+        const body = (await req.json()) as { stream?: boolean };
+        if (!body.stream) {
+          return Response.json({
+            choices: [{ message: { role: "assistant", content: "SETTLE-OK" }, finish_reason: "stop" }],
+          });
+        }
+        // A complete completion, then `[DONE]`, then the response ends — the
+        // same shape llama.cpp gives; settling must not depend on reading
+        // further.
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(sseFrame({ choices: [{ index: 0, delta: { content: "SETTLE" }, finish_reason: null }] }));
+              controller.enqueue(sseFrame({ choices: [{ index: 0, delta: { content: "-OK" }, finish_reason: null }] }));
+              controller.enqueue(sseFrame({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }] }));
+              controller.enqueue(sseFrame("[DONE]"));
+              controller.close();
+            },
+          }),
+          { headers: { "content-type": "text/event-stream" } },
+        );
+      }
+      return new Response("not found", { status: 404 });
+    },
+  });
+  const probePort = probeServer.port;
+
+  const reg = await fetch(`${ORIGIN}/api/providers`, {
+    method: "POST",
+    headers: { cookie: settleCookie, "content-type": "application/json" },
+    body: JSON.stringify({
+      name: PROBE_PREFIX,
+      type: "llama-cpp",
+      baseUrl: `http://${hostAddress}:${probePort}/v1`,
+      models: ["probe"],
+    }),
+  });
+  check("the scripted provider registers", reg.ok, await reg.text());
+
+  const w = await openSession(cookie);
+  const helloW = await w.waitFor((f) => str(f, "type") === "__bff_hello");
+  check("the settle session sees a connected upstream", str(helloW, "upstream") === "connected", helloW);
+
+  w.send({
+    type: "create_agent",
+    request_id: "settle-agent",
+    personality: "blank",
+    model: PROBE_MODEL,
+    pin_global: false,
+  });
+  const madeAgent = await w.waitFor((f) => f.request_id === "settle-agent", 30_000);
+  const settleAgentId: string | undefined =
+    (madeAgent.agent as { id?: string } | undefined)?.id ?? (str(madeAgent, "agent_id") || undefined);
+  check("a throwaway agent is created on the scripted model", Boolean(settleAgentId), madeAgent);
+
+  if (settleAgentId) {
+    w.send({
+      type: "conversation_create",
+      request_id: "settle-conv",
+      body: { agent_id: settleAgentId },
+    });
+    const madeConv = await w.waitFor((f) => f.request_id === "settle-conv");
+    const settleConvId: string =
+      ((madeConv.conversation as { id?: string } | undefined)?.id as string) ?? "";
+    check("a throwaway conversation opens", settleConvId !== "", madeConv);
+
+    if (settleConvId) {
+      const scope = { agent_id: settleAgentId, conversation_id: settleConvId };
+      w.send({ type: "runtime_start", request_id: "settle-start", ...scope });
+      const startedW = await w.waitFor((f) => f.request_id === "settle-start", 60_000);
+      check("runtime_start on the scripted model succeeds", startedW.success === true, startedW);
+
+      const { frame: settleFrame } = await driveTurn(
+        w,
+        scope,
+        "Reply with exactly: SETTLE-OK",
+        180_000,
+      );
+      check("the turn settles with turn_finished", str(settleFrame, "type") === "turn_finished", settleFrame);
+
+      w.send({
+        type: "conversation_messages_list",
+        request_id: "settle-hist",
+        conversation_id: settleConvId,
+        query: { limit: 20 },
+      });
+      const histW = await w.waitFor((f) => f.request_id === "settle-hist");
+      const stored = JSON.stringify(histW.messages ?? []);
+      check("the scripted answer is stored in the conversation", stored.includes("SETTLE-OK"), stored.slice(0, 300));
+    }
+
+    w.send({ type: "agent_delete", request_id: "settle-del", agent_id: settleAgentId });
+    const delW = await w.waitFor((f) => f.request_id === "settle-del", 30_000);
+    agentDeleted = delW.success === true;
+    check("the throwaway agent is deleted again", agentDeleted, delW);
+    w.close();
+  }
+} finally {
+  if (probeServer) probeServer.stop();
+  const del = await fetch(`${ORIGIN}/api/providers?prefix=${PROBE_PREFIX}`, {
+    method: "DELETE",
+    headers: { cookie: settleCookie },
+  });
+  check("the scripted provider is removed again (stack left as found)", del.ok, del.status);
+}
 
 console.log(`\n${failures === 0 ? "All checks passed." : `${failures} check(s) failed.`}`);
 process.exit(failures === 0 ? 0 : 1);
