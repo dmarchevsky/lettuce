@@ -13,6 +13,7 @@ function setup(ready = true) {
   const sent: Record<string, unknown>[] = [];
   const toBrowser: Record<string, unknown>[] = [];
   let isReady = ready;
+  const reconnectListeners: (() => void)[] = [];
   const upstream = {
     getState: () => "connected",
     getInfo: () => null,
@@ -23,6 +24,9 @@ function setup(ready = true) {
     },
     getGeneration: () => 1,
     isInternalRequest: () => false,
+    onReconnect: (listener: () => void) => {
+      reconnectListeners.push(listener);
+    },
   } as unknown as UpstreamConnection;
 
   const registry = new SessionRegistry(upstream, 100, () => {});
@@ -43,6 +47,11 @@ function setup(ready = true) {
     up: () => {
       isReady = true;
     },
+    /** What the real connection does after it has re-subscribed every scope. */
+    fireReconnect: () => {
+      for (const listener of reconnectListeners) listener();
+    },
+    listenerCount: () => reconnectListeners.length,
     send: (command: Record<string, unknown>) =>
       registry.handleSessionMessage(sessionId, JSON.stringify(command)),
   };
@@ -76,6 +85,21 @@ describe("forwarding", () => {
 });
 
 describe("after a reconnect", () => {
+  test("the registry subscribes to the connection's reconnect itself", () => {
+    // The seam the first version missed: the journal was written and the pass existed, but nothing called
+    // it, so every message this feature is meant to save stayed lost. The subscription lives in the
+    // registry's constructor for that reason — it cannot be forgotten the way a line in `index.ts` was.
+    const { listenerCount } = setup();
+    expect(listenerCount()).toBe(1);
+  });
+
+  test("a re-subscribe on the connection runs the pass, not only a direct call", () => {
+    const { sent, send, fireReconnect } = setup();
+    send(userMessage("cm-1"));
+    fireReconnect();
+    expect(sent).toHaveLength(2);
+  });
+
   test("a de-dupable message is re-sent under the same request id", () => {
     const { registry, sent, send } = setup();
     send(userMessage("cm-1"));

@@ -194,6 +194,10 @@ export class SessionRegistry {
     this.buffer = new FrameBuffer(frameBufferSize);
     this.startCache = new RuntimeStartCache(options.cacheNow);
     this.cachesRuntimeStart = options.cacheRuntimeStart ?? true;
+    // Subscribed here rather than passed in from `index.ts`: a registry cannot exist without the connection
+    // it is handed, so this seam cannot be quietly missed — and the one that re-sends in-flight work has to
+    // wait for the re-subscribe, which is exactly what `onReconnect` means.
+    this.upstream.onReconnect(() => this.handleUpstreamReconnected());
   }
 
   get sessionCount(): number {
@@ -464,6 +468,9 @@ export class SessionRegistry {
         const oldest = session.pendingRequests.keys().next();
         if (oldest.done) break;
         clearTimeout(session.pendingRequests.get(oldest.value)?.memory?.timer);
+        // The journal goes with it: without this a request the session has already forgotten stays on the
+        // retry list, and its eventual answer arrives with no id translation left to route it.
+        this.inFlight.settle(oldest.value);
         session.pendingRequests.delete(oldest.value);
       }
       outbound.request_id = bffRequestId;
@@ -481,7 +488,11 @@ export class SessionRegistry {
             originalId: String(command.request_id),
             sessionId: session.id,
             scopeKey,
-            frame: outbound as Record<string, unknown> & { type: string },
+            // Only a retry-class entry keeps its frame. An `uncertain` one can never be written again, and
+            // this is where a `write_file` body or an `input`'s inline images would sit for nothing.
+            ...(kind === "retry"
+              ? { frame: outbound as Record<string, unknown> & { type: string } }
+              : {}),
             kind,
             sentAt: Date.now(),
           });
@@ -519,19 +530,23 @@ export class SessionRegistry {
     let reSent = 0;
     for (const entry of pass.resend) {
       try {
-        this.upstream.send(entry.frame);
+        // `frame` is present on every entry the pass put in `resend` (the journal only keeps it for the
+        // retry class, and only hands back entries that have one).
+        this.upstream.send(entry.frame as Record<string, unknown> & { type: string });
       } catch (error) {
-        // The socket died again between the resubscribe and here. Same truth as a refusal: never sent.
-        this.reportDelivery(entry, "not_sent");
+        // The socket died again between the re-subscribe and here. The first write went to a live socket,
+        // so the honest answer is still "unknown", not "never sent" — `not_sent` would claim the command
+        // did not run, which is exactly what a re-send cannot establish.
+        this.reportDelivery(entry, "delivery_uncertain");
         this.log(`In-flight re-send failed: ${errorMessage(error)}`);
         continue;
       }
       this.inFlight.record({ ...entry, resent: true, sentAt: Date.now() });
       reSent += 1;
     }
-    if (!reSent && !uncertain && !pass.expired.length) return;
+    if (!reSent && !uncertain) return;
     const parts = [`${reSent} re-sent`, `${uncertain} uncertain`];
-    if (pass.expired.length) parts.push(`${pass.expired.length} expired`);
+    if (pass.expired) parts.push(`${pass.expired} past their TTL`);
     this.log(`In-flight after reconnect: ${parts.join(", ")}`);
   }
 

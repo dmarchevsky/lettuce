@@ -1171,19 +1171,24 @@ export function useConversation(
         },
         (cause: unknown) => {
           const code = deliveryCode(cause);
-          // No code, no verdict: a timeout, or the browser's own socket being down. The absence of an
-          // answer must never mark a message — only the BFF saying which failure it was does — and a
-          // verdictless send leaves no note that could offer a resend, so its payload goes too.
           if (!code) {
+            // No code, no verdict — so nothing is marked, and the payload goes with the verdict: there is
+            // no note that could offer a resend.
             resendableRef.current.delete(clientMessageId);
+            setError(errorMessage(cause));
+            // The optimistic "working" state is only unwound when the tab's own link is down, because that
+            // is the one case that proves no turn can be running. A codeless failure with a live link is a
+            // silence, and something may well be working — frames, not this promise, decide that.
+            if (!ready) setProcessing(false);
             return;
           }
           if (markDelivery(transcriptRef.current, clientMessageId, deliveryForCode(code)))
             flushSync();
+          else resendableRef.current.delete(clientMessageId);
         },
       );
     },
-    [scope, request, flushSync],
+    [scope, request, ready, flushSync],
   );
 
   /**

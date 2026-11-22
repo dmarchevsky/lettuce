@@ -85,11 +85,8 @@ describe("InFlightJournal", () => {
     journal.record(entry());
     journal.settle("bff-s-1");
     expect(journal.size).toBe(0);
-    expect(journal.takeForReconnect(2_000)).toEqual({
-      resend: [],
-      report: [],
-      expired: [],
-    });
+    const pass = journal.takeForReconnect(2_000);
+    expect(pass).toEqual({ resend: [], report: [], expired: 0 });
   });
 
   test("closing a session drops everything it had in flight", () => {
@@ -120,13 +117,14 @@ describe("InFlightJournal", () => {
     expect(journal.size).toBe(0);
   });
 
-  test("an entry older than the TTL is dropped rather than replayed", () => {
+  test("an entry older than the TTL is reported but never replayed", () => {
+    // Too old to apply — but the tab is still waiting, and "unknown" beats a generic timeout.
     const journal = new InFlightJournal();
     journal.record(entry({ requestId: "old" }));
     const pass = journal.takeForReconnect(1_000 + 25_001, 25_000);
     expect(pass.resend).toEqual([]);
-    expect(pass.report).toEqual([]);
-    expect(pass.expired.map((e) => e.requestId)).toEqual(["old"]);
+    expect(pass.report.map((e) => e.requestId)).toEqual(["old"]);
+    expect(pass.expired).toBe(1);
   });
 
   test("a frame already re-sent once is reported on the next drop, never re-sent twice", () => {

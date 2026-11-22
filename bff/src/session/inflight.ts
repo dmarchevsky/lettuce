@@ -35,8 +35,10 @@ export interface InFlightEntry {
   sessionId: string;
   /** Conversation scope, when the command carried one. Only for the tally in the log. */
   scopeKey: string | null;
-  /** The exact frame that went out, re-sent verbatim so the ids stay identical. */
-  frame: Record<string, unknown> & { type: string };
+  /** The exact frame that went out, re-sent verbatim so the ids stay identical. Only kept when it can
+   * still be re-sent: an `uncertain` entry can never be written again, and its frame is where a
+   * `write_file` body or an `input`'s inline images would sit in memory for nothing. */
+  frame?: Record<string, unknown> & { type: string };
   kind: InFlightKind;
   sentAt: number;
   /** Set once the frame has been re-sent; a second drop makes it uncertain, never re-sent twice. */
@@ -47,10 +49,10 @@ export interface InFlightEntry {
 export interface ReconnectPass {
   /** Frames to write again, in the order they were first sent. */
   resend: InFlightEntry[];
-  /** Requests whose outcome is unknown: report them, do not re-send. */
+  /** Requests whose outcome is unknown: report them, do not re-send. Includes the expired ones. */
   report: InFlightEntry[];
-  /** Entries dropped for being older than the browser's own patience; nobody is told about these. */
-  expired: InFlightEntry[];
+  /** How many of `report` are in it only because they grew too old to replay. */
+  expired: number;
 }
 
 /**
@@ -61,7 +63,8 @@ const IDEMPOTENT_TYPES = new Set([
   "read_file",
   "get_tree",
   "grep_in_files",
-  "list_memory",
+  // Deliberately not `list_memory`: its answer is a chunk stream that the registry merges into one
+  // accumulator, so a re-send under the same id appends a second copy of every entry to the first copy.
   "agent_list",
   "conversation_list",
   "conversation_messages_list",
@@ -161,17 +164,20 @@ export class InFlightJournal {
   takeForReconnect(now: number, ttlMs = INFLIGHT_TTL_MS): ReconnectPass {
     const resend: InFlightEntry[] = [];
     const report: InFlightEntry[] = [];
-    const expired: InFlightEntry[] = [];
+    let expired = 0;
     for (const entry of [...this.entries.values()]) {
       this.entries.delete(entry.requestId);
-      if (now - entry.sentAt > ttlMs || entry.resent) {
-        // Already re-sent once (upstream's one-retry rule) or too old: the outcome is unknown, say so.
-        if (now - entry.sentAt > ttlMs) expired.push(entry);
-        else report.push(entry);
-      } else if (entry.kind === "retry") {
-        resend.push(entry);
-      } else {
+      // Too old to replay — the asking tab has given up and a stale command applied late is worse than
+      // one lost — but it is still worth telling the tab that the outcome is unknown, which is what
+      // `expired` counts rather than dropping silently.
+      if (now - entry.sentAt > ttlMs) {
+        expired += 1;
         report.push(entry);
+      } else if (entry.resent || entry.kind !== "retry" || !entry.frame) {
+        // Already re-sent once (upstream's one-retry rule), or never re-sends: the outcome is unknown.
+        report.push(entry);
+      } else {
+        resend.push(entry);
       }
     }
     return { resend, report, expired };

@@ -64,15 +64,6 @@ export interface UpstreamOptions {
   /** How often the periodic sweep runs. Tests shorten it to exercise the
    * overlap guard without waiting five minutes; production leaves it alone. */
   sweepIntervalMs?: number;
-  /**
-   * Called after a reconnect has finished re-subscribing every known scope — never after the first
-   * connect, because there is nothing yet that could have been lost.
-   *
-   * The order is the whole point: a re-sent command is only routed by the app-server if this connection is
-   * already subscribed to its scope again, so anything that wants to replay in-flight work has to wait for
-   * this rather than watching `onStateChange("connected")`, which fires before the re-subscribe starts.
-   */
-  onReconnected?: (generation: number) => void | Promise<void>;
 }
 
 /** What a socket-level error event actually says, under either runtime. */
@@ -420,6 +411,8 @@ export class UpstreamConnection {
   /** Whether the post-connect sweep has finished — see the initial budget. */
   private initialSweepDone = false;
 
+  private readonly reconnectListeners: ((generation: number) => void | Promise<void>)[] = [];
+
   constructor(private readonly options: UpstreamOptions) {}
 
   getState(): UpstreamState {
@@ -565,6 +558,22 @@ export class UpstreamConnection {
     this.options.onStateChange(state, this.info);
   }
 
+  /**
+   * Subscribe to "the socket is back and every known scope is re-subscribed again".
+   *
+   * The order is the whole point: a re-sent command is only routed by the app-server if this connection is
+   * already subscribed to its scope again, so anything that wants to replay in-flight work has to wait for
+   * this rather than watching `onStateChange("connected")`, which fires before the re-subscribe starts.
+   * Listeners are called in registration order, once per reconnect and never for the first connect.
+   *
+   * A subscription, not a constructor option, because the wiring was the bug once: a `SessionRegistry`
+   * cannot function without the connection it is handed, so subscribing there is a seam that cannot be
+   * silently missed, where a second option in `index.ts` was one line nobody notices missing.
+   */
+  onReconnect(listener: (generation: number) => void | Promise<void>): void {
+    this.reconnectListeners.push(listener);
+  }
+
   private connect(): void {
     if (this.stopped) return;
     this.setState("connecting");
@@ -604,12 +613,14 @@ export class UpstreamConnection {
         // Re-subscribe to every scope we owned before the drop, so the
         // app-server routes their events back to us.
         await this.resubscribe();
-        // Only now is a re-send routable — see `onReconnected`.
+        // Only now is a re-send routable — see `onReconnect`.
         if (this.generation > 1) {
-          try {
-            await this.options.onReconnected?.(this.generation);
-          } catch (error) {
-            this.log(`Reconnect follow-up failed: ${errorMessage(error)}`);
+          for (const listener of this.reconnectListeners) {
+            try {
+              await listener(this.generation);
+            } catch (error) {
+              this.log(`Reconnect follow-up failed: ${errorMessage(error)}`);
+            }
           }
         }
         // Then pick up every scope we've never touched at all — see

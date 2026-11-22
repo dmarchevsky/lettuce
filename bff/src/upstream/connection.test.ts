@@ -622,23 +622,16 @@ test("nothing is sent before the socket is up", () => {
   expect(client.sent).toEqual([]);
 });
 
-test("the reconnect hook waits for the re-subscribe and never fires on the first connect", async () => {
+test("a reconnect listener runs after the re-subscribe and never on the first connect", async () => {
   // Anything that replays in-flight work has to wait for this: a re-sent command is only routed by the
   // app-server once this connection is subscribed to its scope again. `onStateChange("connected")` fires
   // before the re-subscribe starts, so it is the wrong moment and this is the right one.
   const client = new FakeClient();
   client.pages = [[{ id: "conv-1" }, { id: "conv-2" }]];
   const calls: { generation: number; synced: number }[] = [];
-  const upstream = new UpstreamConnection({
-    url: "ws://fake:4500",
-    onFrame: () => {},
-    onStateChange: () => {},
-    log: () => {},
-    createClient: () => client,
-    syncPacing: { pacingMs: 0 },
-    onReconnected: (generation) => {
-      calls.push({ generation, synced: client.syncedScopes().length });
-    },
+  const { upstream } = makeConnection(client);
+  upstream.onReconnect((generation) => {
+    calls.push({ generation, synced: client.syncedScopes().length });
   });
   upstream.start();
   await waitFor("the first sweep", () => client.syncedScopes().length === 2);
@@ -649,9 +642,9 @@ test("the reconnect hook waits for the re-subscribe and never fires on the first
     "the re-subscribe",
     () => client.syncedScopes().filter((k) => k === "agent-1::conv-1").length === 2,
   );
-  await waitFor("the hook", () => calls.length === 1);
+  await waitFor("the listener", () => calls.length === 1);
   expect(calls[0]?.generation).toBe(2);
-  // Every known scope was synced before the hook ran — that is the ordering.
+  // Every known scope was synced before the listener ran — that is the ordering.
   expect(calls[0]?.synced).toBeGreaterThanOrEqual(4);
   upstream.stop();
 });
