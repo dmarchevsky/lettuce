@@ -14,7 +14,7 @@ worktreeDir = .dev-flow/{slug}/worktree
 ```flow-guard
 confirm \bdocker\s+(?:container\s+)?(?:restart|stop|kill|rm)\b[^\n]*(?:lettuce|app-server|channel-gateway) :: a bare docker command on a compose container tears the namespace holding bff and channel-gateway
 confirm \bdocker\b[^\n]*\bcompose\b[^\n]*\bup\b(?!.*--no-deps)                                    :: an unscoped `up` recreates app-server and every turn in flight — scope it (`up -d --no-deps bff`), or route it through flow verify
-confirm \bdocker\b[^\n]*\bcompose\b[^\n]*\b(?:rm|down|stop|kill)\b                                :: stops running containers
+confirm \bdocker\b[^\n]*\bcompose\b(?![^\n]*\bexec\b)[^\n]*\b(?:rm|down|stop|kill)\b            :: stops running containers — an `exec`ed command is exempt: removing root-owned residue INSIDE the owning container is the sanctioned cleanup shape
 confirm \bdocker\b[^\n]*\bcompose\b[^\n]*\brestart\b                                              :: drops the permanent upstream connection and any turn in flight
 confirm \bdocker\b[^\n]*\bcompose\b[^\n]*\bup\b[^\n]*(?:^|\s)app-server(?=\s|$)                    :: that service shares a network namespace with two others
 protect docker/.env*                                                                               :: gitignored live secrets and their backups — never echo the values
@@ -105,6 +105,10 @@ be paid at pre-release. And **a step or measurement the plan names as a gate mus
 outlived**: a step plan.md names ("capture a real `tool_return_message` with an image part before trusting the
 shape") survives approve, both implement workers and the first Verified? unless the Verified? message lists
 every such step as done or waived — the tier-2 counter carries playbook items only, so nothing else notices.
+The duty reads the same for a plan line's *work* items: a `--patch`/`--docs` flow whose approved line
+promises a slice ("last one: the render-test env") lists every named item as landed or dropped at
+pre-release — PR-body prose is not a checkpoint, and one promised slice once rode into a merged PR as a
+Notes disclosure nobody was asked about.
 When the operator waives a named precondition verbally, write the waiver into plan.md (in a
 `--patch`/`--docs` flow, which has no plan file, into the plan line) and the PR body — what was measured, or that the work proceeded unmeasured and what would change if the number
 comes back low — so a precondition cannot die silently behind a proceed-anyway.
@@ -167,7 +171,12 @@ flow that is still under review, it offers only **replace** or **wait** — put 
 holder it names (slug, stage, commit) and never pick for them. A holder already past its Verified? is
 replaced by verify itself (dev-flow releases after 0.90.1): nobody is reviewing that deploy. `servedBuild` reads the `sha=` line the image bakes into
 `BUILD_INFO`; verify refuses when it is not the worktree's HEAD, which is the "still serving the previous
-bundle" failure `deploy-check` exists for, caught before the operator is asked.
+bundle" failure `deploy-check` exists for, caught before the operator is asked. **A dev-port choice a long
+unattended stretch will eventually hit is a first-beat question, not a last one:** if another flow's deploy
+is already the holder at the first `flow check`/status beat and you are about to launch a worker chain that
+cannot answer, ask replace-or-wait then — the gate re-checks the holder at verify anyway, so the early ask
+is free, while the late one ends an overnight chain on an operator word (one asked at 02:52 was answered at
+20:13).
 
 A **mid-flow recheck** runs against the shared stack, because there is no second stack to build: compose publishes the agents' web-app range `3000-3099` wide and only its bind address is configurable, so a hand-built parallel project — even one namespaced with `COMPOSE_PROJECT_NAME=lettuce$DEV_FLOW_SUFFIX` — dies with `port 3000 already allocated` and leaves its containers in `Created`. Route a recheck through `flow verify`, or scope it by hand to the one service that changed: `bun run build:bff` then `docker compose -f docker/compose.yml up -d --no-deps bff`. A hand-scoped recheck **runs from the worktree whose deploy you are refreshing**, never from the main checkout while a flow's branch deploy is live: build:bff's image tag is the checkout's release literal (the compose image-tag default, kept equal to `VERSION`), so both checkouts build to the *same* tag with different content — building from main retags and recreates the shared `bff` onto main's bundle and the review target silently changes under the operator, with nothing warning. The `--no-deps` rule is not only for the release tail — a hand-run unscoped `up -d` from a worktree silently recreates `app-server` on the shared stack and kills every in-flight turn a parallel flow has open, with no drain. The playbook's own unscoped `dev` run is not the forbidden case: `flow verify` is sanctioned because it enforces port ownership, names the holder and asks **replace or wait** before anything is recreated — the rule is *never unscoped by hand*, not *never unscoped*.
 
@@ -262,7 +271,10 @@ moved since — run `flow verify` again rather than asking over a tree that is n
 parallel flow released while this one was open, merge `origin/main` into the worktree **before** asking
 Verified?: the collision is `CHANGELOG.md`, which verify's own auto-rebase cannot resolve, and a question
 discarded by the moved gate has to be re-asked after a hand rebase plus a full verify re-run. A
-rebase that stops on conflicts is aborted and handed back: resolve it in the worktree, then re-run. When
+rebase that stops on conflicts is aborted and handed back: resolve it in the worktree, then re-run — and
+after any hand-resolved rebase or merge, `git grep -n '^<<<<<<< '` the tree before the next commit: conflict
+markers ride into commits silently (one rode four commits in a tracked doc before the next worker's `verify`
+found it; dev-flow gh#164 closed without a plugin-side gate, so the discipline is repo-side). When
 the operator asks you to "deploy this branch", `flow verify` is that command. `health` is a single `/readyz` probe; dev-flow
 retries it within `healthWait`.
 
