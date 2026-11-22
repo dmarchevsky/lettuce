@@ -22,9 +22,20 @@ three watched files moved" into an approved plan while the arrays answered eleve
 **`bun run check-pin-upstream` is the first step of any component-version survey**, this one included: it
 already checks `LETTA_CODE` plus `CODEX`, `CLAUDE_CODE`, `WORKSPACE_MCP`, `DDG_MCP`, `SEARXNG`, `GH` and
 `CLOUDFLARED` against their registries in one pass. Ad-hoc probes mislead twice: the reference clone's
-`origin` is a lagging mirror, so `git ls-remote --tags origin` answered "NO" for releases that were long
-published, and a freshly published npm version can take hours to appear under `/<pkg>/latest`. A survey
+`origin` is a lagging mirror with **no tags at all**: `git ls-remote --tags origin` answers empty *and exits 0*,
+so a probe that trusts the exit code reports "no newer release" as fact. The probes that work are
+`npm view @letta-ai/letta-code versions`, `git ls-remote --tags https://github.com/letta-ai/letta-code`, and
+the GitHub compare/tags API — quote one of them, and a freshly published npm version can still take hours to
+appear under `/<pkg>/latest`. A survey
 done by hand therefore reports a pin as behind or ahead of what the registry actually holds.
+
+An **upstream release note is a claim about upstream's app, not about this install.** Before a note reaches
+`plan.md` or the changelog, adjudicate it against the code path a local install actually reaches, and name that
+path (`file:line`, or the BFF route that stands in for it). A note about a route the BFF never speaks, a method
+behind cloud-only auth, or a UI surface this app does not render is **Cloud-only here**: drop it or mark it so.
+Two claims once reached an approved plan and a changelog line describing cloud behaviour (`MCP tool timeouts
+explain themselves` among them), and only the independent review caught them; typecheck says nothing, because
+nothing local changed.
 
 Protocol drift shows up two ways:
 1. **Typed** — `web/` and `bff/` import from `@letta-ai/letta-code` (pinned to the npm release
