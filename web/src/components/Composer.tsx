@@ -719,8 +719,17 @@ export function Composer({
               }}
               onKeyDown={(event) => {
                 // An IME mid-composition owns every key; the send button is still
-                // there for anyone who needs it.
-                if (event.nativeEvent.isComposing) return;
+                // there for anyone who needs it. Safari fires the Enter that confirms
+                // an IME word after `compositionend`, with `isComposing` already false
+                // but `keyCode` 229, so that Enter would send a half-typed message.
+                // Only Enter: some keyboards report 229 for ordinary keys, and the
+                // popover's Tab/Escape/arrows and history recall must still work there.
+                // The trade: Korean in Safari may take a second Enter to send.
+                if (
+                  event.nativeEvent.isComposing ||
+                  (event.key === "Enter" && event.nativeEvent.keyCode === 229)
+                )
+                  return;
 
                 if (active) {
                   if (event.key === "ArrowDown" || event.key === "ArrowUp") {
