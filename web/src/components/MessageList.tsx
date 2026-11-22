@@ -894,7 +894,7 @@ const MessageItem = memo(function MessageItem({
   return (
     <div
       className={`entry ${entry.kind}${entry.subagentId ? " subagent" : ""}${
-        undelivered ? ` undelivered ${undelivered === "unsent" ? "failed" : "uncertain"}` : ""
+        undelivered ? ` undelivered ${undelivered === "uncertain" ? "uncertain" : "failed"}` : ""
       }`}
       data-entry={entry.id}
     >
@@ -956,9 +956,12 @@ const MessageItem = memo(function MessageItem({
  * What each delivery state says, in the bubble's own voice — shown as the note and repeated as the
  * tooltip, because there is nothing second-level to reveal: the state is the whole story.
  */
-const DELIVERY_WORDING: Record<"unsent" | "uncertain", string> = {
+const DELIVERY_WORDING: Record<"unsent" | "uncertain" | "refused", string> = {
   unsent: "Not sent — it never reached the app-server",
   uncertain: "Delivery unconfirmed — the connection dropped before it answered",
+  // The opposite of `unsent`: the app-server did answer, and what it said was no. Nothing ran, and the
+  // reason is in the error line above, so the note only has to say the message is not in.
+  refused: "Not accepted — the app-server refused it",
 };
 
 /** A message's time: short in the header, the full date and time on hover. */

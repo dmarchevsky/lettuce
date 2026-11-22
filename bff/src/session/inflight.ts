@@ -53,6 +53,8 @@ export interface ReconnectPass {
   report: InFlightEntry[];
   /** How many of `report` are in it only because they grew too old to replay. */
   expired: number;
+  /** How many were dropped without a report because the asking tab had already timed out. */
+  stale: number;
 }
 
 /**
@@ -111,6 +113,14 @@ function hasClientMessageId(command: Record<string, unknown>): boolean {
 export const INFLIGHT_TTL_MS = 25_000;
 
 /**
+ * How old an entry may be and still be worth *reporting*. Past this the asking tab has already timed out
+ * on its own (the browser's request timeout in `web/src/lib/session-client.ts` is 30 s), so a verdict
+ * that arrives now matches no pending request and would surface as a stray global error instead of a
+ * note on the message it belongs to. Such an entry is dropped in silence, counted in the tally.
+ */
+export const REPORT_GRACE_MS = 30_000;
+
+/**
  * Ceiling on journaled requests, across every session. Same reasoning as the per-session pending bound
  * it sits beside: upstream does not always answer, and an unbounded journal would grow for the life of the
  * process. Oldest goes first, which is also the least likely to be wanted.
@@ -166,12 +176,16 @@ export class InFlightJournal {
     const resend: InFlightEntry[] = [];
     const report: InFlightEntry[] = [];
     let expired = 0;
+    let stale = 0;
     for (const entry of [...this.entries.values()]) {
       this.entries.delete(entry.requestId);
-      // Too old to replay — the asking tab has given up and a stale command applied late is worse than
-      // one lost — but it is still worth telling the tab that the outcome is unknown, which is what
-      // `expired` counts rather than dropping silently.
-      if (now - entry.sentAt > ttlMs) {
+      const age = now - entry.sentAt;
+      if (age > REPORT_GRACE_MS) {
+        // The asking tab gave up on this long ago. Reporting now answers nothing.
+        stale += 1;
+      } else if (age > ttlMs) {
+        // Too old to replay — a stale command applied late is worse than one lost — but the tab is still
+        // waiting, and "unknown" beats letting it time out with no reason.
         expired += 1;
         report.push(entry);
       } else if (entry.resent || entry.kind !== "retry" || !entry.frame) {
@@ -181,6 +195,6 @@ export class InFlightJournal {
         resend.push(entry);
       }
     }
-    return { resend, report, expired };
+    return { resend, report, expired, stale };
   }
 }

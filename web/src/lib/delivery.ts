@@ -13,6 +13,10 @@
  * - `unsent` — the frame demonstrably never left the BFF, so nothing ran and sending again is free.
  * - `uncertain` — it was written and the socket died before anything answered, so it may have run.
  *
+ * A third state, `refused`, is not a delivery code at all: it comes from an `input_accepted` that answered
+ * and said no. The app-server received the message and declined to run it, which is the one outcome where
+ * "nothing ran" is something the client knows rather than infers.
+ *
  * Both offer the same action, because a resend is safe in both: it re-sends under the *same*
  * `client_message_id`, and the app-server de-dupes an input on that id
  * (`letta-code/src/websocket/listener/input-disposition.ts`), so a message that did land is ignored and

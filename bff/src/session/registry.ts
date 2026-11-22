@@ -524,8 +524,9 @@ export class SessionRegistry {
     const pass = this.inFlight.takeForReconnect(Date.now());
     let uncertain = 0;
     for (const entry of pass.report) {
-      this.reportDelivery(entry, "delivery_uncertain");
-      uncertain += 1;
+      // Counted only when the report went out: a session that closed in the meantime was told nothing, and
+      // this line is what the container test reads.
+      if (this.reportDelivery(entry)) uncertain += 1;
     }
     let reSent = 0;
     for (const entry of pass.resend) {
@@ -537,16 +538,17 @@ export class SessionRegistry {
         // The socket died again between the re-subscribe and here. The first write went to a live socket,
         // so the honest answer is still "unknown", not "never sent" — `not_sent` would claim the command
         // did not run, which is exactly what a re-send cannot establish.
-        this.reportDelivery(entry, "delivery_uncertain");
+        if (this.reportDelivery(entry)) uncertain += 1;
         this.log(`In-flight re-send failed: ${errorMessage(error)}`);
         continue;
       }
       this.inFlight.record({ ...entry, resent: true, sentAt: Date.now() });
       reSent += 1;
     }
-    if (!reSent && !uncertain) return;
     const parts = [`${reSent} re-sent`, `${uncertain} uncertain`];
     if (pass.expired) parts.push(`${pass.expired} past their TTL`);
+    if (pass.stale) parts.push(`${pass.stale} already timed out`);
+    if (!reSent && !uncertain) return;
     // The scope keys are what the operator greps for when a message goes missing: they say which
     // conversation the journal was holding work for.
     const scopes = new Set<string>();
@@ -560,22 +562,24 @@ export class SessionRegistry {
   /**
    * Tell the tab that asked that its command's outcome is not knowable, under the id it asked with. No
    * message if the tab is gone — nobody is waiting, and its next resume replays whatever did happen.
+   *
+   * Returns whether the tab was told, so the tally counts reports and not intentions. This is only ever
+   * "unknown": the verdict that a frame never left is made at send time, never here.
    */
-  private reportDelivery(entry: InFlightEntry, code: "delivery_uncertain" | "not_sent"): void {
+  private reportDelivery(entry: InFlightEntry): boolean {
     const session = this.sessions.get(entry.sessionId);
-    if (!session) return;
+    if (!session) return false;
     // The pending entry goes away with the report: a late answer from the re-sent frame still translates
     // through it, so it is dropped only for the ones this method has answered for good.
     session.pendingRequests.delete(entry.requestId);
     this.sendTo(session.socket, {
       type: "__bff_error",
-      code,
+      code: "delivery_uncertain",
       request_id: entry.originalId,
       message:
-        code === "not_sent"
-          ? "The app-server connection dropped before this was sent. It did not run."
-          : "The app-server connection dropped before it confirmed this. It may or may not have run.",
+        "The app-server connection dropped before it confirmed this. It may or may not have run.",
     });
+    return true;
   }
 
   /**

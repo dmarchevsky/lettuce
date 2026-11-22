@@ -94,7 +94,7 @@ describe("InFlightJournal", () => {
     journal.settle("bff-s-1");
     expect(journal.size).toBe(0);
     const pass = journal.takeForReconnect(2_000);
-    expect(pass).toEqual({ resend: [], report: [], expired: 0 });
+    expect(pass).toEqual({ resend: [], report: [], expired: 0, stale: 0 });
   });
 
   test("closing a session drops everything it had in flight", () => {

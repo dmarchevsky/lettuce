@@ -122,10 +122,12 @@ export interface TranscriptEntry {
    * Live-session state only — history cannot carry it, because an undelivered message was never recorded
    * as a message at all, so a reload drops the note along with the echo it belongs to. Set from the
    * BFF's delivery code (`web/src/lib/delivery.ts`): `"unsent"` never reached the app-server, `"uncertain"`
-   * was written and unanswered when the connection died. Either way `Send again` is safe, because a resend
+   * was written and unanswered when the connection died. `"refused"` is not a delivery verdict at all — the
+   * app-server answered and said no (a scope switching computers, a ledger at capacity), so nothing ran.
+   * Either way `Send again` is safe, because a resend
    * reuses this message's `client_message_id` and the listener de-dupes an input on that id.
    */
-  delivery?: "unsent" | "uncertain";
+  delivery?: "unsent" | "uncertain" | "refused";
   /**
    * Rendered by us on send, before any server frame. The app-server only echoes
    * a user message when it was queued, so without this your own message never

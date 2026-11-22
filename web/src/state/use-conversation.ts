@@ -1183,7 +1183,11 @@ export function useConversation(
                 ? ack.error
                 : "The app-server refused that message.",
             );
-            if (markDelivery(transcriptRef.current, clientMessageId, "unsent")) flushSync();
+            if (markDelivery(transcriptRef.current, clientMessageId, "refused")) flushSync();
+            // Nothing is running because of a refusal, so the optimistic "working" state goes back the way
+            // it came. The delivery-code path cannot do this — there a verdict of "unknown" says nothing
+            // about whether something is still working.
+            setProcessing(false);
             return;
           }
           resendableRef.current.delete(clientMessageId);
