@@ -550,7 +550,8 @@ export class SessionRegistry {
     // The scope keys are what the operator greps for when a message goes missing: they say which
     // conversation the journal was holding work for.
     const scopes = new Set<string>();
-    for (const entry of [...pass.resend, ...pass.report]) scopes.add(entry.scopeKey);
+    for (const entry of [...pass.resend, ...pass.report])
+      scopes.add(entry.scopeKey ?? "(unscoped)");
     this.log(
       `retry-after-close: ${parts.join(", ")} (${[...scopes].slice(0, 4).join(", ")}${scopes.size > 4 ? ` +${scopes.size - 4} more` : ""})`,
     );
