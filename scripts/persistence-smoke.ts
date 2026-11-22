@@ -777,11 +777,15 @@ check(
 
 // ── 11. Turn settling (scripted provider) ───────────────────────────────────
 // A scripted OpenAI-compatible endpoint answers with a complete SSE chat
-// completion that ends properly after `data: [DONE]`. The shared harness
-// turn-driver sends a real message through a throwaway agent wired to it, and
-// the turn must settle end-to-end: `turn_finished` arrives and the answer is
-// stored. This is the smoke-shaped wire guard for BFF turn settling — it needs
-// no real model on the machine, so it runs on every host that runs the suite.
+// completion and then **holds the response open** after `data: [DONE]` — the
+// local-turn analogue of the stall upstream fixed on the Cloud path (#5847).
+// The local backend's SDK honors `[DONE]` and must settle without body EOF: the
+// shared harness turn-driver sends a real message through a throwaway agent
+// wired to it, and the turn must settle end-to-end — `turn_finished` arrives
+// and the answer is stored — while the socket is still open. If an SDK or
+// adapter change ever regresses to waiting for EOF, the 180 s bound goes red.
+// Needs no real model on the machine, so it runs on every host that runs the
+// suite.
 section("11. Turn settling (scripted provider)");
 const PROBE_PREFIX = "smoke-settle";
 const PROBE_MODEL = `${PROBE_PREFIX}/probe`;
@@ -792,7 +796,8 @@ const settleCookie = cookie;
 // resolve it differently. No literal address is stored here (check-prod-info).
 const hostAddress = process.env.SMOKE_HOST_ADDRESS ?? "host.docker.internal";
 let probeServer: ReturnType<typeof Bun.serve> | undefined;
-let agentDeleted = false;
+let settleSession: BffSession | undefined;
+let settleAgentId: string | undefined;
 
 function sseFrame(payload: unknown): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(payload)}\n\n`);
@@ -816,9 +821,10 @@ try {
             ],
           });
         }
-        // A complete completion, then `[DONE]`, then the response ends — the
-        // same shape llama.cpp gives; settling must not depend on reading
-        // further.
+        // A complete completion, then the real `data: [DONE]` sentinel (raw,
+        // NOT JSON-quoted — the SDK's iterator only terminates on the exact
+        // sentinel), then the body is deliberately held open. Settling must
+        // not depend on reading further.
         return new Response(
           new ReadableStream({
             start(controller) {
@@ -835,8 +841,8 @@ try {
               controller.enqueue(
                 sseFrame({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }] }),
               );
-              controller.enqueue(sseFrame("[DONE]"));
-              controller.close();
+              controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
+              // No controller.close(): the response stays open on purpose.
             },
           }),
           { headers: { "content-type": "text/event-stream" } },
@@ -860,6 +866,7 @@ try {
   check("the scripted provider registers", reg.ok, await reg.text());
 
   const w = await openSession(cookie);
+  settleSession = w;
   const helloW = await w.waitFor((f) => str(f, "type") === "__bff_hello");
   check(
     "the settle session sees a connected upstream",
@@ -875,7 +882,7 @@ try {
     pin_global: false,
   });
   const madeAgent = await w.waitFor((f) => f.request_id === "settle-agent", 30_000);
-  const settleAgentId: string | undefined =
+  settleAgentId =
     (madeAgent.agent as { id?: string } | undefined)?.id ??
     (str(madeAgent, "agent_id") || undefined);
   check("a throwaway agent is created on the scripted model", Boolean(settleAgentId), madeAgent);
@@ -904,7 +911,7 @@ try {
         180_000,
       );
       check(
-        "the turn settles with turn_finished",
+        "the turn settles with turn_finished while the provider still holds the body open",
         str(settleFrame, "type") === "turn_finished",
         settleFrame,
       );
@@ -923,20 +930,42 @@ try {
         stored.slice(0, 300),
       );
     }
-
-    w.send({ type: "agent_delete", request_id: "settle-del", agent_id: settleAgentId });
-    const delW = await w.waitFor((f) => f.request_id === "settle-del", 30_000);
-    agentDeleted = delW.success === true;
-    check("the throwaway agent is deleted again", agentDeleted, delW);
-    w.close();
   }
 } finally {
-  if (probeServer) probeServer.stop();
+  // Everything the section added comes down on every path — including the one
+  // it exists to catch: a turn that never settles rejects inside `try`, and a
+  // throwaway agent left behind would haunt the Agent list with a model whose
+  // provider is already gone. Agent first, then provider, then the server.
+  if (settleSession && settleAgentId) {
+    try {
+      settleSession.send({
+        type: "agent_delete",
+        request_id: "settle-del",
+        agent_id: settleAgentId,
+      });
+      const delW = await settleSession.waitFor((f) => f.request_id === "settle-del", 30_000);
+      check("the throwaway agent is deleted again", delW.success === true, delW);
+    } catch {
+      check("the throwaway agent is deleted again", false, "no delete response before timeout");
+    }
+    settleSession.close();
+  } else if (settleSession) {
+    settleSession.close();
+  }
   const del = await fetch(`${ORIGIN}/api/providers?prefix=${PROBE_PREFIX}`, {
     method: "DELETE",
     headers: { cookie: settleCookie },
   });
-  check("the scripted provider is removed again (stack left as found)", del.ok, del.status);
+  // 200 with `removed: false` also answers when nothing matched — assert the
+  // removal itself, or "left as found" proves nothing.
+  const delBody = (await del.json().catch(() => null)) as { removed?: boolean } | null;
+  check(
+    "the scripted provider is removed again (stack left as found)",
+    del.ok && delBody?.removed === true,
+    { status: del.status, body: delBody },
+  );
+  // Force it: the app-server's chat response is still parked open on purpose.
+  probeServer?.stop(true);
 }
 
 console.log(`\n${failures === 0 ? "All checks passed." : `${failures} check(s) failed.`}`);

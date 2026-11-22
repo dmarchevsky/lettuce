@@ -303,22 +303,16 @@ Adjudicated:
   imports the official `openai` SDK — that SDK ends its iterator at `data: [DONE]` and never waits
   for body EOF, so llama.cpp cannot wedge a local turn this way. Re-check only if a future range
   moves `pi-stream-adapter.ts` or the local path starts sharing the drain.
-- `fix(bash)` #5833 — **ours, agent-facing**: with no explicit `timeout`, a foreground command that
-  *cannot* continue in the background is now terminated at the default 120000 ms instead of running
-  until it exits (auto-backgrounding and the 600000 ms foreground cap unchanged). Baked into the
-  shipped skills (`docker/agent-skills/` installing-tools and serving-web-apps) so agents stop
-  assuming an unbounded foreground.
+- `fix(bash)` #5833 — **ours, agent-facing, but gated on the queue bridge**: with no explicit
+  `timeout`, a foreground command that *cannot* auto-background — no queue consumer, i.e. headless
+  `-p` contexts — is now terminated at the default 120000 ms instead of running until it exits.
+  An interactive agent's long command still auto-backgrounds and survives the turn (auto-backgrounding
+  and the 600000 ms foreground cap unchanged). Baked into `docker/agent-skills/` installing-tools,
+  whose wording mirrors upstream's, so headless workers stop assuming an unbounded foreground.
 - The rest are Cloud or headless-CLI only: oversized external-agent trace payloads (#5842, the
   Cloud tracing proxy), deferred cloud PR-watch registration (#5853), headless one-shot SIGTERM
-  shutdown (#5851 — `letta -p`/`letta code` processes, not the app-server).
-
-## Slice 1 correction context — do not repeat the probe mistake
-
-The upstream fix's failure shape cannot be produced against the **local** backend at all (see #5847
-above: pi-ai's official SDK honors `[DONE]`), so a stand-in endpoint that streams `[DONE]` and
-holds the socket open never wedges a local turn — a smoke probe for it would have been a green gate
-proving nothing. The shipped smoke section 11 is the honest version: a scripted provider completing
-normally, proving the BFF settles a real turn end-to-end without needing a real model on the host.
+  shutdown (#5851 — `letta -p`/`letta code` processes; it also touched `shell-runner.ts`, which runs
+  for every app-server foreground Bash on the terminate path, bounded by a 2 s force-kill grace).
 
 ### Version pinning
 
