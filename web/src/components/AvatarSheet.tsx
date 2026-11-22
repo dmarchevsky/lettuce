@@ -1,5 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { type FaceEntry, fetchFaceLibrary, removeFace, uploadFace } from "../lib/agent-flags.ts";
+import {
+  drawFace,
+  type FaceDrawCapability,
+  type FaceEntry,
+  fetchDrawCapability,
+  fetchFaceLibrary,
+  MAX_FACE_PROMPT_CHARS,
+  removeFace,
+  uploadFace,
+} from "../lib/agent-flags.ts";
 import {
   AVATAR_TINTS,
   type AvatarPref,
@@ -8,7 +17,7 @@ import {
   tintFor,
 } from "../lib/agent-tint.ts";
 import { GLYPH_CATEGORIES, glyphSections } from "../lib/avatar-glyphs.ts";
-import { resizeToFace } from "../lib/avatar-image.ts";
+import { FACE_SIZE, resizeToFace } from "../lib/avatar-image.ts";
 import { errorMessage } from "../lib/errors.ts";
 import { AgentAvatar } from "./AgentAvatar.tsx";
 import { FilterField } from "./FilterField.tsx";
@@ -32,11 +41,12 @@ interface Props {
   note?: string;
 }
 
-type Tab = "glyph" | "image";
+type Tab = "glyph" | "image" | "draw";
 
 /**
- * Picking an agent's face, in one sheet: the preview, the colour, then either a
- * glyph from the library or one of the pictures every agent shares.
+ * Picking an agent's face, in one sheet: the preview, the colour, then either a glyph
+ * from the library, one of the pictures every agent shares, or a face drawn from a
+ * description when an image endpoint is configured.
  *
  * It used to be two controls — a tint row in the form and a glyph-only sheet — and
  * the split showed: neither half could preview the other, and "the colour you get
@@ -69,6 +79,17 @@ export function AvatarSheet({
   const [busy, setBusy] = useState(false);
   /** A face whose ✕ was tapped once; a second tap on it deletes. */
   const [armedDelete, setArmedDelete] = useState<string | null>(null);
+  /**
+   * Whether this install can draw a face at all: null until fetched, then `drawable`
+   * decides whether the Draw tab exists. It is fetched rather than assumed because the
+   * answer is the operator's Settings and their compose profile, not the app's.
+   */
+  const [capability, setCapability] = useState<FaceDrawCapability | null>(null);
+  const [promptText, setPromptText] = useState("");
+  const [drawing, setDrawing] = useState(false);
+  /** The face the last press drew, so the tab can show what it made. */
+  const [lastDrawn, setLastDrawn] = useState<string | null>(null);
+  const drawAbort = useRef<AbortController | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -91,6 +112,23 @@ export function AvatarSheet({
   // The BFF applies the real glyph rule; this one exists so the box says so while
   // typing instead of failing on Save.
   const tooLong = typed.trim() !== "" && graphemeCount(typed) > 2;
+  /** The same courtesy for a description: the cut is the server's, so say it here. */
+  const promptTooLong = promptText.trim().length > MAX_FACE_PROMPT_CHARS;
+  /** The style line the server puts in front, minus the colon it ends with. */
+  const styleLine = (capability?.prefix ?? "").replace(/[:\s]+$/, "");
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchDrawCapability().then((value) => {
+      if (!cancelled) setCapability(value);
+    });
+    // A draw outlives nothing: closing the sheet means the face is not wanted, and an
+    // answer arriving afterwards has nowhere to be shown.
+    return () => {
+      cancelled = true;
+      drawAbort.current?.abort();
+    };
+  }, []);
   const sections = glyphSections(query, category);
   const searching = query.trim() !== "";
 
@@ -131,6 +169,46 @@ export function AvatarSheet({
       setStatus(errorMessage(cause));
     } finally {
       if (fileRef.current) fileRef.current.value = "";
+      setBusy(false);
+    }
+  };
+
+  /**
+   * One press draws one face, and it goes the way an uploaded file goes: cropped to a
+   * square, shrunk, then posted to the face library, which is where every face lives
+   * and why this tab keeps no private copy of what it made. The BFF did the drawing
+   * (`bff/src/images/face.ts`); the browser still does the geometry.
+   *
+   * It does not close the sheet, for the same reason a glyph pick does not: the face
+   * is already staged in the preview, so the next press is a comparison and not a
+   * reopen.
+   */
+  const onDraw = async () => {
+    const text = promptText.trim();
+    if (!text || drawing || promptTooLong || !capability?.drawable) return;
+    setDrawing(true);
+    setBusy(true);
+    setStatus(null);
+    const controller = new AbortController();
+    drawAbort.current = controller;
+    try {
+      const drawn = await drawFace(text, {
+        timeoutMs: capability.timeoutMs,
+        signal: controller.signal,
+      });
+      const resized = await resizeToFace(drawn.blob, FACE_SIZE, { keyBackground: true });
+      const library = await uploadFace(resized);
+      setImages(library.images);
+      setLastDrawn(library.id);
+      onPick({ tint: pref.tint, image: library.id });
+      onLibraryChanged?.();
+    } catch (cause) {
+      // The server's own sentence is the useful one ("the image server did not answer
+      // within 180s — its queue may be busy"), so it goes on the sheet as written.
+      setStatus(errorMessage(cause));
+    } finally {
+      drawAbort.current = null;
+      setDrawing(false);
       setBusy(false);
     }
   };
@@ -268,6 +346,17 @@ export function AvatarSheet({
         >
           Image
         </button>
+        {capability?.drawable ? (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "draw"}
+            className={`avatar-tab${tab === "draw" ? " sel" : ""}`}
+            onClick={() => setTab("draw")}
+          >
+            Draw
+          </button>
+        ) : null}
       </div>
 
       {tab === "glyph" ? (
@@ -335,7 +424,7 @@ export function AvatarSheet({
             </button>
           </label>
         </>
-      ) : (
+      ) : tab === "image" ? (
         <>
           <label className="avatar-image-drop">
             <input
@@ -394,6 +483,57 @@ export function AvatarSheet({
             opaque. Faces are shared by every agent — ✕ removes one for good, and anyone wearing it
             is back to their letter.
           </p>
+        </>
+      ) : (
+        <>
+          <div className="avatar-draw">
+            <input
+              value={promptText}
+              placeholder="a green dragon with round glasses"
+              aria-label="Describe a face"
+              onChange={(event) => setPromptText(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void onDraw();
+              }}
+            />
+            <button
+              type="button"
+              className="button compact"
+              disabled={busy || promptText.trim() === "" || promptTooLong}
+              onClick={() => void onDraw()}
+            >
+              {drawing ? "Drawing…" : lastDrawn ? "Draw again" : "Draw"}
+            </button>
+          </div>
+          <p className="small">
+            {promptTooLong
+              ? `One description, ${MAX_FACE_PROMPT_CHARS} characters or fewer — a server that cuts a prompt cuts the end of it.`
+              : `Every prompt starts with “${styleLine}” — chunky shapes are what still read inside a 34px face. The flat background is cut away so the colour above shows through, unless the drawing fills the frame.`}
+          </p>
+          {drawing ? (
+            <p className="small">One face at a time — a busy queue can take a minute.</p>
+          ) : null}
+          {lastDrawn ? (
+            <>
+              <p className="avatar-cat">Last drawn</p>
+              <div className="avatar-lib">
+                <span className={`avatar-lib-item${pref.image === lastDrawn ? " sel" : ""}`}>
+                  <button
+                    type="button"
+                    className="avatar-lib-face"
+                    aria-label="Use this face"
+                    onClick={() => pickFace(lastDrawn)}
+                  >
+                    <img className="agent-avatar-img" src={faceUrl(lastDrawn)} alt="" />
+                  </button>
+                </span>
+              </div>
+              <p className="small">
+                Saved to the shared face library, so every agent can wear it — it is under Image
+                too.
+              </p>
+            </>
+          ) : null}
         </>
       )}
 

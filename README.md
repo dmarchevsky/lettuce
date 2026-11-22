@@ -102,7 +102,8 @@ before exposing anything.
   SearXNG with a DuckDuckGo fallback. No API key, no per-search cost.
 - **Image generation** as a native tool too: point Settings at any
   OpenAI-compatible image endpoint — a local server or a cloud API — and every
-  agent can draw, look at its drawings, and keep them in its workspace.
+  agent can draw, look at its drawings, and keep them in its workspace. The same
+  endpoint draws agent avatars from a description (Agent → Avatar → Draw).
 - **Gmail, Calendar, Tasks and Contacts** through your own Google OAuth grant, with a
   permission level per service (e.g. mail read-only, calendar read-write).
   Turning a level down revokes the token, and an allowed-recipients list limits whom agents

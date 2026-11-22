@@ -10,9 +10,34 @@ All notable user-facing changes to lettuce, newest first. Version tags and
   sse servers — a Home Assistant long-lived token, an `X-API-Key` — kept on the Lettuce server: no agent can
   read one, and a token is only ever sent to the host it was entered for.
 
+### Changed
+- The playbook fold's tail: four more lessons from recent flows. The lifecycle guard now lets the cleanup
+  it mandates pass (an `exec`ed `rm` inside the owning container); a dev-port replace-or-wait that a long
+  unattended chain will hit is asked when the holder first shows; conflict markers get swept before the
+  next commit after a hand-resolved rebase; and a promised work item in a patch plan line has to be
+  closed — landed or dropped — before release.
+
 ### Fixed
 - **Editing an MCP server no longer wipes its environment.** A stdio server's env variables are shown by
   name, write-only, and survive an edit.
+
+## [v0.49.0-letta_0.34.67] - 2026-11-21
+
+### Added
+- **Draw an agent's face from one line.** Agent → Avatar → **Draw** draws a pixel-art face with the
+  image endpoint you already set up, cuts its flat background away in the browser so the agent's
+  colour shows through, and files it in the shared face library like an uploaded face. Servers
+  disagree about image sizes, so it asks a small square first and falls back through smaller,
+  larger, then no size at all — there is nothing to configure.
+
+### Changed
+- The playbook absorbed eighteen lessons from recent flows. A few now cost something to ignore: a bare
+  `docker restart` on a container, or a hand-typed unscoped `up`, stops for confirmation the way a compose
+  `down` always did; a docs flow that edits a project script has to say which checks it actually ran; a
+  screen invented after the plan was approved has to be rendered or named unseen; and a seeded state the
+  operator is meant to click has to be there when they click.
+
+### Fixed
 - **Which Codex is in this image, answered without a build.** The feature marker under
   `/opt/lettuce/features` now names the version of every coding CLI the image holds, and
   `codex --version` / `claude --version` answer even while that worker is switched off in Settings.

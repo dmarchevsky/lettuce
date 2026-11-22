@@ -341,6 +341,39 @@ async function avatarSheetChecks(page: Page, label: string): Promise<void> {
     (await sheet.locator(".avatar-lib-item, .switcher-empty").count()) >= 1,
   );
 
+  // The Draw tab exists only when something can draw, which is the operator's Settings
+  // and their compose profile — so this asks the endpoint the sheet asks rather than
+  // assuming this stack has an image server. Nothing here presses Draw: a screenshot
+  // suite must not spend an NPU turn or grow the face library on every run.
+  const images = await page.evaluate(async () => {
+    const response = await fetch("/api/images/settings");
+    if (!response.ok) return null;
+    const answer = (await response.json()) as {
+      settings?: { baseUrl?: string; model?: string | null };
+    };
+    return answer.settings?.baseUrl && answer.settings?.model ? answer.settings : null;
+  });
+  const drawTab = sheet.locator('.avatar-tab:has-text("Draw")');
+  check(
+    `${label}: the Draw tab is there exactly when an endpoint is configured`,
+    (await drawTab.count()) === (images ? 1 : 0),
+    { endpointConfigured: images !== null },
+  );
+  if (images) {
+    await drawTab.click();
+    await page.waitForTimeout(250);
+    check(
+      `${label}: the Draw tab offers a description box and one press`,
+      (await sheet.locator(".avatar-draw input").count()) === 1 &&
+        (await sheet.locator('.avatar-draw button:has-text("Draw")').count()) === 1,
+    );
+    check(
+      `${label}: Draw waits for a description`,
+      await sheet.locator('.avatar-draw button:has-text("Draw")').isDisabled(),
+    );
+    await shot(page, `${label}-avatar-draw`);
+  }
+
   const box = await overflow(page);
   check(`${label}: the avatar sheet has nothing clipped`, box.clipped.length === 0, box);
   await shot(page, `${label}-avatar-sheet`);

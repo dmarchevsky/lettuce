@@ -237,8 +237,8 @@ which drops the BFF's upstream connection, so run
 | `CONTEXT_SIZE_FILE` | `/app/data/context-size.json` | On the `bff-data` volume: the context sizes you typed in the **Context** sheet, per agent or conversation. Empty means every agent takes its size from its model's declaration. Losing it only loses those overrides. |
 | `AGENT_STEP_LIMIT_FILE` | `/app/data/agent-step-limits.json` | On the `bff-data` volume: each agent's **Model call limit** from Agent → General, the most model calls one turn may make. Only agents with a limit are listed; the rest have none. The BFF enforces it on every turn, chats, crons and Telegram alike, by stopping the turn once a step at the limit asks for another tool; the turn ends with "Model call limit reached (n/N calls)". Losing the file removes every limit. |
 | `MCP_CREDENTIALS_FILE` | `/app/data/mcp/credentials.json` | On the `bff-data` volume, 0600: the bearer tokens and custom headers of http and sse MCP servers from Settings → MCP servers. Kept here and not in the shared MCP list on letta-home, because every agent shell can read that tree; the BFF adds them when it connects, so agents never see a token — and subagents, which reach MCP through `letta mcp`, cannot use a server that needs one. A saved token is tied to its server's host: point the URL elsewhere and it must be entered again. Losing the file means re-entering the tokens. A stdio server's env values stay in the shared list, write-only in the UI but readable by agent shells. |
-| `AVATAR_PREFS_FILE` | `/app/data/avatar-prefs.json` | On the `bff-data` volume: which agent chose which colour, glyph or uploaded face. Only agents that chose something are listed; the rest draw their own initial on the colour their id hashes to. |
-| `AVATAR_IMAGE_DIR` | `/app/data/avatars` | On the `bff-data` volume: the uploaded faces, one file per picture named from the hash of its bytes, so the same image offered twice is stored once and its URL can be cached forever. At most 40 faces, each 512 KiB and 512 px or smaller (the browser resizes before uploading). This is the one file on that volume nothing can rebuild — losing it means asking everyone to upload their face again. |
+| `AVATAR_PREFS_FILE` | `/app/data/avatar-prefs.json` | On the `bff-data` volume: which agent chose which colour, glyph or face. Only agents that chose something are listed; the rest draw their own initial on the colour their id hashes to. |
+| `AVATAR_IMAGE_DIR` | `/app/data/avatars` | On the `bff-data` volume: the faces, uploaded or drawn, one file per picture named from the hash of its bytes, so the same image offered twice is stored once and its URL can be cached forever. At most 40 faces, each 512 KiB and 512 px or smaller (the browser resizes before uploading). This is the one file on that volume nothing can rebuild — losing it means asking everyone to upload their face again. |
 | `AVATAR_RECENTS_FILE` | `/app/data/avatar-recents.json` | On the `bff-data` volume: the twelve most recently saved glyphs, shared so a phone offers what the laptop picked. Losing it loses the **Recent** row. |
 
 ## Cloudflare Access (`SIGNIN=cf-access`)
@@ -336,6 +336,16 @@ endpoint ships with the stack: you point Settings → Image generation at one
 draw** box is the reachability probe. The key is stored on the `bff-data` volume
 owner-only and is never sent back to the browser. Drawn pictures land in the
 agent's workspace under `generated/` and appear in the conversation itself.
+
+The same endpoint also draws **agent avatars**: Agent → Avatar → **Draw** takes a
+description, and the face joins the shared face library like an uploaded one does.
+The tab is hidden while no endpoint is configured, and it asks for a small square
+size first and falls back through smaller, larger, then no size at all — servers
+disagree about which sizes they serve, so there is nothing to configure here, and
+whatever comes back is cropped and shrunk in the browser. The face is drawn on one
+flat colour and that colour is cut away in the browser too, so an agent's colour
+shows through it — a drawing server has no alpha channel to give you, so the cut-out
+happens where the pixels already are.
 
 ## Providers that name models `vendor/model`
 
@@ -656,9 +666,9 @@ run compose from a git worktree and the stack comes up healthy against a
 
 The only named volume left is `bff-data` (web-push device endpoints, pinned
 and archived agent lists, per-agent tool access, the avatar choices, and the
-uploaded faces under `avatars/`). Losing it means re-subscribing devices,
-re-pinning agents and asking anyone who uploaded a face to upload it again;
-nothing else is lost.
+faces under `avatars/`, uploaded or drawn). Losing it means re-subscribing
+devices, re-pinning agents and asking anyone who chose a face to choose it
+again; nothing else is lost.
 
 Migrating an install still on the old named volumes:
 

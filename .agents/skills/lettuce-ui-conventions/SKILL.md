@@ -25,8 +25,8 @@ Loaded from `AGENTS.md`. Pinning and archiving are not in the app-server protoco
   and only the phone switcher brings them back behind "archived agents (N)" — on desktop an
   archived agent has no way back yet (that entry retired with the all-in-one panel list; tracked as
   its own follow-up flow).
-- **An agent's face is one sheet and one component.** The choice (tint, glyph, or an uploaded
-  picture — never two of them, and the BFF refuses a pref that carries both) lives on `bff-data` next
+- **An agent's face is one sheet and one component.** The choice (tint, glyph, or a picture,
+  uploaded or drawn — never two of them, and the BFF refuses a pref that carries both) lives on `bff-data` next
   to the pin lists, so every device agrees on it; **every** surface renders it through `AgentAvatar`
   (one `--avatar-face` — 28px — sizes the mark on the rail both ways, the switcher, the band and
   the phone header, so folding never resizes an agent; only the picker's 40px preview is its own

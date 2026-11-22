@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +16,15 @@ import {
   type ImageFetch,
   imageRequestBody,
 } from "./client.ts";
+import {
+  drawFace,
+  FACE_BACKGROUND_SUFFIX,
+  FACE_STYLE_PREFIX,
+  facePromptRefusal,
+  faceSizes,
+  MAX_FACE_PROMPT_CHARS,
+  sizeShapedRefusal,
+} from "./face.ts";
 import { IMAGE_TOOL_SPECS, IMAGES_MOD_PATH, renderImagesMod } from "./mod.ts";
 import { registerImagesRoutes } from "./routes.ts";
 import { generateImageTool, ImagesSettingsStore, slugifyPrompt } from "./service.ts";
@@ -295,6 +304,7 @@ describe("the universal client", () => {
     expect(asText).toEqual({
       ok: false,
       error: "HTTP 400: n greater than 1 is not supported",
+      status: 400,
     });
 
     const structured = spyFetch(() =>
@@ -312,6 +322,7 @@ describe("the universal client", () => {
     ).toEqual({
       ok: false,
       error: "size 123x456 is not in the allowed set",
+      status: 400,
     });
 
     // A proxy answering HTML at 200 is not a picture and must not look like one.
@@ -324,7 +335,7 @@ describe("the universal client", () => {
       drawImages({ ...ENDPOINT, model: null }, { prompt: "x" }, { fetchImpl: html.fetchImpl }).then(
         (r) => r,
       ),
-    ).resolves.toEqual({ ok: false, error: "no image model is configured" });
+    ).resolves.toEqual({ ok: false, error: "no image model is configured", status: null });
   });
 
   test("a server that ignores n does not smuggle extra pictures into the thread", async () => {
@@ -396,10 +407,272 @@ describe("the universal client", () => {
     expect(!cancelled.ok && cancelled.error).toContain("cancelled because the turn stopped");
   });
 
+  test("a reply names the size it drew, and a failure carries the status", async () => {
+    // Top-level is OpenAI's shape; the item shape is what some proxies echo.
+    const topLevel = spyFetch(() =>
+      jsonResponse({ data: [{ b64_json: PNG_B64 }], size: "768x512" }),
+    );
+    expect(
+      (await drawImages(ENDPOINT, { prompt: "x" }, { fetchImpl: topLevel.fetchImpl })).ok,
+    ).toBe(true);
+    const reported = await drawImages(ENDPOINT, { prompt: "x" }, { fetchImpl: topLevel.fetchImpl });
+    expect(reported.ok && reported.size).toBe("768x512");
+
+    const perItem = spyFetch(() =>
+      jsonResponse({ data: [{ b64_json: PNG_B64, size: "256x256" }] }),
+    );
+    const itemSize = await drawImages(ENDPOINT, { prompt: "x" }, { fetchImpl: perItem.fetchImpl });
+    expect(itemSize.ok && itemSize.size).toBe("256x256");
+
+    // Nothing echoed: "the server did not say", not a guessed echo of our ask.
+    const silent = await drawImages(
+      ENDPOINT,
+      { prompt: "x" },
+      { fetchImpl: spyFetch(() => b64Reply()).fetchImpl },
+    );
+    expect(silent.ok && silent.size).toBeNull();
+
+    // The classifier downstream reads this number, not the prose.
+    const refused = await drawImages(
+      ENDPOINT,
+      { prompt: "x" },
+      { fetchImpl: spyFetch(() => jsonResponse({ error: { message: "nope" } }, 503)).fetchImpl },
+    );
+    expect(!refused.ok && refused.status).toBe(503);
+  });
+
   test("describeImageError keeps a message and otherwise shows the head", () => {
     expect(describeImageError(500, "boom", null)).toBe("HTTP 500: boom");
     expect(describeImageError(500, "", null)).toBe("HTTP 500 with no message.");
     expect(describeImageError(400, '{"error":"plain"}', { error: "plain" })).toBe("plain");
+  });
+});
+
+describe("drawing a face", () => {
+  /** What Settings holds for a face draw: an endpoint, a model, no configured size. */
+  const FACE: ImageEndpoint = {
+    baseUrl: "http://img.example:8000/v1",
+    apiKey: null,
+    model: "flux2-klein-4b",
+    size: null,
+    timeoutMs: 180_000,
+  };
+
+  /** The two shapes real servers refuse a size in, quoted from the wire. */
+  const fluxRefusal = (size: string) =>
+    `size: '${size}' is not served by flux2-klein-4b (sizes: auto, 256x256, 512x512, 768x512, 1024x1024)`;
+  const openaiRefusal = (size: string) =>
+    `Invalid value: '${size}'. Supported values are: 'auto', '1024x1024'`;
+
+  beforeEach(() => {
+    faceSizes.clear();
+  });
+
+  /** The sizes the ladder actually asked for, in order (`null` = omitted). */
+  function sizesAsked(calls: { body?: Record<string, unknown> }[]): (string | null)[] {
+    return calls.map((call) => (typeof call.body?.size === "string" ? call.body.size : null));
+  }
+
+  /** Answers `b64Reply` unless `refuse` names this rung's size, and records the ask. */
+  function ladderFetch(refuse: (size: string | null) => string | null) {
+    return spyFetch((_url, init) => {
+      const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
+      const size = typeof body.size === "string" ? body.size : null;
+      const message = refuse(size);
+      return message ? jsonResponse({ error: { message } }, 400) : b64Reply();
+    });
+  }
+
+  test("one face at a time per endpoint, whoever asks", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { fetchImpl, calls } = spyFetch(async () => {
+      await gate;
+      return b64Reply();
+    });
+    const first = drawFace(FACE, "an owl", { fetchImpl });
+    // This press lands while the first is still waiting on the server, and the server
+    // runs one image request anyway: saying so now beats a longer wait for nothing.
+    const second = await drawFace(FACE, "another owl", { fetchImpl });
+    expect(second).toEqual({
+      ok: false,
+      error: "one face at a time — the last one is still being drawn.",
+    });
+    expect(calls.length).toBe(1);
+    release();
+    expect((await first).ok).toBe(true);
+  });
+
+  test("a ladder that ran out starts the next press at the server's own default", async () => {
+    // Every named size refused, and the omitted one answered with a size-shaped refusal
+    // too (a refusal that is not about the size would have stopped at the first rung).
+    const first = ladderFetch((size) =>
+      size === null ? openaiRefusal("auto") : fluxRefusal(size),
+    );
+    const exhausted = await drawFace(FACE, "an owl", { fetchImpl: first.fetchImpl });
+    expect(exhausted.ok).toBe(false);
+    expect(sizesAsked(first.calls)).toEqual(["512x512", "256x256", "1024x1024", null]);
+    expect(faceSizes.remembered(FACE)).toBeNull();
+
+    // And it is remembered: the next press does not pay for the three named rungs again.
+    const next = ladderFetch(() => null);
+    expect((await drawFace(FACE, "an owl", { fetchImpl: next.fetchImpl })).ok).toBe(true);
+    expect(sizesAsked(next.calls)).toEqual([null]);
+  });
+
+  test("a server that draws a GIF cannot make a face", async () => {
+    // The face library reads its types from magic bytes and knows three; catching it
+    // here is the difference between a refusal now and one after a paid draw.
+    const gif = spyFetch(
+      () =>
+        new Response(new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61]), {
+          headers: { "content-type": "image/gif" },
+        }),
+    );
+    const drawn = await drawFace(FACE, "an owl", { fetchImpl: gif.fetchImpl });
+    expect(drawn.ok).toBe(false);
+    if (!drawn.ok) expect(drawn.error).toContain("image/gif");
+  });
+
+  test("the style prefix is applied to the typed description, not stored with it", async () => {
+    const { fetchImpl, calls } = spyFetch(() => b64Reply());
+    const drawn = await drawFace(FACE, "  a grumpy pixel owl  ", { fetchImpl });
+    expect(drawn.ok).toBe(true);
+    expect(calls[0]?.body?.prompt).toBe(
+      `${FACE_STYLE_PREFIX}a grumpy pixel owl${FACE_BACKGROUND_SUFFIX}`,
+    );
+    // The boilerplate is short on purpose: the server's own cut must eat our words
+    // before it eats the user's. 400 of user text plus the prefix and the background ask
+    // stays far inside the endpoint's 512-token cut (~4 characters a token).
+    expect(
+      FACE_STYLE_PREFIX.length + FACE_BACKGROUND_SUFFIX.length + MAX_FACE_PROMPT_CHARS,
+    ).toBeLessThan(600);
+  });
+
+  test("an empty or over-budget description is refused without spending a request", async () => {
+    const { fetchImpl, calls } = spyFetch(() => b64Reply());
+    for (const input of ["", "   ", undefined, 42, "x".repeat(MAX_FACE_PROMPT_CHARS + 1)]) {
+      const drawn = await drawFace(FACE, input, { fetchImpl });
+      expect(drawn.ok).toBe(false);
+    }
+    expect(facePromptRefusal("x".repeat(MAX_FACE_PROMPT_CHARS))).toBeNull();
+    expect(facePromptRefusal("x".repeat(MAX_FACE_PROMPT_CHARS + 1))).toContain("400 characters");
+    expect(calls).toEqual([]);
+  });
+
+  test("the steady state is one request, at 512x512", async () => {
+    const { fetchImpl, calls } = spyFetch(() => b64Reply());
+    const drawn = await drawFace(FACE, "an owl", { fetchImpl });
+    expect(drawn).toEqual({ ok: true, mediaType: "image/png", size: "512x512", b64: PNG_B64 });
+    expect(sizesAsked(calls)).toEqual(["512x512"]);
+  });
+
+  test("the size reported back is the server's, when it says one", async () => {
+    const { fetchImpl } = spyFetch(() =>
+      jsonResponse({ data: [{ b64_json: PNG_B64 }], size: "768x512" }),
+    );
+    const drawn = await drawFace(FACE, "an owl", { fetchImpl });
+    expect(drawn.ok && drawn.size).toBe("768x512");
+  });
+
+  test("a size-shaped refusal walks one rung, and what worked is where the next draw starts", async () => {
+    const first = ladderFetch((size) => (size === "512x512" ? fluxRefusal(size) : null));
+    const drawn = await drawFace(FACE, "an owl", { fetchImpl: first.fetchImpl });
+    expect(drawn.ok).toBe(true);
+    expect(sizesAsked(first.calls)).toEqual(["512x512", "256x256"]);
+    expect(faceSizes.remembered(FACE)).toBe("256x256");
+
+    // Steady state again: the ladder does not re-run after one fast refusal.
+    const second = ladderFetch(() => null);
+    await drawFace(FACE, "an owl", { fetchImpl: second.fetchImpl });
+    expect(sizesAsked(second.calls)).toEqual(["256x256"]);
+  });
+
+  test("both real refusal messages are size-shaped, and a 400 that names neither is not", () => {
+    expect(sizeShapedRefusal(400, fluxRefusal("512x512"), "512x512")).toBe(true);
+    // The OpenAI-family shape never says the word `size`; the quoted value is the tell.
+    expect(sizeShapedRefusal(400, openaiRefusal("512x512"), "512x512")).toBe(true);
+    expect(sizeShapedRefusal(400, "prompt is too long", "512x512")).toBe(false);
+    // Saying the word "size" is not enough: a prompt-length refusal is the same answer
+    // at every rung, and walking the ladder would spend four real draws repeating it.
+    expect(
+      sizeShapedRefusal(400, "the size of your prompt exceeds the model's context", "512x512"),
+    ).toBe(false);
+    // A server that lists what it serves in `WxH` form is answering the question even
+    // when it never quotes what was asked.
+    expect(sizeShapedRefusal(400, "size must be one of: 512x512, 1024x1024", "256x256")).toBe(true);
+    // A size-shaped sentence at the wrong status is somebody else's problem.
+    expect(sizeShapedRefusal(500, fluxRefusal("512x512"), "512x512")).toBe(false);
+    expect(sizeShapedRefusal(null, fluxRefusal("512x512"), "512x512")).toBe(false);
+  });
+
+  test("a refusal that is not about the size stops at once and is remembered as nothing", async () => {
+    for (const [status, message] of [
+      [400, "prompt is too long"],
+      [401, "invalid api key"],
+      [404, "no such model"],
+      [500, "internal error"],
+      [503, "the NPU queue is full"],
+    ] as const) {
+      const { fetchImpl, calls } = spyFetch(() => jsonResponse({ error: { message } }, status));
+      const drawn = await drawFace(FACE, "an owl", { fetchImpl });
+      expect(drawn).toEqual({ ok: false, error: message });
+      expect(calls).toHaveLength(1);
+      expect(faceSizes.remembered(FACE)).toBeUndefined();
+    }
+  });
+
+  test("the omitted size is the last rung, and it catches a server that serves none we name", async () => {
+    const { fetchImpl, calls } = ladderFetch((size) => (size ? fluxRefusal(size) : null));
+    const drawn = await drawFace(FACE, "an owl", { fetchImpl });
+    expect(drawn.ok).toBe(true);
+    expect(sizesAsked(calls)).toEqual(["512x512", "256x256", "1024x1024", null]);
+
+    // A server that takes only names we never got to ask starts there next time.
+    const again = ladderFetch((size) => (size ? fluxRefusal(size) : null));
+    await drawFace(FACE, "an owl", { fetchImpl: again.fetchImpl });
+    expect(sizesAsked(again.calls)).toEqual([null]);
+  });
+
+  test("the last rung asks for nothing — not for the operator's configured default", async () => {
+    const configured = { ...FACE, size: "1024x1024" };
+    const { fetchImpl, calls } = ladderFetch((size) => (size ? fluxRefusal(size) : null));
+    expect((await drawFace(configured, "an owl", { fetchImpl })).ok).toBe(true);
+    expect(calls[3]?.body).not.toHaveProperty("size");
+  });
+
+  test("a server that refuses every size is answered with its own last message", async () => {
+    const { fetchImpl, calls } = ladderFetch((size) =>
+      size ? fluxRefusal(size) : "no default size is loaded for this model",
+    );
+    const drawn = await drawFace(FACE, "an owl", { fetchImpl });
+    expect(drawn).toEqual({ ok: false, error: "no default size is loaded for this model" });
+    expect(calls).toHaveLength(4);
+  });
+
+  test("an endpoint with no URL or no model is a refusal, with nothing asked of it", async () => {
+    for (const endpoint of [
+      { ...FACE, baseUrl: "" },
+      { ...FACE, model: null },
+    ]) {
+      const { fetchImpl, calls } = spyFetch(() => b64Reply());
+      const drawn = await drawFace(endpoint, "an owl", { fetchImpl });
+      expect(drawn.ok).toBe(false);
+      expect(!drawn.ok && drawn.error).toContain("nothing to draw with");
+      expect(calls).toEqual([]);
+    }
+  });
+
+  test("a server echoing the key it refused is redacted before the browser sees it", async () => {
+    const keyed = { ...FACE, apiKey: "sk-face-me" };
+    const { fetchImpl } = spyFetch(
+      () => new Response("invalid api key sk-face-me", { status: 401 }),
+    );
+    const drawn = await drawFace(keyed, "an owl", { fetchImpl });
+    expect(!drawn.ok && drawn.error).toContain("[redacted]");
+    expect(!drawn.ok && drawn.error).not.toContain("sk-face-me");
   });
 });
 
@@ -619,7 +892,7 @@ describe("the rendered mod", () => {
 });
 
 describe("images routes", () => {
-  async function routes(imagesEnabled = true) {
+  async function routes(imagesEnabled = true, reply: () => Response = () => b64Reply()) {
     const dir = mkdtempSync(join(tmpdir(), "images-routes-"));
     const store = new ImagesSettingsStore(join(dir, "settings.json"));
     const files = new Map<string, string>([
@@ -627,6 +900,7 @@ describe("images routes", () => {
     ]);
     const resyncs: string[] = [];
     const app = new Hono<RouteEnv>();
+    const spy = spyFetch(() => reply());
     registerImagesRoutes(app, {
       imagesEnabled,
       store,
@@ -636,12 +910,12 @@ describe("images routes", () => {
         resyncs.push(reason);
         return "reloaded";
       },
-      fetchImpl: spyFetch(() => b64Reply()).fetchImpl,
+      fetchImpl: spy.fetchImpl,
     });
-    return { app, store, files, resyncs, dir };
+    return { app, store, files, resyncs, dir, calls: spy.calls };
   }
 
-  test("the token off is a 404 on all four, as if the routes were not there", async () => {
+  test("the token off is a 404 on all five, as if the routes were not there", async () => {
     const { app } = await routes(false);
     expect((await app.fetch(new Request("http://x/api/images/settings"))).status).toBe(404);
     expect(
@@ -660,6 +934,41 @@ describe("images routes", () => {
       (await app.fetch(new Request("http://x/api/images/test", { method: "POST", body: "{}" })))
         .status,
     ).toBe(404);
+    expect(
+      (
+        await app.fetch(
+          new Request("http://x/api/images/draw-face", {
+            method: "POST",
+            body: JSON.stringify({ prompt: "an owl" }),
+            headers: { "content-type": "application/json" },
+          }),
+        )
+      ).status,
+    ).toBe(404);
+  });
+
+  test("a body that is not JSON is a 400, not a crash", async () => {
+    const { app } = await routes();
+    const plain = await app.fetch(
+      new Request("http://x/api/images/draw-face", {
+        method: "POST",
+        body: "an owl in a scarf",
+        headers: { "content-type": "text/plain" },
+      }),
+    );
+    expect(plain.status).toBe(400);
+  });
+
+  test("GET hands the Draw tab the style line it must show, in the draw's own words", async () => {
+    const { app } = await routes();
+    const answer = (await (
+      await app.fetch(new Request("http://x/api/images/settings"))
+    ).json()) as {
+      faceStylePrefix?: string;
+    };
+    // A hint written into the UI would be a hint that silently disagrees with what is
+    // sent; the sheet renders this string instead of a copy of it.
+    expect(answer.faceStylePrefix).toBe(FACE_STYLE_PREFIX);
   });
 
   test("GET never echoes the key; PUT saves, clears and re-syncs the mod", async () => {
@@ -747,5 +1056,66 @@ describe("images routes", () => {
     expect(result.ok).toBe(true);
     expect(result.mediaType).toBe("image/png");
     expect(result.dataUrl).toBe(`data:image/png;base64,${PNG_B64}`);
+  });
+
+  const configure = (app: Hono<RouteEnv>) =>
+    app.fetch(
+      new Request("http://x/api/images/settings", {
+        method: "PUT",
+        body: JSON.stringify({ baseUrl: "http://img.example:8000/v1", model: "flux-dev" }),
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+  const postFace = (app: Hono<RouteEnv>, prompt: unknown) =>
+    app.fetch(
+      new Request("http://x/api/images/draw-face", {
+        method: "POST",
+        body: JSON.stringify({ prompt }),
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+  test("draw-face refuses locally without spending a request, then answers the face", async () => {
+    faceSizes.clear();
+    const { app, calls } = await routes();
+    // A blank and an over-budget prompt are local answers, and neither draws.
+    expect((await postFace(app, "   ")).status).toBe(400);
+    expect((await postFace(app, "x".repeat(MAX_FACE_PROMPT_CHARS + 1))).status).toBe(400);
+    // Nothing configured yet: the refusal is the same 400 the test draw gives.
+    expect((await postFace(app, "an owl in a scarf")).status).toBe(400);
+    expect(calls).toEqual([]);
+
+    await configure(app);
+    const ok = (await (await postFace(app, "an owl in a scarf")).json()) as Record<string, unknown>;
+    expect(ok).toMatchObject({ ok: true, mediaType: "image/png", size: "512x512" });
+    expect(ok.dataUrl).toBe(`data:image/png;base64,${PNG_B64}`);
+    expect(calls[0]?.body?.prompt).toBe(
+      `${FACE_STYLE_PREFIX}an owl in a scarf${FACE_BACKGROUND_SUFFIX}`,
+    );
+  });
+
+  test("draw-face answers a failed draw as 502 with the server's words, key redacted", async () => {
+    faceSizes.clear();
+    const { app } = await routes(
+      true,
+      () => new Response("invalid api key sk-draw-me", { status: 401 }),
+    );
+    await app.fetch(
+      new Request("http://x/api/images/settings", {
+        method: "PUT",
+        body: JSON.stringify({
+          baseUrl: "http://img.example:8000/v1",
+          model: "flux-dev",
+          apiKey: "sk-draw-me",
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const response = await postFace(app, "an owl");
+    expect(response.status).toBe(502);
+    const body = JSON.stringify(await response.json());
+    expect(body).toContain("invalid api key");
+    expect(body).not.toContain("sk-draw-me");
   });
 });
