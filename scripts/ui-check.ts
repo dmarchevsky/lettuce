@@ -4176,7 +4176,15 @@ try {
   // line and never send — an accidental send cannot be taken back. A plain
   // phone-sized viewport does not emulate the pointer, hence the context.
   if (await go("Enter on a touch device")) {
-    const context = await browser.newContext({ viewport: PHONE, isMobile: true, hasTouch: true });
+    // A phone's user agent too, so the answer does not depend on the host: on a
+    // Windows host the default one would claim Windows, where Enter sends.
+    const context = await browser.newContext({
+      viewport: PHONE,
+      isMobile: true,
+      hasTouch: true,
+      userAgent:
+        "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
+    });
     const page = await context.newPage();
     await signIn(page);
     const textarea = page.locator(".composer textarea");
