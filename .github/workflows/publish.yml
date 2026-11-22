@@ -97,10 +97,10 @@ jobs:
           echo "publishing :${tag}"
 
       - name: Build and push every image we build
-        # COMPOSE_PROFILES=codex,claude is the one deliberate difference from a
-        # dev build: the published app-server always carries both coding CLIs, so
-        # toggling a coding token in prod is a Settings flip, not a rebuild.
-        # GIT_SHA is what lets Settings → About name a real commit — a deploy
+        # No build-time profile difference is left to set: the app-server image
+        # always carries both coding CLIs (and GitHub CLI), so what gets published
+        # is what a dev build builds, and a coding token is a Settings flip on
+        # both. GIT_SHA is what lets Settings → About name a real commit — a deploy
         # manager's build had no refs to read and could only say `+unknown`.
         #
         # Build, then push, as two commands: `docker compose build --push` over
@@ -115,7 +115,6 @@ jobs:
         # build and still returns 0.
         run: |
           set -eu
-          export COMPOSE_PROFILES=codex,claude
           export GIT_SHA="${GITHUB_SHA}"
           export LETTA_IMAGE_NS="ghcr.io/${NS}/"
           export LETTA_IMAGE_TAG="${{ steps.tag.outputs.tag }}"

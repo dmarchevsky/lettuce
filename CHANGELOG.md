@@ -12,6 +12,22 @@ All notable user-facing changes to lettuce, newest first. Version tags and
   screen invented after the plan was approved has to be rendered or named unseen; and a seeded state the
   operator is meant to click has to be there when they click.
 
+### Fixed
+- **Which Codex is in this image, answered without a build.** The feature marker under
+  `/opt/lettuce/features` now names the version of every coding CLI the image holds, and
+  `codex --version` / `claude --version` answer even while that worker is switched off in Settings.
+- The Remote-pi **Runs** list is demonstrable: `bun run ui-check --section pi` seeds its own fixture
+  rows, so the pane can be shown and checked with no Pi worker running.
+- The UI check's console watcher watches **pages** again — it was attached to browser contexts, so a
+  page's console errors went unseen and no section could fail on them.
+- `bun run typecheck` now covers `scripts/` and `tests/` (the pass is what found the dead console
+  watcher above, and a screenshots fixture that had quietly stopped modelling two boot endpoints).
+
+### Removed
+- The `CODING_FEATURES` build arg: the app-server image always installs both coding CLIs, so a coding
+  worker is turned on and off by nothing but its Settings switch. On an install built without them, the
+  first rebuild after this pulls ~1 GB; every flip after that costs nothing.
+
 ## [v0.48.2-letta_0.34.67] - 2026-11-21
 
 ### Fixed
@@ -33,7 +49,6 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 ### Fixed
 - Fix a long conversation opening with only its newest messages; the rest are now one tap away, and the transcript says what is loaded.
 - Fix messages rendering out of order, or vanishing from the transcript, when two of them share an id.
-
 
 ## [v0.48.0-letta_0.34.67] - 2026-11-20
 

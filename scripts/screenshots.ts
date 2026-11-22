@@ -15,30 +15,89 @@
  * `request_id`, so a server that echoes the id back with a canned payload
  * drives the real UI without the BFF, the app-server, Docker, or a model.
  *
- * Usage: bun run screenshots [--shot <names>] [--list] [outputDir]
+ * Usage: bun run screenshots [--shot <names>] [--fixture <file.json>] [--list] [outputDir]
  * Requires: `bun run build` first (serves web/dist), and a Chromium build.
  *
  * `--shot` picks which images to render (comma-separated substring; `--list`
  * prints the names), because diagnosing one fixture crash used to mean rendering
  * all three every time. An app-server route this mock does not model is a hard
  * failure, not an empty object: see `unmodeledRoutes`.
+ *
+ * ## Injecting fixture data (--fixture)
+ *
+ * Proving a surface at scale — what does the Memory pane do with 178 files in 73
+ * folders — used to mean forking this file and editing its fixture by hand, which
+ * is a fork that has to be redone every time the built-in fixture moves. --fixture
+ * <file.json> is the supported way instead: the file's entries are merged over
+ * what the built-in fixture would have answered, and nothing on disk changes.
+ *
+ * ```json
+ * {
+ *   "ws": {
+ *     "list_memory": {
+ *       "memfs_enabled": true,
+ *       "entries": [{ "relative_path": "projects/lettuce/notes/deploy.md" }, … ]
+ *     }
+ *   },
+ *   "http": { "/api/pi/runs": { "runs": [ … ], "other": 0 } }
+ * }
+ * ```
+ *
+ * A memory entry is shaped the way the pane reads it: `relative_path` is what
+ * builds the tree (`web/src/lib/memory-tree.ts`), and entries carrying `path`
+ * instead answer 200 with an empty tree — the fixture looks fine and the PNG is
+ * blank. Note too that the built-in fixture models no `list_memory` at all (no
+ * README shot opens the pane), so the `agent-memory` image is a picture of
+ * nothing but what this file supplies.
+ *
+ * `ws` is keyed by app-server command `type`, `http` by pathname. A key with a
+ * trailing `/` matches a prefix (`"/api/codex/": …`). The value merges ONE level
+ * deep into the built-in response — so `{"prompt": "x"}` on `/api/status` keeps
+ * every other field — and a value that is an array, a scalar or a route the
+ * built-in fixture does not model replaces it whole (which also means the
+ * unmodelled-route failure does not fire for a route the caller supplied).
+ * Everything else about the run is unchanged: same build, same hermetic mock, no
+ * live stack — so a generated PNG is still public-safe by construction.
+ *
+ * The shots marked *(opt-in)* render only when named with `--shot`, so a plain
+ * `bun run screenshots` still writes exactly the README's images.
  */
 
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { extname, join } from "node:path";
 import { type Browser, chromium, type Page } from "playwright";
-import { parseArgs } from "./harness.ts";
+import { openPane, parseArgs } from "./harness.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const WEB_DIST = join(ROOT, "web", "dist");
-const { positional, shots: SHOT_FILTER, list: LIST } = parseArgs(process.argv.slice(2), "");
+const {
+  positional,
+  shots: SHOT_FILTER,
+  list: LIST,
+  fixture: FIXTURE_FILE,
+} = parseArgs(process.argv.slice(2), "");
 const OUT_DIR = positional === "" ? join(ROOT, "docs", "images") : positional;
 
 const SHOTS = [
   { name: "desktop-chat", label: "desktop chat: the transcript and the composer" },
   { name: "mobile-chat", label: "phone chat at 390px" },
   { name: "desktop-settings", label: "desktop Settings, opened on the providers section" },
+  {
+    name: "agent-memory",
+    label: "the Memory pane over whatever --fixture injected (opt-in: not a README image)",
+    optIn: true,
+  },
 ];
+
+/**
+ * Which shots this run renders. A filter that matches nothing is an error, not a
+ * green run that rendered nothing: `--shot chat` and `--shot chats` look the same
+ * to type and only one of them is a picture. With no filter, opt-in shots stay
+ * unrendered — the README's set is exactly the three above it.
+ */
+const chosen = SHOTS.filter((shot) =>
+  SHOT_FILTER.length === 0 ? !shot.optIn : SHOT_FILTER.some((needle) => shot.name.includes(needle)),
+);
 
 /**
  * App-server routes the client asked for and this mock does not model.
@@ -52,14 +111,6 @@ const SHOTS = [
  */
 const unmodeledRoutes = new Set<string>();
 
-/**
- * Which shots this run renders. A filter that matches nothing is an error, not a
- * green run that rendered nothing: `--shot chat` and `--shot chats` look the same
- * to type and only one of them is a picture.
- */
-const chosen = SHOTS.filter(
-  (shot) => SHOT_FILTER.length === 0 || SHOT_FILTER.some((needle) => shot.name.includes(needle)),
-);
 if (SHOT_FILTER.length > 0 && chosen.length === 0) {
   console.error(
     `✗ --shot ${SHOT_FILTER.join(",")} selected nothing. The shots are:\n` +
@@ -68,6 +119,74 @@ if (SHOT_FILTER.length > 0 && chosen.length === 0) {
   process.exit(1);
 }
 const render = new Set(chosen.map((shot) => shot.name));
+
+// ── Injected fixture ───────────────────────────────────────────────────────
+
+/**
+ * What --fixture may supply: see the header for the merge rule.
+ *
+ * A payload is an object (merged one level deep over the built-in response) or an
+ * array (replaces it whole) — those are the only two things a route's body can be,
+ * and anything else is a typo worth refusing at boot rather than rendering.
+ */
+type FixturePayload = Record<string, unknown> | unknown[];
+interface FixtureOverrides {
+  ws?: Record<string, FixturePayload>;
+  http?: Record<string, FixturePayload>;
+}
+
+const isPayload = (value: unknown): value is FixturePayload =>
+  typeof value === "object" && value !== null;
+
+function readFixture(file: string): FixtureOverrides {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(file, "utf8"));
+  } catch (error) {
+    throw new Error(
+      `--fixture ${file} is not readable JSON: ${error instanceof Error ? error.message : error}`,
+    );
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`--fixture ${file} must hold an object with "ws" and/or "http" keys.`);
+  }
+  const routes = (value: unknown, key: string): Record<string, FixturePayload> => {
+    if (value === undefined) return {};
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      throw new Error(`--fixture ${file}: "${key}" must be an object of route → payload.`);
+    const out: Record<string, FixturePayload> = {};
+    for (const [route, payload] of Object.entries(value)) {
+      if (!isPayload(payload))
+        throw new Error(`--fixture ${file}: ${key}["${route}"] must be an object or an array.`);
+      out[route] = payload;
+    }
+    return out;
+  };
+  const { ws, http } = parsed as { ws?: unknown; http?: unknown };
+  return { ws: routes(ws, "ws"), http: routes(http, "http") };
+}
+
+const FIXTURE: FixtureOverrides = FIXTURE_FILE ? readFixture(FIXTURE_FILE) : {};
+
+/** One level deep: the override's own keys win; a non-object override replaces. */
+function mergeOnto(base: Record<string, unknown>, override: FixturePayload): FixturePayload {
+  return isPayload(override) && !Array.isArray(override) && !Array.isArray(base)
+    ? { ...base, ...override }
+    : override;
+}
+
+/** `"/api/codex/"` covers any pathname under it; any other key is exact. */
+function httpOverrideFor(pathname: string): FixturePayload | null {
+  let found: FixturePayload | null = null;
+  for (const [route, value] of Object.entries(FIXTURE.http ?? {})) {
+    if (route.endsWith("/") ? pathname.startsWith(route) : pathname === route) found = value;
+  }
+  return found;
+}
+
+function wsOverrideFor(type: string): FixturePayload | null {
+  return FIXTURE.ws?.[type] ?? null;
+}
 
 const DESKTOP = { width: 1280, height: 800 };
 const PHONE = { width: 390, height: 844 };
@@ -306,7 +425,15 @@ const PROVIDERS = [
 // ── Protocol mock ──────────────────────────────────────────────────────────
 
 /** The reply for one inbound app-server command, keyed by its request id. */
-function respondTo(command: Record<string, unknown>): Record<string, unknown> {
+function respondTo(command: Record<string, unknown>): FixturePayload {
+  const built = builtinResponseTo(command);
+  const override = wsOverrideFor(String(command.type));
+  return override === null || !isPayload(built)
+    ? built
+    : mergeOnto(built as Record<string, unknown>, override);
+}
+
+function builtinResponseTo(command: Record<string, unknown>): Record<string, unknown> {
   const requestId = command.request_id;
   const type = command.type;
   const base = { request_id: requestId, success: true };
@@ -389,8 +516,33 @@ function serveStatic(pathname: string): Response | null {
   });
 }
 
+/** A URL this server cannot parse names no route, and that is not an error. */
+function pathnameOf(url: string): string {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return "";
+  }
+}
+
 async function handleHttp(request: Request): Promise<Response> {
-  const { pathname } = new URL(request.url);
+  const built = await builtinHttp(request);
+  const pathname = pathnameOf(request.url);
+  const override = httpOverrideFor(pathname);
+  if (override === null) return built;
+  // A route the caller supplied IS modelled, even if the built-in fixture never
+  // heard of it — otherwise the run would fail for the gap it just filled.
+  unmodeledRoutes.delete(pathname);
+  if (built.status !== 200) return json(override);
+  const body = (await built
+    .clone()
+    .json()
+    .catch(() => ({}))) as Record<string, unknown>;
+  return json(mergeOnto(body, override));
+}
+
+async function builtinHttp(request: Request): Promise<Response> {
+  const pathname = pathnameOf(request.url);
 
   if (pathname === "/api/status") {
     // access + signin drive the About panel's "Sign-in" row and Settings →
@@ -533,6 +685,12 @@ async function handleHttp(request: Request): Promise<Response> {
       redirectUri: "https://letta.example.com/api/google/oauth/callback",
       writable: true,
     });
+  }
+  if (pathname.startsWith("/api/agents/step-limit/")) {
+    // The Agent tab reads its per-agent model-call limit (`lib/agent-step-limit.ts`);
+    // `null` is "none set", which is what a fresh install has. Only asked when a
+    // shot opens the Agent tab — the Memory shot is the first that does.
+    return json({ limit: null });
   }
   if (pathname.startsWith("/api/agents/tool-access/")) {
     return json({ codex: false, google: "off" });
@@ -769,6 +927,28 @@ try {
     await page.waitForSelector(".settings-pane", { timeout: 15_000 });
     await page.waitForTimeout(600);
     await shot(page, "desktop-settings", ".settings-pane");
+    await page.close();
+  }
+  if (render.has("agent-memory")) {
+    // The Memory pane is a section of the Agent tab, and its size is whatever
+    // --fixture injected — which is the whole point of this shot: it is how a
+    // surface gets proved at scale (a 178-file tree) without forking this file.
+    const page = await open(browser, DESKTOP);
+    await openPane(page, "Agent");
+    await page.locator('.section-tabs button:text-is("Memory")').click();
+    await page.waitForSelector("ul.memory-tree li", { timeout: 15_000 });
+    // Folders start folded, so "expand all" is what makes the render a test of
+    // the whole tree rather than of its first screen.
+    const expand = page.locator('button.link:text-is("Expand all")');
+    if ((await expand.count()) > 0) await expand.first().click();
+    await page.waitForTimeout(600);
+    // The counts the pane prints for itself, quoted so a review can tell 178
+    // files from 3 without opening the PNG.
+    const counts = (await page.locator(".pane .muted.small").allInnerTexts()).filter((text) =>
+      /folder/.test(text),
+    );
+    console.log(`  memory counts: ${counts.join(" | ") || "(none rendered)"}`);
+    await shot(page, "agent-memory", "ul.memory-tree");
     await page.close();
   }
 } finally {

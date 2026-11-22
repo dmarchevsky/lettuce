@@ -13,6 +13,12 @@ Loaded from `AGENTS.md`. Everything the stack runs comes from a published artifa
 drift between the checkout's current tag and the target, checks the target out (detached),
 re-pins every version site to the new release, and typechecks.
 
+**A sync plan adjudicates from the script's "Watched-file drift" section and never from a
+hand-listed subset of paths.** That section is the real tag-to-tag diff intersected with the
+script's own `PROTOCOL_FILES`/`BEHAVIOR_FILES` arrays, printed as a count with the list — a
+flow that hand-picks paths silently files whatever it forgot as unchanged (one wrote "only
+three watched files moved" into an approved plan while the arrays answered eleven).
+
 **`bun run check-pin-upstream` is the first step of any component-version survey**, this one included: it
 already checks `LETTA_CODE` plus `CODEX`, `CLAUDE_CODE`, `WORKSPACE_MCP`, `DDG_MCP`, `SEARXNG`, `GH` and
 `CLOUDFLARED` against their registries in one pass. Ad-hoc probes mislead twice: the reference clone's

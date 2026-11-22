@@ -61,6 +61,26 @@ export function isEnabled(settings) {
 }
 
 /**
+ * Whether the invocation only asks the CLI to name itself — one version flag,
+ * nothing else.
+ *
+ * Reporting a version is not execution: no worker starts and no endpoint is
+ * called, so the shim answers it even with the worker switched off — that is how
+ * "which Claude Code is really in this image?" is answerable from a running
+ * container (`claude` on PATH is the shim). Note the preflight letta-code runs is
+ * `claude auth status --json`, which IS gated, so a disabled worker still fails
+ * its own preflight with our message. Duplicated in `shim-core.mjs` on purpose:
+ * each shim directory is copied into the image on its own and stays
+ * self-contained.
+ *
+ * Forms measured on Claude Code 2.1.327: `--version`, `-v` and `-V` all print it,
+ * so all three pass the gate.
+ */
+export function isVersionInvocation(args) {
+  return args.length === 1 && ["--version", "-v", "-V"].includes(args[0]);
+}
+
+/**
  * The environment for the real CLI. Claude Code has no config file of its own
  * for its credentials or endpoint — it reads environment variables — so the
  * settings the BFF saved are injected here rather than rendered into a file.

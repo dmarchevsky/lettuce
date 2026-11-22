@@ -13,9 +13,14 @@
  * declares the container as the sandbox (`externalSandbox`) and changes nothing
  * else. No fork delta: letta-code finds `codex` on PATH.
  *
- * It is also the on/off switch: with workers disabled in Settings → Codex,
- * every invocation — including letta-code's `codex --version` preflight —
- * fails with a message saying so, and the task reports it.
+ * It is also the on/off switch, and it gates **execution**: with workers disabled
+ * in Settings → Codex, every invocation that would run a worker — including
+ * letta-code's `codex app-server` spawn — fails with a message saying so, and the
+ * task reports it. `--version` is the one exception and answers either way, since
+ * naming the CLI is how an operator (and the image marker) surveys what is here.
+ * Letta-code's own `codex --version` preflight therefore passes while disabled and
+ * the refusal lands one step later, on the spawn, whose stderr upstream includes
+ * in the task error.
  */
 
 import { spawn } from "node:child_process";
@@ -24,19 +29,20 @@ import {
   DISABLED_MESSAGE,
   isAppServerInvocation,
   isEnabled,
+  isVersionInvocation,
   readShimSettings,
   rewriteLine,
 } from "./shim-core.mjs";
 
 const REAL = process.env.CODEX_REAL_BIN || "/opt/codex/bin/codex";
 const settings = readShimSettings(codexHome(process.env));
+const args = process.argv.slice(2);
 
-if (!isEnabled(settings)) {
+if (!isEnabled(settings) && !isVersionInvocation(args)) {
   process.stderr.write(`${DISABLED_MESSAGE}\n`);
   process.exit(1);
 }
 
-const args = process.argv.slice(2);
 const rewriting = isAppServerInvocation(args);
 const child = spawn(REAL, args, {
   stdio: [rewriting ? "pipe" : "inherit", "inherit", "inherit"],
