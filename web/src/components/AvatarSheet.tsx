@@ -508,7 +508,7 @@ export function AvatarSheet({
           <p className="small">
             {promptTooLong
               ? `One description, ${MAX_FACE_PROMPT_CHARS} characters or fewer — a server that cuts a prompt cuts the end of it.`
-              : `Every prompt starts with “${styleLine}” — chunky shapes are what still read inside a 34px face. The flat background is cut away, so the colour above shows through.`}
+              : `Every prompt starts with “${styleLine}” — chunky shapes are what still read inside a 34px face. The flat background is cut away so the colour above shows through, unless the drawing fills the frame.`}
           </p>
           {drawing ? (
             <p className="small">One face at a time — a busy queue can take a minute.</p>

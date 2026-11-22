@@ -21,7 +21,7 @@
 /** One RGB triple. */
 type Rgb = [number, number, number];
 
-/** How far a colour is on the way from opaque to transparent, as squared distances. */
+/** How far a colour is on the way from opaque to transparent, in RGB distance. */
 export interface KeyBounds {
   /** At or below this distance from the key: fully transparent. */
   near: number;
@@ -41,7 +41,7 @@ const MAX_EDGE_SD = 24;
 const MAX_CORNER_SPREAD = 36;
 /** How colourful a key must be. A white or grey field would key the subject too. */
 const MIN_KEY_CHROMA = 40;
-/** Keying more than this of the frame means the subject went with the background. */
+/** Keying this much of the frame means the subject went with the background. */
 const MAX_KEYED_SHARE = 0.95;
 
 function distance(a: Rgb, b: Rgb): number {
@@ -105,8 +105,16 @@ export function edgeKeyColour(rgba: Uint8ClampedArray, width: number, height: nu
 }
 
 /**
- * Turn the key colour transparent, in place. Returns false and leaves the pixels alone
- * when the key would have eaten the subject.
+ * Turn the frame's background transparent, in place. Returns false and leaves the pixels
+ * alone when the key would have eaten the subject.
+ *
+ * Only background that **touches the frame** is removed. A colour match anywhere in the
+ * picture is not enough: a subject wearing the key colour — a pink owl, a magenta scarf,
+ * the plating on a robot — would otherwise be punched full of holes, and the flat field
+ * and the outfit are the same colour to a per-pixel test. Flooding in from the edge is
+ * what tells them apart, because the background is by construction the region the frame
+ * bounds. A pocket of background sealed inside the subject (the gap between two ears)
+ * keeps its colour: a hole through the middle of a face is the worse failure.
  *
  * The alpha ramp is measured from the key, and a pixel that only partly matches is
  * **un-mixed** rather than left alone: what the model drew there is the subject bleeding
@@ -121,25 +129,50 @@ export function keyOut(
   bounds: KeyBounds = DEFAULT_BOUNDS,
 ): boolean {
   const span = bounds.far - bounds.near;
-  const alphas = new Float64Array(width * height);
-  let keyed = 0;
-  for (let i = 0; i < width * height; i += 1) {
+  const count = width * height;
+  const coverage = new Float64Array(count);
+  const keyish = new Uint8Array(count);
+  for (let i = 0; i < count; i += 1) {
     const at = i * 4;
     const pixel: Rgb = [rgba[at]!, rgba[at + 1]!, rgba[at + 2]!];
-    const coverage = Math.min(1, Math.max(0, (distance(pixel, key) - bounds.near) / span));
-    alphas[i] = coverage;
-    if (coverage === 0) keyed += 1;
+    const value = Math.min(1, Math.max(0, (distance(pixel, key) - bounds.near) / span));
+    coverage[i] = value;
+    keyish[i] = value < 1 ? 1 : 0;
   }
-  if (keyed / (width * height) > MAX_KEYED_SHARE) return false;
 
-  for (let i = 0; i < width * height; i += 1) {
+  const background = new Uint8Array(count);
+  const stack: number[] = [];
+  const claim = (i: number) => {
+    if (background[i] || !keyish[i]) return;
+    background[i] = 1;
+    stack.push(i);
+  };
+  for (let x = 0; x < width; x += 1) {
+    claim(x);
+    claim((height - 1) * width + x);
+  }
+  for (let y = 1; y < height - 1; y += 1) {
+    claim(y * width);
+    claim(y * width + width - 1);
+  }
+  while (stack.length > 0) {
+    const i = stack.pop()!;
+    const x = i % width;
+    if (x > 0) claim(i - 1);
+    if (x < width - 1) claim(i + 1);
+    if (i >= width) claim(i - width);
+    if (i < count - width) claim(i + width);
+  }
+
+  let region = 0;
+  for (let i = 0; i < count; i += 1) if (background[i]) region += 1;
+  if (region / count > MAX_KEYED_SHARE) return false;
+
+  for (let i = 0; i < count; i += 1) {
+    if (!background[i]) continue;
     const at = i * 4;
-    const coverage = alphas[i]!;
-    if (coverage === 1) {
-      rgba[at + 3] = 255;
-      continue;
-    }
-    if (coverage === 0) {
+    const coverageValue = coverage[i]!;
+    if (coverageValue === 0) {
       rgba[at] = 0;
       rgba[at + 1] = 0;
       rgba[at + 2] = 0;
@@ -147,11 +180,14 @@ export function keyOut(
       continue;
     }
     const back = (channel: number, keyChannel: number) =>
-      Math.max(0, Math.min(255, Math.round((channel - (1 - coverage) * keyChannel) / coverage)));
+      Math.max(
+        0,
+        Math.min(255, Math.round((channel - (1 - coverageValue) * keyChannel) / coverageValue)),
+      );
     rgba[at] = back(rgba[at]!, key[0]);
     rgba[at + 1] = back(rgba[at + 1]!, key[1]);
     rgba[at + 2] = back(rgba[at + 2]!, key[2]);
-    rgba[at + 3] = Math.round(coverage * 255);
+    rgba[at + 3] = Math.round(coverageValue * 255);
   }
   return true;
 }

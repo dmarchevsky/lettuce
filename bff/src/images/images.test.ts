@@ -544,10 +544,11 @@ describe("drawing a face", () => {
       `${FACE_STYLE_PREFIX}a grumpy pixel owl${FACE_BACKGROUND_SUFFIX}`,
     );
     // The boilerplate is short on purpose: the server's own cut must eat our words
-    // before it eats the user's. 512 tokens is roughly four characters a token.
+    // before it eats the user's. 400 of user text plus the prefix and the background ask
+    // stays far inside the endpoint's 512-token cut (~4 characters a token).
     expect(
       FACE_STYLE_PREFIX.length + FACE_BACKGROUND_SUFFIX.length + MAX_FACE_PROMPT_CHARS,
-    ).toBeLessThan(512 * 4);
+    ).toBeLessThan(600);
   });
 
   test("an empty or over-budget description is refused without spending a request", async () => {
