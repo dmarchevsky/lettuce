@@ -44,6 +44,16 @@ import { type DrawResult, drawImages, type ImageEndpoint, type ImageFetch } from
 export const FACE_STYLE_PREFIX =
   "pixel art avatar, thick pixels, limited palette, centered on a plain background: ";
 
+/**
+ * And the background every face is asked for: one flat colour the browser can key out,
+ * so the subject ends up on alpha and the agent's own colour shows through it (see
+ * `web/src/lib/face-key.ts`). Magenta because it is the colour a drawn subject is least
+ * likely to contain, and asking for a *transparent* background instead gets a drawn
+ * checkerboard — a model has no alpha channel to draw with. Measured on the real
+ * endpoint: the border comes back within a few points of one colour, which is keyable.
+ */
+export const FACE_BACKGROUND_SUFFIX = ", on a solid flat magenta background, no shadow";
+
 /** See the header: this protects the user's own words from the server's cut. */
 export const MAX_FACE_PROMPT_CHARS = 400;
 
@@ -192,7 +202,7 @@ async function drawAtFirstServedSize(
   input: unknown,
   options: { fetchImpl?: ImageFetch; signal?: AbortSignal },
 ): Promise<FaceResult> {
-  const prompt = `${FACE_STYLE_PREFIX}${String(input).trim()}`;
+  const prompt = `${FACE_STYLE_PREFIX}${String(input).trim()}${FACE_BACKGROUND_SUFFIX}`;
 
   let lastError = "the image server refused every size we know how to ask for.";
   for (const size of SIZE_LADDER.slice(ladderStart(endpoint))) {

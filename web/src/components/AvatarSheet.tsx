@@ -17,7 +17,7 @@ import {
   tintFor,
 } from "../lib/agent-tint.ts";
 import { GLYPH_CATEGORIES, glyphSections } from "../lib/avatar-glyphs.ts";
-import { resizeToFace } from "../lib/avatar-image.ts";
+import { FACE_SIZE, resizeToFace } from "../lib/avatar-image.ts";
 import { errorMessage } from "../lib/errors.ts";
 import { AgentAvatar } from "./AgentAvatar.tsx";
 import { FilterField } from "./FilterField.tsx";
@@ -196,7 +196,7 @@ export function AvatarSheet({
         timeoutMs: capability.timeoutMs,
         signal: controller.signal,
       });
-      const resized = await resizeToFace(drawn.blob);
+      const resized = await resizeToFace(drawn.blob, FACE_SIZE, { keyBackground: true });
       const library = await uploadFace(resized);
       setImages(library.images);
       setLastDrawn(library.id);
@@ -508,7 +508,7 @@ export function AvatarSheet({
           <p className="small">
             {promptTooLong
               ? `One description, ${MAX_FACE_PROMPT_CHARS} characters or fewer — a server that cuts a prompt cuts the end of it.`
-              : `Every prompt starts with “${styleLine}” — chunky shapes are what still read inside a 34px face. A drawn face is opaque, so the colour above will not show through it.`}
+              : `Every prompt starts with “${styleLine}” — chunky shapes are what still read inside a 34px face. The flat background is cut away, so the colour above shows through.`}
           </p>
           {drawing ? (
             <p className="small">One face at a time — a busy queue can take a minute.</p>

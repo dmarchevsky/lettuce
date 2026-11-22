@@ -18,6 +18,7 @@ import {
 } from "./client.ts";
 import {
   drawFace,
+  FACE_BACKGROUND_SUFFIX,
   FACE_STYLE_PREFIX,
   facePromptRefusal,
   faceSizes,
@@ -539,10 +540,14 @@ describe("drawing a face", () => {
     const { fetchImpl, calls } = spyFetch(() => b64Reply());
     const drawn = await drawFace(FACE, "  a grumpy pixel owl  ", { fetchImpl });
     expect(drawn.ok).toBe(true);
-    expect(calls[0]?.body?.prompt).toBe(`${FACE_STYLE_PREFIX}a grumpy pixel owl`);
-    // The prefix is short on purpose: the server's own cut must eat our boilerplate
-    // before it eats the user's words.
-    expect(FACE_STYLE_PREFIX.length + MAX_FACE_PROMPT_CHARS).toBeLessThan(512);
+    expect(calls[0]?.body?.prompt).toBe(
+      `${FACE_STYLE_PREFIX}a grumpy pixel owl${FACE_BACKGROUND_SUFFIX}`,
+    );
+    // The boilerplate is short on purpose: the server's own cut must eat our words
+    // before it eats the user's. 512 tokens is roughly four characters a token.
+    expect(
+      FACE_STYLE_PREFIX.length + FACE_BACKGROUND_SUFFIX.length + MAX_FACE_PROMPT_CHARS,
+    ).toBeLessThan(512 * 4);
   });
 
   test("an empty or over-budget description is refused without spending a request", async () => {
@@ -1084,7 +1089,9 @@ describe("images routes", () => {
     const ok = (await (await postFace(app, "an owl in a scarf")).json()) as Record<string, unknown>;
     expect(ok).toMatchObject({ ok: true, mediaType: "image/png", size: "512x512" });
     expect(ok.dataUrl).toBe(`data:image/png;base64,${PNG_B64}`);
-    expect(calls[0]?.body?.prompt).toBe(`${FACE_STYLE_PREFIX}an owl in a scarf`);
+    expect(calls[0]?.body?.prompt).toBe(
+      `${FACE_STYLE_PREFIX}an owl in a scarf${FACE_BACKGROUND_SUFFIX}`,
+    );
   });
 
   test("draw-face answers a failed draw as 502 with the server's words, key redacted", async () => {

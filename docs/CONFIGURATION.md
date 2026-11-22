@@ -341,7 +341,10 @@ description, and the face joins the shared face library like an uploaded one doe
 The tab is hidden while no endpoint is configured, and it asks for a small square
 size first and falls back through smaller, larger, then no size at all — servers
 disagree about which sizes they serve, so there is nothing to configure here, and
-whatever comes back is cropped and shrunk in the browser.
+whatever comes back is cropped and shrunk in the browser. The face is drawn on one
+flat colour and that colour is cut away in the browser too, so an agent's colour
+shows through it — a drawing server has no alpha channel to give you, so the cut-out
+happens where the pixels already are.
 
 ## Providers that name models `vendor/model`
 
