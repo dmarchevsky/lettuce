@@ -739,9 +739,13 @@ export function Composer({
                     setDismissed(true);
                     return;
                   }
-                  if (event.key === "Enter" && !event.shiftKey && enterSends()) {
-                    // The popover is open, so Enter takes the highlighted command
-                    // rather than sending a half-typed name to the agent.
+                  if (
+                    event.key === "Enter" &&
+                    !event.shiftKey &&
+                    (enterSends() || event.ctrlKey || event.metaKey)
+                  ) {
+                    // The popover is open, so Enter (or Ctrl/Cmd+Enter) takes the
+                    // highlighted command rather than sending a half-typed name.
                     event.preventDefault();
                     choose(active);
                     return;
@@ -777,9 +781,15 @@ export function Composer({
                   }
                 }
 
-                // Enter sends; Shift+Enter is a newline. On a phone Enter is always a
-                // newline and only the send button sends (see `enterSends`).
-                if (event.key === "Enter" && !event.shiftKey && enterSends()) {
+                // Enter sends where `enterSends` says so; Shift+Enter is a newline.
+                // Ctrl/Cmd+Enter sends on every device: no on-screen keyboard can type
+                // it, so it only ever comes from a hardware keyboard — a Surface's, or
+                // a Bluetooth one paired with a phone — where sending is what it means.
+                if (
+                  event.key === "Enter" &&
+                  !event.shiftKey &&
+                  (enterSends() || event.ctrlKey || event.metaKey)
+                ) {
                   event.preventDefault();
                   submit();
                 }

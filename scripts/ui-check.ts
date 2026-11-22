@@ -4188,6 +4188,38 @@ try {
     const value = await textarea.inputValue();
     check("Enter adds a new line instead of sending", value === "first line\nsecond line", value);
     await textarea.fill("");
+
+    // Ctrl+Enter is a hardware keyboard's send key, so it sends even here. The
+    // message frame is caught on its way out and never reaches the agent; every
+    // other frame passes through.
+    const sendPage = await context.newPage();
+    let sent = false;
+    await sendPage.routeWebSocket(/\/ws$/, (ws) => {
+      const server = ws.connectToServer();
+      ws.onMessage((message) => {
+        if (typeof message === "string" && message.includes('"create_message"')) sent = true;
+        else server.send(message);
+      });
+    });
+    await signIn(sendPage);
+    const sendBox = sendPage.locator(".composer textarea");
+    await sendBox.waitFor();
+    await sendBox.fill("ui-check: Ctrl+Enter sends");
+    await sendBox.press("Control+Enter");
+    await sendPage
+      .waitForFunction(
+        () => {
+          const box = document.querySelector(".composer textarea") as HTMLTextAreaElement | null;
+          return box?.value === "";
+        },
+        undefined,
+        { timeout: 3000 },
+      )
+      .catch(() => {});
+    check("Ctrl+Enter sends", sent && (await sendBox.inputValue()) === "", {
+      sent,
+      value: await sendBox.inputValue(),
+    });
     await context.close();
   }
 
