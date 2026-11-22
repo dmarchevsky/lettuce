@@ -44,7 +44,17 @@ export interface DrawedImage {
   mediaType: string;
 }
 
-export type DrawResult = { ok: true; images: DrawedImage[] } | { ok: false; error: string };
+/**
+ * `size` on success is the size the **server reported**, not the one we asked
+ * for — a server that ignores `size` and answers its own default is common
+ * enough that the caller must not assume its request was honoured. `status` on
+ * failure is the HTTP status, or null when there was no HTTP answer at all (a
+ * timeout, a dead endpoint): a caller that decides what to retry reads the
+ * number rather than re-deriving it from the prose.
+ */
+export type DrawResult =
+  | { ok: true; images: DrawedImage[]; size: string | null }
+  | { ok: false; error: string; status: number | null };
 
 /** The most body to show back when it is not JSON anybody recognises. */
 const BODY_HEAD = 400;
@@ -203,7 +213,11 @@ export async function parseImageReply(
   if (response.ok && contentType.startsWith("image/") && ALLOWED_IMAGE_TYPES.has(contentType)) {
     const bytes = new Uint8Array(await response.arrayBuffer().catch(() => new ArrayBuffer(0)));
     if (bytes.length > 0 && bytes.length <= MAX_IMAGE_BYTES)
-      return { ok: true, images: [{ b64: base64OfBytes(bytes), mediaType: contentType }] };
+      return {
+        ok: true,
+        images: [{ b64: base64OfBytes(bytes), mediaType: contentType }],
+        size: null,
+      };
   }
   const text = await response.text().catch(() => "");
   let json: unknown = null;
@@ -212,7 +226,12 @@ export async function parseImageReply(
   } catch {
     json = null;
   }
-  if (!response.ok) return { ok: false, error: describeImageError(response.status, text, json) };
+  if (!response.ok)
+    return {
+      ok: false,
+      error: describeImageError(response.status, text, json),
+      status: response.status,
+    };
 
   const data = json && typeof json === "object" ? (json as { data?: unknown }).data : undefined;
   const { images, problems } = Array.isArray(data)
@@ -221,12 +240,35 @@ export async function parseImageReply(
   // A server that ignored `n` must not smuggle extra pictures into the thread.
   const kept =
     maxImages !== undefined && images.length > maxImages ? images.slice(0, maxImages) : images;
-  if (kept.length > 0) return { ok: true, images: kept };
+  if (kept.length > 0) return { ok: true, images: kept, size: reportedSize(json) };
 
   // A 200 that says no — some proxies wrap the failure that way.
   const asText = describeImageError(response.status, text, json);
   const why = problems.length ? `${asText} (${problems.join("; ")})` : asText;
-  return { ok: false, error: json === null ? `the reply was not JSON — ${why}` : why };
+  return {
+    ok: false,
+    error: json === null ? `the reply was not JSON — ${why}` : why,
+    status: response.status,
+  };
+}
+
+/**
+ * The size a server echoed back, if it echoed one at all: top-level (OpenAI's
+ * own shape) or on the first item (what some proxies do). Anything not a
+ * non-empty string is "it did not say", which is a different fact from "it
+ * answered the size we asked for".
+ */
+function reportedSize(json: unknown): string | null {
+  if (!json || typeof json !== "object") return null;
+  const top = (json as { size?: unknown }).size;
+  if (typeof top === "string" && top.trim()) return top.trim();
+  const data = (json as { data?: unknown }).data;
+  const first = Array.isArray(data) ? data[0] : undefined;
+  if (first && typeof first === "object") {
+    const item = (first as { size?: unknown }).size;
+    if (typeof item === "string" && item.trim()) return item.trim();
+  }
+  return null;
 }
 
 /** Cancellation that distinguishes "the turn stopped" from "this server is slow". */
@@ -272,7 +314,7 @@ export async function drawImages(
   options: { fetchImpl?: ImageFetch; signal?: AbortSignal } = {},
 ): Promise<DrawResult> {
   const fetchImpl: ImageFetch = options.fetchImpl ?? fetch;
-  if (!endpoint.model) return { ok: false, error: "no image model is configured" };
+  if (!endpoint.model) return { ok: false, error: "no image model is configured", status: null };
   const url = imagesEndpointUrl(endpoint.baseUrl);
   const size = request.size ?? endpoint.size ?? null;
   const linked = linkSignals(options.signal, endpoint.timeoutMs);
@@ -291,17 +333,23 @@ export async function drawImages(
     // Which of the two causes fired decides the wording the agent acts on: a
     // stopped turn is not a dead server, and a busy queue is worth retrying.
     if (linked.reason() === "caller") {
-      return { ok: false, error: "the generation was cancelled because the turn stopped." };
+      return {
+        ok: false,
+        error: "the generation was cancelled because the turn stopped.",
+        status: null,
+      };
     }
     if (linked.reason() === "timeout") {
       return {
         ok: false,
         error: `the image server did not answer within ${Math.round(endpoint.timeoutMs / 1000)}s — its queue may be busy, or the request too large.`,
+        status: null,
       };
     }
     return {
       ok: false,
       error: `the image server could not be reached: ${error instanceof Error ? error.message : String(error)}`,
+      status: null,
     };
   } finally {
     linked.dispose();

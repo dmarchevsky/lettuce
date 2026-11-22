@@ -16,6 +16,7 @@ import type { Hono } from "hono";
 import { errorMessage } from "../errors.ts";
 import type { RouteEnv } from "../route-env.ts";
 import { drawImages, endpointFromSettings, type ImageFetch } from "./client.ts";
+import { drawFace, FACE_STYLE_PREFIX, facePromptRefusal } from "./face.ts";
 import type { ImagesSettingsStore } from "./service.ts";
 import {
   InvalidImagesSettingsError,
@@ -55,7 +56,13 @@ export function registerImagesRoutes<Env extends RouteEnv>(
   app.get("/api/images/settings", async (c) => {
     if (!imagesEnabled) return c.text(OFF, 404);
     try {
-      return c.json({ settings: toPublicImagesSettings(await store.load()) });
+      // `faceStylePrefix` rides along so the avatar sheet can show the style line it
+      // is about to put in front of a description, in the words the draw will use —
+      // a hint copied into the UI is a hint that silently disagrees with the server.
+      return c.json({
+        settings: toPublicImagesSettings(await store.load()),
+        faceStylePrefix: FACE_STYLE_PREFIX,
+      });
     } catch (error) {
       return c.text(errorMessage(error), 502);
     }
@@ -111,6 +118,44 @@ export function registerImagesRoutes<Env extends RouteEnv>(
       mediaType: first.mediaType,
       size: settings.size,
       dataUrl: `data:${first.mediaType};base64,${first.b64}`,
+    });
+  });
+
+  // The avatar sheet's Draw tab: one face from a description, returned inline as
+  // a data URL. The browser crops and shrinks it and posts it through
+  // `/api/avatars`, so the BFF rasterises nothing and the drawn face lands in the
+  // one face library there is. A refusal is the server's own message, key
+  // redacted — `face.ts` already walked the size ladder by then, so what reaches
+  // the user is a queue, an auth problem, or a server that refuses every size.
+  app.post("/api/images/draw-face", async (c) => {
+    if (!imagesEnabled) return c.text(OFF, 404);
+    const body = (await c.req.json().catch(() => null)) as { prompt?: unknown } | null;
+    // Checked before the store is read: a prompt over the budget is caught here
+    // rather than cut silently by the server.
+    const refusal = facePromptRefusal(body?.prompt);
+    if (refusal) return c.text(refusal, 400);
+    const settings = await store.load();
+    if (!imagesEndpointUsable(settings)) {
+      return c.json(
+        {
+          ok: false,
+          error: "Set an endpoint URL and a model first — there is nothing to draw with yet.",
+        },
+        400,
+      );
+    }
+    // The browser's own abort rides along: the sheet closing is the user saying they do
+    // not want that face, and the next rung would otherwise be paid for anyway.
+    const drawn = await drawFace(endpointFromSettings(settings), body?.prompt, {
+      ...fetchOptions,
+      signal: c.req.raw.signal,
+    });
+    if (!drawn.ok) return c.json({ ok: false, error: drawn.error }, 502);
+    return c.json({
+      ok: true,
+      mediaType: drawn.mediaType,
+      size: drawn.size,
+      dataUrl: `data:${drawn.mediaType};base64,${drawn.b64}`,
     });
   });
 }

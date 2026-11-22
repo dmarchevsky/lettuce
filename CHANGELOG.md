@@ -5,6 +5,15 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.49.0-letta_0.34.67] - 2026-11-21
+
+### Added
+- **Draw an agent's face from one line.** Agent → Avatar → **Draw** draws a pixel-art face with the
+  image endpoint you already set up, cuts its flat background away in the browser so the agent's
+  colour shows through, and files it in the shared face library like an uploaded face. Servers
+  disagree about image sizes, so it asks a small square first and falls back through smaller,
+  larger, then no size at all — there is nothing to configure.
+
 ### Changed
 - The playbook absorbed eighteen lessons from recent flows. A few now cost something to ignore: a bare
   `docker restart` on a container, or a hand-typed unscoped `up`, stops for confirmation the way a compose
