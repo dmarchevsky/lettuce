@@ -157,4 +157,32 @@ describe("runs", () => {
     const { runs } = await listCodexRuns(io, 10, Date.UTC(2026, 8, 27, 20));
     expect(runs[0]?.agentId).toBeNull();
   });
+
+  test("a named thread leads with its task title; the newest index entry wins", async () => {
+    const index = [
+      JSON.stringify({ id: T1, thread_name: "stale title", updated_at: "2026-09-27T17:01:00Z" }),
+      JSON.stringify({ id: T1, thread_name: "Fix websocket reconnect hang", updated_at: "2026-09-27T17:02:00Z" }),
+      "{", // a partial tail line is skipped, not fatal
+    ].join("\n");
+    const { io } = memoryIo({
+      [`${DAY}/rollout-2026-09-27T17-00-35-${T1}.jsonl`]: rollout(T1, "the long prompt"),
+      [`${DAY}/rollout-2026-09-27T18-00-00-${T2}.jsonl`]: rollout(T2, "unnamed run"),
+      "/root/.letta/codex/session_index.jsonl": index,
+    });
+    const { runs } = await listCodexRuns(io, 10, Date.UTC(2026, 8, 27, 20));
+    expect(runs.map((r) => [r.name, r.prompt])).toEqual([
+      [null, "unnamed run"],
+      ["Fix websocket reconnect hang", "the long prompt"],
+    ]);
+    // The single-run viewer carries it too.
+    expect((await getCodexRun(io, T1))?.name).toBe("Fix websocket reconnect hang");
+  });
+
+  test("no session index yet is the normal case: every run is simply unnamed", async () => {
+    const { io } = memoryIo({
+      [`${DAY}/rollout-2026-09-27T17-00-35-${T1}.jsonl`]: rollout(T1, "first"),
+    });
+    const { runs } = await listCodexRuns(io, 10, Date.UTC(2026, 8, 27, 20));
+    expect(runs.map((r) => r.name)).toEqual([null]);
+  });
 });

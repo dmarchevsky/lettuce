@@ -12,6 +12,7 @@ import {
   type CodexRunSummary,
   candidateDayDirs,
   parseRollout,
+  parseSessionIndex,
   recentDayDirs,
   summarizeRun,
   threadIdOfRollout,
@@ -40,7 +41,9 @@ export interface CodexFileIo {
   listFiles(dir: string): Promise<string[] | null>;
 }
 
-const SESSIONS_DIR = `${CODEX_HOME}/sessions`;
+const SESSIONS_DIR = `${CODEX_HOME}/sessions`
+/** Where codex appends `{ id, thread_name }` lines when a thread gets a title. */
+const SESSION_INDEX = `${CODEX_HOME}/session_index.jsonl`;
 /** How far back "recent runs" looks. */
 const RECENT_DAYS = 7;
 
@@ -112,12 +115,19 @@ async function findRollout(io: CodexFileIo, threadId: string): Promise<string | 
   return null;
 }
 
+async function threadNames(io: CodexFileIo): Promise<Map<string, string>> {
+  return parseSessionIndex((await io.read(SESSION_INDEX)) ?? "");
+}
+
 /** One run, fully parsed. Null when no rollout exists for that thread. */
 export async function getCodexRun(io: CodexFileIo, threadId: string): Promise<CodexRun | null> {
   const path = await findRollout(io, threadId);
   if (!path) return null;
   const text = await io.read(path);
-  return text === null ? null : parseRollout(threadId, text);
+  if (text === null) return null;
+  const run = parseRollout(threadId, text);
+  run.name = (await threadNames(io)).get(threadId) ?? null;
+  return run;
 }
 
 /**
@@ -149,9 +159,14 @@ export async function listCodexRuns(
     }
   }
   const runs: CodexRunSummary[] = [];
+  const names = await threadNames(io);
   for (const { path, threadId } of paths) {
     const text = await io.read(path);
-    if (text !== null) runs.push(summarizeRun(parseRollout(threadId, text)));
+    if (text !== null) {
+      const run = summarizeRun(parseRollout(threadId, text));
+      run.name = names.get(threadId) ?? null;
+      runs.push(run);
+    }
   }
   return agentId
     ? splitRunsByAgent(runs, agentId, limit)
