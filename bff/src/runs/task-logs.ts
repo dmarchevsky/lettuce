@@ -899,8 +899,11 @@ export function createTaskLogStore(
   options: { root?: string; io?: TaskLogIo; retentionDays?: number; now?: () => Date } = {},
 ): TaskLogStore {
   const io = options.io ?? fsTaskLogIo;
+  // A blank is not a root: `normalizePosixPath("")` is `/`, and `/` is a root in
+  // which every path is inside. Compose sets the literal; a bare `TASK_LOG_DIR=`
+  // in someone's `.env` means "the default", not "the filesystem".
   const root = normalizePosixPath(
-    options.root ?? process.env.TASK_LOG_DIR ?? TASK_LOG_ROOT_DEFAULT,
+    options.root?.trim() || process.env.TASK_LOG_DIR?.trim() || TASK_LOG_ROOT_DEFAULT,
   );
   const retentionDays =
     options.retentionDays ?? parseRetentionDays(process.env.TASK_LOG_RETENTION_DAYS);
