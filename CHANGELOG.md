@@ -5,11 +5,13 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
-### Added
-- **A message that never arrived says so, and can be sent again.** When the connection to the app-server
-  drops mid-send, the message now reads **Not sent** or **Delivery unconfirmed** under itself with a
-  **Send again**, instead of sitting there looking delivered; requests that are safe to repeat are
-  retried on their own the moment the link is back.
+## [v0.49.1-letta_0.34.67] - 2026-11-22
+
+### Fixed
+- **A message that never arrived no longer looks delivered.** When the connection to the app-server drops
+  mid-send, the message now reads **Not sent** or **Delivery unconfirmed** under itself with a
+  **Send again**, and requests that are safe to repeat are retried on their own the moment the link is
+  back.
 
 ### Changed
 - The playbook fold's tail: four more lessons from recent flows. The lifecycle guard now lets the cleanup
@@ -17,7 +19,6 @@ All notable user-facing changes to lettuce, newest first. Version tags and
   unattended chain will hit is asked when the holder first shows; conflict markers get swept before the
   next commit after a hand-resolved rebase; and a promised work item in a patch plan line has to be
   closed — landed or dropped — before release.
-
 ## [v0.49.0-letta_0.34.67] - 2026-11-21
 
 ### Added
