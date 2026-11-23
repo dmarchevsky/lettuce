@@ -62,6 +62,9 @@ const START_BLOCK_RE = /^\[Task started: ([\s\S]*?)\]\n\[subagent_type: ([^\]\n]
 
 /** How much of the readable log the start block could possibly need. */
 const START_BLOCK_BYTES = 4_096;
+/** How much of the event log one head read covers: the first record, whatever
+ * size its first tool call's arguments are. */
+const EVENT_HEAD_BYTES = 64 * 1024;
 /** How much of the events tail one read covers — enough for the last record. */
 const TAIL_BYTES = 64 * 1024;
 /** Read granularity of the page reader. */
@@ -460,17 +463,23 @@ async function guardedStat(
 /**
  * Both halves of one run's files in one directory, proved to live inside `root`.
  *
- * The directory is guarded once (it is the same proof for both files), then each
- * half is stat-guarded. A `.jsonl` half that does not exist is not a refusal — a
- * task whose event log could not be opened has a readable log and nothing else.
+ * `dirOk` is the directory's own verdict, computed once per directory by the
+ * caller: a listing walks hundreds of files through one directory, and the
+ * `realpath` that proves the directory says nothing new per file. Each half is
+ * still checked on its own, because a scratchpad an agent can write into can hold
+ * a `task_1.log` that is a symlink to anywhere.
+ *
+ * A `.jsonl` half that does not exist is not a refusal — a task whose event log
+ * could not be opened has a readable log and nothing else.
  */
 async function statPair(
   io: TaskLogIo,
   root: string,
   dir: string,
   taskId: string,
+  dirOk: boolean,
 ): Promise<Pair | null> {
-  if (dirViolation(io, root, dir)) return null;
+  if (!dirOk) return null;
   const logStat = await guardedStat(io, root, `${dir}/${taskId}.log`);
   const eventsStat = await guardedStat(io, root, `${dir}/${taskId}.jsonl`);
   if (!logStat && !eventsStat) return null;
@@ -513,13 +522,14 @@ async function collectCandidates(io: TaskLogIo, root: string): Promise<Candidate
   for (const { generation, dir } of dirs) {
     const entries = await io.list(dir);
     if (!entries) continue;
+    const dirOk = dirViolation(io, root, dir) === null;
     for (const entry of entries) {
       // The readable log is the marker: it carries the start block, and a
       // `.jsonl` without one has nothing to show.
       if (entry.kind !== "file" || !entry.name.endsWith(".log")) continue;
       const taskId = entry.name.slice(0, -".log".length);
       if (!isTaskId(taskId)) continue;
-      const pair = await statPair(io, root, dir, taskId);
+      const pair = await statPair(io, root, dir, taskId, dirOk);
       // No readable log means no start block means nothing to say about it.
       if (!pair?.logPath) continue;
       candidates.push({
@@ -553,7 +563,7 @@ async function locatePair(
   const dirs = [null, ...generations];
   for (const generation of dirs) {
     const dir = generation === null ? root : `${root}/${ARCHIVE_DIR}/${generation}`;
-    const pair = await statPair(io, root, dir, taskId);
+    const pair = await statPair(io, root, dir, taskId, dirViolation(io, root, dir) === null);
     if (pair) return { generation, ...pair };
   }
   return { generation: null, logPath: null, eventsPath: null, logStat: null, eventsStat: null };
@@ -580,7 +590,7 @@ interface StartBlock {
 
 /** `at` of the first record, from a bounded head read. */
 async function firstEventTime(io: TaskLogIo, eventsPath: string): Promise<string | null> {
-  const head = await io.readHead(eventsPath, START_BLOCK_BYTES);
+  const head = await io.readHead(eventsPath, EVENT_HEAD_BYTES);
   if (!head) return null;
   for (const line of head.split("\n")) {
     const at = recordTime(line);
