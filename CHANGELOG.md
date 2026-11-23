@@ -5,6 +5,14 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.49.2-letta_0.34.68] - 2026-11-22
+
+### Fixed
+- **A message that never arrived no longer looks delivered.** When the connection to the app-server drops
+  mid-send, the message now reads **Not sent** or **Delivery unconfirmed** under itself with a
+  **Send again**, and requests that are safe to repeat are retried on their own the moment the link is
+  back.
+
 ## [v0.49.1-letta_0.34.68] - 2026-11-22
 
 ### Fixed

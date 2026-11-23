@@ -84,6 +84,10 @@ before exposing anything.
   tool needs approval — with per-device preferences and a test button.
 - **Reconnects and replays.** Come back after an hour away and the transcript
   is intact, including failures that would otherwise have been lost.
+- **A message that never arrived says so.** If the link dropped before the
+  app-server confirmed it, the message reads **Not sent** or **Delivery
+  unconfirmed** under itself, with **Send again** — a resend is safe because the
+  app-server recognises the same message and ignores a repeat.
 - **Long conversations load the whole way through.** Opening one reads back to
   its first message, and past a thousand it offers **Load older messages**
   where the rest would otherwise have been silently missing.

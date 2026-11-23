@@ -971,6 +971,7 @@ function Workspace({ status }: { status: Status }) {
               onOpenPiRun={openPiRun}
               showTimestamps={showTimestamps}
               onEditMessage={setPrefill}
+              onResendMessage={conversation.resendMessage}
               onAnswerQuestion={conversation.answerQuestions}
               liveSubagents={conversation.liveSubagents}
               agentId={agents.agentId}

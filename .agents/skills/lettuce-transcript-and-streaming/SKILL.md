@@ -81,6 +81,27 @@ Loaded from `AGENTS.md`. Several of these are behavioural, not typed, so `bun ru
   carries that detail. `splitErrorDetail` in `web/src/lib/messages.ts` lifts the payload's own
   `message` for the headline and keeps the body behind a disclosure.
 
+**An unanswered request is a state, not a timeout.** When the one upstream socket drops, whatever the
+BFF had just forwarded has no outcome, and the browser cannot tell that from a slow app-server. So
+`bff/src/session/inflight.ts` journals a forwarded request that is still unanswered and carries a
+browser `request_id` — an idempotent read from its own allow-list, or an `input` whose message carries a
+`client_message_id` — and `SessionRegistry.handleUpstreamReconnected()` settles the journal after the
+reconnect: a safe read, or such an `input`, is re-sent **once** under the same BFF `request_id`, because
+the listener de-dupes `input` by `client_message_id` (`letta-code`
+`src/websocket/listener/input-disposition.ts`) — not by `request_id`, so a re-send must reuse the id
+rather than mint a new one. Anything else has no de-dupe key and is never replayed: the tab is told its
+outcome is unknown instead of being left to time out. That "anything else" is most of the write side and
+the fire-and-forget commands that carry no top-level `request_id` at all — an approval answer among them —
+so those get nothing, not a guess. Two names the allow-list deliberately keeps *out*: `list_memory`, whose
+answer the registry merges from a chunk stream, so a re-send under one id would append a second copy of
+every entry to the first. The two
+codes on `__bff_error` are the whole contract: `not_sent` means the frame demonstrably never left (a
+resend is free), `delivery_uncertain` means it was written and the socket died before anything answered.
+`web/src/lib/delivery.ts` turns those into the note under the message's own bubble and its `Send again`,
+which reuses the same `client_message_id` for exactly the de-dupe reason above. The reconnect hook fires
+**after** `resubscribe()` — a re-sent command is only routed once the scope is subscribed again, so
+`onStateChange("connected")` is the wrong moment.
+
 **Turn errors are live-only upstream, so the BFF keeps them.** A failed turn reaches clients as
 a `loop_error` delta and `turn_finished.error`; neither is written to the message store, so
 `conversation_messages_list` cannot show it. `bff/src/session/turn-errors.ts` records the last
