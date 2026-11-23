@@ -1,6 +1,11 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { AuthProbe } from "./auth-probe.ts";
-import { type LinkState, SessionClient, type SessionClientEvents } from "./session-client.ts";
+import {
+  BffRequestError,
+  type LinkState,
+  SessionClient,
+  type SessionClientEvents,
+} from "./session-client.ts";
 
 /** Just enough of a WebSocket to drive the client's lifecycle by hand. */
 class FakeSocket {
@@ -8,6 +13,8 @@ class FakeSocket {
   static readonly OPEN = 1;
   static instances: FakeSocket[] = [];
   readyState = FakeSocket.CONNECTING;
+  /** Whatever the client wrote, so a test can read the `request_id` it minted. */
+  readonly sent: string[] = [];
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
   onclose: ((event: { code: number }) => void) | null = null;
@@ -15,7 +22,9 @@ class FakeSocket {
   constructor(readonly url: string) {
     FakeSocket.instances.push(this);
   }
-  send() {}
+  send(data: string) {
+    this.sent.push(data);
+  }
   close() {}
   /** The server refused or the network failed before the handshake. */
   fail(code = 1006) {
@@ -112,6 +121,81 @@ describe("SessionClient sign-in expiry", () => {
     const sockets = FakeSocket.instances.length;
     await new Promise((resolve) => setTimeout(resolve, 1300));
     expect(FakeSocket.instances.length).toBeGreaterThan(sockets);
+    client.stop();
+  });
+});
+
+describe("SessionClient request failures", () => {
+  /** Open the fake socket and start one request, returning its promise and the id it went out under. */
+  function ask(client: SessionClient, socket: FakeSocket, type = "input") {
+    socket.readyState = FakeSocket.OPEN;
+    const pending = client.request(type, { runtime: { agent_id: "a", conversation_id: "c" } });
+    // The rejection is expected in these tests; asserting on it is the point, not an unhandled one.
+    void pending.catch(() => {});
+    const id = (JSON.parse(socket.sent.at(-1)!) as { request_id: string }).request_id;
+    return { pending, id };
+  }
+
+  test("a refusal answering the request rejects with the delivery code the BFF sent", async () => {
+    const { client, latest } = setup("ok");
+    const socket = latest();
+    const { pending, id } = ask(client, socket);
+    socket.onmessage?.({
+      data: JSON.stringify({
+        type: "__bff_error",
+        request_id: id,
+        code: "delivery_uncertain",
+        message: "The app-server connection dropped before it confirmed this.",
+      }),
+    });
+    const error = await pending.catch((cause: unknown) => cause);
+    expect(error).toBeInstanceOf(BffRequestError);
+    expect((error as BffRequestError).code).toBe("delivery_uncertain");
+    expect((error as Error).message).toContain("dropped before it confirmed");
+    client.stop();
+  });
+
+  test("an ordinary refusal keeps the message and carries no code", async () => {
+    // Deliberate: only an explicit answer marks a message. A refusal the BFF made for some other reason
+    // (a rate limit, a path it would not read) must not read as an undelivered send.
+    const { client, latest } = setup("ok");
+    const socket = latest();
+    const { pending, id } = ask(client, socket, "read_file");
+    socket.onmessage?.({
+      data: JSON.stringify({ type: "__bff_error", request_id: id, message: "Not allowed" }),
+    });
+    const error = await pending.catch((cause: unknown) => cause);
+    expect((error as Error).message).toBe("Not allowed");
+    expect((error as BffRequestError).code).toBeUndefined();
+    client.stop();
+  });
+
+  test("an error for a request nobody has waits to the app's error surface", async () => {
+    const errors: { message: string }[] = [];
+    const events = {
+      onFrame: noop,
+      onStateChange: noop,
+      onResyncRequired: noop,
+      onHello: noop,
+      onAppServerInfo: noop,
+      onError: (error: { message: string }) => errors.push(error),
+      onActivity: noop,
+      onPiProgress: noop,
+      onAuthExpired: noop,
+    } satisfies SessionClientEvents;
+    const client = new SessionClient("ws://test/ws", events, async () => "ok" as AuthProbe);
+    client.start();
+    const socket = FakeSocket.instances.at(-1)!;
+    socket.readyState = FakeSocket.OPEN;
+    client.send({ type: "abort_message" });
+    socket.onmessage?.({
+      data: JSON.stringify({
+        type: "__bff_error",
+        code: "not_sent",
+        message: "App-server is not connected",
+      }),
+    });
+    expect(errors.map((e) => e.message)).toEqual(["App-server is not connected"]);
     client.stop();
   });
 });

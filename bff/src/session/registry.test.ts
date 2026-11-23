@@ -18,6 +18,7 @@ const fakeUpstream = {
   send: () => {},
   isInternalRequest: () => false,
   getGeneration: () => 1,
+  onReconnect: () => {},
 } as unknown as UpstreamConnection;
 
 function setup() {
@@ -171,6 +172,7 @@ describe("internal upstream responses", () => {
       isReady: () => true,
       send: () => {},
       isInternalRequest: (id: string) => ids.includes(id),
+      onReconnect: () => {},
     } as unknown as UpstreamConnection;
     const registry = new SessionRegistry(upstream, 100, () => {});
     const sent: Record<string, unknown>[] = [];
@@ -211,6 +213,7 @@ describe("symlink escape", () => {
       isReady: () => true,
       send: () => {},
       isInternalRequest: () => false,
+      onReconnect: () => {},
     } as unknown as UpstreamConnection;
     const sent: Record<string, unknown>[] = [];
     const socket: SessionSocket = { send: (raw) => sent.push(JSON.parse(raw)), close: () => {} };
@@ -245,6 +248,7 @@ describe("symlink escape", () => {
       isReady: () => true,
       send: () => {},
       isInternalRequest: () => false,
+      onReconnect: () => {},
     } as unknown as UpstreamConnection;
     const sent: Record<string, unknown>[] = [];
     const socket: SessionSocket = { send: (raw) => sent.push(JSON.parse(raw)), close: () => {} };
@@ -359,6 +363,7 @@ describe("repeat runtime_start", () => {
       send: (frame: Record<string, unknown>) => forwarded.push(frame),
       isInternalRequest: () => false,
       getGeneration: () => clock.generation,
+      onReconnect: () => {},
     } as unknown as UpstreamConnection;
     const registry = new SessionRegistry(upstream, 100, () => {}, undefined, undefined, {
       cacheNow: () => clock.now,
@@ -577,6 +582,7 @@ describe("memory listing chunks", () => {
       send: (frame: Record<string, unknown>) => forwarded.push(frame),
       isInternalRequest: () => false,
       getGeneration: () => 1,
+      onReconnect: () => {},
     } as unknown as UpstreamConnection;
     const registry = new SessionRegistry(upstream, 100, () => {});
     const socket: SessionSocket = { send: (raw) => sent.push(JSON.parse(raw)), close: () => {} };

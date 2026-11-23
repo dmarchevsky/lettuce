@@ -117,6 +117,18 @@ export interface TranscriptEntry {
    */
   structured?: boolean;
   /**
+   * user: this send has no verdict from the app-server, and the bubble says so.
+   *
+   * Live-session state only — history cannot carry it, because an undelivered message was never recorded
+   * as a message at all, so a reload drops the note along with the echo it belongs to. Set from the
+   * BFF's delivery code (`web/src/lib/delivery.ts`): `"unsent"` never reached the app-server, `"uncertain"`
+   * was written and unanswered when the connection died. `"refused"` is not a delivery verdict at all — the
+   * app-server answered and said no (a scope switching computers, a ledger at capacity), so nothing ran.
+   * Either way `Send again` is safe, because a resend
+   * reuses this message's `client_message_id` and the listener de-dupes an input on that id.
+   */
+  delivery?: "unsent" | "uncertain" | "refused";
+  /**
    * Rendered by us on send, before any server frame. The app-server only echoes
    * a user message when it was queued, so without this your own message never
    * appears until a reload.
@@ -513,6 +525,9 @@ function splitInjectedBlocks(entry: TranscriptEntry): TranscriptEntry[] {
   blocks.forEach((block, index) => {
     const base: TranscriptEntry = { ...entry, id: `${entry.id}:block:${index}` };
     delete base.images; // they belong to one row, not to every block of the message
+    // A delivery note is about the message, and one click on `Send again` clears it for all of them, so
+    // only the first card wears it — N notes under one message is not what the mock shows.
+    if (index > 0) delete base.delivery;
     if (block.tag === TOOL_RESULT_TAG) {
       leftToPlace = foldToolResult(out, base, block.body, leftToPlace);
       return;

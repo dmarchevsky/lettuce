@@ -80,6 +80,15 @@ export interface BffErrorMessage {
   type: "__bff_error";
   message: string;
   request_id?: string;
+  /**
+   * Whether the refused command can be sent again without asking whether the first one landed.
+   *
+   * `not_sent` means the frame demonstrably never reached the app-server, so nothing changed and a resend
+   * is free. `delivery_uncertain` means it was written to the upstream socket and the socket died before
+   * anything answered, so it may have been applied — the UI says so rather than reporting a clean failure.
+   * Absent means an ordinary refusal (a rate limit, a bad path), where neither claim is being made.
+   */
+  code?: "not_sent" | "delivery_uncertain";
 }
 
 /**

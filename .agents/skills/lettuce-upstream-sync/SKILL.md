@@ -291,6 +291,29 @@ Protocol drift shows up two ways:
 - `@earendil-works/pi-ai` did **not** move across this range (`^1.5.2` at both tags) — no model-catalog
   recount, no `docs/CONFIGURATION.md` count edits.
 
+### The 0.34.67 → 0.34.68 sync
+
+**Zero watched files moved** (both script arrays intersected with the range's file list — 6 commits).
+Adjudicated:
+
+- `fix(stream)` #5847 — the terminal-EOF guard (`src/cli/helpers/stream.ts` +
+  `stream-terminal-eof-guard.ts`) sits on the **letta-client Cloud API SSE path** (its own doc names
+  the PROCESSING_API_RESPONSE signature; the stall reconciler around it queries cloud run status).
+  **Dormant for us**: local-backend turns are produced through pi-ai's `openai-completions`, which
+  imports the official `openai` SDK — that SDK ends its iterator at `data: [DONE]` and never waits
+  for body EOF, so llama.cpp cannot wedge a local turn this way. Re-check only if a future range
+  moves `pi-stream-adapter.ts` or the local path starts sharing the drain.
+- `fix(bash)` #5833 — **ours, agent-facing, but gated on the queue bridge**: with no explicit
+  `timeout`, a foreground command that *cannot* auto-background — no queue consumer, i.e. headless
+  `-p` contexts — is now terminated at the default 120000 ms instead of running until it exits.
+  An interactive agent's long command still auto-backgrounds and survives the turn (auto-backgrounding
+  and the 600000 ms foreground cap unchanged). Baked into `docker/agent-skills/` installing-tools,
+  whose wording mirrors upstream's, so headless workers stop assuming an unbounded foreground.
+- The rest are Cloud or headless-CLI only: oversized external-agent trace payloads (#5842, the
+  Cloud tracing proxy), deferred cloud PR-watch registration (#5853), headless one-shot SIGTERM
+  shutdown (#5851 — `letta -p`/`letta code` processes; it also touched `shell-runner.ts`, which runs
+  for every app-server foreground Bash on the terminate path, bounded by a 2 s force-kill grace).
+
 ### Version pinning
 
 **Sync to a published release tag, never `main`:** the script accepts only `v<x.y.z>`.
