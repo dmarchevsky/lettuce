@@ -1,6 +1,6 @@
 ---
 name: lettuce-mcp-and-mods
-description: 'lettuce MCP and mod mechanics: the one shared MCP list under /root/.letta/mcp-home (why per-agent settings entries do not stick), the mcp-servers skill wrapper, the mcp_search/mcp_describe/mcp_call/mcp_call_write bridge and its readOnlyHint write rule, how a letta-code mod is rendered and reloaded (resyncMods, one reload), and the native web_search/fetch_webpage tools, searxng/ddg-mcp sidecars and /internal/tools loopback-only route. Read before touching bff/src/mcp/, bff/src/mcp-bridge/, bff/src/internal-tools/, Settings → MCP servers or Settings → Web search, or the search/google sidecars.'
+description: 'lettuce MCP and mod mechanics: the one shared MCP list under /root/.letta/mcp-home (why per-agent settings entries do not stick), where http/sse MCP tokens and headers live (bff-data, never the shared list) and the write-only /api/mcp contract, the mcp-servers skill wrapper, the mcp_search/mcp_describe/mcp_call/mcp_call_write bridge and its readOnlyHint write rule, how a letta-code mod is rendered and reloaded (resyncMods, one reload), and the native web_search/fetch_webpage tools, searxng/ddg-mcp sidecars and /internal/tools loopback-only route. Read before touching bff/src/mcp/, bff/src/mcp-bridge/, bff/src/internal-tools/, Settings → MCP servers or Settings → Web search, or the search/google sidecars.'
 ---
 
 # Shared MCP list, the MCP bridge, and mods
@@ -43,6 +43,25 @@ Loaded from `AGENTS.md`. Mods are thin and the BFF does the work; MCP is one sha
     now says so. Browsers reach none of these files: `/api/mcp` reads and writes the list (an
     entry is a command line agent shells exec), and `settings.json` is no longer a readable
     exception.
+  - **An http/sse server's bearer token and custom headers are not in that list — they are on
+    `bff-data`** (`bff/src/mcp/credentials.ts`, `MCP_CREDENTIALS_FILE`, 0600), because every agent
+    shell mounts letta-home read-write as uid 0 and could read (or be talked into sending away) a
+    token there. They meet a server object in exactly one place: the `McpCatalog`'s `servers` port in
+    `index.ts` runs `withCredentials`, and every bridge and Google tool call takes its server from the
+    catalog. Each saved entry is tied to the **origin** it was entered for: a URL now pointing at
+    another host gets no headers at connect, and the editor must re-enter them. The price is the skill
+    wrapper — `letta mcp` reads only the shared file, so subagents get a 401 from such a server; the
+    skill renders those names as `<name> (mcp_* tools only)`. A stdio server's `env` cannot move (the
+    process runs in the app-server), so it stays in the shared file, write-only in the API only.
+  - **`/api/mcp` is write-only for secrets.** GET answers `bearer` / `headerNames` / `envNames`
+    (`publicMcpServers`), never a value; PUT takes per secret a blank = keep, a value = replace, left
+    out = remove, with `was` carrying a rename (`resolveMcpUpdate`, run inside `service.ts`'s
+    `queued` chain with the list it belongs to). The editor therefore sends every untouched server
+    back as "keep everything" (`web/src/lib/mcp.ts` `keepAll`) — a PUT that omitted them would delete
+    their secrets. Headers hand-written into the shared file are moved to `bff-data` on connect
+    (`migrateFileHeaders`, logged by name only). A header holding upstream's `${VAR}` placeholder
+    stays in the shared file — a reference `letta mcp` expands from the app-server env, not a
+    secret — and the editor keeps or removes it like a saved header.
 
 - **Web search and page reading are native tools, `web_search` and `fetch_webpage`, installed
   as a letta-code mod.** Upstream's own tools of those names are Letta-*server* tools, which our

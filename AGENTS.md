@@ -151,10 +151,10 @@ It defaults to `../..` relative to the compose file, which is **a trap in a work
 (hard rule 3), and container work happens from the main checkout.
 
 Three named volumes remain: `bff-data` (web-push endpoints and the pin/archive lists, rebuilt by
-re-subscribing, plus the agent faces in `avatars/`, which nothing can rebuild)
+re-subscribing, plus the agent faces in `avatars/`, the image key and MCP tokens: none rebuilds)
 and `google-policy` / `google-creds` (Settings → Google Workspace, named so app-server cannot mount them by
-accident through the state tree; losing them means reconnecting Google). Everything precious is under
-`LETTA_STATE_DIR`, so a backup is a single `tar` of it. Older installs move off the named volumes with
+accident through the state tree; losing them means reconnecting Google). A backup is a `tar` of
+`LETTA_STATE_DIR` plus `bff-data`. Older installs move off the named volumes with
 `bun run migrate-state`, which copies and verifies and never deletes — the memfs git history is the
 only record of what an agent has learned.
 

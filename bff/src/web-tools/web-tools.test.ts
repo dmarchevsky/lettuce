@@ -371,6 +371,7 @@ function memoryIo(initial: Record<string, string> = {}, agentExists = true) {
   const files = new Map(Object.entries(initial));
   const events: string[] = [];
   const io: ModsIo & McpIo = {
+    credentials: { load: async () => ({}), save: async () => {} },
     async read(path) {
       return files.get(path) ?? null;
     },

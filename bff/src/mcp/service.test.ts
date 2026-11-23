@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import type { CredentialsMap, McpCredentialsPort } from "./credentials.ts";
 import {
   ensureMcpServers,
   loadMcpServers,
   type McpIo,
   saveMcpServers,
+  saveMcpServersFromEditor,
   updateMcpServers,
 } from "./service.ts";
 import { MCP_SETTINGS_PATH, type McpServer, renderMcpSettings } from "./settings.ts";
@@ -29,10 +31,24 @@ function parseFrontmatterForTest(content: string): Record<string, string> {
   return fields;
 }
 
-function memoryIo(initial: Record<string, string> = {}) {
+/** The credentials file, in memory — a JSON round trip, like the real one. */
+function memoryCredentials(initial: CredentialsMap = {}) {
+  let stored = JSON.stringify(initial);
+  const port: McpCredentialsPort = {
+    load: async () => JSON.parse(stored) as CredentialsMap,
+    save: async (credentials) => {
+      stored = JSON.stringify(credentials);
+    },
+  };
+  return { port, current: () => JSON.parse(stored) as CredentialsMap };
+}
+
+function memoryIo(initial: Record<string, string> = {}, credentials: CredentialsMap = {}) {
   const files = new Map(Object.entries(initial));
   const events: string[] = [];
+  const creds = memoryCredentials(credentials);
   const io: McpIo = {
+    credentials: creds.port,
     read: async (path) => files.get(path) ?? null,
     write: async (path, content) => {
       events.push(`write ${path}`);
@@ -45,7 +61,7 @@ function memoryIo(initial: Record<string, string> = {}) {
       events.push(`disable ${name}`);
     },
   };
-  return { io, files, events };
+  return { io, files, events, creds };
 }
 
 describe("ensureMcpServers", () => {
@@ -82,6 +98,86 @@ describe("saveMcpServers", () => {
     const { io, events } = memoryIo();
     await saveMcpServers(io, []);
     expect(events).toEqual([`write ${MCP_SETTINGS_PATH}`, `disable ${MCP_SKILL_NAME}`]);
+  });
+});
+
+describe("saveMcpServersFromEditor", () => {
+  const HA_URL = "http://ha.example:8123/api/mcp";
+
+  test("the token goes to the credentials store, never the shared file", async () => {
+    const { io, files, creds } = memoryIo();
+    const saved = await saveMcpServersFromEditor(io, [
+      { name: "home-assistant", transport: "http", url: HA_URL, bearer: "ha-token" },
+    ]);
+    expect(saved.servers).toEqual([{ name: "home-assistant", transport: "http", url: HA_URL }]);
+    expect(files.get(MCP_SETTINGS_PATH)).not.toContain("ha-token");
+    expect(creds.current()["home-assistant"]?.bearer).toBe("ha-token");
+    // ...and the skill tells subagents the wrapper cannot reach it.
+    const skill = files.get(
+      `${MCP_SKILL_DIR.slice(0, MCP_SKILL_DIR.lastIndexOf("/"))}/${MCP_SKILL_NAME}/SKILL.md`,
+    );
+    expect(skill).toContain("home-assistant (mcp_* tools only)");
+    expect(skill).not.toContain("ha-token");
+  });
+
+  // The bug that started this: editing a stdio server dropped its env.
+  test("editing a stdio server keeps its env when the editor sends blanks", async () => {
+    const github: McpServer = { name: "github", command: "npx", env: { TOKEN: "ghp" } };
+    const { io } = memoryIo({ [MCP_SETTINGS_PATH]: renderMcpSettings([github]) });
+    await saveMcpServersFromEditor(io, [
+      { name: "github", transport: "stdio", command: "uvx", env: { TOKEN: "" } },
+    ]);
+    expect(await loadMcpServers(io)).toEqual([
+      { name: "github", transport: "stdio", command: "uvx", env: { TOKEN: "ghp" } },
+    ]);
+  });
+
+  test("a failed list write puts the credentials back as they were", async () => {
+    const HA: McpServer = { name: "home-assistant", transport: "http", url: HA_URL };
+    const saved = { "home-assistant": { origin: "http://ha.example:8123", bearer: "ha-token" } };
+    const { io, creds } = memoryIo({ [MCP_SETTINGS_PATH]: renderMcpSettings([HA]) }, saved);
+    const failing: McpIo = {
+      ...io,
+      write: async () => {
+        throw new Error("app-server gone");
+      },
+    };
+    // A rename moves the token to the new key; the list still says the old one.
+    await expect(
+      saveMcpServersFromEditor(failing, [
+        { name: "ha", was: "home-assistant", transport: "http", url: HA_URL, bearer: "" },
+      ]),
+    ).rejects.toThrow("app-server gone");
+    expect(creds.current()).toEqual(saved);
+  });
+
+  test("a refused list writes nothing", async () => {
+    const { io, files } = memoryIo();
+    await expect(
+      saveMcpServersFromEditor(io, [{ name: "x", transport: "http", url: HA_URL, bearer: "" }]),
+    ).rejects.toThrow("no saved value");
+    expect(files.size).toBe(0);
+  });
+});
+
+describe("ensureMcpServers migration", () => {
+  test("hand-written headers move to the credentials store, and only names are logged", async () => {
+    const handWritten: McpServer = {
+      name: "home-assistant",
+      transport: "http",
+      url: "http://ha.example:8123/api/mcp",
+      headers: { Authorization: "Bearer ha-token" },
+    };
+    const { io, files, creds } = memoryIo({
+      [MCP_SETTINGS_PATH]: renderMcpSettings([handWritten]),
+    });
+    const lines: string[] = [];
+    const servers = await ensureMcpServers(io, (line) => lines.push(line));
+    expect(servers[0]?.headers).toBeUndefined();
+    expect(files.get(MCP_SETTINGS_PATH)).not.toContain("ha-token");
+    expect(creds.current()["home-assistant"]?.bearer).toBe("ha-token");
+    expect(lines.join("\n")).toContain('"home-assistant"');
+    expect(lines.join("\n")).not.toContain("ha-token");
   });
 });
 
@@ -139,6 +235,7 @@ describe("updateMcpServers", () => {
     const files = new Map<string, string>();
     const wait = () => new Promise((resolve) => setTimeout(resolve, 5));
     const io: McpIo = {
+      credentials: memoryCredentials().port,
       read: async (path) => {
         await wait();
         return files.get(path) ?? null;

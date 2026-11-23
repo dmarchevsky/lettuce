@@ -4202,6 +4202,27 @@ p.warning code,
 .hdr-stored .tag {
   text-transform: none;
 }
+/* Settings → MCP servers. A saved env name (GITHUB_PERSONAL_ACCESS_TOKEN) is
+   unreadable cut off in a 40% input on a phone, so a stacked row gives the name
+   its own line there. The provider form's rows do not stack. */
+@media (max-width: 599px) {
+  .hdr-row.stack {
+    flex-wrap: wrap;
+  }
+  .hdr-row.stack .hdr-name {
+    flex: 1 0 100%;
+  }
+}
+.hdr-row input[readonly] {
+  color: var(--muted);
+}
+.mcp-tags {
+  margin: 6px 0 0;
+}
+.field .mcp-add-row {
+  padding: 0;
+  align-self: flex-start;
+}
 /* Space-separated tokens (a cron schedule) are unreadable in a proportional
    font: "0 9 * * *" closed up into "09***". */
 .field input.mono-input {

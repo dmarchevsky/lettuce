@@ -1,16 +1,28 @@
 import {
+  type CredentialsMap,
+  credentialedServerNames,
+  type McpCredentialsPort,
+  migrateFileHeaders,
+  resolveMcpUpdate,
+} from "./credentials.ts";
+import {
   MCP_SETTINGS_PATH,
   type McpServer,
   readMcpServers,
   renderMcpSettings,
+  validateMcpServers,
 } from "./settings.ts";
 import { MCP_SKILL_DIR, MCP_SKILL_NAME, renderMcpSkill } from "./skill.ts";
 
 /**
- * Everything the MCP store touches, all of it through the app-server — the
- * files live on its letta-home bind mount, not in the BFF's container.
+ * Everything the MCP store touches. The list and the skill go through the
+ * app-server — they live on its letta-home bind mount — and the credentials
+ * stay in the BFF's own `bff-data` volume, where agents cannot read them
+ * (`credentials.ts`).
  */
 export interface McpIo {
+  /** The http/sse servers' secrets. Never through the app-server. */
+  credentials: McpCredentialsPort;
   /** File content, or null when it does not exist. */
   read(path: string): Promise<string | null>;
   write(path: string, content: string): Promise<void>;
@@ -49,7 +61,41 @@ function queued<T>(task: () => Promise<T>): Promise<T> {
 export function saveMcpServers(io: McpIo, servers: McpServer[]): Promise<void> {
   return queued(async () => {
     await io.write(MCP_SETTINGS_PATH, renderMcpSettings(servers));
-    await syncMcpSkill(io, servers);
+    await syncMcpSkill(io, servers, await io.credentials.load());
+  });
+}
+
+/**
+ * Save the list as the editor sent it — secrets as keep / replace / remove
+ * (`resolveMcpUpdate`) — and answer what is now stored. The read happens inside
+ * the queue, so "keep" always means what is saved now, not what a concurrent
+ * Google sync left behind a moment ago.
+ *
+ * Credentials are written before the list, and put back as they were if the
+ * list write then fails: a rename, a removal or a host change moves or drops
+ * the entry the still-listed old server depends on, so a half-applied save
+ * would otherwise cost a working server its token.
+ *
+ * Throws `InvalidMcpServersError` for a list it refuses.
+ */
+export function saveMcpServersFromEditor(
+  io: McpIo,
+  input: unknown,
+): Promise<{ servers: McpServer[]; credentials: CredentialsMap }> {
+  return queued(async () => {
+    const current = await loadMcpServers(io);
+    const previous = await io.credentials.load();
+    const resolved = resolveMcpUpdate(input, current, previous);
+    const servers = validateMcpServers(resolved.entries);
+    await io.credentials.save(resolved.credentials);
+    try {
+      await io.write(MCP_SETTINGS_PATH, renderMcpSettings(servers));
+    } catch (error) {
+      await io.credentials.save(previous).catch(() => {});
+      throw error;
+    }
+    await syncMcpSkill(io, servers, resolved.credentials);
+    return { servers, credentials: resolved.credentials };
   });
 }
 
@@ -69,37 +115,62 @@ export function updateMcpServers(
     const next = mutate(current);
     if (next === current) return false;
     await io.write(MCP_SETTINGS_PATH, renderMcpSettings(next));
-    await syncMcpSkill(io, next);
+    await syncMcpSkill(io, next, await io.credentials.load());
     return true;
   });
 }
 
 /**
  * Run on every upstream connect: create the settings file (empty) on a fresh
- * install, and re-render the skill either way, so a deploy always leaves the
- * current wrapper and wording in place. Web search is not seeded here any
- * more: it is a native tool now (see `web-tools/`).
+ * install, move any secret header written into it by hand over to the
+ * credentials file (`migrateFileHeaders` — agents must not read a token; a
+ * `${VAR}` reference stays), and re-render
+ * the skill either way, so a deploy always leaves the current wrapper and
+ * wording in place. Web search is not seeded here any more: it is a native
+ * tool now (see `web-tools/`).
  *
- * Returns the servers now configured.
+ * Returns the servers now configured. `log` hears about a migration — names
+ * and counts only, never a value.
  */
-export async function ensureMcpServers(io: McpIo): Promise<McpServer[]> {
-  const raw = await io.read(MCP_SETTINGS_PATH);
-  if (raw === null) {
-    await saveMcpServers(io, []);
-    return [];
-  }
-  const servers = readMcpServers(raw);
-  await syncMcpSkill(io, servers);
-  return servers;
+export function ensureMcpServers(
+  io: McpIo,
+  log: (line: string) => void = () => {},
+): Promise<McpServer[]> {
+  return queued(async () => {
+    const raw = await io.read(MCP_SETTINGS_PATH);
+    if (raw === null) {
+      await io.write(MCP_SETTINGS_PATH, renderMcpSettings([]));
+      await syncMcpSkill(io, [], {});
+      return [];
+    }
+    const servers = readMcpServers(raw);
+    const credentials = await io.credentials.load();
+    const migrated = migrateFileHeaders(servers, credentials);
+    if (migrated.moved.length === 0) {
+      await syncMcpSkill(io, servers, credentials);
+      return servers;
+    }
+    await io.credentials.save(migrated.credentials);
+    await io.write(MCP_SETTINGS_PATH, renderMcpSettings(migrated.servers));
+    for (const { name, count } of migrated.moved) {
+      log(`MCP: moved ${count} header(s) of "${name}" out of the shared file to the BFF`);
+    }
+    await syncMcpSkill(io, migrated.servers, migrated.credentials);
+    return migrated.servers;
+  });
 }
 
-async function syncMcpSkill(io: McpIo, servers: McpServer[]): Promise<void> {
+async function syncMcpSkill(
+  io: McpIo,
+  servers: McpServer[],
+  credentials: CredentialsMap,
+): Promise<void> {
   if (servers.length === 0) {
     await io.disableSkill(MCP_SKILL_NAME);
     return;
   }
   const parent = MCP_SKILL_DIR.slice(0, MCP_SKILL_DIR.lastIndexOf("/"));
-  for (const file of renderMcpSkill(servers)) {
+  for (const file of renderMcpSkill(servers, credentialedServerNames(servers, credentials))) {
     await io.write(`${parent}/${file.path}`, file.content);
   }
   await io.enableSkill(MCP_SKILL_DIR);

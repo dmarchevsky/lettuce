@@ -118,19 +118,15 @@ import { readRenamed } from "./internal-tools/legacy.ts";
 import { MODS_DIR, renderToolsMod } from "./internal-tools/mod.ts";
 import { MOD_DIAGNOSTICS_PATH } from "./internal-tools/mod-diagnostics.ts";
 import type { ToolHandler } from "./internal-tools/types.ts";
+import { McpCredentialsStore, publicMcpServers, withCredentials } from "./mcp/credentials.ts";
 import {
   ensureMcpServers,
   loadMcpServers,
   type McpIo,
-  saveMcpServers,
+  saveMcpServersFromEditor,
   updateMcpServers,
 } from "./mcp/service.ts";
-import {
-  InvalidMcpServersError,
-  type McpServer,
-  SettingsUnreadableError,
-  validateMcpServers,
-} from "./mcp/settings.ts";
+import { InvalidMcpServersError, SettingsUnreadableError } from "./mcp/settings.ts";
 import { MCP_SKILL_NAME } from "./mcp/skill.ts";
 import { McpCatalog } from "./mcp-bridge/catalog.ts";
 import { mcpClient } from "./mcp-bridge/client.ts";
@@ -311,7 +307,7 @@ const upstream = new UpstreamConnection({
       void installShippedSkills();
       // One after another: each of these rewrites the shared MCP list, and two
       // read-modify-writes at once would drop one's change.
-      void ensureMcpServers(mcpIo)
+      void ensureMcpServers(mcpIo, log)
         .then((servers) => log(`MCP: ${servers.length} shared server(s) configured`))
         .catch((error) => log(`MCP: could not sync shared servers: ${errorMessage(error)}`))
         .then(() => retireSeededDdgMcp(codexIo, mcpIo))
@@ -631,7 +627,10 @@ const skillCatalog = new SkillCatalog(
 
 // The shared MCP list and its skill (see `mcp/`), through the app-server like
 // the Codex files. Reads reuse `codexIo.read` — same file, same ENOENT → null.
+// The http/sse servers' tokens and headers are the exception: they stay on
+// `bff-data`, out of every agent shell's reach (`mcp/credentials.ts`).
 const mcpIo: McpIo = {
+  credentials: new McpCredentialsStore(config.mcpCredentialsFile),
   read: (path) => codexIo.read(path),
   write: (path, content) => codexIo.write(path, content),
   async enableSkill(skillPath) {
@@ -791,7 +790,19 @@ setInterval(
   6 * 3_600_000,
 ).unref?.();
 const mcpCatalog = new McpCatalog({
-  servers: () => loadMcpServers(mcpIo),
+  // The one place saved tokens and headers meet a server object: every bridge
+  // and Google tool call takes its server from this catalog.
+  servers: async () => {
+    const servers = await loadMcpServers(mcpIo);
+    try {
+      return withCredentials(servers, await mcpIo.credentials.load());
+    } catch (error) {
+      // A damaged credentials file costs the servers that need a token, not
+      // every MCP tool: the rest still answer.
+      log(`MCP: ${errorMessage(error)} — connecting without saved tokens`);
+      return servers;
+    }
+  },
   client: mcpClient,
   log,
 });
@@ -1339,11 +1350,14 @@ registerPushRoutes(app, {
 // The browser never gets a write handle on it: an MCP entry is a command line
 // that agent shells will exec.
 
+// Secrets are write-only: GET answers names and flags (`publicMcpServers`),
+// and PUT says per secret keep (blank) / replace (value) / remove (left out).
 app.get("/api/mcp", async (c) => {
   if (!upstream.isReady()) return c.text("App-server is not connected", 503);
 
   try {
-    return c.json({ servers: await loadMcpServers(mcpIo) });
+    const servers = await loadMcpServers(mcpIo);
+    return c.json({ servers: publicMcpServers(servers, await mcpIo.credentials.load()) });
   } catch (error) {
     if (error instanceof SettingsUnreadableError) return c.text(error.message, 502);
     return c.text(errorMessage(error), 502);
@@ -1354,23 +1368,17 @@ app.put("/api/mcp", async (c) => {
   if (!upstream.isReady()) return c.text("App-server is not connected", 503);
 
   const body = await c.req.json().catch(() => null);
-  let servers: McpServer[];
-  try {
-    servers = validateMcpServers((body as { servers?: unknown } | null)?.servers);
-  } catch (error) {
-    if (error instanceof InvalidMcpServersError) return c.text(error.message, 400);
-    return c.text(errorMessage(error), 400);
-  }
-
   // The file needs no reload — the next `letta mcp` call and the next turn's
   // skill listing see it from disk — but the bridge's catalog and its mod do.
+  let saved: Awaited<ReturnType<typeof saveMcpServersFromEditor>>;
   try {
-    await saveMcpServers(mcpIo, servers);
+    saved = await saveMcpServersFromEditor(mcpIo, (body as { servers?: unknown } | null)?.servers);
   } catch (error) {
+    if (error instanceof InvalidMcpServersError) return c.text(error.message, 400);
     return c.text(errorMessage(error), 502);
   }
   void resyncMods("Settings → MCP", { refreshCatalog: true }).catch(() => {});
-  return c.json({ ok: true, servers });
+  return c.json({ ok: true, servers: publicMcpServers(saved.servers, saved.credentials) });
 });
 
 // ── Skills ──────────────────────────────────────────────────────────────────

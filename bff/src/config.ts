@@ -145,6 +145,12 @@ export interface BffConfig {
    */
   imagesSettingsFile: string;
   /**
+   * The http/sse MCP servers' bearer tokens and custom headers (`mcp/credentials.ts`),
+   * 0600 on `bff-data` for the same reason as `imagesSettingsFile`: the shared
+   * MCP list sits on letta-home, where any agent shell could read a token.
+   */
+  mcpCredentialsFile: string;
+  /**
    * Backends of the agents' native `web_search` / `fetch_webpage` tools (see
    * `web-tools/`): SearXNG answers searches, ddg-mcp reads pages and is the
    * search fallback. Null switches that backend off.
@@ -695,6 +701,8 @@ export function loadConfig(): BffConfig {
     modelCapsFile: process.env.MODEL_CAPS_FILE?.trim() || "/app/data/vision-models.json",
     imagesSettingsFile:
       process.env.IMAGES_SETTINGS_FILE?.trim() || "/app/data/image-generation/settings.json",
+    mcpCredentialsFile:
+      process.env.MCP_CREDENTIALS_FILE?.trim() || "/app/data/mcp/credentials.json",
     webTools: {
       searxngUrl: process.env.SEARXNG_URL?.trim() || null,
       ddgMcpUrl: process.env.DDG_MCP_URL?.trim() || null,
