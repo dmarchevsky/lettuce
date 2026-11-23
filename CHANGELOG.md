@@ -5,7 +5,7 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
-## [v0.49.1-letta_0.34.67] - 2026-11-22
+## [v0.49.2-letta_0.34.68] - 2026-11-22
 
 ### Fixed
 - **A message that never arrived no longer looks delivered.** When the connection to the app-server drops
@@ -13,12 +13,16 @@ All notable user-facing changes to lettuce, newest first. Version tags and
   **Send again**, and requests that are safe to repeat are retried on their own the moment the link is
   back.
 
-### Changed
+## [v0.49.1-letta_0.34.68] - 2026-11-22
+
+### Fixed
+- **letta-code 0.34.67 → 0.34.68.** An agent's long-running commands are now honest about time: a foreground command that can't continue in the background ends at the default 2-minute timeout instead of hanging forever (long commands that can move to the background still do and notify). The smoke suite gained a real end-to-end turn check that needs no model installed: a scripted provider answers one live turn and holds its response open, and the turn must still settle and store its answer.
 - The playbook fold's tail: four more lessons from recent flows. The lifecycle guard now lets the cleanup
   it mandates pass (an `exec`ed `rm` inside the owning container); a dev-port replace-or-wait that a long
   unattended chain will hit is asked when the holder first shows; conflict markers get swept before the
   next commit after a hand-resolved rebase; and a promised work item in a patch plan line has to be
   closed — landed or dropped — before release.
+
 ## [v0.49.0-letta_0.34.67] - 2026-11-21
 
 ### Added
