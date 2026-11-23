@@ -51,6 +51,24 @@ interface PendingRequest {
   timeout: ReturnType<typeof setTimeout>;
 }
 
+/**
+ * A request the BFF answered with a refusal, carrying what it said about delivery.
+ *
+ * Only an *answer* produces one of these: a timeout stays a plain `Error` with no `code`, because the
+ * absence of a reply says nothing about whether the command ran — inventing a verdict there would mark
+ * every slow turn as undelivered. `web/src/lib/delivery.ts` turns the code into what a message bubble
+ * shows.
+ */
+export class BffRequestError extends Error {
+  constructor(
+    message: string,
+    readonly code?: "not_sent" | "delivery_uncertain",
+  ) {
+    super(message);
+    this.name = "BffRequestError";
+  }
+}
+
 const RECONNECT_BASE_MS = 300;
 const RECONNECT_MAX_MS = 10_000;
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -412,7 +430,7 @@ export class SessionClient {
             if (pending) {
               clearTimeout(pending.timeout);
               this.pending.delete(error.request_id);
-              pending.reject(new Error(error.message));
+              pending.reject(new BffRequestError(error.message, error.code));
               return;
             }
           }

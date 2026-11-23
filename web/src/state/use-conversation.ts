@@ -5,6 +5,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildMessageContent, type PreparedImage } from "../lib/attachments.ts";
 import { historyShowsLoadingRow, openConversation } from "../lib/conversation-open.ts";
+import { clearDelivery, deliveryCode, deliveryForCode, markDelivery } from "../lib/delivery.ts";
 import { errorMessage, friendlyServerError } from "../lib/errors.ts";
 import { consumeFreshConversation } from "../lib/fresh-conversations.ts";
 import {
@@ -70,6 +71,12 @@ import type { SessionApi } from "./use-session.ts";
  * Fixed, so pressing Stop twice replaces the note instead of stacking notes.
  */
 const STOP_NOTICE_ID = "local-stop-notice";
+
+/** What an unresolved send would re-send, kept beside the id that makes the re-send safe. */
+interface Resendable {
+  raw: unknown;
+  responseFormat?: ResponseFormat | null;
+}
 
 export interface PendingApproval {
   requestId: string;
@@ -171,6 +178,14 @@ export interface ConversationApi {
     responseFormat?: ResponseFormat | null,
     images?: PreparedImage[],
   ) => Promise<void>;
+  /**
+   * Send an undelivered message again — the note under its bubble's only action.
+   *
+   * Re-sends under the **same** `client_message_id`, which is what makes it safe: the app-server de-dupes
+   * an input on that id, so a message that did land is ignored rather than run twice. No-op once the
+   * echo is gone (a reload clears both). See `web/src/lib/delivery.ts`.
+   */
+  resendMessage: (clientMessageId: string) => void;
   /** Resolves true when upstream confirmed a live turn was cancelled. */
   abort: () => Promise<boolean>;
   respondToApproval: (requestId: string, approve: boolean, reason?: string) => void;
@@ -436,8 +451,24 @@ export function useConversation(
    * question answer's answered-card state renders from its echo, so that
    * echo survives waiting in the queue. */
   const keepEchoRef = useRef(new Set<string>());
+  /**
+   * What each unresolved send would re-send, keyed by the `client_message_id` it went out under.
+   *
+   * A resend has to reuse that id — it is what the app-server de-dupes on — so the payload must outlive
+   * the request it was made for. Entries leave when the request settles with a verdict of its own: an
+   * ack means there is nothing to resend, a verdictless failure (a timeout, a socket that was never open)
+   * leaves no note on screen and therefore nothing that could offer one.
+   */
+  const resendableRef = useRef(new Map<string, Resendable>());
   /** Mirror of `processing`, so `forceSend` can decide whether to abort. */
   const processingRef = useRef(false);
+  /**
+   * Mirror of `ready`, for a verdict that arrives after the send that asked for it. A rejection's closure
+   * holds the `ready` from the render that sent the message, which is the wrong moment: the link dropping
+   * on the way back — phone backgrounding, the routine case — would read as a live link.
+   */
+  const readyRef = useRef(ready);
+  readyRef.current = ready;
   /**
    * Set while force-send aborts a turn it is about to replace. The aborted
    * turn's `turn_finished` lands after the resend is already in flight and
@@ -1119,12 +1150,79 @@ export function useConversation(
   }, [onFrame, scope, flush, flushSync, refreshUsage]);
 
   /**
+   * Put one user message on the wire under `clientMessageId` and watch the answer.
+   *
+   * Split out of `sendContent` because a resend must reuse the id: the listener de-dupes an input on
+   * `client_message_id`, so re-sending the same message is safe and sending it under a fresh id is the
+   * double-send. Carrying a `request_id` is what makes the send answerable at all — the BFF settles it
+   * with the app-server's `input_accepted`, or, when its own upstream socket died first, with a delivery
+   * code (`bff/src/session/inflight.ts`). Not awaited: the echo is already on screen and a slow app-server
+   * must not hold up the next keystroke.
+   */
+  const deliverInput = useCallback(
+    (clientMessageId: string, raw: unknown, responseFormat?: ResponseFormat | null) => {
+      if (!scope) return;
+      void request("input", {
+        runtime: scope,
+        payload: {
+          kind: "create_message",
+          messages: [{ role: "user", content: raw, client_message_id: clientMessageId }],
+          ...(responseFormat ? { response_format: responseFormat } : {}),
+        },
+      }).then(
+        // The answer came back. An `input_accepted` can say *no* — a scope switching computers, a ledger at
+        // capacity, an input the listener refuses — and that is a verdict that nothing ran, not delivery:
+        // the message is marked undelivered with the app-server's reason, and its payload stays so the note
+        // can offer the resend. Any other answer means the input was taken, so a note still on the bubble
+        // was wrong and goes, and with it the payload there is nothing left to resend.
+        (frame) => {
+          const ack = frame as { type?: unknown; accepted?: unknown; error?: unknown };
+          if (ack?.type === "input_accepted" && ack.accepted === false) {
+            setError(
+              typeof ack.error === "string" && ack.error
+                ? ack.error
+                : "The app-server refused that message.",
+            );
+            if (markDelivery(transcriptRef.current, clientMessageId, "refused")) flushSync();
+            // Nothing is running because of a refusal, so the optimistic "working" state goes back the way
+            // it came. The delivery-code path cannot do this — there a verdict of "unknown" says nothing
+            // about whether something is still working.
+            setProcessing(false);
+            return;
+          }
+          resendableRef.current.delete(clientMessageId);
+          if (clearDelivery(transcriptRef.current, clientMessageId)) flushSync();
+        },
+        (cause: unknown) => {
+          const code = deliveryCode(cause);
+          if (!code) {
+            // No code, no verdict — so nothing is marked, and the payload goes with the verdict: there is
+            // no note that could offer a resend.
+            resendableRef.current.delete(clientMessageId);
+            setError(errorMessage(cause));
+            // The optimistic "working" state is only unwound when the tab's own link is down, because that
+            // is the one case that proves no turn can be running. A codeless failure with a live link is a
+            // silence, and something may well be working — frames, not this promise, decide that.
+            if (!readyRef.current) setProcessing(false);
+            return;
+          }
+          if (markDelivery(transcriptRef.current, clientMessageId, deliveryForCode(code)))
+            flushSync();
+          else resendableRef.current.delete(clientMessageId);
+        },
+      );
+    },
+    [scope, request, flushSync],
+  );
+
+  /**
    * One user message out the door, with its local echo. `raw` is the content
    * as the protocol wants it (string or content parts); `display` is what the
    * echo shows; `images` are what the echo renders beside the text (the wire
    * already carries them inside `raw`). Returns the fresh `client_message_id` —
    * a message must never be resent under an id the listener already
-   * acknowledged, which it would silently swallow.
+   * acknowledged, which is exactly what `resendMessage` does and why it reuses
+   * this one.
    */
   const sendContent = useCallback(
     (
@@ -1156,24 +1254,37 @@ export function useConversation(
       );
       flushSync();
 
-      send({
-        type: "input",
-        runtime: scope,
-        payload: {
-          kind: "create_message",
-          messages: [
-            {
-              role: "user",
-              content: raw,
-              client_message_id: clientMessageId,
-            },
-          ],
-          ...(responseFormat ? { response_format: responseFormat } : {}),
-        },
-      });
+      resendableRef.current.set(clientMessageId, { raw, responseFormat });
+      deliverInput(clientMessageId, raw, responseFormat);
       return clientMessageId;
     },
-    [scope, send, flushSync],
+    [scope, deliverInput, flushSync],
+  );
+
+  /**
+   * Send an undelivered message again, under the id it already went out under.
+   *
+   * Safe by construction: the app-server de-dupes an input on `client_message_id`, so this is ignored if
+   * the first attempt landed and delivered if it did not. The existing echo stays — one message, one
+   * bubble — and the note is cleared now rather than when the answer arrives, so the press reads as
+   * taking effect.
+   */
+  const resendMessage = useCallback(
+    (clientMessageId: string) => {
+      // A rendered user row is not always the entry itself: `splitInjectedBlocks` suffixes the id of a
+      // message it breaks into cards, so the note's click arrives with `:block:<n>` on the end. The
+      // client_message_id never contains that, so stripping it is exact, and one click clears every row
+      // the message was split into.
+      const id = clientMessageId.split(":block:")[0] as string;
+      const resendable = resendableRef.current.get(id);
+      // No payload means the send is settled or forgotten; no entry means the echo is gone (a reload, a
+      // force-send), and there is nothing on screen left to mark.
+      if (!resendable || !transcriptRef.current.has(id)) return;
+      clearDelivery(transcriptRef.current, id);
+      flushSync();
+      deliverInput(id, resendable.raw, resendable.responseFormat);
+    },
+    [deliverInput, flushSync],
   );
 
   const sendMessage = useCallback(
@@ -1534,6 +1645,7 @@ export function useConversation(
     /** The box shows an action that failed; the operator closes it once read. */
     clearError: () => setError(null),
     sendMessage,
+    resendMessage,
     abort,
     respondToApproval,
     answerQuestions,

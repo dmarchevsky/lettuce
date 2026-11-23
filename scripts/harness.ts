@@ -669,3 +669,106 @@ export function headlessRenderArgs(
     htmlPath,
   ];
 }
+
+/**
+ * A browser-shaped BFF session with frame capture — the wire half every
+ * container gate kept re-deriving (two flows paid the frame-shape archaeology
+ * tax hand-writing this in scratch scripts). Sign in with `devSignIn`, then
+ * `openBffSession` and drive real frames: `send` any allowlisted command,
+ * `waitFor` any frame predicate. `driveTurn` sends one user message into a
+ * started runtime and resolves on the turn settling. Typed frame access goes
+ * through `str`/`num` so a wrong field reads as empty instead of throwing.
+ */
+export type BffFrame = Record<string, unknown>;
+
+export interface BffSession {
+  frames: BffFrame[];
+  waitFor: (predicate: (frame: BffFrame) => boolean, timeoutMs?: number) => Promise<BffFrame>;
+  send: (command: Record<string, unknown>) => void;
+  close: () => void;
+}
+
+/** The string a frame field holds; "" when it holds anything else. */
+export const str = (frame: BffFrame, key: string): string =>
+  typeof frame[key] === "string" ? (frame[key] as string) : "";
+
+export function openBffSession(origin: string, cookie: string): Promise<BffSession> {
+  const wsUrl = `${origin.replace(/^http/, "ws")}/ws`;
+  return new Promise((resolve, reject) => {
+    const socket = openDevSocket(wsUrl, cookie);
+    const frames: BffFrame[] = [];
+    const waiters: { predicate: (f: BffFrame) => boolean; resolve: (f: BffFrame) => void }[] = [];
+    socket.addEventListener("message", (event: MessageEvent) => {
+      let frame: BffFrame;
+      try {
+        frame = JSON.parse(String(event.data)) as BffFrame;
+      } catch {
+        // The BFF only ever sends JSON, so anything else is a broken frame rather
+        // than a test failure — but say it out loud instead of letting it vanish,
+        // which is how a proxy eating its own response would read as a timeout.
+        console.log(`  NOTE  a non-JSON frame arrived on /ws: ${String(event.data).slice(0, 80)}`);
+        return;
+      }
+      frames.push(frame);
+      for (let i = waiters.length - 1; i >= 0; i -= 1) {
+        if (waiters[i]!.predicate(frame)) {
+          waiters.splice(i, 1)[0]!.resolve(frame);
+        }
+      }
+    });
+    socket.addEventListener("error", reject);
+    socket.addEventListener("open", () =>
+      resolve({
+        frames,
+        waitFor: (predicate, timeoutMs = 10_000) =>
+          new Promise((res, rej) => {
+            const existing = frames.find(predicate);
+            if (existing) return res(existing);
+            const timer = setTimeout(
+              () =>
+                rej(new Error(`Timed out; saw: ${frames.map((f) => str(f, "type")).join(", ")}`)),
+              timeoutMs,
+            );
+            waiters.push({
+              predicate,
+              resolve: (f) => {
+                clearTimeout(timer);
+                res(f);
+              },
+            });
+          }),
+        send: (command) => socket.send(JSON.stringify(command)),
+        close: () => socket.close(),
+      }),
+    );
+  });
+}
+
+/** Send one user message into a scope whose runtime has started; resolve with
+ *  the frame that settled the turn (`turn_finished`, or an error shape) within
+ *  `ms`. The settle frame is returned, not asserted on — callers check `type`. */
+export async function driveTurn(
+  session: BffSession,
+  scope: { agent_id: string; conversation_id: string },
+  text: string,
+  ms = 120_000,
+): Promise<{ frame: BffFrame; clientMessageId: string }> {
+  const clientMessageId = crypto.randomUUID();
+  session.send({
+    type: "input",
+    runtime: scope,
+    payload: {
+      kind: "create_message",
+      messages: [{ role: "user", content: text, client_message_id: clientMessageId }],
+    },
+  });
+  const frame = await session.waitFor(
+    (f) =>
+      str(f, "type") === "turn_finished" ||
+      str(f, "type") === "turn_finished_message" ||
+      str(f, "type") === "__bff_error" ||
+      str(f, "type") === "error",
+    ms,
+  );
+  return { frame, clientMessageId };
+}

@@ -18,8 +18,23 @@ All notable user-facing changes to lettuce, newest first. Version tags and
   closed — landed or dropped — before release.
 
 ### Fixed
+- Fix Enter-to-send on Windows touch devices (a Surface); Ctrl/Cmd+Enter sends everywhere; a Safari IME's
+  confirming Enter no longer sends.
 - **Editing an MCP server no longer wipes its environment.** A stdio server's env variables are shown by
   name, write-only, and survive an edit.
+
+## [v0.49.2-letta_0.34.68] - 2026-11-22
+
+### Fixed
+- **A message that never arrived no longer looks delivered.** When the connection to the app-server drops
+  mid-send, the message now reads **Not sent** or **Delivery unconfirmed** under itself with a
+  **Send again**, and requests that are safe to repeat are retried on their own the moment the link is
+  back.
+
+## [v0.49.1-letta_0.34.68] - 2026-11-22
+
+### Fixed
+- **letta-code 0.34.67 → 0.34.68.** An agent's long-running commands are now honest about time: a foreground command that can't continue in the background ends at the default 2-minute timeout instead of hanging forever (long commands that can move to the background still do and notify). The smoke suite gained a real end-to-end turn check that needs no model installed: a scripted provider answers one live turn and holds its response open, and the turn must still settle and store its answer.
 
 ## [v0.49.0-letta_0.34.67] - 2026-11-21
 

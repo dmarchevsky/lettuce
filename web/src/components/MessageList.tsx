@@ -76,6 +76,12 @@ interface Props {
   showTimestamps: boolean;
   /** "Edit" on your last message: put its text back in the composer. Stable. */
   onEditMessage: (text: string) => void;
+  /**
+   * Send an undelivered message again, under the id it already went out under — so the app-server's own
+   * de-dupe decides whether it runs. Wired to `use-conversation`'s `resendMessage`; the row only offers it
+   * for an entry the BFF said was not delivered.
+   */
+  onResendMessage?: (clientMessageId: string) => void;
   /** Send an AskUserQuestion answer (or dismissal) as an ordinary user message. */
   onAnswerQuestion: (response: AskUserQuestionResponse) => void;
   /** This scope's live subagent snapshots; what makes a running Task row openable. */
@@ -163,6 +169,7 @@ export function MessageList({
   onOpenPiRun,
   showTimestamps,
   onEditMessage,
+  onResendMessage,
   onAnswerQuestion,
   liveSubagents,
   agentId,
@@ -388,6 +395,7 @@ export function MessageList({
         onOpenPiRun={onOpenPiRun}
         showTimestamps={showTimestamps}
         onEdit={entry.id === lastUserId ? onEditMessage : undefined}
+        onResend={entry.delivery ? onResendMessage : undefined}
         liveChild={liveChild}
         liveSubagentId={liveEntry?.id}
         liveWorkers={liveChild ? liveWorkers : undefined}
@@ -489,6 +497,7 @@ const MessageItem = memo(function MessageItem({
   onOpenPiRun,
   showTimestamps,
   onEdit,
+  onResend,
   narration = false,
   liveChild: liveChildProp,
   liveSubagentId,
@@ -509,6 +518,11 @@ const MessageItem = memo(function MessageItem({
   showTimestamps: boolean;
   /** Set only on your latest message. */
   onEdit?: (text: string) => void;
+  /**
+   * Set only on a message the BFF said was not delivered — this row's note is what offers the resend.
+   * Undefined for every other row, so an undelivered state can never be rendered without its way out.
+   */
+  onResend?: (clientMessageId: string) => void;
   /** The agent's text between steps: a caption inside the run, not a bubble. */
   narration?: boolean;
   /** The running child this very call delegated to, resolved by the parent — null for every
@@ -874,9 +888,14 @@ const MessageItem = memo(function MessageItem({
 
   // A subagent's reply is a step, not the answer; it keeps the plain label.
   const who = entry.kind === "user" ? "You" : entry.subagentId ? "Subagent" : label;
+  // The note is the entry's own state, so the row's class carries it too: that is what turns the
+  // user rail red (never sent) or amber (outcome unknown) without a second element.
+  const undelivered = entry.kind === "user" && entry.delivery ? entry.delivery : null;
   return (
     <div
-      className={`entry ${entry.kind}${entry.subagentId ? " subagent" : ""}`}
+      className={`entry ${entry.kind}${entry.subagentId ? " subagent" : ""}${
+        undelivered ? ` undelivered ${undelivered === "uncertain" ? "uncertain" : "failed"}` : ""
+      }`}
       data-entry={entry.id}
     >
       <div className="role">
@@ -913,9 +932,37 @@ const MessageItem = memo(function MessageItem({
       {entry.text.trim() || !entry.images?.length ? (
         <div className={`bubble ${entry.kind}`}>{md(entry.text)}</div>
       ) : null}
+      {/* Undelivered: the state belongs under the message it describes, scrolls with it, and offers the
+          one action that is safe here — a resend under the same client_message_id, which the app-server
+          de-dupes. Live-session only: history never carried an undelivered message, so a reload shows
+          neither the echo nor this note. */}
+      {undelivered && onResend ? (
+        <button
+          type="button"
+          className="delivery-note"
+          title={DELIVERY_WORDING[undelivered]}
+          onClick={() => onResend(entry.id)}
+        >
+          <Icon name="warning" />
+          <span>{DELIVERY_WORDING[undelivered]}</span>
+          <span className="delivery-action">Send again</span>
+        </button>
+      ) : null}
     </div>
   );
 });
+
+/**
+ * What each delivery state says, in the bubble's own voice — shown as the note and repeated as the
+ * tooltip, because there is nothing second-level to reveal: the state is the whole story.
+ */
+const DELIVERY_WORDING: Record<"unsent" | "uncertain" | "refused", string> = {
+  unsent: "Not sent — it never reached the app-server",
+  uncertain: "Delivery unconfirmed — the connection dropped before it answered",
+  // The opposite of `unsent`: the app-server did answer, and what it said was no. Nothing ran, and the
+  // reason is in the error line above, so the note only has to say the message is not in.
+  refused: "Not accepted — the app-server refused it",
+};
 
 /** A message's time: short in the header, the full date and time on hover. */
 function EntryTime({ date }: { date: string }) {

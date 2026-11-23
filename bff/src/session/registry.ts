@@ -10,6 +10,7 @@ import type { UpstreamConnection, UpstreamState } from "../upstream/connection.t
 import { type ActiveScope, ActivityTracker } from "./activity.ts";
 import { FrameBuffer, frameScopeKey, scopeKeyOf } from "./buffer.ts";
 import { withModifiedTimes } from "./file-stat.ts";
+import { classify, type InFlightEntry, InFlightJournal } from "./inflight.ts";
 import {
   ALLOWED_SESSION_COMMANDS,
   type BffServerMessage,
@@ -171,6 +172,11 @@ export class SessionRegistry {
    * a session's pending requests: upstream does not always answer.
    */
   private readonly pendingStarts = new Map<string, { scopeKey: string; cwd: string }>();
+  /**
+   * What went upstream and never came back, kept so a reconnect can retry what is safe to retry and tell
+   * the browser about the rest instead of letting every one of them hang out its timeout.
+   */
+  private readonly inFlight = new InFlightJournal();
   /** Whether a repeat `runtime_start` may be answered here — see `RegistryOptions`. */
   private readonly cachesRuntimeStart: boolean;
   private requestCounter = 0;
@@ -188,6 +194,10 @@ export class SessionRegistry {
     this.buffer = new FrameBuffer(frameBufferSize);
     this.startCache = new RuntimeStartCache(options.cacheNow);
     this.cachesRuntimeStart = options.cacheRuntimeStart ?? true;
+    // Subscribed here rather than passed in from `index.ts`: a registry cannot exist without the connection
+    // it is handed, so this seam cannot be quietly missed — and the one that re-sends in-flight work has to
+    // wait for the re-subscribe, which is exactly what `onReconnect` means.
+    this.upstream.onReconnect(() => this.handleUpstreamReconnected());
   }
 
   get sessionCount(): number {
@@ -252,6 +262,7 @@ export class SessionRegistry {
     const session = this.sessions.get(sessionId);
     if (!session) return;
     for (const pending of session.pendingRequests.values()) clearTimeout(pending.memory?.timer);
+    this.inFlight.settleSession(sessionId);
     this.sessions.delete(sessionId);
     this.log(`Session ${sessionId} closed (${this.sessions.size} active)`);
   }
@@ -391,8 +402,12 @@ export class SessionRegistry {
     }
 
     if (!this.upstream.isReady()) {
+      // Truthful, and now classifiable: nothing was written to the socket, so whatever this command would
+      // have changed certainly did not change. `not_sent` is what lets the browser offer a resend without
+      // any question about whether the first one landed.
       this.sendTo(session.socket, {
         type: "__bff_error",
+        code: "not_sent",
         message: "App-server is not connected",
         ...(typeof command.request_id === "string" ? { request_id: command.request_id } : {}),
       });
@@ -453,6 +468,9 @@ export class SessionRegistry {
         const oldest = session.pendingRequests.keys().next();
         if (oldest.done) break;
         clearTimeout(session.pendingRequests.get(oldest.value)?.memory?.timer);
+        // The journal goes with it: without this a request the session has already forgotten stays on the
+        // retry list, and its eventual answer arrives with no id translation left to route it.
+        this.inFlight.settle(oldest.value);
         session.pendingRequests.delete(oldest.value);
       }
       outbound.request_id = bffRequestId;
@@ -460,13 +478,108 @@ export class SessionRegistry {
 
     try {
       this.upstream.send(outbound as Record<string, unknown> & { type: string });
+      // Journaled only once the write succeeded: a frame the socket refused has a known outcome (it never
+      // left), and the journal is exactly the set of outcomes this process does not know.
+      if (typeof outbound.request_id === "string") {
+        const kind = classify(outbound);
+        if (kind) {
+          this.inFlight.record({
+            requestId: outbound.request_id,
+            originalId: String(command.request_id),
+            sessionId: session.id,
+            scopeKey,
+            // Only a retry-class entry keeps its frame. An `uncertain` one can never be written again, and
+            // this is where a `write_file` body or an `input`'s inline images would sit for nothing.
+            ...(kind === "retry"
+              ? { frame: outbound as Record<string, unknown> & { type: string } }
+              : {}),
+            kind,
+            sentAt: Date.now(),
+          });
+        }
+      }
     } catch (error) {
       this.sendTo(session.socket, {
         type: "__bff_error",
+        code: "not_sent",
         message: errorMessage(error),
         ...(typeof command.request_id === "string" ? { request_id: command.request_id } : {}),
       });
     }
+  }
+
+  /**
+   * The socket is back and every known scope is re-subscribed: decide what happens to everything that was
+   * in flight when it died.
+   *
+   * Split by `InFlightJournal`: safe frames go out again under the **same** BFF request id — the browser's
+   * own id translation in `pendingRequests` is untouched, so the answer that eventually arrives still
+   * routes to the tab that asked — and everything else is answered now with `delivery_uncertain` instead
+   * of hanging out the browser's 30 s timeout and reporting a lost connection as a failed command. One
+   * re-send each: a frame that was already re-sent once and dropped again is reported, not retried twice
+   * (the same one-retry rule upstream #5761 uses for the same reason — a second attempt cannot tell
+   * "not delivered" from "delivered twice").
+   */
+  handleUpstreamReconnected(): void {
+    const pass = this.inFlight.takeForReconnect(Date.now());
+    let uncertain = 0;
+    for (const entry of pass.report) {
+      // Counted only when the report went out: a session that closed in the meantime was told nothing, and
+      // this line is what the container test reads.
+      if (this.reportDelivery(entry)) uncertain += 1;
+    }
+    let reSent = 0;
+    for (const entry of pass.resend) {
+      try {
+        // `frame` is present on every entry the pass put in `resend` (the journal only keeps it for the
+        // retry class, and only hands back entries that have one).
+        this.upstream.send(entry.frame as Record<string, unknown> & { type: string });
+      } catch (error) {
+        // The socket died again between the re-subscribe and here. The first write went to a live socket,
+        // so the honest answer is still "unknown", not "never sent" — `not_sent` would claim the command
+        // did not run, which is exactly what a re-send cannot establish.
+        if (this.reportDelivery(entry)) uncertain += 1;
+        this.log(`In-flight re-send failed: ${errorMessage(error)}`);
+        continue;
+      }
+      this.inFlight.record({ ...entry, resent: true, sentAt: Date.now() });
+      reSent += 1;
+    }
+    const parts = [`${reSent} re-sent`, `${uncertain} uncertain`];
+    if (pass.expired) parts.push(`${pass.expired} past their TTL`);
+    if (pass.stale) parts.push(`${pass.stale} already timed out`);
+    if (!reSent && !uncertain) return;
+    // The scope keys are what the operator greps for when a message goes missing: they say which
+    // conversation the journal was holding work for.
+    const scopes = new Set<string>();
+    for (const entry of [...pass.resend, ...pass.report])
+      scopes.add(entry.scopeKey ?? "(unscoped)");
+    this.log(
+      `retry-after-close: ${parts.join(", ")} (${[...scopes].slice(0, 4).join(", ")}${scopes.size > 4 ? ` +${scopes.size - 4} more` : ""})`,
+    );
+  }
+
+  /**
+   * Tell the tab that asked that its command's outcome is not knowable, under the id it asked with. No
+   * message if the tab is gone — nobody is waiting, and its next resume replays whatever did happen.
+   *
+   * Returns whether the tab was told, so the tally counts reports and not intentions. This is only ever
+   * "unknown": the verdict that a frame never left is made at send time, never here.
+   */
+  private reportDelivery(entry: InFlightEntry): boolean {
+    const session = this.sessions.get(entry.sessionId);
+    if (!session) return false;
+    // The pending entry goes away with the report: a late answer from the re-sent frame still translates
+    // through it, so it is dropped only for the ones this method has answered for good.
+    session.pendingRequests.delete(entry.requestId);
+    this.sendTo(session.socket, {
+      type: "__bff_error",
+      code: "delivery_uncertain",
+      request_id: entry.originalId,
+      message:
+        "The app-server connection dropped before it confirmed this. It may or may not have run.",
+    });
+    return true;
   }
 
   /**
@@ -515,6 +628,7 @@ export class SessionRegistry {
           return;
         }
         session.pendingRequests.delete(requestId);
+        this.inFlight.settle(requestId);
 
         const reply = (relayed: WsProtocolMessage): void =>
           this.sendTo(session.socket, {
@@ -697,6 +811,7 @@ export class SessionRegistry {
   ): void {
     clearTimeout(pending.memory?.timer);
     session.pendingRequests.delete(requestId);
+    this.inFlight.settle(requestId);
     this.sendTo(session.socket, { ...response, request_id: pending.originalId });
   }
 
