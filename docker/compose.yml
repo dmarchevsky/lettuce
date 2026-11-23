@@ -220,10 +220,34 @@ services:
       # an endpoint's URL and token, or the user's Claude subscription OAuth
       # token. So this directory holds secrets, the subscription one included.
       CLAUDE_CONFIG_DIR: /root/.letta/claude
+      # Where letta-code writes each background task's readable log and its event
+      # log: `getBackgroundOutputDir()` (tools/impl/process_manager.ts) reads this
+      # and appends `<task_id>.jsonl` beside `<task_id>.log` (task-transcript.ts).
+      #
+      # Unset is a fresh `mkdtemp(os.tmpdir()/letta-background-)` per boot on
+      # container-layer storage, so a run's transcript is unreadable after the
+      # process ends and the BFF cannot reach it at all. Under the state tree it
+      # survives, which is the whole point of Runs → subagent runs
+      # (`bff/src/runs/task-logs.ts`) — and the same absolute path as the BFF's
+      # mount of it below, because that side stats the paths as named here.
+      #
+      # Changing this recreates `app-server`, which kills every turn in flight
+      # with no drain (the drain covers `bff` alone), and an unscoped `up` does it
+      # too: this service shares a network namespace with two others.
+      #
+      # Side effect, accepted: memory subagents use the same knob
+      # (agent/subagents/subagent-launcher.ts) and setting it disables their
+      # scratchpad cleanup, so their files land here and are kept — run artifacts
+      # under the backup unit, which is this directory tree.
+      LETTA_SCRATCHPAD: /var/lettuce/task-logs
     volumes:
       - ${LETTA_STATE_DIR:-../..}/letta-home:/root/.letta
       - ${LETTA_STATE_DIR:-../..}/letta-data:/data
       - ${LETTA_STATE_DIR:-../..}/workspaces:/work
+      # The task logs (`LETTA_SCRATCHPAD` above), read-write because this is the
+      # process writing them. The BFF mounts the same host directory at the same
+      # path and does two things in it and nothing more — see its own mount.
+      - ${LETTA_STATE_DIR:-../..}/task-logs:/var/lettuce/task-logs
       # What agents install (npm -g, cargo, go, uv, downloaded binaries). The
       # image points each package manager here and appends its bin dirs to
       # PATH (docker/codex/Dockerfile), because /usr/local and /root/.local are
@@ -417,6 +441,15 @@ services:
       # only https or localhost here, so a plain-http LAN origin needs an
       # override such as http://localhost:8090/api/google/oauth/callback.
       GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-}
+      # Runs → subagent runs (`bff/src/runs/task-logs.ts`). The path is not a
+      # knob: it is the same literal as the mount below and the app-server's
+      # LETTA_SCRATCHPAD above, and the three must agree, so it is set here rather
+      # than defaulted in code where a fourth spelling could drift.
+      TASK_LOG_DIR: /var/lettuce/task-logs
+      # How long an archived app-server generation survives, in days; 0 keeps
+      # every one. This is the only delete the pane ever performs, and it only
+      # reaches `archive/<generation>` directories under the root above.
+      TASK_LOG_RETENTION_DAYS: ${TASK_LOG_RETENTION_DAYS:-14}
     volumes:
       # Google access policy and OAuth token (bff/src/google/): shared with the
       # google-mcp sidecar and NOTHING else. The app-server and channel-gateway
@@ -453,6 +486,22 @@ services:
       # symlink walk, then the realpath re-check. Note this is not a boundary
       # against an agent: app-server mounts the same tree read-write as uid 0.
       - ${LETTA_STATE_DIR:-../..}/workspaces:/work
+      # The task logs the app-server writes (its `LETTA_SCRATCHPAD`), at the same
+      # absolute path in both containers so one path is one fact. Read here: the
+      # Runs pane lists finished runs and pages a transcript off the `.jsonl`
+      # (`bff/src/runs/task-logs.ts`), which is the only reason this mount exists.
+      #
+      # Read-write, for exactly two verbs and both live in that one file. The
+      # sweep moves a dead app-server generation's `task_*` pairs into
+      # `archive/<stamp>` — upstream restarts its `task_N` counter at 1 in every
+      # process and truncates `<id>.log` on create while the event log appends, so
+      # without the sweep a new boot writes into a finished run's transcript — and
+      # retention deletes an `archive/<generation>` older than
+      # `TASK_LOG_RETENTION_DAYS`. Neither will touch a path outside this root:
+      # the guard chain is `files/delete.ts`'s shape (lexical clamp, the
+      # component-wise symlink walk, then the `realpath` re-check), and the only
+      # names it accepts are `task_*` and a generation stamp it wrote itself.
+      - ${LETTA_STATE_DIR:-../..}/task-logs:/var/lettuce/task-logs
       # Settings → Skills (bff/src/skills/): the global, agent and memfs skill
       # roots, read-only and at the app-server's own absolute paths so the
       # symlinks in them resolve. Not over the protocol: upstream publishes no
