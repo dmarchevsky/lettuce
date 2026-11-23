@@ -231,6 +231,16 @@ export const ALLOWED_SESSION_COMMANDS: ReadonlySet<string> = new Set([
   // (`{runtime: <parent scope>, agent_id: <child agent id>}`). Upstream refuses a task the parent
   // runtime does not own, so the parent scope stays the boundary. Since letta-code 0.34.16.
   "subagent_stop",
+  // The wire-side page of one running subagent's event log: the same records the
+  // BFF serves from disk at `GET /api/task-runs/:taskId/events`, but only for a
+  // run this process still holds in RAM (a per-task buffer, events kept only once
+  // the launch asked for `notify: "caller"`), so upstream answers "not kept on
+  // this computer" for most. Admitted because the live sheet may ask; the durable
+  // viewer reads the file route instead, which is the one source for a live run
+  // and a dead one. Same ownership boundary as `subagent_stop`: upstream refuses a
+  // subagent the caller's own runtime does not own
+  // (websocket/listener/commands/subagent-events.ts).
+  "read_subagent_events",
   // NOTE: channel_* commands are deliberately absent. The app-server only
   // dispatches them when a gateway registered `serviceCommandHandler`, which
   // happens over the CLI's stdio pipe to a child gateway process — never over
