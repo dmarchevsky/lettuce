@@ -451,6 +451,8 @@ export class SessionRegistry {
     command: Record<string, unknown> & { type: string; request_id?: unknown },
   ): void {
     // Track the scope so replays can be narrowed to what this session shows.
+    // SAFETY: the browser frame and the upstream frame are the same object shape
+    // here; only the command types that survive the allowlist reach this line.
     const scopeKey = frameScopeKey(command as unknown as WsProtocolMessage);
     if (scopeKey) session.scopes.add(scopeKey);
 
