@@ -294,8 +294,8 @@ Protocol drift shows up two ways:
 ### The 0.34.68 → 0.34.70 sync
 
 **The nightly watch's zero-drift claim was a false green**: the GitHub compare API caps its
-`files` list at ~300 entries, and this range moved ~340 (upstream deleted all code comments,
-#5856, and low-value tests, #5855). The name-based watched-file check found **53 watched paths
+`files` list at exactly 300 entries, and this range moved **2,065 files** (724 deleted, 1,341
+modified+added — upstream deleted all code comments, #5856, and low-value tests, #5855). The name-based watched-file check found **53 watched paths
 moved**; the real check is a comment-and-whitespace-stripped diff of each watched file across the
 range — that proved the only *substantive* watched-file changes were #5844's hunks in `task.ts`,
 `external-coding-agent.ts` and `codex-app-server.ts`; the rest was `catch {}` collapse and one
