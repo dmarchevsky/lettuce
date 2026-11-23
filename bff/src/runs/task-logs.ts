@@ -71,8 +71,26 @@ const TAIL_BYTES = 64 * 1024;
 const READ_CHUNK_BYTES = 64 * 1024;
 /** Ceiling on one events page's payload, so a page costs a page, not the run. */
 const MAX_PAGE_BYTES = 8 * 1024 * 1024;
+/**
+ * Ceiling on one line of the events log. A single record is not capped by
+ * upstream when it is written to the file, so this is the only bound between a
+ * fat record and a browser. A line over it is replaced whole by an
+ * `oversized_record` with a preview: cutting JSON mid-way would not parse, and a
+ * silent drop would hide the very output a reader scrolled back for.
+ */
+const MAX_LINE_BYTES = 2 * 1024 * 1024;
+/** How much of an oversized record is still shown, as its preview. */
+const OVERSIZED_PREVIEW_BYTES = 4 * 1024;
 /** A file touched this recently is still producing events, so the run is live. */
 const RUNNING_WINDOW_MS = 5 * 60 * 1000;
+/**
+ * How long a root file must sit untouched before the sweep will move it. Longer
+ * than {@link RUNNING_WINDOW_MS} on purpose: that one is a guess about a run's
+ * state, this one is the deadline before a file is called not-being-written, and
+ * upstream re-opens by path on every append — so moving too early splits a
+ * transcript instead of moving it.
+ */
+const SETTLE_MS = 10 * 60 * 1000;
 /** Candidates considered per listing, newest first — the archive is unbounded. */
 const MAX_CANDIDATES = 500;
 /** Start blocks read per page, on top of `limit`, so one page stays one page. */
@@ -278,10 +296,17 @@ export const fsTaskLogIo: TaskLogIo = {
  * Whole lines only, from a `FileHandle`, with the window bounded twice over.
  *
  * `after` counts lines already shown, so skipping them costs a scan of the bytes
- * before them — cheap for the runs this pane is about (a task's own events, a
- * few MB), and the reason a page is a page: the reader returns the moment the
- * window is full instead of walking the file. A trailing partial line (a run
- * still appending) is left for the next read rather than parsed as an event.
+ * before them: a page's memory is one page, but its time is proportional to how
+ * far into the file it sits. That is the accepted cost of a line-addressed cursor
+ * and it is why the sheet opens at the tail rather than paging from the top.
+ * A trailing partial line (a run still appending) is left for the next read
+ * rather than parsed as an event.
+ *
+ * One record may still be huge: upstream caps an event only on the wire path
+ * (`capTaskEvent` in `agent/subagent-events.ts` is applied by `storeSubagentEvent`,
+ * not by the file appender), so a single line is cut at {@link MAX_LINE_BYTES}
+ * with a marker, the way upstream itself cuts an oversized event. The rest of that
+ * line is skipped, not buffered.
  */
 async function readWholeLines(
   handle: FileHandle,
@@ -310,9 +335,21 @@ async function readWholeLines(
     pending = pieces.pop() ?? "";
     let stopAt = -1;
     for (let i = 0; i < pieces.length; i++) {
-      const piece = pieces[i] ?? "";
+      const raw = pieces[i] ?? "";
       lineIndex++;
       if (lineIndex <= after) continue;
+      // An oversized record becomes a placeholder rather than a slice: JSON has
+      // no valid prefix, and dropping it silently would hide the event a reader
+      // paged to see.
+      const piece =
+        raw.length > MAX_LINE_BYTES
+          ? JSON.stringify({
+              type: "oversized_record",
+              bytes: raw.length,
+              preview: raw.slice(0, OVERSIZED_PREVIEW_BYTES),
+            })
+          : raw;
+
       if (collected >= limit || (collected > 0 && usedBytes + piece.length > maxBytes)) {
         stopAt = i;
         break;
@@ -332,7 +369,10 @@ async function readWholeLines(
       return { lines, nextLines, hasMore: probe.bytesRead > 0 };
     }
     if (eof) {
-      return { lines, nextLines: lineIndex, hasMore: false };
+      // Nothing past `after` — including the case where `after` is already past
+      // the end. `nextLines` stays where the reader left it so the contract
+      // ("pass it back as `after`") never walks a caller backwards.
+      return { lines, nextLines: collected > 0 ? lineIndex : after, hasMore: false };
     }
   }
 }
@@ -652,23 +692,38 @@ function recordTime(line: string): string | null {
  * Without this, a new app-server process truncates `task_1.log` and appends its
  * events to the dead run's `task_1.jsonl` (the counter restarts at 1 and the
  * events log opens in append mode), so two runs share one transcript. It is
- * idempotent — a second pass finds no `task_*` pairs in the root and creates no
- * directory — and it moves only names matching `task_*` that it can prove are
- * inside its own root.
+ * idempotent — a second pass finds no settled `task_*` pairs in the root and
+ * creates no directory — and it moves only names matching `task_*` that it can
+ * prove are inside its own root.
  *
- * A file a run is still writing is moved safely: a rename keeps the appender's
- * file descriptor on the same inode, so the transcript follows it into the
- * archive and still reads as one run. That is what makes running this on every
- * connect, app-server restart or not, harmless.
+ * **A pair this process may still be writing is left where it is.** Upstream
+ * appends by path (`appendToOutputFile` is `appendFileSync`), holding no file
+ * descriptor, so moving a live run's files would not follow the writer: its next
+ * append simply creates `task_<n>.jsonl` in the root again, and the run ends up
+ * as two half-transcripts — the row's facts from one file, its transcript from
+ * the other. So a pair whose newest file is younger than {@link SETTLE_MS} is
+ * skipped, and the next sweep picks it up once it has settled. This is also why
+ * the sweep can run on every connect rather than only on a proven app-server
+ * restart: there is no boot identifier in the protocol to prove one with, and a
+ * reconnect that finds a run mid-flight now simply leaves it alone.
+ *
+ * The settle window is a clock, so a run whose *first* sweep lands inside it can
+ * still be archived while running — the window is how long since its last write,
+ * not a guarantee that it is finished. That residual is bounded and harmless:
+ * the files arrive in the archive whole, and a run that outlives its own window
+ * keeps appending to the archived path rather than splitting (both halves stay
+ * in one file, which is the only claim that matters here).
  */
 export async function sweepTaskLogs(
   io: TaskLogIo,
   root: string,
-  options: { now?: () => Date; generation?: string } = {},
+  options: { now?: () => Date; generation?: string; settleMs?: number } = {},
 ): Promise<SweepResult> {
   const entries = await io.list(root);
   if (!entries) return { generation: null, moved: [], skipped: [] };
 
+  const nowMs = (options.now ?? (() => new Date()))().getTime();
+  const settleMs = options.settleMs ?? SETTLE_MS;
   const names: string[] = [];
   const skipped: string[] = [];
   for (const entry of entries) {
@@ -678,7 +733,13 @@ export async function sweepTaskLogs(
       skipped.push(entry.name);
       continue;
     }
-    if (!(await guardedStat(io, root, `${root}/${entry.name}`))) {
+    const stat = await guardedStat(io, root, `${root}/${entry.name}`);
+    if (!stat) {
+      skipped.push(entry.name);
+      continue;
+    }
+    // Written too recently to call finished: leave it for a later sweep.
+    if (nowMs - stat.mtimeMs < settleMs) {
       skipped.push(entry.name);
       continue;
     }

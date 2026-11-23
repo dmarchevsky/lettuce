@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { formatBytes } from "../lib/download.ts";
 import {
+  callDuration,
   EVENT_PAGE,
   fetchTaskRunEvents,
   readTaskRunEntries,
@@ -23,11 +24,13 @@ function CallEntry({ entry }: { entry: Extract<TaskRunEntry, { kind: "call" }> }
   const summary = summarizeToolCall(entry.name, parseToolArgs(entry.input ?? undefined), null);
   const headline = (summary?.headline ?? entry.name).replace(/^\$ /, "");
   const mono = summary?.mono ?? true;
+  const duration = callDuration(entry);
   return (
     <div className="entry task">
       <div className="tool-head">
         <code>{entry.name}</code>
         <span className={`grow-text summary${mono ? " mono" : ""}`}>{headline}</span>
+        {duration ? <span className="duration">{duration}</span> : null}
       </div>
       {summary?.subtitle ? <p className="tool-subtitle">{summary.subtitle}</p> : null}
       {entry.output ? (
@@ -83,46 +86,55 @@ export function TaskRunSheet({ run, onClose }: Props) {
   const [entries, setEntries] = useState<TaskRunEntry[]>([]);
   /** Line offset of the first record fetched so far; 0 = the whole log is in. */
   const [firstAfter, setFirstAfter] = useState(0);
+  /** Line offset just past the last record fetched — the forward cursor. */
+  const [nextLine, setNextLine] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const [earlier, setEarlier] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
 
-  // The log is line-addressed and a record is a line, so the count the listing
-  // read off the last `seq` is close enough to aim at the tail from. Aim wrong and
-  // the worst case is a page that starts a little early — `Load earlier` still
-  // reaches the top, and the status line reports what is actually on screen.
+  // The log is line-addressed and upstream writes one record per line, so the
+  // count the listing read off the last `seq` is close enough to aim at the tail
+  // from. Aim wrong and the worst case is a page that starts early or empty —
+  // handled below by aiming once more from the top.
   const tailStart = Math.max(0, (run.events ?? EVENT_PAGE) - EVENT_PAGE);
 
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const page = await fetchTaskRunEvents(run.taskId, tailStart, EVENT_PAGE);
-        if (cancelled) return;
-        setEntries(readTaskRunEntries(page.events));
-        setFirstAfter(Math.max(0, tailStart));
-        setLoaded(true);
-      } catch (cause) {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
+  const open = useCallback(async () => {
+    try {
+      let page = await fetchTaskRunEvents(run.taskId, tailStart, EVENT_PAGE);
+      // The aim missed the file entirely (a log with fewer lines than records,
+      // or a `seq` that outran its lines): fall back to the head.
+      if (page.events.length === 0 && tailStart > 0) {
+        page = await fetchTaskRunEvents(run.taskId, 0, EVENT_PAGE);
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
+      setEntries(readTaskRunEntries(page.events));
+      setFirstAfter(page.events.length === 0 && tailStart > 0 ? 0 : tailStart);
+      setNextLine(page.next);
+      setLoaded(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
   }, [run.taskId, tailStart]);
 
-  // Newest last, like the log: the first load lands at the end of what it fetched,
-  // which is what the reader came for. (Prepending an earlier page also re-runs
-  // this, and lands back at the bottom — where they were, not where they came from.)
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the dep says events arrived — where to scroll is read from the DOM
   useEffect(() => {
-    if (loaded) endRef.current?.scrollIntoView({ block: "end" });
+    void open();
+  }, [open]);
+
+  // Land at the end of what was fetched, because that is what the reader came
+  // for. `atEnd` is false while an earlier page is being prepended, which is the
+  // one case where scrolling to the bottom would throw them away from the place
+  // they asked to see.
+  const atEnd = useRef(true);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the dep says records arrived — where to scroll is read from the DOM
+  useEffect(() => {
+    if (!loaded || !atEnd.current) return;
+    endRef.current?.scrollIntoView({ block: "end" });
   }, [loaded, entries.length]);
 
   const loadEarlier = async () => {
     if (earlier) return;
     setEarlier(true);
+    atEnd.current = false;
     try {
       const from = Math.max(0, firstAfter - EVENT_PAGE);
       const page = await fetchTaskRunEvents(run.taskId, from, EVENT_PAGE);
@@ -143,14 +155,18 @@ export function TaskRunSheet({ run, onClose }: Props) {
     run.startedAt ? formatEntryTimeFull(run.startedAt) : null,
   ].filter((fact) => fact !== null);
 
-  const shown = entries.length;
+  // Counts are the log's own line span, not the number of folded rows: a call and
+  // its result is one row and two events, and "showing 80 of 214" over folded rows
+  // would be a number that means nothing.
   const status = error
     ? error
-    : loaded
-      ? firstAfter === 0
-        ? `Showing the whole log — ${shown} events`
-        : `Showing ${shown} of ${run.events ?? "?"} events`
-      : "Loading…";
+    : !loaded
+      ? "Loading…"
+      : entries.length === 0
+        ? "No events in this log yet"
+        : firstAfter === 0 && nextLine >= (run.events ?? nextLine)
+          ? `The whole log — ${nextLine} event${nextLine === 1 ? "" : "s"}`
+          : `Showing events ${firstAfter + 1}–${nextLine} of ${run.events ?? "?"}`;
 
   return (
     <Sheet

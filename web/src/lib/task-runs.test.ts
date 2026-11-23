@@ -102,3 +102,12 @@ test("a call whose arguments arrived as a string keeps them verbatim", () => {
   ]);
   expect(call?.kind === "call" && call.input).toBe('{"file_path":"/x"}');
 });
+
+test("an oversized record says how big it was", () => {
+  const [notice] = readTaskRunEntries([
+    record(4, { type: "oversized_record", bytes: 3_145_728, preview: '{"type":"tool_result"...' }),
+  ]);
+  expect(notice?.kind).toBe("notice");
+  expect(notice?.kind === "notice" && notice.text).toContain("3.0 MB");
+  expect(notice?.kind === "notice" && notice.text).toContain("tool_result");
+});

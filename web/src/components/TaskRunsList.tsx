@@ -12,12 +12,12 @@ import { formatEntryTimeFull } from "../lib/timestamps.ts";
 import { TaskRunSheet } from "./TaskRunSheet.tsx";
 
 /**
- * How long a run's log may look idle before the row stops calling it running.
- * The list derives `status` from the log's own mtime, and a worker inside one
- * long tool call writes nothing for minutes — so "running" is a statement about
- * the last write, and the row says so with its clock rather than a claim.
+ * How long a run may look idle before the row stops calling it running. This is
+ * the BFF's own window (`RUNNING_WINDOW_MS` in `bff/src/runs/task-logs.ts`) —
+ * the status is computed there from the log's mtime, and a second, longer guess
+ * here would only hide rows the listing already settled.
  */
-const RUNNING_FRESH_MS = 10 * 60 * 1_000;
+const RUNNING_FRESH_MS = 5 * 60 * 1000;
 
 /** Rows the section shows. The pane offers a handful of lists, not an archive. */
 const LIST_LIMIT = 10;

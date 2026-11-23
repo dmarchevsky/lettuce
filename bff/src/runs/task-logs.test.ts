@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   appendFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -240,7 +241,12 @@ test("the sweep moves whole task pairs into the named generation and leaves ever
   writeFileSync(join(root, "outside.jsonl"), "not ours\n");
   symlinkSync(join(root, "outside.jsonl"), join(root, "task_9.log"));
 
-  const result = await sweepTaskLogs(fsTaskLogIo, root, { generation: "2026-11-21T14-03-22Z" });
+  // `settleMs: 0`: the fixture's files were written this second, and the real
+  // default would (correctly) call them still-being-written and leave them.
+  const result = await sweepTaskLogs(fsTaskLogIo, root, {
+    generation: "2026-11-21T14-03-22Z",
+    settleMs: 0,
+  });
   const dir = join(root, "archive", "2026-11-21T14-03-22Z");
 
   expect(result.generation).toBe("2026-11-21T14-03-22Z");
@@ -259,7 +265,10 @@ test("the sweep moves whole task pairs into the named generation and leaves ever
   expect(readFileSync(join(root, "task_9.log"), "utf8")).toBe("not ours\n");
 
   // Idempotent: nothing left in the root to move, and no second directory.
-  const again = await sweepTaskLogs(fsTaskLogIo, root, { generation: "2026-11-21T14-09-00Z" });
+  const again = await sweepTaskLogs(fsTaskLogIo, root, {
+    generation: "2026-11-21T14-09-00Z",
+    settleMs: 0,
+  });
   expect(again).toMatchObject({ generation: null, moved: [] });
   rmSync(root, { recursive: true, force: true });
 });
@@ -426,5 +435,68 @@ test("the routes list, page, and refuse an id the listing could never produce", 
   // the gate, not the router's idea of a path.
   expect((await app.request("/api/task-runs/..%2f..%2fetc/events")).status).toBe(400);
   expect((await app.request("/api/task-runs/task_1%2f..%2f..%2flog/events")).status).toBe(400);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("the sweep leaves a pair this process may still be writing", async () => {
+  const root = scratchRoot();
+  // One hour old and one written this second: only the settled one is movable.
+  writePair(root, "task_1", { description: "Old", mtimeSeconds: (Date.now() - 3_600_000) / 1000 });
+  writePair(root, "task_2", { description: "Live" });
+
+  const result = await sweepTaskLogs(fsTaskLogIo, root, { generation: "2026-11-21T14-03-22Z" });
+  const dir = join(root, "archive", "2026-11-21T14-03-22Z");
+
+  expect(result.moved.sort()).toEqual(["task_1.log"]);
+  expect(result.skipped).toEqual(["task_2.log"]);
+  expect(existsSync(join(dir, "task_1.log"))).toBe(true);
+  // The live run's file is where its writer will append to next. Upstream re-opens
+  // by path on every write, so a move here would leave the transcript in two files.
+  expect(existsSync(join(root, "task_2.log"))).toBe(true);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("one over-long record is cut instead of buffered whole", async () => {
+  const root = scratchRoot();
+  const fat = "x".repeat(3 * 1024 * 1024);
+  writePair(root, "task_1", {
+    description: "Fat",
+    events:
+      record(1, "2026-11-20T10:00:00.000Z", {
+        type: "tool_result",
+        tool_call_id: "c",
+        output: fat,
+      }) + record(2, "2026-11-20T10:00:01.000Z", { type: "text", text: "after" }),
+  });
+
+  const page = await readTaskRunEvents(fsTaskLogIo, root, "task_1", { after: 0, limit: 10 });
+  expect(page?.events.map((event) => (event as { type?: string }).type)).toEqual([
+    "oversized_record",
+    "text",
+  ]);
+  const first = page?.events[0] as { bytes: number; preview: string };
+  expect(first.bytes).toBeGreaterThan(3 * 1024 * 1024 - 200);
+  expect(first.preview.length).toBeLessThan(8 * 1024);
+  // The records around it are untouched: the bound is per record, not per page.
+  const second = page?.events[1] as { text: string } | undefined;
+  expect(second?.text).toBe("after");
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("a cursor past the end asks for nothing new rather than walking back", async () => {
+  const root = scratchRoot();
+  writePair(root, "task_1", {
+    description: "Short",
+    events:
+      record(1, "2026-11-20T10:00:00.000Z", { type: "text", text: "a" }) +
+      record(2, "2026-11-20T10:00:01.000Z", { type: "text", text: "b" }),
+  });
+
+  const page = await readTaskRunEvents(fsTaskLogIo, root, "task_1", { after: 100_000, limit: 10 });
+  expect(page?.events).toEqual([]);
+  // The contract is "pass `next` back as `after`"; a `next` below the caller's
+  // cursor would send a tail-aiming reader backwards through a log it already has.
+  expect(page?.next).toBeGreaterThanOrEqual(100_000);
+  expect(page?.has_more).toBe(false);
   rmSync(root, { recursive: true, force: true });
 });

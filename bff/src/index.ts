@@ -286,6 +286,17 @@ function handleFrame(frame: WsProtocolMessage): void {
 // Opened here at boot, before any browser exists, and never closed. This is
 // also what starts the app-server's process services (cron scheduler, Telegram
 // adapters), which only boot on first client attach.
+
+/**
+ * The most recent task-log sweep, so a launch cannot overtake it. Upstream counts
+ * `task_1, task_2…` from 1 in every boot and truncates the log on create, so a
+ * subagent launched before the previous generation's logs were archived would
+ * overwrite one of them — the loss the sweep exists to prevent. `beforeForward`
+ * below holds `launch_subagent` until this settles; everything else passes
+ * through untouched (`runs/task-logs.ts`).
+ */
+let taskLogSweep: Promise<void> = Promise.resolve();
+
 const upstream = new UpstreamConnection({
   url: config.appServerUrl,
   // null/undefined keeps today's container shape: loopback, no auth header at all.
@@ -312,12 +323,17 @@ const upstream = new UpstreamConnection({
       // and truncates `<task_id>.log` on create, so without this a new boot
       // appends its events into a finished run's transcript. Idempotent, and it
       // names only `task_*` files inside its own root (`runs/task-logs.ts`).
-      void taskRuns
+      taskLogSweep = taskRuns
         .sweep()
         .then((result) => {
           if (result.generation) {
             log(
               `task logs: archived generation ${result.generation} (${result.moved.length} file(s))`,
+            );
+          }
+          if (result.skipped.length > 0) {
+            log(
+              `task logs: left ${result.skipped.length} recently-written file(s) for a later sweep`,
             );
           }
         })
@@ -375,6 +391,9 @@ if (remoteAppServerLine) {
 
 const registry = new SessionRegistry(upstream, config.frameBufferSize, log, undefined, undefined, {
   cacheRuntimeStart: config.runtimeStartCache,
+  // The one command that must not win the race with the boot sweep; see
+  // `taskLogSweep` above and `SessionRegistry`'s `beforeForward`.
+  beforeForward: (command) => (command.type === "launch_subagent" ? taskLogSweep : null),
 });
 
 // Compacts a conversation the app-server's own pressure trigger cannot save —

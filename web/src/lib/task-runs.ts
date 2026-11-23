@@ -11,6 +11,8 @@
  * named once instead of at every call site.
  */
 
+import { formatBytes } from "./download.ts";
+
 export type TaskRunStatus = "running" | "completed" | "unknown";
 export type TaskRunKind = "codex" | "claude-code" | "subagent";
 
@@ -110,6 +112,8 @@ export type TaskRunEntry =
       input: string | null;
       output: string | null;
       isError: boolean;
+      /** When the result arrived, so the row can state how long the call took. */
+      endedAt: string | null;
       /** Set when the call's own record carried upstream's cut marker. */
       truncated: boolean;
     }
@@ -157,6 +161,7 @@ export function readTaskRunEntries(raw: readonly Record<string, unknown>[]): Tas
           input,
           output: null,
           isError: false,
+          endedAt: null,
           truncated: input !== null && TRUNCATED_MARKER.test(input),
         };
         entries.push(entry);
@@ -171,6 +176,7 @@ export function readTaskRunEntries(raw: readonly Record<string, unknown>[]): Tas
         if (call) {
           call.output = output;
           call.isError = isError;
+          call.endedAt = at;
           if (TRUNCATED_MARKER.test(output)) call.truncated = true;
           break;
         }
@@ -184,6 +190,7 @@ export function readTaskRunEntries(raw: readonly Record<string, unknown>[]): Tas
           input: null,
           output,
           isError,
+          endedAt: null,
           truncated: TRUNCATED_MARKER.test(output),
         });
         break;
@@ -205,6 +212,22 @@ export function readTaskRunEntries(raw: readonly Record<string, unknown>[]): Tas
       case "notification": {
         const body = text(record.text);
         if (body) entries.push({ kind: "notification", seq, at, text: body });
+        break;
+      }
+      case "oversized_record": {
+        // The BFF's own bound on one record (`MAX_LINE_BYTES`): the reader says
+        // how big it was and shows a preview, rather than dropping an event the
+        // reader paged to see.
+        const bytes = Number(record.bytes) || 0;
+        const preview = text(record.preview);
+        entries.push({
+          kind: "notice",
+          seq,
+          at,
+          text: `One record of ${formatBytes(bytes)} was too large to show${
+            preview ? `:\n${preview}` : ""
+          }`,
+        });
         break;
       }
       case "events_missed": {
@@ -250,8 +273,14 @@ function readInput(value: unknown): string | null {
   return null;
 }
 
-/** Did this page's records cut off inside a record? A live log can end mid-line. */
-export function lastRecordComplete(raw: readonly Record<string, unknown>[]): boolean {
-  const last = raw[raw.length - 1];
-  return last === undefined || typeof last.type === "string";
+/** How long a call took, from its own two records, or null if either is missing. */
+export function callDuration(entry: Extract<TaskRunEntry, { kind: "call" }>): string | null {
+  if (!entry.at || !entry.endedAt) return null;
+  const ms = Date.parse(entry.endedAt) - Date.parse(entry.at);
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  if (ms < 1000) return `${ms}ms`;
+  const seconds = ms / 1000;
+  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ${Math.round(seconds % 60)}s`;
 }
