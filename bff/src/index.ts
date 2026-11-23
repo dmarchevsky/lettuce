@@ -153,6 +153,8 @@ import { registerPushRoutes } from "./push/routes.ts";
 import { configureWebPush } from "./push/send.ts";
 import { PushSubscriptionStore } from "./push/store.ts";
 import { TurnOutcomeWatcher } from "./push/turn-watcher.ts";
+import { createTaskLogStore } from "./runs/task-logs.ts";
+import { registerTaskRunRoutes } from "./runs/task-routes.ts";
 import { hardenedResponse, securityHeaders } from "./security-headers.ts";
 import { scopeKeyOf } from "./session/buffer.ts";
 import {
@@ -304,6 +306,24 @@ const upstream = new UpstreamConnection({
       // its turn's finish was either consumed or lost, and a stop kept across
       // the gap would rewrite the next cancelled finish in that conversation.
       stepLimitWatchdog?.reset();
+      // First of the connect passes, before any launch can land in the new
+      // process: move the previous app-server generation's task logs out of the
+      // scratchpad root. Upstream counts `task_1, task_2…` from 1 in every boot
+      // and truncates `<task_id>.log` on create, so without this a new boot
+      // appends its events into a finished run's transcript. Idempotent, and it
+      // names only `task_*` files inside its own root (`runs/task-logs.ts`).
+      void taskRuns
+        .sweep()
+        .then((result) => {
+          if (result.generation) {
+            log(
+              `task logs: archived generation ${result.generation} (${result.moved.length} file(s))`,
+            );
+          }
+        })
+        .catch((error) =>
+          log(`task logs: could not sweep the last generation: ${errorMessage(error)}`),
+        );
       void installShippedSkills();
       // One after another: each of these rewrites the shared MCP list, and two
       // read-modify-writes at once would drop one's change.
@@ -1862,6 +1882,16 @@ registerClaudeRoutes(app, {
   claudeEnabled: config.features.claude,
   io: claudeIo,
 });
+
+// ── Subagent run transcripts ────────────────────────────────────────────────
+// Runs → subagent runs: every task's durable log, read off this container's own
+// bind of the scratchpad the app-server writes (`docker/compose.yml`), not over
+// the socket. That is what lets a finished run open after the process that ran it
+// is gone — and what makes these two routes answer while the app-server is down.
+// No profile token applies to a directory the app-server always writes, so the
+// gate is the session `index.ts` puts in front of `/api/*` and nothing else.
+const taskRuns = createTaskLogStore();
+registerTaskRunRoutes(app, taskRuns);
 
 // ── Remote pi worker ─────────────────────────────────────────────────────
 // Everything here is BFF-local: settings and keys on `bff-data`, runs captured
