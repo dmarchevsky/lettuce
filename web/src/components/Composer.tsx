@@ -719,8 +719,17 @@ export function Composer({
               }}
               onKeyDown={(event) => {
                 // An IME mid-composition owns every key; the send button is still
-                // there for anyone who needs it.
-                if (event.nativeEvent.isComposing) return;
+                // there for anyone who needs it. Safari fires the Enter that confirms
+                // an IME word after `compositionend`, with `isComposing` already false
+                // but `keyCode` 229, so that Enter would send a half-typed message.
+                // Only Enter: some keyboards report 229 for ordinary keys, and the
+                // popover's Tab/Escape/arrows and history recall must still work there.
+                // The trade: Korean in Safari may take a second Enter to send.
+                if (
+                  event.nativeEvent.isComposing ||
+                  (event.key === "Enter" && event.nativeEvent.keyCode === 229)
+                )
+                  return;
 
                 if (active) {
                   if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -739,9 +748,13 @@ export function Composer({
                     setDismissed(true);
                     return;
                   }
-                  if (event.key === "Enter" && !event.shiftKey && enterSends()) {
-                    // The popover is open, so Enter takes the highlighted command
-                    // rather than sending a half-typed name to the agent.
+                  if (
+                    event.key === "Enter" &&
+                    !event.shiftKey &&
+                    (enterSends() || event.ctrlKey || event.metaKey)
+                  ) {
+                    // The popover is open, so Enter (or Ctrl/Cmd+Enter) takes the
+                    // highlighted command rather than sending a half-typed name.
                     event.preventDefault();
                     choose(active);
                     return;
@@ -777,9 +790,15 @@ export function Composer({
                   }
                 }
 
-                // Enter sends; Shift+Enter is a newline. On a phone Enter is always a
-                // newline and only the send button sends (see `enterSends`).
-                if (event.key === "Enter" && !event.shiftKey && enterSends()) {
+                // Enter sends where `enterSends` says so; Shift+Enter is a newline.
+                // Ctrl/Cmd+Enter sends on every device: no on-screen keyboard can type
+                // it, so it only ever comes from a hardware keyboard — a Surface's, or
+                // a Bluetooth one paired with a phone — where sending is what it means.
+                if (
+                  event.key === "Enter" &&
+                  !event.shiftKey &&
+                  (enterSends() || event.ctrlKey || event.metaKey)
+                ) {
                   event.preventDefault();
                   submit();
                 }

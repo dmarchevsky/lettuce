@@ -5,6 +5,10 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Fixed
+- Fix Enter-to-send on Windows touch devices (a Surface); Ctrl/Cmd+Enter sends everywhere; a Safari IME's
+  confirming Enter no longer sends.
+
 ## [v0.49.2-letta_0.34.68] - 2026-11-22
 
 ### Fixed
