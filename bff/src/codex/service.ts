@@ -41,7 +41,7 @@ export interface CodexFileIo {
   listFiles(dir: string): Promise<string[] | null>;
 }
 
-const SESSIONS_DIR = `${CODEX_HOME}/sessions`
+const SESSIONS_DIR = `${CODEX_HOME}/sessions`;
 /** Where codex appends `{ id, thread_name }` lines when a thread gets a title. */
 const SESSION_INDEX = `${CODEX_HOME}/session_index.jsonl`;
 /** How far back "recent runs" looks. */

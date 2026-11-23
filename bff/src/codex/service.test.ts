@@ -161,7 +161,11 @@ describe("runs", () => {
   test("a named thread leads with its task title; the newest index entry wins", async () => {
     const index = [
       JSON.stringify({ id: T1, thread_name: "stale title", updated_at: "2026-09-27T17:01:00Z" }),
-      JSON.stringify({ id: T1, thread_name: "Fix websocket reconnect hang", updated_at: "2026-09-27T17:02:00Z" }),
+      JSON.stringify({
+        id: T1,
+        thread_name: "Fix websocket reconnect hang",
+        updated_at: "2026-09-27T17:02:00Z",
+      }),
       "{", // a partial tail line is skipped, not fatal
     ].join("\n");
     const { io } = memoryIo({

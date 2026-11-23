@@ -305,6 +305,15 @@ export function parseRollout(threadId: string, text: string): CodexRun {
 }
 
 export function summarizeRun(run: CodexRun): CodexRunSummary {
-  const { threadId, cwd, status, startedAt, lastActivityAt, prompt } = run;
-  return { threadId, cwd, agentId: agentIdFromCwd(cwd), status, startedAt, lastActivityAt, prompt };
+  const { threadId, name, cwd, status, startedAt, lastActivityAt, prompt } = run;
+  return {
+    threadId,
+    name,
+    cwd,
+    agentId: agentIdFromCwd(cwd),
+    status,
+    startedAt,
+    lastActivityAt,
+    prompt,
+  };
 }
