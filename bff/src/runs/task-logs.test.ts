@@ -456,6 +456,51 @@ test("the sweep leaves a pair this process may still be writing", async () => {
   rmSync(root, { recursive: true, force: true });
 });
 
+test("a reused task id reads the generation it was asked for", async () => {
+  const root = scratchRoot();
+  // The whole point of the generation: upstream restarts its counter, so the same
+  // `task_1` names two different runs, and a row for the old one must not open
+  // the new one's transcript.
+  writePair(root, "task_1", {
+    description: "First run",
+    events: record(1, "2026-11-20T10:00:00.000Z", { type: "text", text: "first" }),
+    mtimeSeconds: (Date.now() - 3_600_000) / 1000,
+  });
+  const swept = await sweepTaskLogs(fsTaskLogIo, root, { generation: "2026-11-21T14-03-22Z" });
+  expect(swept.moved.length).toBe(2);
+  writePair(root, "task_1", {
+    description: "Second run",
+    events: record(1, "2026-11-21T15:00:00.000Z", { type: "text", text: "second" }),
+  });
+
+  // The current name means the current run; the archived row needs its stamp.
+  const current = await readTaskRunEvents(fsTaskLogIo, root, "task_1");
+  expect(current?.generation).toBeNull();
+  expect((current?.events[0] as { text?: string })?.text).toBe("second");
+
+  const archived = await readTaskRunEvents(fsTaskLogIo, root, "task_1", {
+    generation: "2026-11-21T14-03-22Z",
+  });
+  expect(archived?.generation).toBe("2026-11-21T14-03-22Z");
+  expect((archived?.events[0] as { text?: string })?.text).toBe("first");
+
+  // And the routes carry it, because that is where the row got it from.
+  const app = new Hono<RouteEnv>();
+  const store = createTaskLogStore({ root });
+  registerTaskRunRoutes(app, store);
+  const viaRoute = await app.request(
+    "/api/task-runs/task_1/events?generation=2026-11-21T14-03-22Z",
+  );
+  const page = (await viaRoute.json()) as { generation: string; events: { text?: string }[] };
+  expect(page.generation).toBe("2026-11-21T14-03-22Z");
+  expect(page.events[0]?.text).toBe("first");
+  // A stamp is a directory name the module wrote, so only its shape is accepted.
+  expect((await app.request("/api/task-runs/task_1/events?generation=..%2Farchive")).status).toBe(
+    400,
+  );
+  rmSync(root, { recursive: true, force: true });
+});
+
 test("one over-long record is cut instead of buffered whole", async () => {
   const root = scratchRoot();
   const fat = "x".repeat(3 * 1024 * 1024);

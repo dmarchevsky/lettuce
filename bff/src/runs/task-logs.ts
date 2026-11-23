@@ -599,12 +599,17 @@ async function locatePair(
   root: string,
   taskId: string,
   generations: string[],
+  generation?: string | null,
 ): Promise<{ generation: string | null } & Pair> {
-  const dirs = [null, ...generations];
-  for (const generation of dirs) {
-    const dir = generation === null ? root : `${root}/${ARCHIVE_DIR}/${generation}`;
+  // A named generation is searched in that generation alone: the id a URL carries
+  // is only unique *with* it, and the current run of a reused name sits in the
+  // root. With none named, the root first: a live run's pair is always there.
+  const dirs =
+    generation === undefined ? [null, ...generations] : generation === null ? [null] : [generation];
+  for (const wanted of dirs) {
+    const dir = wanted === null ? root : `${root}/${ARCHIVE_DIR}/${wanted}`;
     const pair = await statPair(io, root, dir, taskId, dirViolation(io, root, dir) === null);
-    if (pair) return { generation, ...pair };
+    if (pair) return { generation: wanted, ...pair };
   }
   return { generation: null, logPath: null, eventsPath: null, logStat: null, eventsStat: null };
 }
@@ -908,11 +913,11 @@ export async function readTaskRunEvents(
   io: TaskLogIo,
   root: string,
   taskId: string,
-  options: { after?: number; limit?: number } = {},
+  options: { after?: number; limit?: number; generation?: string | null } = {},
 ): Promise<TaskRunEventsPage | null> {
   if (!isTaskId(taskId)) return null;
   const generations = await generationDirs(io, root);
-  const pair = await locatePair(io, root, taskId, generations);
+  const pair = await locatePair(io, root, taskId, generations, options.generation);
   if (!pair.logPath && !pair.eventsPath) return null;
 
   const after = Math.max(Math.trunc(options.after ?? 0) || 0, 0);
@@ -961,7 +966,7 @@ export interface TaskLogStore {
   list(options?: { limit?: number; cursor?: number; now?: Date }): Promise<TaskRunList>;
   events(
     taskId: string,
-    options?: { after?: number; limit?: number },
+    options?: { after?: number; limit?: number; generation?: string | null },
   ): Promise<TaskRunEventsPage | null>;
   sweep(): Promise<SweepResult>;
 }

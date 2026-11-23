@@ -80,11 +80,14 @@ export async function fetchTaskRunEvents(
   taskId: string,
   after: number,
   limit: number,
+  // A task id is only unique within a generation, so an archived row asks for
+  // its own and never the run that reused its name afterwards.
+  generation?: string | null,
 ): Promise<TaskRunEventPage> {
+  const query = new URLSearchParams({ after: String(after), limit: String(limit) });
+  if (generation) query.set("generation", generation);
   const response = await ok(
-    await fetch(
-      `/api/task-runs/${encodeURIComponent(taskId)}/events?after=${after}&limit=${limit}`,
-    ),
+    await fetch(`/api/task-runs/${encodeURIComponent(taskId)}/events?${query}`),
   );
   return (await response.json()) as TaskRunEventPage;
 }

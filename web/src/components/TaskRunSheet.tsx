@@ -101,11 +101,11 @@ export function TaskRunSheet({ run, onClose }: Props) {
 
   const open = useCallback(async () => {
     try {
-      let page = await fetchTaskRunEvents(run.taskId, tailStart, EVENT_PAGE);
+      let page = await fetchTaskRunEvents(run.taskId, tailStart, EVENT_PAGE, run.generation);
       // The aim missed the file entirely (a log with fewer lines than records,
       // or a `seq` that outran its lines): fall back to the head.
       if (page.events.length === 0 && tailStart > 0) {
-        page = await fetchTaskRunEvents(run.taskId, 0, EVENT_PAGE);
+        page = await fetchTaskRunEvents(run.taskId, 0, EVENT_PAGE, run.generation);
       }
       setEntries(readTaskRunEntries(page.events));
       setFirstAfter(page.events.length === 0 && tailStart > 0 ? 0 : tailStart);
@@ -114,7 +114,7 @@ export function TaskRunSheet({ run, onClose }: Props) {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
-  }, [run.taskId, tailStart]);
+  }, [run.taskId, run.generation, tailStart]);
 
   useEffect(() => {
     void open();
@@ -137,7 +137,7 @@ export function TaskRunSheet({ run, onClose }: Props) {
     atEnd.current = false;
     try {
       const from = Math.max(0, firstAfter - EVENT_PAGE);
-      const page = await fetchTaskRunEvents(run.taskId, from, EVENT_PAGE);
+      const page = await fetchTaskRunEvents(run.taskId, from, EVENT_PAGE, run.generation);
       setEntries((current) => [...readTaskRunEntries(page.events), ...current]);
       setFirstAfter(from);
     } catch (cause) {
