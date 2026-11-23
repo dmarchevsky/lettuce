@@ -815,7 +815,19 @@ try {
       const firstRun = page.locator(".list .task button.row").first();
       if ((await firstRun.count()) > 0) {
         await firstRun.click();
-        if (await page.locator(".pi-session").count()) {
+        if (await page.locator(".subagent-run").count()) {
+          // A subagent's durable transcript, which opens in the fill sheet like a
+          // worker's does — the same clipping bug would clip it the same way.
+          const scroller = await page.evaluate(() => {
+            const el = document.querySelector<HTMLElement>(".sheet-panel.fill .subagent-run");
+            if (!el) return "missing";
+            const style = getComputedStyle(el);
+            return style.overflowY === "auto" ? "yes" : `overflow=${style.overflowY}`;
+          });
+          check("the subagent transcript scrolls in the sheet", scroller === "yes", scroller);
+          await page.keyboard.press("Escape");
+          await page.waitForTimeout(200);
+        } else if (await page.locator(".pi-session").count()) {
           const scroller = await page.evaluate(() => {
             const el = document.querySelector<HTMLElement>(".pi-session .messages");
             if (!el) return "missing";
