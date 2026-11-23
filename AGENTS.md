@@ -143,10 +143,11 @@ $LETTA_STATE_DIR/
   letta-home/     -> /root/.letta   settings.json, mcp-home/ (shared MCP list), global skills
   letta-data/     -> /data          conversations + agent memory (memfs git repos)
   workspaces/     -> /work          agent working directories
-  tools/          -> /opt/agent-tools  what agents install (npm -g, cargo, go, uv), via image ENV
+  task-logs/      -> /var/lettuce/task-logs  task log + events, BFF rw
+  tools/          -> /opt/agent-tools  what agents install, via image ENV
 ```
 
-It defaults to `../..` relative to the compose file, which is **a trap in a worktree** — `../..` from
+It defaults to `../..` from the compose file, which is **a trap in a worktree** — `../..` from
 `.dev-flow/<slug>/worktree/docker/` resolves to `.dev-flow/<slug>`. Prod sets an absolute path in `docker/.env`
 (hard rule 3), and container work happens from the main checkout.
 
