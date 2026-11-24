@@ -60,6 +60,18 @@
           "style": { "noNonNullAssertion": "off" }
         }
       }
+    },
+    {
+      // The render-test tier: the harness drives a DOM React does not type for the
+      // test seam (native value setters, a fake `AgentsApi` shaped per test), which is
+      // the same boundary argument as above, one file type over.
+      "includes": ["web/src/test/**", "web/**/*.test.tsx"],
+      "linter": {
+        "rules": {
+          "suspicious": { "noExplicitAny": "off" },
+          "style": { "noNonNullAssertion": "off" }
+        }
+      }
     }
   ]
 }
