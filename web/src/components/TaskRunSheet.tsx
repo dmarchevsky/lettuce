@@ -90,6 +90,9 @@ export function TaskRunSheet({ run, onClose }: Props) {
   const [nextLine, setNextLine] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const [earlier, setEarlier] = useState(false);
+  const [newer, setNewer] = useState(false);
+  /** True when the log holds lines past what is on screen (its own `has_more`). */
+  const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
 
@@ -102,14 +105,18 @@ export function TaskRunSheet({ run, onClose }: Props) {
   const open = useCallback(async () => {
     try {
       let page = await fetchTaskRunEvents(run.taskId, tailStart, EVENT_PAGE, run.runDir);
-      // The aim missed the file entirely (a log with fewer lines than records,
-      // or a `seq` that outran its lines): fall back to the head.
-      if (page.events.length === 0 && tailStart > 0) {
-        page = await fetchTaskRunEvents(run.taskId, 0, EVENT_PAGE, run.runDir);
-      }
+      // The aim missed the file entirely (a log with fewer lines than records, or
+      // a run whose last record is bigger than anything the listing could read):
+      // show the head instead, and remember that we did — the offsets on screen
+      // are then the log's first lines, not the tail's, and the status line and
+      // the paging controls have to agree with that.
+      const fellBack = page.events.length === 0 && tailStart > 0;
+      if (fellBack) page = await fetchTaskRunEvents(run.taskId, 0, EVENT_PAGE, run.runDir);
+      const start = fellBack ? 0 : tailStart;
       setEntries(readTaskRunEntries(page.events));
-      setFirstAfter(page.events.length === 0 && tailStart > 0 ? 0 : tailStart);
+      setFirstAfter(start);
       setNextLine(page.next);
+      setHasMore(page.has_more);
       setLoaded(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -147,6 +154,25 @@ export function TaskRunSheet({ run, onClose }: Props) {
     }
   };
 
+  // Forward paging exists for one case: the open aimed at the head because it
+  // could not count the log, so everything past the first page is still ahead.
+  // Without this the newest events — the ones worth reading — would be unreachable.
+  const loadNewer = async () => {
+    if (newer) return;
+    setNewer(true);
+    try {
+      const page = await fetchTaskRunEvents(run.taskId, nextLine, EVENT_PAGE, run.runDir);
+      atEnd.current = true;
+      setEntries((current) => [...current, ...readTaskRunEntries(page.events)]);
+      setNextLine(page.next);
+      setHasMore(page.has_more);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setNewer(false);
+    }
+  };
+
   const facts = [
     TASK_STATUS_LABELS[run.status],
     run.subagentType ?? run.kind,
@@ -158,13 +184,14 @@ export function TaskRunSheet({ run, onClose }: Props) {
   // Counts are the log's own line span, not the number of folded rows: a call and
   // its result is one row and two events, and "showing 80 of 214" over folded rows
   // would be a number that means nothing.
+  const atHead = firstAfter === 0;
   const status = error
     ? error
     : !loaded
       ? "Loading…"
       : entries.length === 0
         ? "No events in this log yet"
-        : firstAfter === 0 && nextLine >= (run.events ?? nextLine)
+        : atHead && !hasMore && nextLine >= (run.events ?? nextLine)
           ? `The whole log — ${nextLine} event${nextLine === 1 ? "" : "s"}`
           : `Showing events ${firstAfter + 1}–${nextLine} of ${run.events ?? "?"}`;
 
@@ -193,6 +220,11 @@ export function TaskRunSheet({ run, onClose }: Props) {
           // only key that survives prepending a page without re-rendering rows.
           <Entry key={`${entry.kind}:${entry.seq}`} entry={entry} />
         ))}
+        {atHead && hasMore && !error ? (
+          <button type="button" className="link" onClick={() => void loadNewer()} disabled={newer}>
+            {newer ? "Loading…" : "Load newer events"}
+          </button>
+        ) : null}
         {!loaded && !error ? <p className="muted small">Loading…</p> : null}
         <div ref={endRef} />
       </div>
