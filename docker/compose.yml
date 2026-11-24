@@ -220,26 +220,34 @@ services:
       # an endpoint's URL and token, or the user's Claude subscription OAuth
       # token. So this directory holds secrets, the subscription one included.
       CLAUDE_CONFIG_DIR: /root/.letta/claude
-      # Where letta-code writes each background task's readable log and its event
-      # log: `getBackgroundOutputDir()` (tools/impl/process_manager.ts) reads this
-      # and appends `<task_id>.jsonl` beside `<task_id>.log` (task-transcript.ts).
+      # Where letta-code puts its temporary tree — and therefore each background
+      # task's readable log and event log: `getBackgroundOutputDir()`
+      # (tools/impl/process_manager.ts) makes a fresh `mkdtemp(os.tmpdir()/
+      # letta-background-)` per process and `task-transcript.ts` appends
+      # `<task_id>.jsonl` beside `<task_id>.log` inside it.
       #
-      # Unset is a fresh `mkdtemp(os.tmpdir()/letta-background-)` per boot on
-      # container-layer storage, so a run's transcript is unreadable after the
-      # process ends and the BFF cannot reach it at all. Under the state tree it
-      # survives, which is the whole point of Runs → subagent runs
-      # (`bff/src/runs/task-logs.ts`) — and the same absolute path as the BFF's
-      # mount of it below, because that side stats the paths as named here.
+      # Unset, that is container-layer storage: a run's transcript is unreadable
+      # once the process is gone and the BFF cannot reach it at all. Pointed under
+      # the state tree it survives, which is the whole point of Runs → subagent
+      # runs (`bff/src/runs/task-logs.ts`), and it is the same absolute path as
+      # the BFF's mount of it below because that side stats the paths as named here.
+      #
+      # Why this and not `LETTA_SCRATCHPAD`, which is the obvious knob: upstream
+      # uses that directory *verbatim*, and a task id is only unique per process
+      # (`getNextTaskId()` counts from 1 in every process). A shared scratchpad
+      # therefore collides inside one boot — a depth-1 subagent's own Task reuses
+      # `task_1` and `createBackgroundOutputFile` truncates on create, so the
+      # nested run destroys the parent's transcript. `TMPDIR` keeps upstream's own
+      # per-process `mkdtemp`, so uniqueness comes from the mechanism upstream
+      # already relies on rather than from anything we maintain. Cost: every temp
+      # write in this container lands under the backup unit and survives a
+      # recreate; retention prunes the run directories by age and leaves
+      # anything else alone.
       #
       # Changing this recreates `app-server`, which kills every turn in flight
       # with no drain (the drain covers `bff` alone), and an unscoped `up` does it
       # too: this service shares a network namespace with two others.
-      #
-      # Side effect, accepted: memory subagents use the same knob
-      # (agent/subagents/subagent-launcher.ts) and setting it disables their
-      # scratchpad cleanup, so their files land here and are kept — run artifacts
-      # under the backup unit, which is this directory tree.
-      LETTA_SCRATCHPAD: /var/lettuce/task-logs
+      TMPDIR: /var/lettuce/task-logs
     volumes:
       - ${LETTA_STATE_DIR:-../..}/letta-home:/root/.letta
       - ${LETTA_STATE_DIR:-../..}/letta-data:/data
