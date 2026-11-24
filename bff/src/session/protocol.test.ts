@@ -177,11 +177,11 @@ describe("session command allowlist", () => {
     expect(ALLOWED_SESSION_COMMANDS.has("subagent_stop")).toBe(true);
   });
 
-  test("a running subagent's events can be read from the browser", () => {
-    // The live sheet's wire-side page of the event log. The Runs pane reads the
-    // durable copy off disk instead (`runs/task-logs.ts`), which is what survives
-    // the process; this is the same log while the process lives.
-    expect(ALLOWED_SESSION_COMMANDS.has("read_subagent_events")).toBe(true);
+  test("a running subagent's events are not read over the socket", () => {
+    // Upstream's wire-side page of the event log stays off the allowlist: every
+    // reader in this app goes through the event stream or the file route
+    // (`runs/task-logs.ts`), so admitting it would only widen the surface.
+    expect(ALLOWED_SESSION_COMMANDS.has("read_subagent_events")).toBe(false);
   });
 
   test("the process-level surface stays off the allowlist", () => {
