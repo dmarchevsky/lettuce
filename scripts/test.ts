@@ -13,6 +13,11 @@
  * goes with it, which is the point: the suite's footprint is now exactly one
  * directory, gone when the run is.
  *
+ * One invocation, one global scope: `bunfig.toml` registers the happy-dom window before any test file loads,
+ * so a render test (`*.dom.test.tsx`, see `web/src/test/harness.tsx`) runs in the same pass as the pure ones
+ * and cannot fail for a missing `document` that reads like a broken component. The preload copies only globals
+ * that are not already defined, so node's own `fetch`/timers still win in the bff tests.
+ *
  * Usage: bun run test [bun test args…]
  */
 
