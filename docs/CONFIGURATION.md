@@ -232,7 +232,7 @@ which drops the BFF's upstream connection, so run
 | `FRAME_BUFFER_SIZE` | `5000` | Total streaming frames retained for session resume, across all conversations. |
 | `RUNTIME_START_CACHE` | on | Re-opening a conversation this BFF connection already has running is answered by the BFF instead of going upstream, so it skips the app-server's state replay — the thing that freezes every conversation for seconds at a time on a slow disk. The BFF replays the live state it has been routing anyway (processing, loop, queue, running subagents); a different working directory, any extra parameter, a reconnect, an approval waiting to be clicked, a turn that has ended, or a minute of silence on a supposedly-busy turn all go upstream instead. Set `off` (also `0`, `false`, `no`) to forward every start, which is how it worked before. |
 | `SHUTDOWN_DRAIN_TIMEOUT_SECONDS` | `540` (9 min) | How long `SIGTERM` waits for in-flight turns before closing upstream. Must stay below the container's `stop_grace_period` (10m), and drain + image build under the deploy manager's 900 s `compose up` timeout. |
-| `TASK_LOG_RETENTION_DAYS` | `14` | How long the transcript of a finished app-server generation is kept under `$LETTA_STATE_DIR/task-logs/archive/`, which is what **Runs → subagent runs** opens after the process that ran it is gone. The BFF deletes an archived generation once it is older than this, and only ever a directory named by its own generation stamp; `0` keeps every generation. `TASK_LOG_DIR` is not a knob — compose sets it to the scratchpad path both containers mount. |
+| `TASK_LOG_RETENTION_DAYS` | `14` | How long a finished run's directory is kept under `$LETTA_STATE_DIR/task-logs/` — one directory per app-server process, holding each task's log and event log, which is what **Runs → subagent runs** opens after that process is gone. The BFF deletes a directory once nothing inside it has been written for this long, and only ever one named the way upstream's `mkdtemp` names it; the newest directory is never touched, and `0` keeps everything. `TASK_LOG_DIR` is not a knob — compose sets it to the path both containers mount. |
 | `CONTEXT_WATCHDOG_RATIO` | `0.9` | Share of the declared context window at which the BFF compacts a conversation itself, once its turn has ended, instead of waiting for the next request to fail. It also compacts after a provider refusal that smells like a full context (`exceeds the available context size`, `n_ctx`, `prompt is too long`, …) whatever the share. `0` switches it off. See [Model capabilities](#model-capabilities-vision-thinking-real-context-window) for why letta-code's own trigger is not enough. |
 | `CONTEXT_USAGE_FILE` | `/app/data/context-usage.json` | On the `bff-data` volume: the last finished turn per conversation, so the context gauge survives a BFF restart instead of reading `—` until the next turn. Losing it costs nothing but the number. |
 | `CONTEXT_SIZE_FILE` | `/app/data/context-size.json` | On the `bff-data` volume: the context sizes you typed in the **Context** sheet, per agent or conversation. Empty means every agent takes its size from its model's declaration. Losing it only loses those overrides. |
@@ -658,7 +658,8 @@ $LETTA_STATE_DIR/
   letta-home/     settings, global skills, CLI logins
   letta-data/     conversations and agent memory
   workspaces/     the directories agents work in
-  task-logs/      each background task's log and event log (`LETTA_SCRATCHPAD`)
+  task-logs/      the container's `TMPDIR`: one directory per process, each holding its
+                  task logs and event logs (`TASK_LOG_RETENTION_DAYS` ages them)
   tools/          the tools agents install
 ```
 

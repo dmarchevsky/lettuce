@@ -143,7 +143,7 @@ $LETTA_STATE_DIR/
   letta-home/     -> /root/.letta   settings.json, mcp-home/ (shared MCP list), global skills
   letta-data/     -> /data          conversations + agent memory (memfs git repos)
   workspaces/     -> /work          agent working directories
-  task-logs/      -> /var/lettuce/task-logs  task log + events, BFF rw
+  task-logs/      -> /var/lettuce/task-logs  task log dirs, BFF rw
   tools/          -> /opt/agent-tools  what agents install, via image ENV
 ```
 
