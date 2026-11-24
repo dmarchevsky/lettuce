@@ -42,6 +42,12 @@ export type CodexRunStep =
 
 export interface CodexRunSummary {
   threadId: string;
+  /**
+   * The task title upstream gave the thread (the Task tool's description, via
+   * codex's session index), or null for runs predating naming — then the row
+   * falls back to the prompt line as before.
+   */
+  name: string | null;
   cwd: string | null;
   /**
    * The agent whose workspace the run happened in, or null for a run with no

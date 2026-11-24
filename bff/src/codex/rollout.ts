@@ -75,6 +75,13 @@ export type CodexRunStatus = "running" | "completed" | "aborted" | "unknown";
 
 export interface CodexRunSummary {
   threadId: string;
+  /**
+   * The task title upstream gave the thread (#5844: the Task tool's description,
+   * written by codex into `$CODEX_HOME/session_index.jsonl`), or null for a run
+   * that predates naming or has no index entry. The Runs pane leads with this and
+   * falls back to the prompt.
+   */
+  name: string | null;
   cwd: string | null;
   /**
    * The agent whose workspace the run happened in (`bff/src/runs/attribution.ts`),
@@ -170,6 +177,28 @@ function parseLines(text: string): Json[] {
   return records;
 }
 
+/**
+ * Codex's session index (`$CODEX_HOME/session_index.jsonl`): append-only lines
+ * of `{ id, thread_name, updated_at }`, newest entry per id winning when read.
+ * This is where a thread's task title lives; it is absent until anything names a
+ * thread, so a missing file or line is the normal case, not an error.
+ */
+export function parseSessionIndex(text: string): Map<string, string> {
+  const names = new Map<string, string>();
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const entry = asObject(JSON.parse(line));
+      const id = entry ? str(entry.id) : null;
+      const name = entry ? str(entry.thread_name) : null;
+      if (id && name && name.trim()) names.set(id, name.trim());
+    } catch {
+      // Same tolerance as parseLines: a partial tail line is skipped.
+    }
+  }
+  return names;
+}
+
 function applyEvent(run: CodexRun, payload: Json): void {
   switch (payload.type) {
     case "task_started":
@@ -199,6 +228,7 @@ function applyEvent(run: CodexRun, payload: Json): void {
 export function parseRollout(threadId: string, text: string): CodexRun {
   const run: CodexRun = {
     threadId,
+    name: null,
     cwd: null,
     status: "unknown",
     startedAt: null,
@@ -275,6 +305,15 @@ export function parseRollout(threadId: string, text: string): CodexRun {
 }
 
 export function summarizeRun(run: CodexRun): CodexRunSummary {
-  const { threadId, cwd, status, startedAt, lastActivityAt, prompt } = run;
-  return { threadId, cwd, agentId: agentIdFromCwd(cwd), status, startedAt, lastActivityAt, prompt };
+  const { threadId, name, cwd, status, startedAt, lastActivityAt, prompt } = run;
+  return {
+    threadId,
+    name,
+    cwd,
+    agentId: agentIdFromCwd(cwd),
+    status,
+    startedAt,
+    lastActivityAt,
+    prompt,
+  };
 }

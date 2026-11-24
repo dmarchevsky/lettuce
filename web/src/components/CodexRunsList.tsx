@@ -87,7 +87,13 @@ export function CodexRunsList({ refreshKey, agentId, agentName, onOther }: RunsL
                     <span className={`tag${STATUS_TONES[run.status]}`}>
                       {STATUS_LABELS[run.status]}
                     </span>
-                    <span className="small">{run.prompt ?? "(no prompt recorded)"}</span>
+                    <span className="small">
+                      {run.name ? (
+                        <strong>{run.name}</strong>
+                      ) : (
+                        (run.prompt ?? "(no prompt recorded)")
+                      )}
+                    </span>
                   </span>
                   <span
                     className="muted small one-line"
