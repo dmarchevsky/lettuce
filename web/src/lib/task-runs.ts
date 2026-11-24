@@ -13,7 +13,7 @@
 
 import { formatBytes } from "./download.ts";
 
-export type TaskRunStatus = "running" | "completed" | "unknown";
+export type TaskRunStatus = "running" | "completed" | "failed" | "stopped";
 export type TaskRunKind = "codex" | "claude-code" | "subagent";
 
 export interface TaskRunSummary {
@@ -22,8 +22,8 @@ export interface TaskRunSummary {
   /** The transcript's own `[subagent_type: …]`, verbatim — the row's label. */
   subagentType: string | null;
   description: string | null;
-  /** Archive dir the files live in; null for the current generation. */
-  generation: string | null;
+  /** The process directory the pair lives in: what makes its id unique. */
+  runDir: string;
   startedAt: string | null;
   lastActivityAt: string | null;
   bytes: number;
@@ -32,17 +32,24 @@ export interface TaskRunSummary {
   status: TaskRunStatus;
 }
 
-/** The status chip's tone, matching the sibling lists' vocabulary. */
+/**
+ * The status chip's labels, worded for what the file proves. `stopped` is not
+ * "completed": a log that merely stopped writing says nothing about how the run
+ * ended, and the tone says so (`runs/task-logs.ts` reads upstream's closing line
+ * for the two cases that do have evidence).
+ */
 export const TASK_STATUS_LABELS: Record<TaskRunStatus, string> = {
   running: "Running",
   completed: "Completed",
-  unknown: "Stopped",
+  failed: "Failed",
+  stopped: "Stopped",
 };
 
 export const TASK_STATUS_TONES: Record<TaskRunStatus, string> = {
   running: "",
   completed: " ok-tag",
-  unknown: " muted",
+  failed: " bad",
+  stopped: " muted",
 };
 
 /**
@@ -70,7 +77,7 @@ export async function fetchTaskRuns(limit = 10, cursor = 0): Promise<TaskRunList
 /** One page of a transcript, oldest first, plus where to continue forward. */
 export interface TaskRunEventPage {
   taskId: string;
-  generation: string | null;
+  runDir: string;
   events: Record<string, unknown>[];
   next: number;
   has_more: boolean;
@@ -80,12 +87,12 @@ export async function fetchTaskRunEvents(
   taskId: string,
   after: number,
   limit: number,
-  // A task id is only unique within a generation, so an archived row asks for
-  // its own and never the run that reused its name afterwards.
-  generation?: string | null,
+  // A task id is only unique within its run directory, so every page of a row's
+  // transcript names the directory the row came from.
+  runDir?: string,
 ): Promise<TaskRunEventPage> {
   const query = new URLSearchParams({ after: String(after), limit: String(limit) });
-  if (generation) query.set("generation", generation);
+  if (runDir) query.set("runDir", runDir);
   const response = await ok(
     await fetch(`/api/task-runs/${encodeURIComponent(taskId)}/events?${query}`),
   );

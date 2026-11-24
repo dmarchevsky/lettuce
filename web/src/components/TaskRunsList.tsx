@@ -100,7 +100,7 @@ export function TaskRunsList({ refreshKey, onOther }: RunsListProps) {
       {runs.length > 0 ? (
         <ul className="list">
           {runs.map((run) => (
-            <li key={`${run.generation ?? "now"}/${run.taskId}`} className="task">
+            <li key={`${run.runDir}/${run.taskId}`} className="task">
               <button type="button" className="row" onClick={() => setOpenTask(run)}>
                 <span className="grow-text">
                   <span className="task-head stacked">
