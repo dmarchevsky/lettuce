@@ -231,6 +231,12 @@ export const ALLOWED_SESSION_COMMANDS: ReadonlySet<string> = new Set([
   // (`{runtime: <parent scope>, agent_id: <child agent id>}`). Upstream refuses a task the parent
   // runtime does not own, so the parent scope stays the boundary. Since letta-code 0.34.16.
   "subagent_stop",
+  // NOTE: `read_subagent_events` is deliberately absent. It is upstream's live
+  // page of one running subagent's event log, but every reader in this app — the
+  // live sheet and the Runs viewer alike — goes through the event stream or the
+  // file route (`runs/task-logs.ts`), which is one source for a live run and a
+  // dead one. Admitting a command nothing calls only widens what a browser can
+  // ask the app-server for.
   // NOTE: channel_* commands are deliberately absent. The app-server only
   // dispatches them when a gateway registered `serviceCommandHandler`, which
   // happens over the CLI's stdio pipe to a child gateway process — never over

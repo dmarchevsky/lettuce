@@ -153,6 +153,8 @@ import { registerPushRoutes } from "./push/routes.ts";
 import { configureWebPush } from "./push/send.ts";
 import { PushSubscriptionStore } from "./push/store.ts";
 import { TurnOutcomeWatcher } from "./push/turn-watcher.ts";
+import { createTaskLogStore } from "./runs/task-logs.ts";
+import { registerTaskRunRoutes } from "./runs/task-routes.ts";
 import { hardenedResponse, securityHeaders } from "./security-headers.ts";
 import { scopeKeyOf } from "./session/buffer.ts";
 import {
@@ -284,6 +286,7 @@ function handleFrame(frame: WsProtocolMessage): void {
 // Opened here at boot, before any browser exists, and never closed. This is
 // also what starts the app-server's process services (cron scheduler, Telegram
 // adapters), which only boot on first client attach.
+
 const upstream = new UpstreamConnection({
   url: config.appServerUrl,
   // null/undefined keeps today's container shape: loopback, no auth header at all.
@@ -1862,6 +1865,16 @@ registerClaudeRoutes(app, {
   claudeEnabled: config.features.claude,
   io: claudeIo,
 });
+
+// ── Subagent run transcripts ────────────────────────────────────────────────
+// Runs → subagent runs: every task's durable log, read off this container's own
+// bind of the scratchpad the app-server writes (`docker/compose.yml`), not over
+// the socket. That is what lets a finished run open after the process that ran it
+// is gone — and what makes these two routes answer while the app-server is down.
+// No profile token applies to a directory the app-server always writes, so the
+// gate is the session `index.ts` puts in front of `/api/*` and nothing else.
+const taskRuns = createTaskLogStore();
+registerTaskRunRoutes(app, taskRuns);
 
 // ── Remote pi worker ─────────────────────────────────────────────────────
 // Everything here is BFF-local: settings and keys on `bff-data`, runs captured

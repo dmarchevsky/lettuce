@@ -96,7 +96,7 @@ services:
         CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-2.1.327}
     # Tagged by release, not by pins: what is inside is what the tag's commit
     # built, and /opt/lettuce/features plus Settings → About report the CLIs.
-    image: ${LETTA_IMAGE_NS:-}lettuce-app-server:${LETTA_IMAGE_TAG:-v0.50.1-letta_0.34.70}
+    image: ${LETTA_IMAGE_NS:-}lettuce-app-server:${LETTA_IMAGE_TAG:-v0.50.2-letta_0.34.70}
     # An init process as PID 1, so exited orphans are reaped. Without it PID 1
     # is `node … letta server`, which waits only on children it spawned: every
     # process an agent shell backgrounds (`&`, nohup, servers) and outlives is
@@ -220,10 +220,42 @@ services:
       # an endpoint's URL and token, or the user's Claude subscription OAuth
       # token. So this directory holds secrets, the subscription one included.
       CLAUDE_CONFIG_DIR: /root/.letta/claude
+      # Where letta-code puts its temporary tree — and therefore each background
+      # task's readable log and event log: `getBackgroundOutputDir()`
+      # (tools/impl/process_manager.ts) makes a fresh `mkdtemp(os.tmpdir()/
+      # letta-background-)` per process and `task-transcript.ts` appends
+      # `<task_id>.jsonl` beside `<task_id>.log` inside it.
+      #
+      # Unset, that is container-layer storage: a run's transcript is unreadable
+      # once the process is gone and the BFF cannot reach it at all. Pointed under
+      # the state tree it survives, which is the whole point of Runs → subagent
+      # runs (`bff/src/runs/task-logs.ts`), and it is the same absolute path as
+      # the BFF's mount of it below because that side stats the paths as named here.
+      #
+      # Why this and not `LETTA_SCRATCHPAD`, which is the obvious knob: upstream
+      # uses that directory *verbatim*, and a task id is only unique per process
+      # (`getNextTaskId()` counts from 1 in every process). A shared scratchpad
+      # therefore collides inside one boot — a depth-1 subagent's own Task reuses
+      # `task_1` and `createBackgroundOutputFile` truncates on create, so the
+      # nested run destroys the parent's transcript. `TMPDIR` keeps upstream's own
+      # per-process `mkdtemp`, so uniqueness comes from the mechanism upstream
+      # already relies on rather than from anything we maintain. Cost: every temp
+      # write in this container lands under the backup unit and survives a
+      # recreate; retention prunes the run directories by age and leaves
+      # anything else alone.
+      #
+      # Changing this recreates `app-server`, which kills every turn in flight
+      # with no drain (the drain covers `bff` alone), and an unscoped `up` does it
+      # too: this service shares a network namespace with two others.
+      TMPDIR: /var/lettuce/task-logs
     volumes:
       - ${LETTA_STATE_DIR:-../..}/letta-home:/root/.letta
       - ${LETTA_STATE_DIR:-../..}/letta-data:/data
       - ${LETTA_STATE_DIR:-../..}/workspaces:/work
+      # The task logs (`TMPDIR` above), read-write because this is the
+      # process writing them. The BFF mounts the same host directory at the same
+      # path and does two things in it and nothing more — see its own mount.
+      - ${LETTA_STATE_DIR:-../..}/task-logs:/var/lettuce/task-logs
       # What agents install (npm -g, cargo, go, uv, downloaded binaries). The
       # image points each package manager here and appends its bin dirs to
       # PATH (docker/codex/Dockerfile), because /usr/local and /root/.local are
@@ -276,7 +308,7 @@ services:
       # and `bun run build:bff` passes it from the host checkout.
       args:
         GIT_SHA: ${GIT_SHA:-}
-    image: ${LETTA_IMAGE_NS:-}lettuce-bff:${LETTA_IMAGE_TAG:-v0.50.1-letta_0.34.70}
+    image: ${LETTA_IMAGE_NS:-}lettuce-bff:${LETTA_IMAGE_TAG:-v0.50.2-letta_0.34.70}
     depends_on:
       app-server:
         condition: service_healthy
@@ -417,6 +449,16 @@ services:
       # only https or localhost here, so a plain-http LAN origin needs an
       # override such as http://localhost:8090/api/google/oauth/callback.
       GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-}
+      # Runs → subagent runs (`bff/src/runs/task-logs.ts`). The path is not a
+      # knob: it is the same literal as the mount below and the app-server's
+      # `TMPDIR` above, and the three must agree, so it is set here rather
+      # than defaulted in code where a fourth spelling could drift.
+      TASK_LOG_DIR: /var/lettuce/task-logs
+      # How long a finished run directory survives, in days; 0 keeps every one.
+      # This is the only delete the pane ever performs, and it reaches only a
+      # `letta-background-XXXXXX` directory under the root above whose newest
+      # entry is older than this and that is not the newest directory there.
+      TASK_LOG_RETENTION_DAYS: ${TASK_LOG_RETENTION_DAYS:-14}
     volumes:
       # Google access policy and OAuth token (bff/src/google/): shared with the
       # google-mcp sidecar and NOTHING else. The app-server and channel-gateway
@@ -453,6 +495,22 @@ services:
       # symlink walk, then the realpath re-check. Note this is not a boundary
       # against an agent: app-server mounts the same tree read-write as uid 0.
       - ${LETTA_STATE_DIR:-../..}/workspaces:/work
+      # The task logs the app-server writes (under its `TMPDIR` above), at the
+      # same absolute path in both containers so one path is one fact. Read here:
+      # the Runs pane lists finished runs and pages a transcript off the `.jsonl`
+      # (`bff/src/runs/task-logs.ts`), which is the only reason this mount exists.
+      #
+      # Read-write, for exactly one verb: retention deletes a run directory past
+      # `TASK_LOG_RETENTION_DAYS` (`pruneRunDirs` in that file). Upstream gives
+      # every process its own `letta-background-XXXXXX` directory and writes
+      # whatever else it treats as temp inside it, so there is nothing to sweep or
+      # archive here — a run's directory is its identity, and task-id uniqueness
+      # comes from upstream's own `mkdtemp` rather than from anything we maintain.
+      # Nothing read or deleted can leave this root: the guard chain is
+      # `files/delete.ts`'s shape (lexical clamp, the component-wise symlink walk,
+      # then the `realpath` re-check), the only names it accepts are that
+      # `letta-background-` grammar, and the newest directory is never touched.
+      - ${LETTA_STATE_DIR:-../..}/task-logs:/var/lettuce/task-logs
       # Settings → Skills (bff/src/skills/): the global, agent and memfs skill
       # roots, read-only and at the app-server's own absolute paths so the
       # symlinks in them resolve. Not over the protocol: upstream publishes no
@@ -539,7 +597,7 @@ services:
       context: searxng
       args:
         SEARXNG_VERSION: ${SEARXNG_VERSION:-2026.10.23-629368e40}
-    image: ${LETTA_IMAGE_NS:-}lettuce-searxng:${LETTA_IMAGE_TAG:-v0.50.1-letta_0.34.70}
+    image: ${LETTA_IMAGE_NS:-}lettuce-searxng:${LETTA_IMAGE_TAG:-v0.50.2-letta_0.34.70}
     environment:
       TZ: ${TZ:-America/Los_Angeles}
     restart: unless-stopped
@@ -558,7 +616,7 @@ services:
       context: ddg-mcp
       args:
         DDG_MCP_VERSION: ${DDG_MCP_VERSION:-0.7.0}
-    image: ${LETTA_IMAGE_NS:-}lettuce-ddg-mcp:${LETTA_IMAGE_TAG:-v0.50.1-letta_0.34.70}
+    image: ${LETTA_IMAGE_NS:-}lettuce-ddg-mcp:${LETTA_IMAGE_TAG:-v0.50.2-letta_0.34.70}
     environment:
       TZ: ${TZ:-America/Los_Angeles}
       DDG_REGION: ${DDG_REGION:-us-en}
@@ -591,7 +649,7 @@ services:
       context: google-mcp
       args:
         WORKSPACE_MCP_VERSION: ${WORKSPACE_MCP_VERSION:-2.5.0}
-    image: ${LETTA_IMAGE_NS:-}lettuce-google-mcp:${LETTA_IMAGE_TAG:-v0.50.1-letta_0.34.70}
+    image: ${LETTA_IMAGE_NS:-}lettuce-google-mcp:${LETTA_IMAGE_TAG:-v0.50.2-letta_0.34.70}
     environment:
       TZ: ${TZ:-America/Los_Angeles}
     volumes:

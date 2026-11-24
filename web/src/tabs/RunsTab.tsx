@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { ClaudeRunsList } from "../components/ClaudeRunsList.tsx";
 import { CodexRunsList } from "../components/CodexRunsList.tsx";
 import { PiRunsList } from "../components/PiRunsList.tsx";
+import { TaskRunsList } from "../components/TaskRunsList.tsx";
 import { type FeatureFlags, featureEnabled } from "../lib/features.ts";
 import { onlyRunsLabel, otherRunsLabel, sumOther } from "../lib/runs-scope.ts";
 import type { BackgroundProcessSummary } from "../state/use-conversation.ts";
@@ -69,6 +70,7 @@ export function RunsTab({
   const onCodex = useCallback((other: number) => report("codex", other), [report]);
   const onClaude = useCallback((other: number) => report("claude", other), [report]);
   const onPi = useCallback((other: number) => report("pi", other), [report]);
+  const onTask = useCallback((other: number) => report("task", other), [report]);
 
   const agentNames = useMemo(
     () => Object.fromEntries(agents.map((agent) => [agent.id, agent.name])),
@@ -123,6 +125,14 @@ export function RunsTab({
           onOther={onPi}
         />
       ) : null}
+      {/* Plain subagent runs, read off the app-server's task transcripts: no worker
+          token gates them, and their files outlive the process that wrote them. */}
+      <TaskRunsList
+        refreshKey={refreshKey}
+        agentId={scope}
+        agentName={agentName}
+        onOther={onTask}
+      />
     </div>
   );
 }

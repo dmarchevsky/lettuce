@@ -177,6 +177,13 @@ describe("session command allowlist", () => {
     expect(ALLOWED_SESSION_COMMANDS.has("subagent_stop")).toBe(true);
   });
 
+  test("a running subagent's events are not read over the socket", () => {
+    // Upstream's wire-side page of the event log stays off the allowlist: every
+    // reader in this app goes through the event stream or the file route
+    // (`runs/task-logs.ts`), so admitting it would only widen the surface.
+    expect(ALLOWED_SESSION_COMMANDS.has("read_subagent_events")).toBe(false);
+  });
+
   test("the process-level surface stays off the allowlist", () => {
     // Terminals, arbitrary shell, and the raw settings write path. None of
     // these have a screen, so none of them are reachable.
