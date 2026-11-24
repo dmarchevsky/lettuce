@@ -166,11 +166,11 @@ A fold **re-proves each reflection's claim against the thing it describes** befo
 stale strings: in one fold three of nine folded claims were false as written, and a wrong rule in a rule doc is
 worse than the missing rule it replaced. **When the claim is about dev-flow behaviour, the thing it describes is
 the installed plugin** — read the version out of `~/.pi/agent/npm/node_modules/pi-dev-flow/package.json`, find
-which of its releases touched the symptom, and read that release's own text before the row enters the playbook.
-Do not guess the version, and do not fold a rule the installed build already enforces or already replaced: two
-folds shipped exactly that, in one case charging the newest releases with fixes that had landed two versions
-earlier, and each false row was caught only by a fresh read of `node_modules` — after Verified?, so it cost a
-refused Release? and a correction commit.
+which of its releases touched the symptom in that build's `CHANGELOG.md`, and read that release's own text before
+the row enters the playbook. Do not guess the version or how far back the fix landed, and do not fold a rule the
+installed build already enforces or already replaced: two folds shipped exactly that, in one case charging the
+newest releases with fixes that had landed releases earlier, and each false row was caught only by a fresh read of
+`node_modules` — after Verified?, so it cost a refused Release? and a correction commit.
 
 Closing a fold takes **one** `flow reflect done` call with every id listed (`done r58,r59,… <note>`): since the
 ids became stable the gate validates the whole list up front and checks off nothing on a bad one, so a row-per-call
@@ -427,8 +427,8 @@ times. Either render it in a browser or say the claim is unverified.
 `docker exec lettuce-app-server-1 cat /usr/local/lib/node_modules/@letta-ai/letta-code/package.json` — and do not
 type a hand `docker compose build app-server` followed by a second unscoped `up -d`: the hand pair is the forbidden
 by-hand shape and it displaces the stack twice. If that proof reads the old pin, the rebuild is the full redeploy
-`lettuce-upstream-sync` names (`up -d --build`, which is what retags `app-server` on the new base), routed through
-the sanctioned deploy and named in the handoff — not an extra command of your own.
+`lettuce-upstream-sync` names (`up -d --build`, which is what retags `app-server` on the new base) — an operator's
+command on the shared stack, named in the handoff, not an extra command of your own.
 
 When the branch edits `scripts/ui-check.ts` itself, the owed item
 is narrower: **the operator runs `bun run ui-check` once** during the container test — a click-through does
