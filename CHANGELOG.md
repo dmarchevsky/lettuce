@@ -6,11 +6,45 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 ## [Unreleased]
 
 ### Added
+- **The web UI can now be tested as rendered.** A component or a state hook renders in a real DOM inside the
+  ordinary test run (`bun run test`), so the claims that four flows could only prove by reading a component — an
+  image row that drops its picture, an ack shown as the opposite of what happened, a settings form whose Save
+  accepted junk and lost the edit on a failed save — are assertions now. Four test files ship with the
+  harness, each assertion proven to fail against the defect it stands guard against before it was made green.
+
+## [v0.50.1-letta_0.34.70] - 2026-11-24
+
+### Fixed
+- **A picture an MCP tool returns now reaches the agent.** A browser's screenshot or a chart used to
+  arrive as `[image content omitted]`, so the agent described a page it had not seen or promised a
+  picture nobody could open. Now it sees the picture, the conversation shows it, and the file lands in
+  the agent's own workspace where it can point at it.
+- The playbook fold's latest twelve. A fold now re-proves every reflection about dev-flow
+  behaviour against the installed plugin before it becomes a rule, and drops what the harness
+  already enforces — several folded rules described gate behaviour that has since been
+  replaced. The review step moved before the container test, so a review finding no longer
+  costs a redeploy and a re-asked sign-off; a compose-profile flip now touches only the main
+  checkout's env and the flow's own copy, never another session's; the release path says once
+  which bump question is asked where, and proves the changelog survived a merge; and plans must
+  anchor an upstream claim to a local path, schedule a red run before the commit that would
+  make it green, and define the container pass for a trigger this machine cannot force.
+
+## [v0.50.0-letta_0.34.70] - 2026-11-24
+
+### Added
+- **Codex worker runs now wear their task's name.** Upstream 0.34.70 titles each worker
+  session with the task it was launched for; the Runs pane leads with that title and falls
+  back to the old prompt line for runs predating naming. Subagent conversations get named
+  the same way and every list that shows a conversation title shows the task.
 - **Sign in to an MCP server.** Settings → MCP servers takes a bearer token and custom headers for http and
   sse servers — a Home Assistant long-lived token, an `X-API-Key` — kept on the Lettuce server: no agent can
   read one, and a token is only ever sent to the host it was entered for.
 
 ### Changed
+- **letta-code 0.34.68 → 0.34.70.** Workers are scoped to one task each — a fresh subagent
+  takes its task description as its assignment and title — task tools answer with full
+  snapshots now, and turn setup skips a slow lookup. Otherwise a hygiene range: upstream
+  deleted every code comment and hundreds of stale tests, so nothing else moves.
 - The playbook fold's tail: four more lessons from recent flows. The lifecycle guard now lets the cleanup
   it mandates pass (an `exec`ed `rm` inside the owning container); a dev-port replace-or-wait that a long
   unattended chain will hit is asked when the holder first shows; conflict markers get swept before the

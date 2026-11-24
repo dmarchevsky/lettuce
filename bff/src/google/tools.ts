@@ -597,12 +597,9 @@ export function googleHandlers(options: {
       const call = curated.build(args);
       if (typeof call === "string") return { text: call, isError: true };
       try {
-        const result = await options.client.callTool(
-          server,
-          call.tool,
-          call.arguments,
-          context?.signal,
-        );
+        const result = await options.client.callTool(server, call.tool, call.arguments, {
+          signal: context?.signal,
+        });
         const text =
           result.text ||
           (result.isError ? "Google reported an error with no details." : "(no output)");

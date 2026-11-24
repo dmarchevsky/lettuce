@@ -1,6 +1,6 @@
 ---
 name: lettuce-ui-verification
-description: 'lettuce UI-change gates: before implementing any web/ change, mock the target state at phone (390px) and desktop (1280px) into the flow plan and get the mockups approved; after implementing, a holistic visual pass over screenshots and the live page — task accomplishment, consistency with sibling screens, broken layout, overflows, stray scrollbars — never pixel diffs. Mechanics: a static mock page linking web/src/styles.css for fidelity, rendered to plan/mockups/ PNGs with headless chromium and embedded in plan.md, plus Playwright screenshots and ui-check output in .ui-check/. Also when a screenshot is itself the deliverable (a README image, a mockup crop): review the element at the size it really renders. Read before implementing any web/ UI change, before handing a UI change off for the container test, before regenerating a README screenshot, or when a review asks "does this fit the app".'
+description: 'lettuce UI-change gates: before implementing any web/ change, mock the target state at phone (390px) and desktop (1280px) into the flow plan and get the mockups approved; after implementing, a holistic visual pass over screenshots and the live page — task accomplishment, consistency with sibling screens, broken layout, overflows, stray scrollbars — never pixel diffs. Mechanics: a static mock page linking web/src/styles.css for fidelity, rendered to plan/mockups/ PNGs with headless chromium and embedded in plan.md, plus Playwright screenshots and ui-check output in .ui-check/. Also when a screenshot is itself the deliverable (a README image, a mockup crop): review the element at the size it really renders. Read before implementing any web/ UI change, before the container handoff, before regenerating a README screenshot, when a review asks "does this fit the app", or when a claim is about what a component or state hook renders, a `*.dom.test.tsx` test via `web/src/test/harness.tsx`, not a source read.'
 ---
 
 # UI change gates: mockups before, visual pass after
@@ -125,6 +125,24 @@ A redesign-style flow earns one of these per round the operator answers, not one
   same-class cousin that rewords the same geometry is missed by a phrase grep and read as truth by
   the next flow. In one redesign flow 6 of 8 verify passes failed on stale-geometry comments that
   survived a phrase grep this way.
+
+## A render claim can be a test — write it as one
+
+Four flows shipped a render claim proved by reading a component (a picture dropped by the row that renders it,
+an ack shown as the opposite of what happened, save-path defects surviving two review rounds with 15 pure tests
+green). That excuse is gone: `web/src/test/harness.tsx` renders a component or a hook in a real DOM (happy-dom,
+registered by the root `bunfig.toml`, so it runs inside `bun run test` with no stack).
+
+- **Name it `*.dom.test.tsx` beside the code** and import `{ mount, renderHook, settle, click, type, pick }`.
+  `mount` returns a handle (`find` / `all` / `byText` / `button` / `text`) and fails the test on any React warning,
+  so an act-scope mistake is caught in the harness rather than printed as noise.
+- **Fire events inside `settle(() => …)`**, and set input values with `type`/`pick` — they go through the native
+  value setter, which is the only way React sees a change.
+- **What belongs here**: what a user sees after an interaction (invalid input disables Save, a rejected save keeps
+  what was typed and says so, a mode switch hides its field), and anything about a *mount* — a hook that
+  re-setStates on every event only misbehaves while rendered, and no pure test can see it.
+- **What does not**: wire shapes and pure logic (keep those in the plain `*.test.ts` files), and pixel layout —
+  that is still `ui-check`.
 
 ## Why this lives outside CI
 

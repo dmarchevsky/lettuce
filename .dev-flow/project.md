@@ -96,7 +96,7 @@ Write the plan to `plan/` **as the discussion goes**, not when it ends: pi has a
 the file, so the file is the work's memory. Pace the gates the same way: land each one's output on disk
 before moving on.
 
-A one-line `--patch` plan is not enough when the change **stands in for upstream letta-code behaviour**: name the upstream command path (`file:line`) it short-circuits in the plan line, before Approve?, so the ordering assumption is on disk and checkable before code is written — a patch flow has no plan file, so that line is the only place a wrong assumption can surface. A cache once keyed its fill on `runtime_start_response`, but upstream replays state *before* that response (`src/websocket/listener/commands/runtime-start.ts`): the design could never fill, and the cache and its tests were rewritten after implementation through a second review round.
+A one-line `--patch` plan is not enough when the change **stands in for upstream letta-code behaviour**: name the upstream command path (`file:line`) it short-circuits in the plan line, before Approve?, so the ordering assumption is on disk and checkable before code is written — a patch flow has no plan file, so that line is the only place a wrong assumption can surface. A cache once keyed its fill on `runtime_start_response`, but upstream replays state *before* that response (`src/websocket/listener/commands/runtime-start.ts`): the design could never fill, and the cache and its tests were rewritten after implementation through a second review round. The same applies to **any claim about an upstream change**: the plan must name the local file, route or tool the claim reaches, or mark it **unadjudicated** — a quoted local anchor is the artifact, not prose asking for care. A plan asserted an upstream guard was local-relevant; ~25 implement calls later it turned out the guard wraps only the cloud client's stream path (the local path goes through a different SDK) and the probe's whole premise was gone.
 
 **A plan states the bump *class*, never a literal version tag** — MINOR or PATCH, nothing more. The tag is
 cut at pre-release and a parallel flow can release while this one is open: a plan that guessed the next tag
@@ -112,7 +112,7 @@ pre-release — PR-body prose is not a checkpoint, and one promised slice once r
 Notes disclosure nobody was asked about.
 When the operator waives a named precondition verbally, write the waiver into plan.md (in a
 `--patch`/`--docs` flow, which has no plan file, into the plan line) and the PR body — what was measured, or that the work proceeded unmeasured and what would change if the number
-comes back low — so a precondition cannot die silently behind a proceed-anyway.
+comes back low — so a precondition cannot die silently behind a proceed-anyway. **And a promised ordering proof must be schedulable: a run that has to go red *before* something is green must be placed before the commit that would make it green** — if that order cannot be kept, drop the promise at Approve?, where it is a decision, not in implement, where it silently becomes unperformable (a plan carried both orders, the pin landed first, the red run never happened, and the probe was iterated against a stack serving the previous pin).
 
 **A plan proves the feature's own runtime precondition, not just that a model exists.** "Prove there is a
 model before driving a turn" is the special case of a wider duty: name what the feature needs to be
@@ -124,14 +124,19 @@ logged into any GitHub hosts* and the feature could not be exercised at all. A b
 evidence. The same probe settles a bullet that needs a compose profile token: quote `/api/status`'s
 `features` for the token, or write the bullet as **waived at plan time** — a bullet that needs `codex` or
 `claude` (or `images`, or `telegram`) on a stack that does not carry it is discovered unwalkable at the
-checkpoint, where the only close left is a verbal gap.
+checkpoint, where the only close left is a verbal gap. **A trigger this one-stack machine cannot force defines
+its own container pass at plan time**: a feature woken by an app-server reconnect cannot be driven here —
+restarting `app-server` takes the network namespace holding `bff`, and the in-process state with it — so the plan
+says in words what the container pass is (a unit-level proof plus a probe, with the live reconnect named as
+unreachable here) instead of assuming it can be staged and leaving the feature to ship on unit tests alone.
 
 An asked-for *skill* settles its harness **before the flow starts**: `.agents/skills/` is this repo's dev harness — pi reads it in the checkout, and nothing mounts this checkout into a container, so it reaches no agent — while `docker/agent-skills/` is what ships: the bff image carries it and `bff/src/agent-skills.ts` installs it into `/root/.letta/skills` on every connect, global to every agent (Settings → Global skills). Ask which one is meant when it is ambiguous; guessing wrong once cost a whole extra unversioned flow for a skill that could never reach the app, plus a modify/delete rebase conflict when the harness copy was deleted.
 
 **An Approve? answer carries more than a yes.** When it names a class — "Approve patch" — on a flow that was
 started without `--patch`, it names the **bump class**, not the mode: a mode is proposed at `flow start` and
-cannot be bolted onto a started feature (the refusal only hints at `--ui`). Record the class in plan.md and pass
-it later as `--version=<class>` at verify. Same for `--ui`: turning it on for a plan-stage flow is
+cannot be bolted onto a started feature (the refusal only hints at `--ui`). Record the class in plan.md — on a
+versioned flow Approve? now records the release call itself (`flow approve --confirmed --version=<class>`), and
+any later change is `flow bump <class> --confirmed`, never a number carried to a later gate. Same for `--ui`: turning it on for a plan-stage flow is
 `flow start <slug> --ui` **in place**, never abort-and-restart, which throws away the flow identity for nothing.
 
 **A `--ui` plan answers direction before it paints.** Open direction questions go in a chat beat *before*
@@ -149,7 +154,31 @@ pays for with a merge and a full CI re-run. Local-only commits on `main`
 
 **A fold is not done until a repo-wide grep says so.** When a reflection names one stale string or verb,
 `git grep` the whole tree, not the file the note names: a rename that left `ponytail-review` printing in
-`scripts/verify.ts`'s epilogue cost an extra commit, and the note itself pointed nowhere near it. A fold also **rewrites addresses before committing**: a reflection records what it really saw — one carried a docker bridge-gateway address verbatim — and `check-prod-info` fails any tracked file holding a private IPv4, so a fold that copies a literal LAN or bridge address out of a reflection is doomed to fail its own gate. Reword it to the mechanism ("the bridge-gateway address of the compose network"), or to RFC 5737's documentation range where a literal example is the point. A fold also **re-proves each reflection's claim against the thing it describes** before committing, not just greps for stale strings: in one fold three of nine folded claims were false as written, and a wrong rule in a rule doc is worse than the missing rule it replaced. And a fold touching `AGENTS.md` **buys room first** — `bun run check-docs --print-size` shows the bytes left, and the file ships within a hair of its budget, so a two-line addition costs several byte-shaving runs; move task-scoped prose into a skill in the same commit.
+`scripts/verify.ts`'s epilogue cost an extra commit, and the note itself pointed nowhere near it.
+
+A fold **rewrites addresses before committing**: a reflection records what it really saw — one carried a docker
+bridge-gateway address verbatim — and `check-prod-info` fails any tracked file holding a private IPv4, so a fold
+that copies a literal LAN or bridge address out of a reflection is doomed to fail its own gate. Reword it to the
+mechanism ("the bridge-gateway address of the compose network"), or to RFC 5737's documentation range where a
+literal example is the point.
+
+A fold **re-proves each reflection's claim against the thing it describes** before committing, not just greps for
+stale strings: in one fold three of nine folded claims were false as written, and a wrong rule in a rule doc is
+worse than the missing rule it replaced. **When the claim is about dev-flow behaviour, the thing it describes is
+the installed plugin** — read the version out of `~/.pi/agent/npm/node_modules/pi-dev-flow/package.json`, find
+which of its releases touched the symptom in that build's `CHANGELOG.md`, and read that release's own text before
+the row enters the playbook. Do not guess the version or how far back the fix landed, and do not fold a rule the
+installed build already enforces or already replaced: two folds shipped exactly that, in one case charging the
+newest releases with fixes that had landed releases earlier, and each false row was caught only by a fresh read of
+`node_modules` — after Verified?, so it cost a refused Release? and a correction commit.
+
+Closing a fold takes **one** `flow reflect done` call with every id listed (`done r58,r59,… <note>`): since the
+ids became stable the gate validates the whole list up front and checks off nothing on a bad one, so a row-per-call
+loop is ceremony.
+
+And a fold touching `AGENTS.md` **buys room first** — `bun run check-docs --print-size` shows the bytes left, and
+the file ships within a hair of its budget, so a two-line addition costs several byte-shaving runs; move
+task-scoped prose into a skill in the same commit.
 
 ## implement
 
@@ -249,11 +278,15 @@ container pass was skipped and why, since no mode runs it for you.
 
 **A compose-profile token lives in as many copies as there are worktrees.** `setup` copies `docker/.env` into
 each worktree and every flow deploys from **its own** copy, so a token added to the main checkout alone silently
-drops on the next parallel `up -d` — and the app then tells the operator the feature is off. After flipping a
-token, list it from every copy and quote the listing in the handoff:
-`for f in docker/.env .dev-flow/*/worktree/docker/.env; do echo "$f"; grep COMPOSE_PROFILES "$f"; done`, run
-from the main checkout so the glob reaches them all. If a parallel deploy reverted it before you did, say that
-instead of letting the operator rediscover it.
+drops on the next parallel `up -d` — and the app then tells the operator the feature is off. The persistent flip
+is therefore exactly **two files: the main checkout's `docker/.env`** (every future worktree copies from it) and
+**your own worktree's copy**. Every *other* live worktree is that session's, and its `docker/.env` is gitignored
+state it may be mid-`Verified?` over: list those copies, never write them. So the listing
+(`for f in docker/.env .dev-flow/*/worktree/docker/.env; do echo "$f"; grep COMPOSE_PROFILES "$f"; done`, run
+from the main checkout so the glob reaches them all) is a **read-only survey** — it tells you a parallel deploy
+reverted your token or another flow's stack is missing one; name that in the handoff and let that flow's own
+session raise it. If a parallel deploy reverted yours before you did, say that instead of letting the operator
+rediscover it.
 
 **Commit, then build, then measure.** The bff image bakes the git sha into `BUILD_INFO`, so a commit made
 after `build:bff` leaves the stack serving the previous sha and the served-build gate refuses with what reads
@@ -381,6 +414,22 @@ is not that pass and never counts as one.
   the main checkout, never `$repo/letta-code`), and `docker/.env` is copied in by `setup` — a probe that
   resolves paths from its own cwd silently reads the wrong tree and reports absence as fact.
 
+**A refused `edit` leaves the change unapplied and every check still green.** The tool answers with an error and
+changes nothing, so a file can sit untouched while the session believes otherwise: five refusals in one session,
+one of which left the feature's headline hook defined but never called — dead code three commits deep, green
+`flow check` throughout, caught only by a review. Before `flow check`, re-read the target of any failed edit and
+`git grep` that the new seam actually has a caller. Two flows also found that **a claim about a render path cannot
+be proved by reading the component** — two headline review findings were exactly this (an ack that rendered as the
+opposite of what happened; an image parked on a row whose renderer ignores it), with pure-helper tests green both
+times. Either render it in a browser or say the claim is unverified.
+
+**Prove a sync's pin before rebuilding for it.** After `flow verify`, check what is actually running read-only —
+`docker exec lettuce-app-server-1 cat /usr/local/lib/node_modules/@letta-ai/letta-code/package.json` — and do not
+type a hand `docker compose build app-server` followed by a second unscoped `up -d`: the hand pair is the forbidden
+by-hand shape and it displaces the stack twice. If that proof reads the old pin, the rebuild is the full redeploy
+`lettuce-upstream-sync` names (`up -d --build`, which is what retags `app-server` on the new base) — an operator's
+command on the shared stack, named in the handoff, not an extra command of your own.
+
 When the branch edits `scripts/ui-check.ts` itself, the owed item
 is narrower: **the operator runs `bun run ui-check` once** during the container test — a click-through does
 not execute the suite and CI's `live.yml` runs with `UI_CHECK=off`, so a new assertion would otherwise ship
@@ -405,6 +454,17 @@ which starts sidecars and can recreate `app-server`: name that in the handoff ra
       a `/flow-review` run earlier in implement judges the branch against the skills it branched from: if a
       parallel flow landed since, update first (`git merge origin/main` in the worktree; once the branch is
       pushed, merging is also the `## global` rule — never rebase a pushed branch) and re-run the checks
+- [ ] `/flow-review` run **in implement, once `flow check` is green and before `flow verify` is run at all** —
+      a fresh-session read-only review of the branch diff (the `flow-review` skill, or `flow_stage` op `review`),
+      every must-have and should-have finding fixed, then recorded: `flow review done "<verdict>"` (a review worker
+      records itself). dev-flow enforces the record — the first `flow verify` at implement already refuses
+      without one, which is what makes "before verify" the position it can be kept in — and the position is what
+      the enforcement buys: a review that runs after Verified? makes every
+      fix cost a redeploy, a re-asked Verified? and the release gate's "commits landed after your Verified?"
+      warning. The rule is live here because `release.review` is unset in this playbook, so it keeps the default
+      review step; set it to empty and the gate stops asking. A `--docs` flow owes no review to the gate (it is exempt) — run one anyway, because two folds
+      shipped false claims that only a read-only pass caught. On a code-free release branch,
+      `check-release-hygiene --pr` over the branch stands in, named as such
 
 **(ui) A state invented after Approve? is still a changed surface.** The mockup gate stops at plan, so copy or
 a view added during implement — a review finding's error line, a new empty state — can reach a release with no
@@ -441,9 +501,13 @@ why `versionTag` is a bare `{version}` — do not let the doctor re-add the `v`.
 user-facing functionality, PATCH for everything else that ships. The version is cut here, per feature:
 **one commit** bumps VERSION and renames `## [Unreleased]` to `## [v…] - <date>`, leaving an empty
 `## [Unreleased]` above it — `check-release-hygiene` fails the branch when the two disagree, so a rename
-without a bump is red. **The bump commit waits for the operator's bump word** — a bare Verified? is not
-one: hold the prep commit until the operator names the class (MINOR or PATCH) or says unversioned; when
-Verified? arrives without a class, ask in the same breath as Verified?. **A standing `yolo` has no Verified?
+without a bump is red. **A fold flow (started with `--reflections`) is never asked**: it merges unreleased —
+one `## [Unreleased]` entry, no bump, no tag, and `--version` / `flow bump` will not name a class for it. **The bump
+class is the operator's release call, made at Approve? and recorded there** — a bare Verified? is not
+one, and neither a plan that stated a class nor a sync's own precedent is: on a flow Approve? left open,
+ask the class before cutting the prep commit, since a class learned *after* it means re-cutting both the
+prep commit and the changelog heading (only `flow bump <class> --confirmed`, or a `--version=<class>` on a
+confirmed call, changes it afterwards). **A standing `yolo` has no Verified?
 breath** — it runs the flow to this stage unasked — so stop and ask "which bump, or unversioned?" in the same
 message as Release?, and hold the prep commit until the answer: a whole `v…` prep commit cut on an assumed
 PATCH once came off with one `reset --hard`. Cutting the whole prep commit on an
@@ -459,7 +523,11 @@ word instead, **and it still owes its line**: an unversioned flow files one `## 
 when `lettuce-releasing` calls the change internal-only, because the next versioned release folds
 `Unreleased` under its heading and remembers what no image carries. No gate enforces that debt on a `bump:none` branch — `check-release-hygiene --pr` passes a docs branch with no entry and `flow release --no-version` accepts such a tree — so the line is the agent's duty, and a green hygiene run is not evidence it was written. A harness-only entry (playbook, skills,
 CI) goes under `### Changed` — the heading rule above reads only at a versioned release, where the `bump:*`
-label is what CI derives from and a harness flow carries `bump:none`. Parallel branches collide on `VERSION`
+label is what CI derives from and a harness flow carries `bump:none`. When a **versioned** release folds an
+`Unreleased` line a parallel unversioned flow left under `### Changed`, the two heading rules collide (harness
+prose files under Changed; a PATCH flow must not carry an `Added`/`Changed` block) — **the version being cut
+decides**: move the sibling line under the heading this release's class needs and say so in the prep commit
+message, rather than improvising live under a Release? deadline. Parallel branches collide on `VERSION`
 and `CHANGELOG.md`: merge `main` in and re-derive
 the version before asking Release?, because the gate refuses a tag that already exists.
 
@@ -471,10 +539,14 @@ there is still an implement turn to take; once the word is given, one message as
 Release? only after. And a gate refusal is never answered with `--confirmed` in the same turn: the standing
 word was already spent on the question the gate just re-asked, and re-running immediately is refused again.
 
-**Never spend a release attempt finding out the bump.** A `--docs` flow asked to release may find the next tag
-already taken by a parallel flow, and `Unreleased` holding leftovers from earlier unversioned flows — so the
-class question goes *before* the gate call, not after a refusal: ask the bump class (or unversioned) in the same
-breath as Release?, then run the gate **once** with the answer (`--no-version`, or the named version).
+**Never spend a release attempt finding out the bump.** A fold flow is asked nothing — it merges unreleased, so
+there is no class to find. On any other flow the class is the release call recorded at Approve? and **no later gate
+asks it again**, so a flow that reaches pre-release without one on record (approved by an older build, or approved
+before the class was settled) asks the operator first and then changes it on the record — `flow bump <class>
+--confirmed`, or `--version=<class>` / `--no-version` on the confirmed call — rather than
+running the gate to discover the answer, which only spends a refusal beside a next tag a parallel flow already
+took. The run-it-bare-and-let-it-refuse shape is only the standing-yolo recipe for a **versioned** flow, described
+in `## release`.
 
 **A code-free release flow** (its only commit is the bump) inverts the order above: `flow verify` refuses
 a branch with nothing committed, so the release-prep commit is cut at implement, and pre-release only
@@ -488,10 +560,6 @@ say plainly to expect the full build.
 release-literal site too and moves in the same commit — it is the tag a host without `LETTA_IMAGE_NS`
 builds, and what CI compares against `VERSION` after the merge. `sync-upstream` leaves it alone on purpose.
 
-- [ ] `/flow-review` run on the change (a fresh-session read-only review of the branch diff — the
-      `flow-review` skill, or `flow_stage` op `review`) and every must-have and should-have finding
-      fixed — on a
-      code-free release branch, `check-release-hygiene --pr` over the branch stands in, named as such
 - [ ] the `## [Unreleased]` changelog entry every flow owes — an unversioned flow included — with the
       `bump:minor` / `bump:patch` / `bump:none` label agreeing with it
 - [ ] (versioned) the VERSION bump and any README / docs/CONFIGURATION.md sync, in that same
@@ -509,12 +577,15 @@ yolo = until-release
 ```
 
 **`yolo = until-release` is the machine-readable half of the yolo rule in `## global`,** and it is weaker
-than it sounds: a **bare** `flow release` with a standing yolo comes back `NEEDS-OPERATOR`, but `--confirmed`
-always stands as the operator's own answer at that checkpoint. So the agent-side rule is: never replay a
-plan- or verify-stage yolo onto `flow release` as `--yolo --confirmed` — run it bare, let it refuse, then ask
-**Release?** in chat and pass only `--confirmed`. Prose alone did not hold here: the block used to carry only
-`merge = merge`, so a plan-stage yolo merged a version-bump branch under `--yolo` fourteen minutes before the
-operator said the word. A yolo answered **at** the release checkpoint is that word and passes.
+than it sounds: it only stops a standing yolo from answering Release? for you — it never says whether the
+question is needed at all, because `release.ask` defaults to `on-change`: Release? answers itself when
+everything since Verified? is release prep, docs or tests, and the gate says so in its output. So the agent-side
+rule is: **never replay a plan- or verify-stage yolo onto `flow release` as a pre-answer — run the gate and let
+it decide.** Prose alone did not hold here: the block used to carry only `merge = merge`, so a plan-stage yolo
+merged a version-bump branch under `--yolo` fourteen minutes before the operator said the word. If the gate
+comes back `NEEDS-OPERATOR Release?`, ask it in chat and pass **`--confirmed` alone** (never a second `--yolo`);
+a yolo answered **at** the release checkpoint is that word and passes. A fold flow or any unversioned flow never
+reaches the question — it merges unreleased — so the gate runs once with the call already on record.
 
 Publish only — the preparation happened above, and **the gate does the publishing**: `flow release
 --confirmed` pushes the branch, opens the PR, waits for its CI, merges in the playbook's style, cuts the
@@ -583,6 +654,10 @@ release recorded, a worktree gone and `deploy-check` never run.
       another flow's deploy is under review, or a recreate would kill someone's turn, write down what
       `deploy-check` says and hand off instead of rebuilding. Do not offer a shared-stack redeploy inside the
       Finish? question — a bare "finish" cannot say which of the two it means.
+- [ ] **after any merge of `origin/main`, prove the changelog before pushing**: a three-way merge attaches your
+      added lines to the renamed block, so an unversioned flow's entry can land under an already-tagged heading
+      and nothing checks it — diff `CHANGELOG.md` against `origin/main` and confirm your own lines are still
+      under `## [Unreleased]` (one fold's four clauses published under the previous tag until a hand repair).
 - [ ] a versioned release's **image tag lags the checkout** on a build-locally host: the compose tag default
       moved with `VERSION`, so nothing built before the merge carries the new name and build identity fails
       with no flag to forgive it. Fix from `main` with a clean tree — `bun run build:bff` then

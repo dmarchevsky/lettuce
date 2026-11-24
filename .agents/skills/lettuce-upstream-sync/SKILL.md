@@ -291,6 +291,28 @@ Protocol drift shows up two ways:
 - `@earendil-works/pi-ai` did **not** move across this range (`^1.5.2` at both tags) — no model-catalog
   recount, no `docs/CONFIGURATION.md` count edits.
 
+### The 0.34.68 → 0.34.70 sync
+
+**The nightly watch's zero-drift claim was a false green**: the GitHub compare API caps its
+`files` list at exactly 300 entries, and this range moved **2,065 files** (724 deleted, 1,341
+modified+added — upstream deleted all code comments, #5856, and low-value tests, #5855). The name-based watched-file check found **53 watched paths
+moved**; the real check is a comment-and-whitespace-stripped diff of each watched file across the
+range — that proved the only *substantive* watched-file changes were #5844's hunks in `task.ts`,
+`external-coding-agent.ts` and `codex-app-server.ts`; the rest was `catch {}` collapse and one
+indent fix. Adjudicated (each against the local path it reaches):
+
+- #5787 task-CRUD snapshots: tool returns only. Our Tasks tab is cron-driven
+  (`web/src/tabs/TasksTab.tsx` uses `cron_list`/`cron_add`), Google Tasks is the separate
+  `tasks_*` mod — no local consumer, the agent just gets richer returns.
+- #5792 perf (model lookups): internal, no app surface.
+- #5863 forwarded subagent launches run on the receiving computer: multi-machine routing,
+  dormant for our one-app-server install — exists upstream if we ever split runners.
+- #5844 subagents scoped to a task description — **shipped into Lettuce by this sync's flow**:
+  the subagent conversation's summary becomes the task description (our conversation lists name
+  themselves for free), and codex names threads in `$CODEX_HOME/session_index.jsonl`
+  (append-only `{id, thread_name}`, newest wins) — parsed by `bff/src/codex/rollout.ts` and
+  surfaced as the Runs-row title with prompt fallback.
+
 ### The 0.34.67 → 0.34.68 sync
 
 **Zero watched files moved** (both script arrays intersected with the range's file list — 6 commits).

@@ -1,0 +1,4 @@
+[test]
+# One global scope for both tiers: pure tests and render tests run in the same `bun test`
+# invocation, and the plain pass cannot fail a render test for missing `document` that way.
+preload = ["./web/src/test/dom-preload.ts"]
