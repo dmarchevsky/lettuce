@@ -5,7 +5,13 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
-### Changed
+## [v0.50.1-letta_0.34.70] - 2026-11-24
+
+### Fixed
+- **A picture an MCP tool returns now reaches the agent.** A browser's screenshot or a chart used to
+  arrive as `[image content omitted]`, so the agent described a page it had not seen or promised a
+  picture nobody could open. Now it sees the picture, the conversation shows it, and the file lands in
+  the agent's own workspace where it can point at it.
 - The playbook fold's latest twelve. A fold now re-proves every reflection about dev-flow
   behaviour against the installed plugin before it becomes a rule, and drops what the harness
   already enforces — several folded rules described gate behaviour that has since been

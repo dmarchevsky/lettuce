@@ -114,7 +114,9 @@ before exposing anything.
   can email or invite.
 - **GitHub pull-request watching** through the GitHub CLI.
 - **Any MCP server** you add, in one list shared by every agent. A bearer token or API-key header
-  (Home Assistant, for one) stays on the server and is never shown to an agent.
+  (Home Assistant, for one) stays on the server and is never shown to an agent, and a picture a tool
+  returns — a browser's screenshot, a chart — arrives as a picture, not as a sentence saying one was
+  left out.
 - **Tool approvals.** A tool call that needs permission surfaces as a sheet you
   can allow or deny, from any device — and sends a push if nobody is watching.
 - **Structured questions.** An agent can ask a multiple-choice question that
