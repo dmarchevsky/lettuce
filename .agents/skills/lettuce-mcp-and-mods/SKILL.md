@@ -40,7 +40,14 @@ Loaded from `AGENTS.md`. Mods are thin and the BFF does the work; MCP is one sha
     written for the app-server container, so it stays on the skill wrapper, as do subagents
     (no mod tools). `McpCatalog` caches `tools/list` per server (connect, MCP save, Google
     change, 10-min TTL); names are upstream's `mcp__<server>__<tool>`. The skill's description
-    now says so. Browsers reach none of these files: `/api/mcp` reads and writes the list (an
+    now says so. A `tools/call` answer is text **plus pictures**: `textOfResult` carries a server's
+    `image` blocks (`png`/`jpeg`/`webp`/`gif`, at most 4 per call and 5 MB each, and only for a caller
+    that passes `images: true`) into `ToolAnswer.images`, and the mod writes them under `mcp/` in the
+    agent's own workspace and hands them back as image content — so the model sees the screenshot and
+    the chat shows it (`scripts/mcp-image-server.ts` answers with a test chart for walking that path
+    when no real image server is configured). Anything dropped or unsupported stays named
+    `[image content omitted …]`, and the curated Google tools ask for no pictures, so one there is
+    named rather than lost silently. Browsers reach none of these files: `/api/mcp` reads and writes the list (an
     entry is a command line agent shells exec), and `settings.json` is no longer a readable
     exception.
   - **An http/sse server's bearer token and custom headers are not in that list — they are on
