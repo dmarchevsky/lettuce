@@ -5,12 +5,22 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.50.0-letta_0.34.70] - 2026-11-24
+
 ### Added
+- **Codex worker runs now wear their task's name.** Upstream 0.34.70 titles each worker
+  session with the task it was launched for; the Runs pane leads with that title and falls
+  back to the old prompt line for runs predating naming. Subagent conversations get named
+  the same way and every list that shows a conversation title shows the task.
 - **Sign in to an MCP server.** Settings → MCP servers takes a bearer token and custom headers for http and
   sse servers — a Home Assistant long-lived token, an `X-API-Key` — kept on the Lettuce server: no agent can
   read one, and a token is only ever sent to the host it was entered for.
 
 ### Changed
+- **letta-code 0.34.68 → 0.34.70.** Workers are scoped to one task each — a fresh subagent
+  takes its task description as its assignment and title — task tools answer with full
+  snapshots now, and turn setup skips a slow lookup. Otherwise a hygiene range: upstream
+  deleted every code comment and hundreds of stale tests, so nothing else moves.
 - The playbook fold's tail: four more lessons from recent flows. The lifecycle guard now lets the cleanup
   it mandates pass (an `exec`ed `rm` inside the owning container); a dev-port replace-or-wait that a long
   unattended chain will hit is asked when the holder first shows; conflict markers get swept before the
