@@ -4,16 +4,21 @@ import { decodedBytes, MAX_IMAGES_PER_CALL, textOfResult } from "./client.ts";
 const PNG = "iVBORw0KGgoAAAANSUhEUg==";
 const SVG = "PHN2Zy8+";
 
+/** What a caller that can take pictures gets. */
 function result(...content: unknown[]) {
-  return textOfResult({ content });
+  return textOfResult({ content }, { keepImages: true });
 }
 
 describe("textOfResult: text and the blocks it does not carry", () => {
   test("joins the text blocks", () => {
-    expect(result({ type: "text", text: "one" }, { type: "text", text: "two" })).toEqual({
-      text: "one\ntwo",
-      isError: false,
-    });
+    expect(
+      textOfResult({
+        content: [
+          { type: "text", text: "one" },
+          { type: "text", text: "two" },
+        ],
+      }),
+    ).toEqual({ text: "one\ntwo", isError: false });
   });
 
   test("names every block kind the bridge does not carry", () => {
@@ -34,9 +39,28 @@ describe("textOfResult: text and the blocks it does not carry", () => {
     expect(flat.images).toBeUndefined();
   });
 
+  test("names a picture for a caller that cannot take one", () => {
+    // The curated Google tools answer in text, so for them nothing is silently
+    // lost: a picture is named exactly as it was before the bridge carried any.
+    const flat = textOfResult({ content: [{ type: "image", data: PNG, mimeType: "image/png" }] });
+    expect(flat).toEqual({ text: "[image content omitted]", isError: false });
+  });
+
   test("falls back to structured content only when nothing was said", () => {
     expect(textOfResult({ structuredContent: { a: 1 } }).text).toContain('"a": 1');
-    expect(result({ type: "text", text: "x" }).text).toBe("x");
+    expect(textOfResult({ content: [{ type: "text", text: "x" }] }).text).toBe("x");
+  });
+
+  test("keeps structured content even when the only words are a dropped picture", () => {
+    const flat = textOfResult(
+      {
+        content: [{ type: "image", data: SVG, mimeType: "image/svg+xml" }],
+        structuredContent: { a: 1 },
+      },
+      { keepImages: true },
+    );
+    expect(flat.text).toContain('"a": 1');
+    expect(flat.text).toContain("image/svg+xml is not a picture");
   });
 
   test("survives a result that is not a result", () => {
@@ -64,6 +88,11 @@ describe("textOfResult: pictures", () => {
     const flat = result({ type: "image", data: PNG, mimeType: "image/png" });
     expect(flat.images).toHaveLength(1);
     expect(flat.text).toBe("");
+  });
+
+  test("reads a MIME type past its parameters", () => {
+    const flat = result({ type: "image", data: PNG, mimeType: "image/png; charset=x" });
+    expect(flat.images).toEqual([{ base64: PNG, mimeType: "image/png" }]);
   });
 
   test("names a MIME type the agent cannot be shown a picture of", () => {

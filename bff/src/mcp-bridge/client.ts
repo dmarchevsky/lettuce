@@ -33,10 +33,23 @@ export interface CallResult {
   isError: boolean;
   /**
    * The pictures worth carrying to the model, in the order the server sent them.
-   * A dropped or unsupported one is named in `text` instead, exactly as every
-   * image was before they travelled through the bridge at all.
+   * Only a caller that asked for them gets them (see `CallOptions.images`); a
+   * dropped or unsupported one is named in `text` instead, exactly as every image
+   * was before they travelled through the bridge at all.
    */
   images?: BridgeImage[];
+}
+
+export interface CallOptions {
+  /** The turn's cancellation, when the caller has one. */
+  signal?: AbortSignal;
+  /**
+   * Carry `image` blocks into `CallResult.images`. Only a caller that can do
+   * something with them asks: the curated Google tools answer in text, so for
+   * them a picture stays named `[image content omitted]` as it always was, and
+   * nothing silently vanishes on a path that cannot show one.
+   */
+  images?: boolean;
 }
 
 /** What the bridge needs from a server — injectable for tests. */
@@ -46,8 +59,7 @@ export interface McpClientPort {
     server: McpServer,
     tool: string,
     args: Record<string, unknown>,
-    /** The turn's cancellation, when the caller has one. */
-    signal?: AbortSignal,
+    options?: CallOptions,
   ): Promise<CallResult>;
 }
 
@@ -69,9 +81,11 @@ function transportFor(server: McpServer) {
  * reads back. Anything else — SVG above all, which is a document a browser can
  * be talked into fetching, not a picture — stays named, as it was before images
  * travelled through the bridge at all. Checked here, before any byte is written,
- * because the mod guesses the media type from the file extension and falls back
- * to `image/png`: a permissive map upstream would mislabel the file on disk and
- * the model alike.
+ * and on what the server *declared*: the mod guesses the media type from the file
+ * extension and falls back to `image/png`, so a permissive map upstream would
+ * mislabel the file on disk and the model alike. A server that declares `image/png`
+ * over an SVG body still gets `.png` — sniffing the bytes is the only stronger
+ * check, and it is not what this is.
  */
 export const BRIDGE_IMAGE_EXTENSIONS: Record<string, string> = {
   "image/png": "png",
@@ -97,30 +111,37 @@ interface ImageBlock {
 }
 
 /**
- * Text blocks joined; `image` blocks carried (see `CallResult.images`);
- * everything else (audio, resources) named, not inlined.
+ * Text blocks joined; `image` blocks carried when the caller asked (see
+ * `CallOptions.images`); everything else (audio, resources) named, not inlined.
+ * Why a picture did not travel is said after the text, as a tail line: the
+ * reasons are counted over the whole result, so they describe it, not one block.
  */
-export function textOfResult(result: unknown): CallResult {
+export function textOfResult(result: unknown, options: { keepImages?: boolean } = {}): CallResult {
   const record = (result && typeof result === "object" ? result : {}) as Record<string, unknown>;
   const parts: string[] = [];
   const images: BridgeImage[] = [];
   /** Why an image did not travel, counted — a server that sent fifty must not say so fifty times. */
   const dropped = new Map<string, number>();
+  /** Whether the server said anything in words — a drop note is not an answer, so it does not count. */
+  let said = false;
   for (const block of Array.isArray(record.content) ? record.content : []) {
     const typed = block as ImageBlock;
-    if (typed?.type === "text" && typeof typed.text === "string") parts.push(typed.text);
-    else if (typed?.type === "image") {
+    if (typed?.type === "text" && typeof typed.text === "string") {
+      parts.push(typed.text);
+      said = true;
+    } else if (typed?.type === "image" && options.keepImages) {
       const reason = keepImage(typed, images);
       if (reason) dropped.set(reason, (dropped.get(reason) ?? 0) + 1);
     } else if (typed && typeof typed.type === "string") {
       parts.push(`[${typed.type} content omitted]`);
+      said = true;
     }
+  }
+  if (!said && record.structuredContent !== undefined) {
+    parts.push(JSON.stringify(record.structuredContent, null, 2));
   }
   for (const [reason, count] of dropped) {
     parts.push(`[image content omitted — ${reason}${count > 1 ? ` (x${count})` : ""}]`);
-  }
-  if (parts.length === 0 && record.structuredContent !== undefined) {
-    parts.push(JSON.stringify(record.structuredContent, null, 2));
   }
   return {
     text: parts.join("\n").trim(),
@@ -131,14 +152,19 @@ export function textOfResult(result: unknown): CallResult {
 
 /** Carries the picture and returns nothing; returns the reason it could not otherwise. */
 function keepImage(block: ImageBlock, images: BridgeImage[]): string | undefined {
-  const mimeType = typeof block.mimeType === "string" ? block.mimeType.trim().toLowerCase() : "";
+  // `image/png; charset=x` is a PNG: the parameters belong to the transport, not
+  // to the type. And the declared value is the server's own words, so keep the
+  // echo in the answer short.
+  const mimeType =
+    typeof block.mimeType === "string"
+      ? (block.mimeType.split(";")[0]?.trim().toLowerCase() ?? "")
+      : "";
   if (!BRIDGE_IMAGE_EXTENSIONS[mimeType]) {
     return mimeType
-      ? `${mimeType} is not a picture the agent can see`
+      ? `${mimeType.slice(0, 40)} is not a picture the agent can see`
       : "the server sent no MIME type";
   }
-  if (typeof block.data !== "string" || block.data.trim() === "")
-    return "the server sent no picture data";
+  if (typeof block.data !== "string") return "the server sent no picture data";
   const bytes = decodedBytes(block.data);
   if (!bytes) return "the server sent no picture data";
   if (bytes > MAX_IMAGE_BYTES) {
@@ -153,7 +179,8 @@ function keepImage(block: ImageBlock, images: BridgeImage[]): string | undefined
 
 /** Decoded length of a base64 string, measured rather than decoded — nobody needs the bytes here. */
 export function decodedBytes(base64: string): number {
-  const body = base64.replace(/\s/g, "");
+  // Whitespace is rare and copying a 300 KB string to find none is the cost of it.
+  const body = /\s/.test(base64) ? base64.replace(/\s/g, "") : base64;
   const padding = body.endsWith("==") ? 2 : body.endsWith("=") ? 1 : 0;
   return Math.max(0, Math.floor((body.length * 3) / 4) - padding);
 }
@@ -180,13 +207,14 @@ export const mcpClient: McpClientPort = {
       } while (cursor);
       return tools;
     }),
-  callTool: (server, tool, args, signal) =>
+  callTool: (server, tool, args, options) =>
     withClient(server, async (client) =>
       textOfResult(
         await client.callTool({ name: tool, arguments: args }, undefined, {
           timeout: 120_000,
-          ...(signal ? { signal } : {}),
+          ...(options?.signal ? { signal: options.signal } : {}),
         }),
+        { keepImages: options?.images === true },
       ),
     ),
 };

@@ -14,6 +14,7 @@
  * Standard/Strict). A tool with no hint counts as a write.
  */
 
+import { randomUUID } from "node:crypto";
 import type { GoogleAccess } from "../agents/tool-access.ts";
 import { googleErrorAnswer, type LostAccessPort } from "../google/lost-access.ts";
 import { MODS_DIR } from "../internal-tools/mod.ts";
@@ -134,17 +135,29 @@ function argumentsOf(value: unknown): Record<string, unknown> | string {
   return "`arguments` must be an object of the tool's parameters.";
 }
 
-/** `20261124-091502` — two calls a minute apart must not overwrite each other's picture. */
+/** `20261124-091502` — so a person can tell which call made which picture. */
 function callStamp(now = new Date()): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
 }
 
 /**
+ * How long one server-given name may get into a file name. `serverSlug` makes a
+ * segment safe but not short, and a path the MOD cannot write is worse than a
+ * short one: the answer would name a file that does not exist. 40 per segment
+ * keeps the whole name well inside the 255-byte limit even with both at their
+ * worst, and it is what the image service does with a prompt (`slugifyPrompt`).
+ */
+const NAME_SEGMENT_CHARS = 40;
+
+/**
  * Where one returned picture goes. Both name segments come from the server, which
- * names its own tools, so both pass through the catalog's slug — path-safe by
+ * names its own tools, so both are slugged and cut — path-safe and short by
  * construction — and the extension comes from the MIME type the client already
  * let through, which is what makes the media type the mod reads back correct.
+ * The random tail is what makes the name unique: `mcp_call` never asks, so two
+ * calls to one tool in the same second are ordinary, and two turns must not be
+ * told the same path for different pictures.
  */
 export function picturePath(
   server: string,
@@ -152,9 +165,11 @@ export function picturePath(
   mimeType: string,
   index: number,
   stamp = callStamp(),
+  unique = randomUUID().slice(0, 8),
 ): string {
+  const slug = (name: string) => serverSlug(name).slice(0, NAME_SEGMENT_CHARS);
   const ext = BRIDGE_IMAGE_EXTENSIONS[mimeType] ?? "png";
-  return `${PICTURE_DIR}/${serverSlug(server)}-${serverSlug(tool)}-${stamp}-${index + 1}.${ext}`;
+  return `${PICTURE_DIR}/${slug(server)}-${slug(tool)}-${stamp}-${unique}-${index + 1}.${ext}`;
 }
 
 /**
@@ -206,7 +221,10 @@ export function bridgeHandlers(
     const toolArgs = argumentsOf(args.arguments);
     if (typeof toolArgs === "string") return fail(toolArgs);
     try {
-      const result = await client.callTool(found.server, found.tool, toolArgs, context?.signal);
+      const result = await client.callTool(found.server, found.tool, toolArgs, {
+        signal: context?.signal,
+        images: true,
+      });
       // A tool that reported failure gets its words, not its picture: a failed
       // screenshot is noise, and an answer must not claim a picture the tool did
       // not deliver.
@@ -227,12 +245,15 @@ export function bridgeHandlers(
         const lost = await googleErrorAnswer(google.lostAccess, body);
         if (lost) return lost;
       }
-      const text =
-        pictures.length > 0
-          ? `${body}\nSaved to ${pictures.map((picture) => picture.path).join(", ")}.`
-          : body;
+      // Cap what the server said BEFORE naming the files, so the sentence that
+      // names them can never be the part that gets cut — the mod writes the
+      // picture where the path says, and the agent quotes that sentence.
+      const text = capText(body, "ask the tool for less, e.g. a smaller page");
       return {
-        text: capText(text, "ask the tool for less, e.g. a smaller page"),
+        text:
+          pictures.length > 0
+            ? `${text}\nSaved to ${pictures.map((picture) => picture.path).join(", ")}.`
+            : text,
         isError: result.isError,
         ...(pictures.length > 0 ? { images: pictures } : {}),
       };
