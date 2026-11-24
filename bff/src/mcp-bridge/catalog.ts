@@ -32,7 +32,13 @@ const HIDDEN_PARAMETERS = new Set(["user_google_email"]);
 
 const DEFAULT_TTL_MS = 10 * 60_000;
 
-function serverSlug(name: string): string {
+/**
+ * Path-safe and identifier-safe: every character outside `[A-Za-z0-9_-]` becomes
+ * `_`, so a `..` or a separator cannot survive it. Used for the qualified tool
+ * names and for the file names the bridge gives a returned picture, whose two
+ * segments both come from a server that names itself.
+ */
+export function serverSlug(name: string): string {
   return name.replace(/[^a-zA-Z0-9_-]+/g, "_");
 }
 
