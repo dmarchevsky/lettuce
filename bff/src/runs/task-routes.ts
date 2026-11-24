@@ -13,7 +13,7 @@
 import type { Hono } from "hono";
 import { errorMessage } from "../errors.ts";
 import type { RouteEnv } from "../route-env.ts";
-import { isTaskId, parseGenerationStamp, type TaskLogStore } from "./task-logs.ts";
+import { isRunDir, isTaskId, type TaskLogStore } from "./task-logs.ts";
 
 /** Query bounds, so a listing cannot be asked for a whole archive in one call. */
 const MAX_LIST_LIMIT = 100;
@@ -48,15 +48,14 @@ export function registerTaskRunRoutes<Env extends RouteEnv>(
     if (!isTaskId(taskId)) return c.text("Not a task run id", 400);
     const after = positiveInt(c.req.query("after"), 0, Number.MAX_SAFE_INTEGER);
     const limit = positiveInt(c.req.query("limit"), 200, MAX_EVENT_LIMIT) || 1;
-    // A task id is only unique *with* its generation, so the listing hands one
-    // back and it is accepted only in the shape this module writes — a raw
-    // string from a URL never reaches a path.
-    const generation = c.req.query("generation");
-    if (generation && parseGenerationStamp(generation) === null) {
-      return c.text("Not a task run generation", 400);
-    }
+    // A task id is only unique *within* the process directory it was written in,
+    // so the listing hands that name back and it is accepted only in the shape
+    // upstream writes — a raw string from a URL never reaches a path. Absent
+    // means the newest directory holding the id.
+    const runDir = c.req.query("runDir");
+    if (runDir && !isRunDir(runDir)) return c.text("Not a run directory", 400);
     try {
-      const page = await store.events(taskId, { after, limit, generation: generation ?? null });
+      const page = await store.events(taskId, { after, limit, ...(runDir ? { runDir } : {}) });
       return page ? c.json(page) : c.text("No such task run", 404);
     } catch (error) {
       return c.text(errorMessage(error), 500);

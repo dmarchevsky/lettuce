@@ -4,21 +4,21 @@
  * Upstream keeps a *running* task's events in process memory (a per-task buffer
  * read back with `read_subagent_events`) and that dies with the app-server. The
  * durable record is the file beside it: every event is appended to
- * `<task_id>.jsonl` next to the task's readable `<task_id>.log`, in the
- * background-output dir, which `LETTA_SCRATCHPAD` pins to
- * `$LETTA_STATE_DIR/task-logs` — the same absolute path in the app-server (rw,
- * it writes) and in this container (rw, for the sweep and the retention prune
- * alone). See `docker/compose.yml` and letta-code `src/tools/impl/task-transcript.ts`.
- *
+ * `<task_id>.jsonl` next to the task's readable `<task_id>.log`, inside the
+ * background-output dir — a fresh `mkdtemp(os.tmpdir()/letta-background-)` per
+ * process, which `TMPDIR` pins under `$LETTA_STATE_DIR/task-logs` at the same
+ * absolute path in the app-server (rw, it writes) and in this container (rw, for
+ * the retention prune alone). See `docker/compose.yml` and letta-code
+ * `src/tools/impl/task-transcript.ts`.
+
  * Two upstream facts set the shape of everything here.
  *
- *  - **Ids are reused across boots.** `getNextTaskId()` counts up from `task_1`
- *    in every process, `createBackgroundOutputFile` *truncates* `<id>.log` on
- *    create, and the events log opens in append mode — so a second boot would
- *    otherwise write a new run into a dead run's transcript. `sweepTaskLogs`
- *    moves a generation's pairs into `archive/<stamp>` once, on connect, before
- *    any launch can land in the new process. That is what makes a transcript's
- *    identity *generation + name*, which is ours to maintain, not upstream's.
+ *  - **A task id is unique per process, not per name.** `getNextTaskId()` counts
+ *    up from `task_1` in every process, `createBackgroundOutputFile` *truncates*
+ *    `<id>.log` on create, and the events log opens in append mode. Upstream's
+ *    isolation is therefore the directory — one process, one `mkdtemp` dir — so
+ *    the run directory is the other half of a run's identity here, and nothing
+ *    this module maintains has to keep names unique.
  *  - **One directory, many writers.** `createBackgroundOutputFile` has nine call
  *    sites — bash, monitor, workflow, exec, watch-pr — so a file sitting there
  *    that is not a task is normal. Anything whose start block does not parse is
@@ -27,9 +27,9 @@
  *
  * Nothing here goes upstream and nothing needs the socket: the files are local
  * to this container, so the list answers while the app-server is down, which is
- * exactly when the history matters. Two verbs touch the tree — the sweep's move
- * and retention's delete — and both operate only on names inside their own root
- * after the guard chain below has proved it (`files/delete.ts` is the shape).
+ * exactly when the history matters. One verb destroys anything — retention's
+ * delete of a whole run directory — and it operates only on a name inside its own
+ * root after the guard chain below has proved it (`files/delete.ts` is the shape).
  *
  * The file sizes are upstream's ceiling, not ours: a single run's event log may
  * reach 256 MiB (`TASK_EVENTS_MAX_BYTES`), so nothing here reads a whole file.
@@ -38,25 +38,26 @@
  */
 
 import { lstatSync, realpathSync } from "node:fs";
-import { mkdir, open, readdir, rename, rm, stat } from "node:fs/promises";
+import { open, readdir, rm, stat } from "node:fs/promises";
 import { normalizePosixPath } from "../session/protocol.ts";
 import { symlinkViolation } from "../session/symlink-guard.ts";
 
-/** Where the app-server writes its task logs. `LETTA_SCRATCHPAD`, same path. */
+/** Where the app-server writes its task logs. The `TMPDIR` root, same path. */
 export const TASK_LOG_ROOT_DEFAULT = "/var/lettuce/task-logs";
 
-/** How long an archived generation is kept, absent `TASK_LOG_RETENTION_DAYS`. */
+/** How long a finished run's directory is kept, absent `TASK_LOG_RETENTION_DAYS`. */
 export const DEFAULT_RETENTION_DAYS = 14;
-
-/** Sub-directory of the root holding past generations, one dir per boot. */
-export const ARCHIVE_DIR = "archive";
 
 /** `<task_id>.log` / `<task_id>.jsonl`. Upstream's ids are `task_<n>`, digits only. */
 const TASK_ID_RE = /^task_[0-9A-Za-z_-]{1,40}$/;
-/** The base name of a file the sweep is allowed to move. */
-const TASK_FILE_RE = /^task_[0-9A-Za-z_-]{1,40}\.(?:log|jsonl)$/;
-/** An archive dir name this module wrote (`generationStamp`), and can therefore date. */
-const GENERATION_RE = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z$/;
+/**
+ * One process's run directory. `getBackgroundOutputDir()` makes it with
+ * `mkdtempSync(os.tmpdir()/"letta-background-")` — six random characters — and
+ * nothing else in the tree is a run. This grammar is the whole identity rule:
+ * a task id is unique only *inside* one of these directories, so nothing outside
+ * it is ever listed, read, or deleted.
+ */
+const RUN_DIR_RE = /^letta-background-[A-Za-z0-9]{6}$/;
 /** `[Task started: …]` then `[subagent_type: …]` — `writeTaskTranscriptStart`. */
 const START_BLOCK_RE = /^\[Task started: ([\s\S]*?)\]\n\[subagent_type: ([^\]\n]*)\]/;
 
@@ -83,21 +84,21 @@ const MAX_LINE_BYTES = 2 * 1024 * 1024;
 const OVERSIZED_PREVIEW_BYTES = 4 * 1024;
 /** A file touched this recently is still producing events, so the run is live. */
 const RUNNING_WINDOW_MS = 5 * 60 * 1000;
-/**
- * How long a root file must sit untouched before the sweep will move it. Longer
- * than {@link RUNNING_WINDOW_MS} on purpose: that one is a guess about a run's
- * state, this one is the deadline before a file is called not-being-written, and
- * upstream re-opens by path on every append — so moving too early splits a
- * transcript instead of moving it.
- */
-const SETTLE_MS = 10 * 60 * 1000;
-/** Candidates considered per listing, newest first — the archive is unbounded. */
+/** How much of the readable log's tail carries its closing line, if it has one. */
+const LOG_TAIL_BYTES = 4 * 1024;
+/** Candidates considered per listing, newest first — the run tree is unbounded. */
 const MAX_CANDIDATES = 500;
 /** Start blocks read per page, on top of `limit`, so one page stays one page. */
 const MAX_PARSE_ATTEMPTS = 400;
 
 export type TaskRunKind = "codex" | "claude-code" | "subagent";
-export type TaskRunStatus = "running" | "completed" | "unknown";
+/**
+ * What the file proves about how a run ended. `stopped` is its own answer on
+ * purpose: a log that simply stopped writing proves the run stopped, not that it
+ * failed, and upstream's own `[Task completed]` / `[Task failed]` closing lines
+ * are the only evidence either way.
+ */
+export type TaskRunStatus = "running" | "completed" | "failed" | "stopped";
 
 /** What the Runs row states: what the file proves, not what the process knew. */
 export interface TaskRunSummary {
@@ -105,10 +106,11 @@ export interface TaskRunSummary {
   kind: TaskRunKind;
   /** The transcript's own `[subagent_type: …]`, verbatim, for the row's label. */
   subagentType: string | null;
-  /** The launch prompt's description from the start block; null if unreadable. */
+  /** The run's own description from the start block; null if unreadable.
+   */
   description: string | null;
-  /** Archive dir the pair lives in, or null when it is the current generation. */
-  generation: string | null;
+  /** The process directory this pair lives in — what makes its id unique. */
+  runDir: string;
   startedAt: string | null;
   lastActivityAt: string | null;
   /** Bytes of both files together — the row's "how big". */
@@ -128,20 +130,12 @@ export interface TaskRunList {
 /** One page of a transcript: the records verbatim, plus where to continue. */
 export interface TaskRunEventsPage {
   taskId: string;
-  generation: string | null;
+  runDir: string;
   /** Upstream's own records (`seq`, `at`, `type`, and its fields), untouched. */
   events: Record<string, unknown>[];
   /** Line offset of the first event not returned — pass it back as `after`. */
   next: number;
   has_more: boolean;
-}
-
-export interface SweepResult {
-  /** The generation dir the files went to, or null when there was nothing to move. */
-  generation: string | null;
-  moved: string[];
-  /** Names left in the root on purpose (a link, or a name already archived). */
-  skipped: string[];
 }
 
 /** The file kinds the io reports: a symlink is `other`, so nothing follows it. */
@@ -186,8 +180,6 @@ export interface TaskLogIo {
    * page never costs the whole file.
    */
   readLineWindow(path: string, after: number, limit: number, maxBytes: number): Promise<LineWindow>;
-  move(from: string, to: string): Promise<void>;
-  makeDir(dir: string): Promise<void>;
   removeDir(dir: string): Promise<void>;
   realpath(path: string): string;
   lstat(path: string): { isSymbolicLink(): boolean };
@@ -281,10 +273,6 @@ export const fsTaskLogIo: TaskLogIo = {
     return window ?? { lines: [], nextLines: after, hasMore: false };
   },
 
-  move: (from, to) => rename(from, to),
-  makeDir: async (dir) => {
-    await mkdir(dir, { recursive: true });
-  },
   removeDir: async (dir) => {
     await rm(dir, { recursive: true, force: false });
   },
@@ -316,65 +304,98 @@ async function readWholeLines(
 ): Promise<LineWindow> {
   const decoder = new TextDecoder();
   const buffer = Buffer.alloc(READ_CHUNK_BYTES);
+  const lines: string[] = [];
   let offset = 0;
   let pending = "";
+  /** A line too big to buffer: counted and previewed, never held whole. */
+  let oversize: { bytes: number; preview: string } | null = null;
   let lineIndex = 0;
   let collected = 0;
   let usedBytes = 0;
   let nextLines = after;
-  const lines: string[] = [];
+  let tripped = false;
+  let ahead = false;
 
-  while (true) {
+  /** One whole line, in order: count it, deliver it, or trip the page limit. */
+  const take = (piece: string): void => {
+    lineIndex++;
+    if (tripped) {
+      if (piece.length > 0) ahead = true;
+      return;
+    }
+    if (lineIndex <= after) return;
+    if (collected >= limit || (collected > 0 && usedBytes + piece.length > maxBytes)) {
+      tripped = true;
+      // The line that tripped the limit was not delivered, so there is more —
+      // unless it was blank, in which case only a byte of probe can say.
+      if (piece.length > 0) ahead = true;
+      return;
+    }
+    lines.push(piece);
+    collected++;
+    usedBytes += piece.length;
+    nextLines = lineIndex;
+  };
+
+  while (!tripped) {
     const { bytesRead } = await handle.read(buffer, 0, READ_CHUNK_BYTES, offset);
     offset += bytesRead;
     const eof = bytesRead === 0;
-    const text = pending + decoder.decode(buffer.subarray(0, bytesRead), { stream: !eof });
+    let text = decoder.decode(buffer.subarray(0, bytesRead), { stream: !eof });
+
+    // Mid-way through a record too big to hold: count bytes until its newline
+    // arrives, then the rest of this chunk is ordinary text again.
+    if (oversize) {
+      const nl = text.indexOf("\n");
+      if (nl < 0) {
+        oversize.bytes += text.length;
+        text = "";
+      } else {
+        oversize.bytes += nl;
+        text = text.slice(nl + 1);
+        take(
+          JSON.stringify({
+            type: "oversized_record",
+            bytes: oversize.bytes,
+            preview: oversize.preview,
+          }),
+        );
+        oversize = null;
+      }
+    }
+
+    text = pending + text;
     const pieces = text.split("\n");
     // The last piece has no newline yet: either the rest of this chunk will
     // complete it, or at EOF it is a line the writer has not finished.
     pending = pieces.pop() ?? "";
-    let stopAt = -1;
-    for (let i = 0; i < pieces.length; i++) {
-      const raw = pieces[i] ?? "";
-      lineIndex++;
-      if (lineIndex <= after) continue;
-      // An oversized record becomes a placeholder rather than a slice: JSON has
-      // no valid prefix, and dropping it silently would hide the event a reader
-      // paged to see.
-      const piece =
-        raw.length > MAX_LINE_BYTES
-          ? JSON.stringify({
-              type: "oversized_record",
-              bytes: raw.length,
-              preview: raw.slice(0, OVERSIZED_PREVIEW_BYTES),
-            })
-          : raw;
+    for (const piece of pieces) take(piece);
 
-      if (collected >= limit || (collected > 0 && usedBytes + piece.length > maxBytes)) {
-        stopAt = i;
-        break;
-      }
-      lines.push(piece);
-      collected++;
-      usedBytes += piece.length;
-      nextLines = lineIndex;
+    // Past the ceiling and still no newline: stop holding it. A partial line at
+    // EOF is left for the next read rather than parsed as an event, so an
+    // oversized tail simply never resolves into a record.
+    if (!oversize && pending.length > MAX_LINE_BYTES) {
+      oversize = { bytes: pending.length, preview: pending.slice(0, OVERSIZED_PREVIEW_BYTES) };
+      pending = "";
     }
-    if (stopAt >= 0) {
-      // The line that tripped the limit was not delivered, so there is more —
-      // unless everything left in hand is blank, in which case one more read
-      // decides it, and that is the only extra read the answer costs.
-      const blankAhead = pieces.slice(stopAt).some((piece) => piece.length > 0);
-      if (blankAhead || eof) return { lines, nextLines, hasMore: blankAhead };
-      const probe = await handle.read(buffer, 0, 1, offset);
-      return { lines, nextLines, hasMore: probe.bytesRead > 0 };
-    }
+
     if (eof) {
+      if (tripped) return { lines, nextLines, hasMore: ahead || pending.length > 0 };
       // Nothing past `after` — including the case where `after` is already past
       // the end. `nextLines` stays where the reader left it so the contract
       // ("pass it back as `after`") never walks a caller backwards.
       return { lines, nextLines: collected > 0 ? lineIndex : after, hasMore: false };
     }
+    if (tripped) {
+      // The line that tripped the limit was not delivered, so there is more —
+      // unless nothing but blanks is in hand, which one byte of probe decides.
+      const moreInHand = ahead || pending.length > 0;
+      if (moreInHand) return { lines, nextLines, hasMore: true };
+      const probe = await handle.read(buffer, 0, 1, offset);
+      return { lines, nextLines, hasMore: probe.bytesRead > 0 };
+    }
   }
+  return { lines, nextLines, hasMore: true };
 }
 
 /** A name this module will accept as a task id — no traversal, no separators. */
@@ -382,20 +403,13 @@ export function isTaskId(value: string): boolean {
   return TASK_ID_RE.test(value);
 }
 
-/** `2026-11-21T14-03-22Z` — filename-safe, sortable, and reversible. */
-export function generationStamp(at: Date): string {
-  return at
-    .toISOString()
-    .replace(/[:]/g, "-")
-    .replace(/\.\d{3}Z$/, "Z");
-}
-
-/** The instant a generation stamp names, or null when it names none. */
-export function parseGenerationStamp(stamp: string): number | null {
-  if (!GENERATION_RE.test(stamp)) return null;
-  const iso = `${stamp.slice(0, 13)}:${stamp.slice(14, 16)}:${stamp.slice(17, 19)}Z`;
-  const at = Date.parse(iso);
-  return Number.isFinite(at) ? at : null;
+/**
+ * A name this module will accept as a run directory — upstream's `mkdtemp` shape
+ * and nothing else. A URL supplies this before any path is built from it, so the
+ * grammar is what keeps a caller inside one process's directory.
+ */
+export function isRunDir(value: string): boolean {
+  return RUN_DIR_RE.test(value);
 }
 
 /**
@@ -460,15 +474,28 @@ function dirViolation(io: TaskLogIo, root: string, dir: string): string | null {
   );
 }
 
-/** The archive's generation dirs, newest first, names this module can date. */
-async function generationDirs(io: TaskLogIo, root: string): Promise<string[]> {
-  const entries = await io.list(`${root}/${ARCHIVE_DIR}`);
+/**
+ * The run directories under the root, newest first.
+ *
+ * Upstream's `mkdtemp` name is random, so order comes from each directory's own
+ * mtime, which is when its process last created something inside it. A directory
+ * this module cannot prove is inside the root, or whose name is not upstream's
+ * own shape, is not a run and is never opened.
+ */
+async function runDirs(io: TaskLogIo, root: string): Promise<string[]> {
+  const entries = await io.list(root);
   if (!entries) return [];
-  return entries
-    .filter((entry) => entry.kind === "dir" && GENERATION_RE.test(entry.name))
-    .map((entry) => entry.name)
-    .sort()
-    .reverse();
+  const dated: { name: string; mtimeMs: number }[] = [];
+  for (const entry of entries) {
+    if (entry.kind !== "dir" || !RUN_DIR_RE.test(entry.name)) continue;
+    const dir = `${root}/${entry.name}`;
+    if (dirViolation(io, root, dir)) continue;
+    const info = await io.stat(dir);
+    dated.push({ name: entry.name, mtimeMs: info?.mtimeMs ?? 0 });
+  }
+  return dated
+    .sort((a, b) => b.mtimeMs - a.mtimeMs || b.name.localeCompare(a.name))
+    .map((entry) => entry.name);
 }
 
 interface Pair {
@@ -533,7 +560,7 @@ async function statPair(
 
 interface Candidate {
   taskId: string;
-  generation: string | null;
+  runDir: string;
   logPath: string;
   eventsPath: string | null;
   /** Newest mtime of the pair, which is what "recently ran" means here. */
@@ -542,24 +569,16 @@ interface Candidate {
 }
 
 /**
- * Every `task_*` pair the pane can offer, newest dirs first and capped.
+ * Every `task_*` pair the pane can offer, newest run directory first, capped.
  *
  * Only the pair's facts (mtime, size) are collected here; the start block is read
- * later, for the candidates a page actually shows. The walk starts at the root
- * and then walks the archive newest-first, so hitting the cap drops the oldest
- * generations rather than a scatter of them.
+ * later, for the candidates a page actually shows. Directories are walked newest
+ * first so hitting the cap drops the oldest runs rather than a scatter of them.
  */
 async function collectCandidates(io: TaskLogIo, root: string): Promise<Candidate[]> {
   const candidates: Candidate[] = [];
-  const generations = await generationDirs(io, root);
-  const dirs: { generation: string | null; dir: string }[] = [
-    { generation: null, dir: root },
-    ...generations.map((stamp) => ({
-      generation: stamp,
-      dir: `${root}/${ARCHIVE_DIR}/${stamp}`,
-    })),
-  ];
-  for (const { generation, dir } of dirs) {
+  for (const runDir of await runDirs(io, root)) {
+    const dir = `${root}/${runDir}`;
     const entries = await io.list(dir);
     if (!entries) continue;
     const dirOk = dirViolation(io, root, dir) === null;
@@ -574,7 +593,7 @@ async function collectCandidates(io: TaskLogIo, root: string): Promise<Candidate
       if (!pair?.logPath) continue;
       candidates.push({
         taskId,
-        generation,
+        runDir,
         logPath: pair.logPath,
         eventsPath: pair.eventsPath,
         activityMs: Math.max(pair.logStat?.mtimeMs ?? 0, pair.eventsStat?.mtimeMs ?? 0),
@@ -587,31 +606,27 @@ async function collectCandidates(io: TaskLogIo, root: string): Promise<Candidate
 }
 
 /**
- * Both halves of one run's files, wherever they are, newest generation first.
+ * Both halves of one run's files, in one directory proved to be a run directory.
  *
- * The id arrives from a URL, so nothing is derived from it until it matches the
- * grammar `isTaskId` states. The root is searched first: a live run's pair is
- * always in the root, and an archived id is unique because the sweep moved it
- * there exactly once.
+ * The id and the directory both arrive from a URL, so neither is derived from
+ * until it matches the grammar it claims: a task id is unique only inside its
+ * process directory, which is why a row carries both halves of its identity.
+ * Without a named directory the newest one holding the id wins.
  */
 async function locatePair(
   io: TaskLogIo,
   root: string,
   taskId: string,
-  generations: string[],
-  generation?: string | null,
-): Promise<{ generation: string | null } & Pair> {
-  // A named generation is searched in that generation alone: the id a URL carries
-  // is only unique *with* it, and the current run of a reused name sits in the
-  // root. With none named, the root first: a live run's pair is always there.
-  const dirs =
-    generation === undefined ? [null, ...generations] : generation === null ? [null] : [generation];
-  for (const wanted of dirs) {
-    const dir = wanted === null ? root : `${root}/${ARCHIVE_DIR}/${wanted}`;
+  runDir?: string,
+): Promise<{ runDir: string } & Pair> {
+  const wanted = runDir ? [runDir] : await runDirs(io, root);
+  for (const name of wanted) {
+    if (!RUN_DIR_RE.test(name)) break;
+    const dir = `${root}/${name}`;
     const pair = await statPair(io, root, dir, taskId, dirViolation(io, root, dir) === null);
-    if (pair) return { generation: wanted, ...pair };
+    if (pair) return { runDir: name, ...pair };
   }
-  return { generation: null, logPath: null, eventsPath: null, logStat: null, eventsStat: null };
+  return { runDir: "", logPath: null, eventsPath: null, logStat: null, eventsStat: null };
 }
 
 /** The start block's two facts, or null when the file is not a task transcript. */
@@ -692,105 +707,16 @@ function recordTime(line: string): string | null {
 }
 
 /**
- * Move the previous generation's task pairs out of the root, once.
+ * Drop run directories that have been quiet for the retention window.
  *
- * Without this, a new app-server process truncates `task_1.log` and appends its
- * events to the dead run's `task_1.jsonl` (the counter restarts at 1 and the
- * events log opens in append mode), so two runs share one transcript. It is
- * idempotent — a second pass finds no settled `task_*` pairs in the root and
- * creates no directory — and it moves only names matching `task_*` that it can
- * prove are inside its own root.
- *
- * **A pair this process may still be writing is left where it is.** Upstream
- * appends by path (`appendToOutputFile` is `appendFileSync`), holding no file
- * descriptor, so moving a live run's files would not follow the writer: its next
- * append simply creates `task_<n>.jsonl` in the root again, and the run ends up
- * as two half-transcripts — the row's facts from one file, its transcript from
- * the other. So a pair whose newest file is younger than {@link SETTLE_MS} is
- * skipped, and the next sweep picks it up once it has settled. This is also why
- * the sweep can run on every connect rather than only on a proven app-server
- * restart: there is no boot identifier in the protocol to prove one with, and a
- * reconnect that finds a run mid-flight now simply leaves it alone.
- *
- * The settle window is a clock, so a run whose *first* sweep lands inside it can
- * still be archived while running — the window is how long since its last write,
- * not a guarantee that it is finished. That residual is bounded and harmless:
- * the files arrive in the archive whole, and a run that outlives its own window
- * keeps appending to the archived path rather than splitting (both halves stay
- * in one file, which is the only claim that matters here).
+ * This is the only delete in this file. It removes a whole `letta-background-*`
+ * directory — one process's runs — and only when its newest entry is older than
+ * the window, which is what makes it safe to run from a listing: a process still
+ * writing has a fresh entry, and the newest directory is never a candidate no
+ * matter what its clock claims. `retentionDays <= 0` keeps everything, the safe
+ * reading of a mis-set environment variable.
  */
-export async function sweepTaskLogs(
-  io: TaskLogIo,
-  root: string,
-  options: { now?: () => Date; generation?: string; settleMs?: number } = {},
-): Promise<SweepResult> {
-  const entries = await io.list(root);
-  if (!entries) return { generation: null, moved: [], skipped: [] };
-
-  const nowMs = (options.now ?? (() => new Date()))().getTime();
-  const settleMs = options.settleMs ?? SETTLE_MS;
-  const names: string[] = [];
-  const skipped: string[] = [];
-  for (const entry of entries) {
-    if (!TASK_FILE_RE.test(entry.name)) continue;
-    if (entry.kind !== "file") {
-      // A directory or a symlink wearing a task name is not this module's to move.
-      skipped.push(entry.name);
-      continue;
-    }
-    const stat = await guardedStat(io, root, `${root}/${entry.name}`);
-    if (!stat) {
-      skipped.push(entry.name);
-      continue;
-    }
-    // Written too recently to call finished: leave it for a later sweep.
-    if (nowMs - stat.mtimeMs < settleMs) {
-      skipped.push(entry.name);
-      continue;
-    }
-    names.push(entry.name);
-  }
-  if (names.length === 0) return { generation: null, moved: [], skipped };
-
-  const generation = options.generation ?? generationStamp((options.now ?? (() => new Date()))());
-  if (!GENERATION_RE.test(generation)) {
-    throw new Error(`Not a generation name: ${generation}`);
-  }
-  const dir = `${root}/${ARCHIVE_DIR}/${generation}`;
-  // Guarded without `realpath`, because the directory is about to be created:
-  // the name is fully constrained above, so the only things left to refuse are a
-  // traversal in the root itself and a link standing where the archive goes.
-  if (lexicalViolation(root, dir) ?? linkViolation(io, root, dir)) {
-    throw new Error(`Refusing to sweep into ${dir}: it is not inside ${root}`);
-  }
-  await io.makeDir(dir);
-
-  const moved: string[] = [];
-  for (const name of names) {
-    const from = `${root}/${name}`;
-    const to = `${dir}/${name}`;
-    if (await io.stat(to)) {
-      // Same name already archived — a re-sweep inside one second. Overwriting
-      // would lose the older transcript, so leave the new one in the root.
-      skipped.push(name);
-      continue;
-    }
-    await io.move(from, to);
-    moved.push(name);
-  }
-  return { generation, moved, skipped };
-}
-
-/**
- * Drop archived generations older than the retention window.
- *
- * This is the only delete in this file, and it only ever removes a
- * `archive/<generation>` directory whose name it can date. A directory it cannot
- * date is left alone — an unparseable name is not evidence of being old.
- * `retentionDays <= 0` keeps everything, which is the safe reading of a
- * mis-set environment variable.
- */
-export async function pruneArchive(
+export async function pruneRunDirs(
   io: TaskLogIo,
   root: string,
   options: { now?: Date; retentionDays?: number } = {},
@@ -800,23 +726,31 @@ export async function pruneArchive(
   if (retentionDays <= 0) return { deleted, kept: 0 };
   const nowMs = (options.now ?? new Date()).getTime();
   const cutoff = nowMs - retentionDays * 86_400_000;
-  const dirs = await generationDirs(io, root);
+
+  const dirs = await runDirs(io, root);
   let kept = 0;
-  for (const stamp of dirs) {
-    const at = parseGenerationStamp(stamp);
-    if (at === null || at >= cutoff) {
+  // `runDirs` is newest-first, and the newest is never pruned: that is whichever
+  // process is running now or was most recent, whatever its clock says.
+  for (const name of dirs.slice(1)) {
+    const dir = `${root}/${name}`;
+    const entries = await io.list(dir);
+    if (!entries) {
       kept++;
       continue;
     }
-    const path = `${root}/${ARCHIVE_DIR}/${stamp}`;
-    if (dirViolation(io, root, path)) {
+    let newest = 0;
+    for (const entry of entries) {
+      const info = await guardedStat(io, root, `${dir}/${entry.name}`);
+      if (info) newest = Math.max(newest, info.mtimeMs);
+    }
+    if (!newest || newest >= cutoff) {
       kept++;
       continue;
     }
-    await io.removeDir(path);
-    deleted.push(stamp);
+    await io.removeDir(dir);
+    deleted.push(name);
   }
-  return { deleted, kept };
+  return { deleted, kept: kept + Math.min(dirs.length, 1) };
 }
 
 /**
@@ -840,7 +774,7 @@ export async function listTaskRuns(
   } = {},
 ): Promise<TaskRunList> {
   const now = options.now ?? new Date();
-  await pruneArchive(io, root, { now, retentionDays: options.retentionDays });
+  await pruneRunDirs(io, root, { now, retentionDays: options.retentionDays });
 
   const candidates = await collectCandidates(io, root);
   candidates.sort((a, b) => b.activityMs - a.activityMs || b.taskId.localeCompare(a.taskId));
@@ -879,20 +813,35 @@ async function summarizeCandidate(
     kind: taskRunKindOf(start.subagentType),
     subagentType: start.subagentType,
     description: start.description,
-    generation: candidate.generation,
+    runDir: candidate.runDir,
     startedAt,
     lastActivityAt,
     bytes: candidate.bytes,
     events: last.seq ?? null,
-    status: statusOf(candidate.activityMs, now),
+    status: await statusOf(io, candidate, now),
   };
 }
 
-function statusOf(activityMs: number, now: Date): TaskRunStatus {
-  if (!activityMs) return "unknown";
-  const idleMs = now.getTime() - activityMs;
-  if (idleMs < 0) return "unknown";
-  return idleMs <= RUNNING_WINDOW_MS ? "running" : "completed";
+/**
+ * What the files prove about how the run ended.
+ *
+ * Upstream writes a closing line into the readable log — `[Task completed]` or
+ * `[Task failed]` (`task-transcript.ts:71,77`) — so that line, from a bounded
+ * tail read, is the only proof of an ending there is. Without it a run that is
+ * still writing is running and a run that stopped writing is **stopped**: calling
+ * that "completed" would tell the operator a crashed or killed run succeeded,
+ * which is a claim the file never makes.
+ */
+async function statusOf(io: TaskLogIo, candidate: Candidate, now: Date): Promise<TaskRunStatus> {
+  const tail = await io.readTail(candidate.logPath, LOG_TAIL_BYTES);
+  if (tail) {
+    if (tail.includes("[Task completed]")) return "completed";
+    if (tail.includes("[Task failed]")) return "failed";
+  }
+  if (!candidate.activityMs) return "stopped";
+  const idleMs = now.getTime() - candidate.activityMs;
+  if (idleMs >= 0 && idleMs <= RUNNING_WINDOW_MS) return "running";
+  return "stopped";
 }
 
 /**
@@ -905,20 +854,20 @@ function statusOf(activityMs: number, now: Date): TaskRunStatus {
  * counted (the cursor is lines, not events) and dropped, which is what a run
  * still mid-append looks like at the end of the file.
  *
- * Null when no such run exists in the root or the archive, or when its id is not
- * a task id at all — the route turns that into a 404, and nothing about an
+ * Null when no such run exists — in that directory, at all — or when its id is
+ * not a task id at all; the route turns that into a 404, and nothing about an
  * arbitrary string reaches the filesystem.
  */
 export async function readTaskRunEvents(
   io: TaskLogIo,
   root: string,
   taskId: string,
-  options: { after?: number; limit?: number; generation?: string | null } = {},
+  options: { after?: number; limit?: number; runDir?: string } = {},
 ): Promise<TaskRunEventsPage | null> {
   if (!isTaskId(taskId)) return null;
-  const generations = await generationDirs(io, root);
-  const pair = await locatePair(io, root, taskId, generations, options.generation);
-  if (!pair.logPath && !pair.eventsPath) return null;
+  if (options.runDir !== undefined && !isRunDir(options.runDir)) return null;
+  const pair = await locatePair(io, root, taskId, options.runDir);
+  if (!pair.runDir || (!pair.logPath && !pair.eventsPath)) return null;
 
   const after = Math.max(Math.trunc(options.after ?? 0) || 0, 0);
   const limit = Math.min(Math.max(Math.trunc(options.limit ?? 200) || 1, 1), 1_000);
@@ -940,7 +889,7 @@ export async function readTaskRunEvents(
   }
   return {
     taskId,
-    generation: pair.generation,
+    runDir: pair.runDir,
     events,
     next: window.nextLines,
     has_more: window.hasMore,
@@ -966,9 +915,8 @@ export interface TaskLogStore {
   list(options?: { limit?: number; cursor?: number; now?: Date }): Promise<TaskRunList>;
   events(
     taskId: string,
-    options?: { after?: number; limit?: number; generation?: string | null },
+    options?: { after?: number; limit?: number; runDir?: string },
   ): Promise<TaskRunEventsPage | null>;
-  sweep(): Promise<SweepResult>;
 }
 
 export function createTaskLogStore(
@@ -994,6 +942,5 @@ export function createTaskLogStore(
         now: listOptions.now ?? now(),
       }),
     events: (taskId, eventOptions = {}) => readTaskRunEvents(io, root, taskId, eventOptions),
-    sweep: () => sweepTaskLogs(io, root, { now }),
   };
 }

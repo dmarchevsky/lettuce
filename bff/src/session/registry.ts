@@ -35,15 +35,6 @@ export interface RegistryOptions {
   cacheRuntimeStart?: boolean;
   /** Clock for the staleness rule; a test waits out a minute without sleeping. */
   cacheNow?: () => number;
-  /**
-   * Awaited before a command is forwarded, for the one case where a command may
-   * not overtake a boot pass. Index uses it to hold `launch_subagent` behind the
-   * task-log sweep: upstream reuses `task_1, task_2…` from 1 every boot and
-   * truncates the log on create, so a launch that beats the sweep overwrites the
-   * transcript of a run from the previous process — the exact loss the sweep
-   * exists to prevent (`runs/task-logs.ts`).
-   */
-  beforeForward?: (command: { type: string }) => Promise<void> | null;
 }
 
 export interface SessionSocket {
@@ -207,11 +198,7 @@ export class SessionRegistry {
     // it is handed, so this seam cannot be quietly missed — and the one that re-sends in-flight work has to
     // wait for the re-subscribe, which is exactly what `onReconnect` means.
     this.upstream.onReconnect(() => this.handleUpstreamReconnected());
-    this.beforeForward = options.beforeForward;
   }
-
-  /** The launch gate from `RegistryOptions`; undefined means "never wait". */
-  private readonly beforeForward?: (command: { type: string }) => Promise<void> | null;
 
   get sessionCount(): number {
     return this.sessions.size;
@@ -427,32 +414,7 @@ export class SessionRegistry {
       return;
     }
 
-    // One boot pass must not be overtaken by a launch; see `RegistryOptions`.
-    const forward = () => this.forwardCommand(session, command);
-    if (this.beforeForward) {
-      const gate = this.beforeForward(command);
-      if (gate !== null) {
-        void gate.then(forward, forward);
-        return;
-      }
-    }
-    forward();
-  }
-
-  /**
-   * Everything about a browser command that happens after it was allowed: scope
-   * tracking, the repeat-start answer, the id translation, the send. Split out of
-   * `handleSessionMessage` because one command type can be held back by a boot
-   * pass (`beforeForward`), and everything before this point is a refusal a
-   * caller can provoke, which the gate must not delay.
-   */
-  private forwardCommand(
-    session: Session,
-    command: Record<string, unknown> & { type: string; request_id?: unknown },
-  ): void {
     // Track the scope so replays can be narrowed to what this session shows.
-    // SAFETY: the browser frame and the upstream frame are the same object shape
-    // here; only the command types that survive the allowlist reach this line.
     const scopeKey = frameScopeKey(command as unknown as WsProtocolMessage);
     if (scopeKey) session.scopes.add(scopeKey);
 
