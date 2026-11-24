@@ -526,3 +526,75 @@ test("a cursor past the end asks for nothing new rather than walking back", asyn
   expect(past?.next).toBe(99_999);
   rmSync(root, { recursive: true, force: true });
 });
+
+test("a marker the run quoted in its own output is not the run's ending", async () => {
+  const root = scratchRoot();
+  // A run whose job was reading a transcript can print `[Task completed]` and
+  // then die. Upstream's marker is the file's last line, so a match anywhere in
+  // the tail would report a death as a success — the exact lie the read is for.
+  writePair(root, "task_1", {
+    raw: `${startBlock("Read the old transcript", "general-purpose")}here it says: [Task completed]\n`,
+    mtimeSeconds: (NOW.getTime() - 2 * DAY) / 1000,
+  });
+  const list = await listTaskRuns(fsTaskLogIo, root, { now: NOW });
+  expect(list.runs[0]?.status).toBe("stopped");
+
+  // And the real ending still counts, closing line last as upstream writes it.
+  writePair(root, "task_2", {
+    raw: `${startBlock("Read it again", "general-purpose")}output mentioning [Task completed] in the middle\n\nreport body\n\n${COMPLETED}`,
+    mtimeSeconds: (NOW.getTime() - 2 * DAY) / 1000,
+  });
+  const both = await listTaskRuns(fsTaskLogIo, root, { now: NOW });
+  expect(both.runs.find((run) => run.taskId === "task_2")?.status).toBe("completed");
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("a run directory with nothing to judge ages by its own clock", async () => {
+  const root = scratchRoot();
+  // An empty directory (nothing inside, or only links out of the root) used to be
+  // immortal: no entry to age by meant kept forever, and the live host has one.
+  const empty = join(root, RUN_A);
+  mkdirSync(empty, { recursive: true });
+  ageDir(empty, (NOW.getTime() - 30 * DAY) / 1000);
+  const fresh = join(root, RUN_B);
+  mkdirSync(fresh, { recursive: true });
+
+  const pruned = await pruneRunDirs(fsTaskLogIo, root, { now: NOW, retentionDays: 14 });
+  expect(pruned.deleted).toEqual([RUN_A]);
+  expect(existsSync(empty)).toBe(false);
+  expect(existsSync(fresh)).toBe(true);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("a directory that went missing mid-prune is not an error", async () => {
+  const root = scratchRoot();
+  // Nothing here to prune, but the delete must agree: a directory can vanish
+  // between the listing and the delete (a recreate, someone cleaning up) and that
+  // is absence, not a failure the Runs pane should turn into a 500.
+  await fsTaskLogIo.removeDir(join(root, RUN_A));
+  expect((await pruneRunDirs(fsTaskLogIo, root, { now: NOW, retentionDays: 14 })).deleted).toEqual(
+    [],
+  );
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("a huge final record still leaves the run counted", async () => {
+  const root = scratchRoot();
+  // The event count comes from the last record's `seq`, read off a tail window.
+  // A run whose last record is bigger than that window — one large tool result
+  // closing the run — must widen the window rather than report no count, because
+  // the sheet aims at the tail using it.
+  const fat = JSON.stringify({
+    seq: 7,
+    at: "2026-11-20T10:00:07.000Z",
+    type: "tool_result",
+    text: "x".repeat(300_000),
+  });
+  writePair(root, "task_1", {
+    description: "Big last record",
+    events: record(1, "2026-11-20T10:00:01.000Z", { type: "text", text: "start" }) + `${fat}\n`,
+  });
+  const list = await listTaskRuns(fsTaskLogIo, root, { now: NOW });
+  expect(list.runs[0]?.events).toBe(7);
+  rmSync(root, { recursive: true, force: true });
+});

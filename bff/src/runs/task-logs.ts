@@ -161,7 +161,7 @@ export interface LineWindow {
  * The file access this module needs, and the seam its tests drive.
  *
  * Everything here is one filesystem fact per method, so the guard chain, the
- * sweep's ordering and the page arithmetic are all testable against a fixture
+ * retention pass and the page arithmetic are all testable against a fixture
  * directory (`fsTaskLogIo` is the real one; the tests use it pointed at a temp
  * dir, because mtime order, symlinks and a real rename cannot be faked honestly).
  */
@@ -274,7 +274,10 @@ export const fsTaskLogIo: TaskLogIo = {
   },
 
   removeDir: async (dir) => {
-    await rm(dir, { recursive: true, force: false });
+    // `force` only swallows ENOENT, which is the one case worth swallowing here:
+    // a directory can go missing between `runDirs()` and this call (a recreate,
+    // someone cleaning up) and a listing must not turn that into a 500.
+    await rm(dir, { recursive: true, force: true });
   },
   realpath: (path) => realpathSync(path),
   lstat: (path) => lstatSync(path),
@@ -324,7 +327,11 @@ async function readWholeLines(
       return;
     }
     if (lineIndex <= after) return;
-    if (collected >= limit || (collected > 0 && usedBytes + piece.length > maxBytes)) {
+    // Counted in bytes, not in JavaScript characters: a transcript of CJK or
+    // emoji would otherwise slip a page three times the advertised size past the
+    // ceiling the browser was promised.
+    const bytes = Buffer.byteLength(piece);
+    if (collected >= limit || (collected > 0 && usedBytes + bytes > maxBytes)) {
       tripped = true;
       // The line that tripped the limit was not delivered, so there is more —
       // unless it was blank, in which case only a byte of probe can say.
@@ -333,7 +340,7 @@ async function readWholeLines(
     }
     lines.push(piece);
     collected++;
-    usedBytes += piece.length;
+    usedBytes += bytes;
     nextLines = lineIndex;
   };
 
@@ -348,10 +355,10 @@ async function readWholeLines(
     if (oversize) {
       const nl = text.indexOf("\n");
       if (nl < 0) {
-        oversize.bytes += text.length;
+        oversize.bytes += Buffer.byteLength(text);
         text = "";
       } else {
-        oversize.bytes += nl;
+        oversize.bytes += Buffer.byteLength(nl < 0 ? text : text.slice(0, nl));
         text = text.slice(nl + 1);
         take(
           JSON.stringify({
@@ -375,7 +382,10 @@ async function readWholeLines(
     // EOF is left for the next read rather than parsed as an event, so an
     // oversized tail simply never resolves into a record.
     if (!oversize && pending.length > MAX_LINE_BYTES) {
-      oversize = { bytes: pending.length, preview: pending.slice(0, OVERSIZED_PREVIEW_BYTES) };
+      oversize = {
+        bytes: Buffer.byteLength(pending),
+        preview: pending.slice(0, OVERSIZED_PREVIEW_BYTES),
+      };
       pending = "";
     }
 
@@ -425,7 +435,7 @@ export function taskRunKindOf(subagentType: string | null): TaskRunKind {
 
 /**
  * Why a path is not this root's to touch — or null. Purely lexical, so it is
- * usable on a path that does not exist yet (the sweep's target directory).
+ * usable on a path that does not exist yet.
  */
 function lexicalViolation(root: string, path: string): string | null {
   if (path.includes("\0")) return "path contains a null byte";
@@ -669,8 +679,30 @@ async function firstEventTime(io: TaskLogIo, eventsPath: string): Promise<string
  * count upstream numbered for us.
  */
 async function lastEventFact(io: TaskLogIo, eventsPath: string): Promise<LastEvent> {
-  const tail = await io.readTail(eventsPath, TAIL_BYTES);
-  if (!tail) return {};
+  // A tail read begins wherever the byte window began, so its first line is often
+  // a fragment of a record. Nothing needs to know that: the walk goes back from
+  // the end and a fragment simply does not parse, which is the same refusal a
+  // junk line gets. The last record that parses is the last event, and its `seq`
+  // is the event count upstream numbered for us.
+  //
+  // The window grows when nothing parses, because a run's final record can be
+  // bigger than the window — one large tool result as the last event leaves no
+  // line boundary in 64 KiB at all. Still bounded: 8 MiB of tail is far past any
+  // real record, and a log whose last line is bigger than that is reported as
+  // unknown rather than read forever.
+  const windows = [TAIL_BYTES, 1024 * 1024, 8 * 1024 * 1024];
+  for (const size of windows) {
+    const tail = await io.readTail(eventsPath, size);
+    if (!tail) return {};
+    const found = lastRecord(tail);
+    if (found) return found;
+    // The window already covered the whole file; a wider one reads the same bytes.
+    if (tail.length < size) return {};
+  }
+  return {};
+}
+
+function lastRecord(tail: string): LastEvent | null {
   const lines = tail.split("\n");
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i];
@@ -688,7 +720,7 @@ async function lastEventFact(io: TaskLogIo, eventsPath: string): Promise<LastEve
     if (seq === null && at === null) continue;
     return { at, seq };
   }
-  return {};
+  return null;
 }
 
 interface LastEvent {
@@ -739,9 +771,21 @@ export async function pruneRunDirs(
       continue;
     }
     let newest = 0;
+    let statable = 0;
     for (const entry of entries) {
       const info = await guardedStat(io, root, `${dir}/${entry.name}`);
-      if (info) newest = Math.max(newest, info.mtimeMs);
+      if (info) {
+        statable++;
+        newest = Math.max(newest, info.mtimeMs);
+      }
+    }
+    if (!statable) {
+      // Nothing inside could be judged: entries that are links to outside the root
+      // stay this directory's business but not ours to age by, so the directory's
+      // own clock decides — which also means a directory that is simply empty
+      // ages out instead of living forever.
+      const self = await guardedStat(io, root, dir);
+      newest = self ? self.mtimeMs : 0;
     }
     if (!newest || newest >= cutoff) {
       kept++;
@@ -754,7 +798,7 @@ export async function pruneRunDirs(
 }
 
 /**
- * The listing: the root plus the archive, newest activity first.
+ * The listing: every run directory under the root, newest activity first.
  *
  * Recency comes from the file's own mtime, so unlike the Claude listing every
  * candidate need not be read before the sort — only the ones a page actually
@@ -835,8 +879,21 @@ async function summarizeCandidate(
 async function statusOf(io: TaskLogIo, candidate: Candidate, now: Date): Promise<TaskRunStatus> {
   const tail = await io.readTail(candidate.logPath, LOG_TAIL_BYTES);
   if (tail) {
-    if (tail.includes("[Task completed]")) return "completed";
-    if (tail.includes("[Task failed]")) return "failed";
+    // Upstream closes a finished run with its own line — `[Task completed]` or
+    // `[Task failed]` — as the file's last line. Matched exactly and only there:
+    // a run that quoted the marker in its own output (reading a transcript, catting
+    // a task log) then died would otherwise be labelled completed, which is the
+    // exact lie this read exists to avoid.
+    const lines = tail.split("\n");
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const raw = lines[i];
+      if (raw === undefined) continue;
+      const line = raw.trim();
+      if (!line) continue;
+      if (line === "[Task completed]") return "completed";
+      if (line === "[Task failed]") return "failed";
+      break;
+    }
   }
   if (!candidate.activityMs) return "stopped";
   const idleMs = now.getTime() - candidate.activityMs;
