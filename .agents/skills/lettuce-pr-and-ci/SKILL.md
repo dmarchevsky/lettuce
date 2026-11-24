@@ -16,9 +16,11 @@ shipping.
 ─────────────────────────                ────
 flow approve (plan) → the worktree and branch
 flow check green
+  │  implement: /flow-review once check is green — before `flow verify` deploys, so its
+  │  fixes cost no redeploy and no second sign-off
 build + run locally
 user tests it in the browser  ←── the gate, and it happens here, before any push
-  │  pre-release: /flow-review, then VERSION bump + changelog rename in one commit
+  │  pre-release: VERSION bump + changelog rename in one commit
   └─flow release──▶ pushes the branch, opens the PR (pr-body.md from the template, test recorded)
               ├─ CI Tier A (`.github/workflows/ci.yml`)
               ├─ ci green → merged (--merge) ──▶ main

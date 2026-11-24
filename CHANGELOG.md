@@ -5,6 +5,17 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Changed
+- The playbook fold's latest twelve. A fold now re-proves every reflection about dev-flow
+  behaviour against the installed plugin before it becomes a rule, and drops what the harness
+  already enforces — several folded rules described gate behaviour that has since been
+  replaced. The review step moved before the container test, so a review finding no longer
+  costs a redeploy and a re-asked sign-off; a compose-profile flip now touches only the main
+  checkout's env and the flow's own copy, never another session's; the release path says once
+  which bump question is asked where, and proves the changelog survived a merge; and plans must
+  anchor an upstream claim to a local path, schedule a red run before the commit that would
+  make it green, and define the container pass for a trigger this machine cannot force.
+
 ## [v0.50.0-letta_0.34.70] - 2026-11-24
 
 ### Added
