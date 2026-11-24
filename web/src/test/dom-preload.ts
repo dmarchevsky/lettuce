@@ -17,6 +17,13 @@
  */
 import { GlobalWindow } from "happy-dom";
 
+// React picks its build from NODE_ENV where it is imported, and only the development build
+// exports `act` — which the harness uses for every mount and every event. A caller whose
+// environment says `production` (a CI step, a harness shell, `bun run`'s own default) would
+// otherwise make each render test die inside React instead of failing on an assertion, so the
+// suite pins the mode it needs before anything imports React.
+if (process.env.NODE_ENV === "production") process.env.NODE_ENV = "test";
+
 const window = new GlobalWindow({ url: "http://localhost/" });
 
 for (const key of Object.getOwnPropertyNames(window)) {
