@@ -72,9 +72,12 @@ test("a message that never reached the app-server says exactly that", async () =
 });
 
 test("a delivered message carries no delivery note at all", async () => {
-  const handle = await list([entry({ id: "u3" })]);
-  expect(handle.find(".delivery-note")).toBeNull();
+  const handle = await list([entry({ id: "u3", text: "hello" })]);
+  // Anchored on the row actually rendering: an empty list would also have no note.
+  expect(handle.find("[data-entry='u3']")).not.toBeNull();
   expect(handle.text(".bubble")).toBe("hello");
+  expect(handle.find(".delivery-note")).toBeNull();
+  expect(handle.byText("Send again")).toBeNull();
   handle.unmount();
 });
 

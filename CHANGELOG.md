@@ -9,8 +9,8 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 - **The web UI can now be tested as rendered.** A component or a state hook renders in a real DOM inside the
   ordinary test run (`bun run test`), so the claims that four flows could only prove by reading a component — an
   image row that drops its picture, an ack shown as the opposite of what happened, a settings form whose Save
-  accepted junk and lost the edit on a failed save — are assertions now. Three such tests ship with the
-  harness, each proven to fail against the defect it stands guard against.
+  accepted junk and lost the edit on a failed save — are assertions now. Four test files ship with the
+  harness, each assertion proven to fail against the defect it stands guard against before it was made green.
 
 ## [v0.50.1-letta_0.34.70] - 2026-11-24
 

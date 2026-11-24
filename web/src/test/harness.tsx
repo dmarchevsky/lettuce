@@ -7,13 +7,14 @@
  * rounds while pure-helper tests stayed green. Pure tests cannot see a mount: an effect that re-setStates in a
  * loop only misbehaves once something is rendered.
  *
- * What it gives a test: `mount`/`renderHook` (both return a handle that unmounts itself via `autoCleanup`),
- * `settle` to flush effects, and the four interactions a component test actually needs (click, type, pick,
- * submit). What it deliberately is not: a testing-library clone. One `querySelector` and `textContent` cover the
- * assertions here; if a future test needs more, growing this is cheaper than a dependency's indirection.
+ * What it gives a test: `mount`/`renderHook` (each returns a handle; anything still mounted when a
+ * test ends is unmounted for it), `settle` to flush effects, and the three interactions a component
+ * test actually needs (`click`, `type`, `pick`). What it deliberately is not: a testing-library clone.
+ * One `querySelector` and `textContent` cover the assertions here; if a future test needs more,
+ * growing this is cheaper than a dependency's indirection.
  *
- * The DOM itself comes from `dom-preload.ts` (registered in `web/bunfig.toml`), so this file assumes
- * `document` exists and does not create one.
+ * The DOM itself comes from `dom-preload.ts` (registered in the ROOT `bunfig.toml`), so this file
+ * assumes `document` exists and does not create one.
  */
 
 import { afterEach } from "bun:test";
@@ -102,6 +103,14 @@ export async function mount(node: ReactNode, options: MountOptions = {}): Promis
         });
   if (warnings.length > 0) {
     const detail = warnings.slice(0, 4).join("\n  ");
+    // Tear down before throwing: a leaked root keeps scheduling and the next test in the file
+    // inherits its state — the one case where a red test must not leave a live mount behind.
+    try {
+      act(() => root?.unmount());
+    } catch {
+      // A root that will not unmount is already broken; the error below is the message that matters.
+    }
+    host.remove();
     throw new Error(`mount produced React output (fix the harness or the component):\n  ${detail}`);
   }
 
@@ -132,6 +141,7 @@ export async function mount(node: ReactNode, options: MountOptions = {}): Promis
       host.remove();
     },
   };
+  mounted.push(handle);
   return handle;
 }
 
@@ -175,16 +185,22 @@ export async function click(el: Element): Promise<void> {
 }
 
 /**
- * Set an input/textarea's value and fire the change React listens for. React tracks the last value it wrote,
- * so the assignment goes through the native setter — a plain `el.value =` is invisible to it.
+ * Set an input's or textarea's value and fire the change React listens for. React tracks the last value
+ * it wrote, so the assignment goes through the native setter OF THAT ELEMENT TYPE: a plain `el.value =`
+ * is invisible to React, and reaching for the input setter on a `<textarea>` throws inside happy-dom
+ * after assigning, so the event never fires and React silently sees no edit at all.
  */
 export async function type(el: HTMLElement, value: string): Promise<void> {
-  const input = el as HTMLInputElement;
-  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+  const field = el as HTMLInputElement;
+  const prototype =
+    field.tagName === "TEXTAREA"
+      ? window.HTMLTextAreaElement.prototype
+      : window.HTMLInputElement.prototype;
+  const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
   await act(async () => {
-    if (setter) setter.call(input, value);
-    else input.value = value;
-    input.dispatchEvent(new window.Event("input", { bubbles: true }));
+    if (setter) setter.call(field, value);
+    else field.value = value;
+    field.dispatchEvent(new window.Event("input", { bubbles: true }));
     await Promise.resolve();
   });
 }
@@ -201,12 +217,8 @@ export async function pick(el: HTMLElement, value: string): Promise<void> {
   });
 }
 
-/** Unmount every mount created by this file after each test, so one test cannot leak into the next. */
-const tracked: RenderHandle[] = [];
-export function track(handle: RenderHandle): RenderHandle {
-  tracked.push(handle);
-  return handle;
-}
+/** Every mount of the current test, so one cannot leak into the next. */
+const mounted: RenderHandle[] = [];
 afterEach(() => {
-  while (tracked.length > 0) tracked.pop()?.unmount();
+  while (mounted.length > 0) mounted.pop()?.unmount();
 });

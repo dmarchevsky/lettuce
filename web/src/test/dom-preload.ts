@@ -2,18 +2,19 @@
  * The DOM half of the test suite: bun's runner has no DOM, so a render test needs one
  * registered before React is imported anywhere.
  *
- * `GlobalWindow` from happy-dom is a real `window` — it owns `document`, `matchMedia`,
- * observers, storage and event dispatch — and every attribute it declares is copied onto
- * `globalThis` so source under test can use bare globals exactly as it does in the browser.
- * `globalThis.window`/`document` are then set explicitly, because React and the app both
- * read those two by name.
+ * Registered in the ROOT `bunfig.toml`, so the window is installed once for the whole
+ * `bun test` run and every file in the repo — bff included — shares it. That is on purpose
+ * (one command, one pass: a render test can never be filtered out of a run and read green)
+ * and it has two consequences a test author has to know:
  *
- * `IS_REACT_ACT_ENVIRONMENT` is what makes `act()` quiet and correct: without it React
- * warns "the current testing environment is not configured to support act" on every
- * render, and the harness relies on `act` flushing effects synchronously.
+ * - Anything a test leaves on `window`/`globalThis` is visible to every later file. Nothing
+ *   here stores anything on purpose; a test that must, cleans it up itself.
+ * - The copy SKIPS names already defined on `globalThis`, plus the `NOT_COPIED` list below —
+ *   globals the codebase deliberately has a branch for having absent.
  *
- * Registered via `web/bunfig.toml`, so it is loaded for `bun test` from the `web` workspace
- * and nowhere else — a plain `bun test` at the root (the pure tests) still runs with no DOM.
+ * `IS_REACT_ACT_ENVIRONMENT` is what makes `act()` quiet and correct: without it React warns
+ * "the current testing environment is not configured to support act" on every render, and the
+ * harness relies on `act` flushing effects synchronously.
  */
 import { GlobalWindow } from "happy-dom";
 
@@ -24,10 +25,22 @@ import { GlobalWindow } from "happy-dom";
 // suite pins the mode it needs before anything imports React.
 if (process.env.NODE_ENV === "production") process.env.NODE_ENV = "test";
 
+/**
+ * Globals the window must NOT install even though happy-dom has them, because code and tests
+ * already treat their absence as a supported environment:
+ *
+ * - `localStorage`/`sessionStorage`: `web/src/lib/storage.ts` reports "no storage" when none
+ *   exists, and the storage-backed tests hand in their own stand-ins for exactly that reason.
+ *   A live `Storage` shared by the whole run would retire that branch and leak writes between files.
+ * - `matchMedia`: `use-wide` reads a missing `matchMedia` as "not desktop", and a render test
+ *   that cares about the breakpoint stubs it in the test, where the stub is visible.
+ */
+const NOT_COPIED = new Set(["localStorage", "sessionStorage", "matchMedia"]);
+
 const window = new GlobalWindow({ url: "http://localhost/" });
 
 for (const key of Object.getOwnPropertyNames(window)) {
-  if (key in globalThis) continue;
+  if (key in globalThis || NOT_COPIED.has(key)) continue;
   try {
     Object.defineProperty(globalThis, key, {
       value: window[key as keyof GlobalWindow],
@@ -40,8 +53,10 @@ for (const key of Object.getOwnPropertyNames(window)) {
   }
 }
 
-// The two names every browser script reaches for by hand. Cast through `any` here —
-// `globals.d.ts` is where that assertion is made once for the whole render suite.
+// The two names every browser script reaches for by hand. The cast is unavoidable and it stays
+// local on purpose: happy-dom's window is structurally not `lib.dom`'s, and re-declaring
+// `document` in a `declare global` block does not beat `lib: ["DOM"]` in tsconfig anyway — so
+// app code keeps its real DOM types and only this assignment is loosened.
 const globals = globalThis as any;
 globals.window = window;
 globals.document = window.document;

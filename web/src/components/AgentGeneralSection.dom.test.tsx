@@ -186,6 +186,26 @@ test("a name-only save sends the name and nothing else", async () => {
   f.handle.unmount();
 });
 
+test("a staged system-prompt edit rides the same Save (and typing into a <textarea> reaches React)", async () => {
+  const f = await setup();
+  const textarea = f.field("Base system prompt").querySelector("textarea") as HTMLTextAreaElement;
+  expect(textarea.value).toBe("You are Ada.");
+
+  // The harness's `type` must use the textarea's own value setter; the input one throws inside the
+  // DOM after assigning, so the edit would land in the field and never reach React — Save would stay
+  // disabled and the test would read like a broken form.
+  await type(textarea, "You are Ada, and you check sources.");
+  expect((f.save() as HTMLButtonElement).disabled).toBe(false);
+
+  await click(f.save()!);
+  await settle();
+
+  expect(f.calls.updateAgent[0]?.draft).toMatchObject({
+    system: "You are Ada, and you check sources.",
+  });
+  f.handle.unmount();
+});
+
 test("a mode switch that hides the percentage writes the loaded fraction, not junk", async () => {
   const f = await setup();
   const select = f.field("Compaction").querySelector("select") as HTMLSelectElement;

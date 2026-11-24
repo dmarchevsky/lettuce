@@ -5,6 +5,7 @@
  * a picture reaching a renderer that returns a row which ignores it (disclosure, text, or nothing).
  */
 import { expect, test } from "bun:test";
+import { downloadUrl } from "../lib/download.ts";
 import { mount } from "../test/harness.tsx";
 import { Markdown } from "./Markdown.tsx";
 
@@ -14,18 +15,18 @@ test("a workspace picture renders as an img the browser can load", async () => {
   const img = handle.find("img");
   expect(img).not.toBeNull();
   expect(img?.getAttribute("alt")).toBe("chart");
-  const src = img?.getAttribute("src") ?? "";
-  // Not the raw /work path the agent named: the SPA has no route there, so an unresolved src is a broken image.
-  expect(src).not.toBe("/work/a1/chart.png");
-  expect(src).toContain("chart.png");
+  // Not the raw /work path the agent named: the SPA has no route there, so an unresolved src is a broken
+  // image. The exact route is the contract — a src aimed at the wrong endpoint is as broken as the raw path,
+  // and a substring check on the filename would let it through.
+  expect(img?.getAttribute("src")).toBe(downloadUrl("/work/a1/chart.png", { inline: true }));
   handle.unmount();
 });
 
 test("a path relative to the agent's own directory is resolved before it renders", async () => {
   const handle = await mount(<Markdown text={"![shot](shot.png)"} cwd="/work/a1" />);
-  const src = handle.find("img")?.getAttribute("src") ?? "";
-  expect(src).toContain("shot.png");
-  expect(src).toContain("a1");
+  expect(handle.find("img")?.getAttribute("src")).toBe(
+    downloadUrl("/work/a1/shot.png", { inline: true }),
+  );
   handle.unmount();
 });
 
