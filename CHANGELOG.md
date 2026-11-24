@@ -5,7 +5,17 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
-### Added
+## [v0.50.2-letta_0.34.70] - 2026-11-24
+
+### Fixed
+- **A finished subagent run's transcript is no longer lost with the process that wrote it.** Upstream
+  kept a run's event log in memory, so opening it after an app-server restart — or after the run's own
+  process exited — reported nothing. Runs → subagent runs now lists every background run whose files are
+  on disk and opens the whole log: each tool call with its output, the run's narration, and how it ended,
+  reading what upstream already writes beside the run's output file. A row says **Completed**, **Failed**,
+  or **Stopped**, and it says **Stopped** when the log simply stopped writing rather than claiming a run
+  finished that did not. Directories older than `TASK_LOG_RETENTION_DAYS` (default 14) are cleaned up on
+  the next listing.
 - **The web UI can now be tested as rendered.** A component or a state hook renders in a real DOM inside the
   ordinary test run (`bun run test`), so the claims that four flows could only prove by reading a component — an
   image row that drops its picture, an ack shown as the opposite of what happened, a settings form whose Save

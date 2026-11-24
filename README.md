@@ -173,6 +173,9 @@ before exposing anything.
 - **Worker runs, per agent.** The Runs tab lists the Codex, Claude and remote-pi runs
   that ran in the open agent's workspace; **show all** widens it to every agent on the
   machine.
+- **Subagent runs that outlive the run.** The same tab lists background subagents — what
+  each one did, tool call by tool call, and whether it finished, failed, or stopped — from
+  files on disk, so the transcript is still there after the app-server has restarted.
 - **Skills.** Reusable instructions at global, agent and project scope, with
   the ones the stack needs shipped in the image.
 
