@@ -5,6 +5,33 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.51.0-letta_0.34.70] - 2026-11-26
+
+### Fixed
+- **A conversation that carried its own context size now summarizes instead of failing.** Any
+  conversation sized on its own — typed in the **Context** sheet, or sized by an older version that
+  stored the size where the window belongs — kept that number forever, because the sizing pass walked
+  agents and never conversations. letta-code then armed its compaction trigger at
+  `window − 16 384`, which sits *past* the last prompt that fits at all (`size − max output`), so the
+  conversation ran into a refused request where it should have got a summary, and the top-bar gauge
+  divided by the same inflated window and reported "not yet" the whole way down. One such conversation
+  measured 234 979 tokens against a 262 144 window — 90 %, healthy — when the server had stopped
+  fitting its requests at 229 376. Such conversations are now found on first sight and retuned, their
+  size untouched.
+- **The Context sheet can now say it is wrong.** It shows where the conversation actually runs out —
+  where it compacts, or where the last prompt stops fitting when that comes first — and when the
+  window in force is not the one its own numbers imply, it says so and offers **Fix the window**. The
+  gauge gained a state for being past that point: before, a conversation over its capacity rendered
+  exactly like one at it, a full amber bar either way.
+- **A window set upstream's own way is no longer invisible.** `letta model set --conversation …
+  --model-settings '{"context_window_limit": N}'` leaves the top-level field absent and sets only the
+  nested one, which is the fallback the engine reads; a reader that stopped at the top level saw an
+  unsized conversation and every number agreed with itself.
+
+### Changed
+- The context watchdog's near-full ratio is measured against that same honest point when the BFF knows
+  one, so an oversized window can no longer hide a nearly-full conversation from it.
+
 ## [v0.50.3-letta_0.34.70] - 2026-11-26
 
 ### Fixed
