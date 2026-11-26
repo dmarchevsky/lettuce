@@ -371,6 +371,24 @@ describe("ContextSizer, conversation scope", () => {
     expect(h.logs.join(" ")).toContain("compacted at 245,760");
   });
 
+  test("a nested-only window is still a window, so it is still sized", async () => {
+    // Upstream's settings write leaves the top-level field absent — verified
+    // against a live app-server — and its execution path reads nested as the
+    // fallback. A sizer that looked only at top level saw an unsized conversation
+    // and said nothing while the engine was armed to fail.
+    const h = convHarness({
+      agent,
+      conversation: {
+        id: "c1",
+        model: "model/x",
+        model_settings: { context_window_limit: 262_144 },
+      },
+    });
+    expect(await h.sizer.ensureConversation("a1", "c1")).toBe(true);
+    expect(h.written).toEqual(["c1 241664 --override"]);
+    expect(h.sizer.compactPointFor("conv:c1")).toBe(229_376);
+  });
+
   test("a window matching nothing is reported, never rewritten", async () => {
     // 110 592 is the derived window for a 131 072 size: reading it as a size and
     // deriving again would shrink it at every restart, and from here it is

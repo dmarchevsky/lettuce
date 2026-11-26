@@ -78,12 +78,41 @@ export function isContextExhaustionError(text: string): boolean {
   return CONTEXT_EXHAUSTION_MARKERS.some((marker) => haystack.includes(marker));
 }
 
+/**
+ * A conversation's **own** window, or null when it inherits the agent's.
+ *
+ * Top level first, then `model_settings` — that is upstream's order, in two
+ * places that agree: the execution path resolves
+ * `retrieveConversation(...).context_window_limit` before falling back to that
+ * conversation's `model_settings.context_window_limit`
+ * (letta-code `src/backend/local/local-backend.ts:548-561`), and the CLI's own
+ * reader does the same (`src/cli/subcommands/model.ts:385-391`).
+ *
+ * The fallback is the part a BFF can get wrong: a raw settings write (upstream's
+ * `letta model set --conversation X --model-settings '{"context_window_limit":N}'`)
+ * leaves the top-level field **absent**, so a reader that stops there sees an
+ * unsized conversation, reports the agent's window, and every number agrees with
+ * itself while nothing compacts. Reading nested *first* fails the other way and
+ * invents a mismatch the engine will never reach, because `/context-limit` writes
+ * the top-level field that outranks it (letta-code `src/agent/max-context.ts`).
+ */
+export function conversationOwnWindow(conversation: unknown): number | null {
+  if (!conversation || typeof conversation !== "object") return null;
+  const record = conversation as Record<string, unknown>;
+  const top = record["context_window_limit"];
+  if (typeof top === "number" && top > 0) return top;
+  const settings = record["model_settings"];
+  const nested =
+    settings && typeof settings === "object"
+      ? (settings as Record<string, unknown>)["context_window_limit"]
+      : undefined;
+  return typeof nested === "number" && nested > 0 ? nested : null;
+}
+
 /** The window upstream would use for this scope, read the way the client reads it. */
 export function effectiveContextLimit(agent: unknown, conversation: unknown): number {
-  const conv = (conversation ?? {}) as { context_window_limit?: unknown };
-  if (typeof conv.context_window_limit === "number" && conv.context_window_limit > 0) {
-    return conv.context_window_limit;
-  }
+  const own = conversationOwnWindow(conversation);
+  if (own !== null) return own;
   const a = (agent ?? {}) as {
     model_settings?: { context_window_limit?: unknown };
     llm_config?: { context_window?: unknown };

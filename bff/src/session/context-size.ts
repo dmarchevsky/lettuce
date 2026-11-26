@@ -7,7 +7,11 @@ import type {
   ExecuteCommandResponseMessage,
   WsProtocolMessage,
 } from "@letta-ai/letta-code/app-server-protocol";
-import { effectiveContextLimit, LETTA_DEFAULT_CONTEXT_LIMIT } from "./context-watchdog.ts";
+import {
+  conversationOwnWindow,
+  effectiveContextLimit,
+  LETTA_DEFAULT_CONTEXT_LIMIT,
+} from "./context-watchdog.ts";
 
 /**
  * Keeps the window letta-code compacts against behind the point where the model
@@ -466,10 +470,9 @@ export class ContextSizer {
   ): Promise<boolean> {
     const conversationId = conversation.id;
     if (typeof conversationId !== "string" || !conversationId) return false;
-    const own =
-      typeof conversation.context_window_limit === "number" && conversation.context_window_limit > 0
-        ? conversation.context_window_limit
-        : null;
+    // Upstream's own precedence, top level then nested — see `conversationOwnWindow`.
+    // This line is the whole bug's read side.
+    const own = conversationOwnWindow(conversation);
     // No window of its own: it inherits the agent's, and the agent path owns that
     // one. Writing here would pin the conversation to today's answer.
     if (own === null) return false;

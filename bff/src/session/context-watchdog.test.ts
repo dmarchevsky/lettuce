@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { WsProtocolMessage } from "@letta-ai/letta-code/app-server-protocol";
 import {
   ContextWatchdog,
+  conversationOwnWindow,
   effectiveContextLimit,
   isContextExhaustionError,
   type WatchdogUpstream,
@@ -83,6 +84,38 @@ function watchdog(deps: {
     ...(deps.compactPoint !== undefined ? { compactPoint: () => deps.compactPoint ?? null } : {}),
   });
 }
+
+describe("conversationOwnWindow / effectiveContextLimit", () => {
+  const agent = { model_settings: { context_window_limit: 241_664 } };
+
+  test("a nested-only window still reads, because the engine reads it", () => {
+    // Upstream's `letta model set --conversation --model-settings` leaves the
+    // top-level field absent (verified against a live app-server), so a reader
+    // that stops at top level sees an unsized conversation and calls the agent's
+    // window the conversation's — the shape where the sheet and the engine part.
+    const conversation = { model_settings: { context_window_limit: 128_000 } };
+    expect(conversationOwnWindow(conversation)).toBe(128_000);
+    expect(effectiveContextLimit(agent, conversation)).toBe(128_000);
+  });
+
+  test("top level outranks nested, which is what makes the write converge", () => {
+    // `/context-limit` writes the top-level field only. If nested outranked it,
+    // every fix this flow performs would report a mismatch forever after.
+    expect(conversationOwnWindow({ context_window_limit: 262_144 })).toBe(262_144);
+    expect(
+      conversationOwnWindow({
+        context_window_limit: 108_288,
+        model_settings: { context_window_limit: 128_000 },
+      }),
+    ).toBe(108_288);
+  });
+
+  test("no own window means the agent's, which is not a conversation scope", () => {
+    expect(conversationOwnWindow({})).toBeNull();
+    expect(conversationOwnWindow(null)).toBeNull();
+    expect(effectiveContextLimit(agent, {})).toBe(241_664);
+  });
+});
 
 describe("isContextExhaustionError", () => {
   test("catches how llama.cpp actually writes it", () => {
