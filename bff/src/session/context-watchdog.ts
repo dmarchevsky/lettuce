@@ -78,12 +78,41 @@ export function isContextExhaustionError(text: string): boolean {
   return CONTEXT_EXHAUSTION_MARKERS.some((marker) => haystack.includes(marker));
 }
 
+/**
+ * A conversation's **own** window, or null when it inherits the agent's.
+ *
+ * Top level first, then `model_settings` — that is upstream's order, in two
+ * places that agree: the execution path resolves
+ * `retrieveConversation(...).context_window_limit` before falling back to that
+ * conversation's `model_settings.context_window_limit`
+ * (letta-code `src/backend/local/local-backend.ts:548-561`), and the CLI's own
+ * reader does the same (`src/cli/subcommands/model.ts:385-391`).
+ *
+ * The fallback is the part a BFF can get wrong: a raw settings write (upstream's
+ * `letta model set --conversation X --model-settings '{"context_window_limit":N}'`)
+ * leaves the top-level field **absent**, so a reader that stops there sees an
+ * unsized conversation, reports the agent's window, and every number agrees with
+ * itself while nothing compacts. Reading nested *first* fails the other way and
+ * invents a mismatch the engine will never reach, because `/context-limit` writes
+ * the top-level field that outranks it (letta-code `src/agent/max-context.ts`).
+ */
+export function conversationOwnWindow(conversation: unknown): number | null {
+  if (!conversation || typeof conversation !== "object") return null;
+  const record = conversation as Record<string, unknown>;
+  const top = record["context_window_limit"];
+  if (typeof top === "number" && top > 0) return top;
+  const settings = record["model_settings"];
+  const nested =
+    settings && typeof settings === "object"
+      ? (settings as Record<string, unknown>)["context_window_limit"]
+      : undefined;
+  return typeof nested === "number" && nested > 0 ? nested : null;
+}
+
 /** The window upstream would use for this scope, read the way the client reads it. */
 export function effectiveContextLimit(agent: unknown, conversation: unknown): number {
-  const conv = (conversation ?? {}) as { context_window_limit?: unknown };
-  if (typeof conv.context_window_limit === "number" && conv.context_window_limit > 0) {
-    return conv.context_window_limit;
-  }
+  const own = conversationOwnWindow(conversation);
+  if (own !== null) return own;
   const a = (agent ?? {}) as {
     model_settings?: { context_window_limit?: unknown };
     llm_config?: { context_window?: unknown };
@@ -118,6 +147,14 @@ export class ContextWatchdog {
       usage: TurnUsageLog;
       upstream: WatchdogUpstream;
       log: (message: string) => void;
+      /**
+       * The room a scope really has, when the sizer has worked it out. The window
+       * in force can be a lie — a conversation sized before the reserve arithmetic
+       * existed — and then the ratio hides a full conversation inside an inflated
+       * denominator, which is exactly how a conversation ends up over its own
+       * compaction point with nothing to show for it.
+       */
+      compactPoint?: (agentId: string, conversationId: string) => number | null;
       now?: () => number;
     },
   ) {}
@@ -145,12 +182,15 @@ export class ContextWatchdog {
     const lastAttempt = this.compactedAt.get(key);
     if (lastAttempt !== undefined && now - lastAttempt < CONTEXT_COMPACT_COOLDOWN_MS) return;
 
+    const [agentId, conversationId] = parseScopeKey(key);
     const limit = await this.limitFor(key);
-    const ratio = used !== undefined && limit > 0 ? used / limit : 0;
+    // Measure against the smaller of the two claims about the scope's room.
+    const honest = this.deps.compactPoint?.(agentId, conversationId) ?? 0;
+    const bound = honest > 0 && honest < limit ? honest : limit;
+    const ratio = used !== undefined && bound > 0 ? used / bound : 0;
     if (!exhausted && ratio < this.deps.ratio) return;
 
     // The compact command is scoped by conversation alone; the agent is implied.
-    const [, conversationId] = parseScopeKey(key);
     this.busy.add(key);
     this.compactedAt.set(key, now);
     this.trim();
@@ -172,7 +212,9 @@ export class ContextWatchdog {
         `context watchdog: compacted ${conversationId} (${
           exhausted
             ? `provider refused the request${used !== undefined ? ` at ${used} tokens` : ""}`
-            : `${Math.round(ratio * 100)}% of ${limit} tokens`
+            : `${Math.round(ratio * 100)}% of ${bound} tokens${
+                bound === limit ? "" : `, window says ${limit}`
+              }`
         })${failed ? " — the app-server refused" : ""}`,
       );
     } catch (error) {

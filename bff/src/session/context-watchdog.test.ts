@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { WsProtocolMessage } from "@letta-ai/letta-code/app-server-protocol";
 import {
   ContextWatchdog,
+  conversationOwnWindow,
   effectiveContextLimit,
   isContextExhaustionError,
   type WatchdogUpstream,
@@ -72,6 +73,7 @@ function watchdog(deps: {
   contextTokens: number;
   upstream: FakeUpstream;
   now?: () => number;
+  compactPoint?: number | null;
 }) {
   return new ContextWatchdog({
     ratio: deps.ratio,
@@ -79,8 +81,41 @@ function watchdog(deps: {
     upstream: deps.upstream.upstream,
     log: () => {},
     ...(deps.now ? { now: deps.now } : {}),
+    ...(deps.compactPoint !== undefined ? { compactPoint: () => deps.compactPoint ?? null } : {}),
   });
 }
+
+describe("conversationOwnWindow / effectiveContextLimit", () => {
+  const agent = { model_settings: { context_window_limit: 241_664 } };
+
+  test("a nested-only window still reads, because the engine reads it", () => {
+    // Upstream's `letta model set --conversation --model-settings` leaves the
+    // top-level field absent (verified against a live app-server), so a reader
+    // that stops at top level sees an unsized conversation and calls the agent's
+    // window the conversation's — the shape where the sheet and the engine part.
+    const conversation = { model_settings: { context_window_limit: 128_000 } };
+    expect(conversationOwnWindow(conversation)).toBe(128_000);
+    expect(effectiveContextLimit(agent, conversation)).toBe(128_000);
+  });
+
+  test("top level outranks nested, which is what makes the write converge", () => {
+    // `/context-limit` writes the top-level field only. If nested outranked it,
+    // every fix this flow performs would report a mismatch forever after.
+    expect(conversationOwnWindow({ context_window_limit: 262_144 })).toBe(262_144);
+    expect(
+      conversationOwnWindow({
+        context_window_limit: 108_288,
+        model_settings: { context_window_limit: 128_000 },
+      }),
+    ).toBe(108_288);
+  });
+
+  test("no own window means the agent's, which is not a conversation scope", () => {
+    expect(conversationOwnWindow({})).toBeNull();
+    expect(conversationOwnWindow(null)).toBeNull();
+    expect(effectiveContextLimit(agent, {})).toBe(241_664);
+  });
+});
 
 describe("isContextExhaustionError", () => {
   test("catches how llama.cpp actually writes it", () => {
@@ -110,6 +145,47 @@ describe("effectiveContextLimit", () => {
 });
 
 describe("ContextWatchdog", () => {
+  test("an over-sized window cannot hide a full conversation from the ratio", async () => {
+    // The exact arithmetic that let a conversation sit past its compaction point
+    // unnoticed: 234 979 of an inflated 262 144 window is 89.7 %, under the 0.9
+    // trigger — while the room it really had was 225 280. The window is a claim;
+    // the compact point, once known, is the measurement.
+    const upstream = fakeUpstream(262_144);
+    watchdog({
+      ratio: 0.9,
+      contextTokens: 234_979,
+      upstream,
+      compactPoint: null,
+    }).observe(finished());
+    await settle();
+    expect(upstream.compacted).toEqual([]);
+
+    const withHonest = fakeUpstream(262_144);
+    watchdog({
+      ratio: 0.9,
+      contextTokens: 234_979,
+      upstream: withHonest,
+      compactPoint: 225_280,
+    }).observe(finished());
+    await settle();
+    expect(withHonest.compacted).toEqual(["conv-1"]);
+  });
+
+  test("a compact point larger than the window never loosens the trigger", async () => {
+    // The smaller claim is the measure: a scope whose declaration promises more
+    // room than its own window must not be told it has room it cannot use.
+    // 120 000 of a 128 000 window compacts, whatever the compact point claims.
+    const upstream = fakeUpstream(128_000);
+    watchdog({
+      ratio: 0.9,
+      contextTokens: 120_000,
+      upstream,
+      compactPoint: 225_280,
+    }).observe(finished());
+    await settle();
+    expect(upstream.compacted).toEqual(["conv-1"]);
+  });
+
   test("compacts a conversation that filled its declared window", async () => {
     const upstream = fakeUpstream(128_000);
     watchdog({ ratio: 0.9, contextTokens: 120_000, upstream }).observe(finished());

@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { contextGauge, formatTokens, percentOf, pickTurnUsage, readTurnUsage } from "./usage.ts";
+import {
+  contextGauge,
+  formatTokens,
+  gaugeWidth,
+  percentOf,
+  pickTurnUsage,
+  readTurnUsage,
+} from "./usage.ts";
 
 const served = {
   promptTokens: 790,
@@ -51,10 +58,34 @@ describe("pickTurnUsage", () => {
 
 describe("contextGauge", () => {
   test("label, percent, and the amber threshold", () => {
-    expect(contextGauge(25461, 128000)).toEqual({ label: "25k / 128k", percent: 20, warn: false });
-    expect(contextGauge(108000, 128000)).toMatchObject({ percent: 84, warn: true });
-    expect(contextGauge(300000, 128000).percent).toBe(100);
+    expect(contextGauge(25461, 128000)).toEqual({
+      label: "25k / 128k",
+      percent: 20,
+      warn: false,
+      over: false,
+      overBy: 0,
+    });
+    expect(contextGauge(108000, 128000)).toMatchObject({ percent: 84, warn: true, over: false });
     expect(contextGauge(10, 0).percent).toBe(0);
+    expect(gaugeWidth(contextGauge(234979, 225280))).toBe(100);
+  });
+
+  test("past the point it says so, and amber is not enough", () => {
+    // A full amber bar is what a conversation at its compaction point looked
+    // exactly like before, so the over could only be read off the numbers.
+    expect(contextGauge(234979, 225280)).toEqual({
+      label: "235k / 225k over",
+      percent: 104,
+      warn: false,
+      over: true,
+      overBy: 9699,
+    });
+  });
+
+  test("exactly at the point is not over", () => {
+    expect(contextGauge(225280, 225280)).toMatchObject({ over: false, warn: true, percent: 100 });
+    // Past it, the honest number survives: rounding it to 100 is what made the
+    // two states indistinguishable.
   });
 
   test("formatTokens", () => {

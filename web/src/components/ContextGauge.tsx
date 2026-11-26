@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { ContextAccounting } from "../lib/context-size.ts";
-import { contextGauge, formatTokens, percentOf, type TurnUsage } from "../lib/usage.ts";
+import { contextGauge, formatTokens, gaugeWidth, percentOf, type TurnUsage } from "../lib/usage.ts";
 import type { ContextLimit } from "../state/use-context-limit.ts";
 import { MIN_CONTEXT_LIMIT, parseContextLimit } from "../state/use-context-limit.ts";
 import { Icon } from "./Icon.tsx";
@@ -33,22 +33,26 @@ export function ContextGauge({
   return (
     <button
       type="button"
-      className={`ctx-gauge${gauge?.warn ? " warn" : ""}`}
+      className={`ctx-gauge${gauge?.over ? " over" : gauge?.warn ? " warn" : ""}`}
       onClick={onOpen}
       aria-label={
         gauge && used !== undefined
-          ? `Context: ${used.toLocaleString()} of ${full.toLocaleString()} tokens before this conversation compacts, ${gauge.percent}% full`
+          ? gauge.over
+            ? `Context: ${used.toLocaleString()} of ${full.toLocaleString()} tokens, ${gauge.overBy.toLocaleString()} past the point this conversation compacts, ${gauge.percent}% full`
+            : `Context: ${used.toLocaleString()} of ${full.toLocaleString()} tokens before this conversation compacts, ${gauge.percent}% full`
           : `This conversation compacts at ${full.toLocaleString()} tokens — no usage reported yet`
       }
       title={
         gauge
-          ? `${gauge.percent}% of the room before the conversation compacts`
+          ? gauge.over
+            ? `${gauge.percent}% — past the point where the conversation compacts`
+            : `${gauge.percent}% of the room before the conversation compacts`
           : "No usage reported yet"
       }
     >
       <span className="ctx-gauge-label">{gauge ? gauge.label : `— / ${formatTokens(full)}`}</span>
       <span className="ctx-bar" aria-hidden="true">
-        <i style={{ width: `${gauge?.percent ?? 0}%` }} />
+        <i style={{ width: `${gauge ? gaugeWidth(gauge) : 0}%` }} />
       </span>
     </button>
   );
@@ -145,11 +149,19 @@ export function ContextSheet({
           <div className="ctx-big">
             <span>
               <b>{used.toLocaleString()}</b> of {full.toLocaleString()}
+              {gauge.over ? (
+                <span className="over"> · {gauge.overBy.toLocaleString()} over</span>
+              ) : null}
             </span>
-            <span className={gauge.warn ? "warn" : ""}>{gauge.percent}% to compacting</span>
+            <span className={gauge.over ? "over" : gauge.warn ? "warn" : ""}>
+              {gauge.percent}% to compacting
+            </span>
           </div>
-          <div className={`ctx-bar big${gauge.warn ? " warn" : ""}`} aria-hidden="true">
-            <i style={{ width: `${gauge.percent}%` }} />
+          <div
+            className={`ctx-bar big${gauge.over ? " over" : gauge.warn ? " warn" : ""}`}
+            aria-hidden="true"
+          >
+            <i style={{ width: `${gaugeWidth(gauge)}%` }} />
           </div>
         </>
       ) : null}
@@ -246,7 +258,50 @@ export function ContextSheet({
               </span>
             </li>
           </ul>
-          {accounting.source === "typed" && accounting.automatic ? (
+          {accounting.mismatch?.armedLate ? (
+            /* The one state this sheet used to be unable to admit: every number it
+               prints is right, and the window the engine is using is not the one
+               they imply, so the conversation gets an error where it should get a
+               summary. One verb, and it is the same write the sizer does. */
+            <p className="ctx-hint warn">
+              {accounting.typedScope === "conversation"
+                ? "This conversation carries its own size"
+                : "This size is set for the agent"}
+              , so the server refuses a request at {accounting.mismatch.refusedAt.toLocaleString()}{" "}
+              and compacts only at {accounting.mismatch.engineAt.toLocaleString()} — after the
+              refusal:{" "}
+              <button
+                type="button"
+                className="link"
+                disabled={busy}
+                onClick={() => {
+                  setBusy(true);
+                  void onSetSize(accounting.context, accounting.typedScope ?? "agent")
+                    .then(() => {
+                      onSaved();
+                      setMessage({ tone: "ok", text: "The window now matches these numbers" });
+                    })
+                    .catch((error: unknown) =>
+                      setMessage({
+                        tone: "bad",
+                        text: error instanceof Error ? error.message : String(error),
+                      }),
+                    )
+                    .finally(() => setBusy(false));
+                }}
+              >
+                Fix the window
+              </button>
+            </p>
+          ) : accounting.mismatch ? (
+            /* The other direction: a window that compacts early costs context and
+               nothing else, so it is said plainly and offers no verb — a window
+               this far short of the wall was usually chosen, not forgotten. */
+            <p className="ctx-hint">
+              Its window compacts at {accounting.mismatch.engineAt.toLocaleString()}, before{" "}
+              {accounting.compactAt.toLocaleString()}, so it gives up context sooner than it has to.
+            </p>
+          ) : accounting.source === "typed" && accounting.automatic ? (
             <p className="ctx-hint">
               You set this; Settings → Models declares{" "}
               {accounting.automatic.context.toLocaleString()}:{" "}

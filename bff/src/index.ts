@@ -163,7 +163,6 @@ import {
   ContextSizer,
   ContextSizeStore,
   contextBudget,
-  handSetWindow,
 } from "./session/context-size.ts";
 import { ContextWatchdog, effectiveContextLimit } from "./session/context-watchdog.ts";
 import { WORKSPACE_ROOT, workspaceViolation } from "./session/protocol.ts";
@@ -258,6 +257,35 @@ function log(message: string): void {
   console.log(`[bff] ${new Date().toISOString()} ${message}`);
 }
 
+/** Conversations sized since this process started; the oldest is forgotten first. */
+const SIZED_SCOPES_MAX = 500;
+const sizedConversations = new Set<string>();
+
+/**
+ * The window in force is a per-conversation fact that only ever got retuned at
+ * agent scope, so a conversation nobody has opened since a bad value was written
+ * keeps it forever. First sight of a scope is the cheap moment to check it: one
+ * background pass per conversation, before its first turn can outrun its own
+ * compaction point, and never in a turn's way.
+ */
+function sizeConversationOnSight(frame: WsProtocolMessage): void {
+  const runtime = (frame as { runtime?: unknown }).runtime as
+    | { agent_id?: unknown; conversation_id?: unknown }
+    | undefined;
+  const agentId = typeof runtime?.agent_id === "string" ? runtime.agent_id : null;
+  const conversationId =
+    typeof runtime?.conversation_id === "string" ? runtime.conversation_id : null;
+  if (!agentId || !conversationId || conversationId === "default") return;
+  if (sizedConversations.has(conversationId)) return;
+  sizedConversations.add(conversationId);
+  while (sizedConversations.size > SIZED_SCOPES_MAX) {
+    const oldest = sizedConversations.values().next().value;
+    if (oldest === undefined) break;
+    sizedConversations.delete(oldest);
+  }
+  void contextSizer.ensureConversation(agentId, conversationId).catch(() => false);
+}
+
 /** One frame from the app-server, as every BFF consumer and then the browsers see it. */
 function handleFrame(frame: WsProtocolMessage): void {
   // Before the fan-out: a browser refetches usage when it sees a usage
@@ -265,6 +293,7 @@ function handleFrame(frame: WsProtocolMessage): void {
   turnUsage.observe(frame);
   contextWatchdog?.observe(frame);
   stepLimitWatchdog?.observe(frame);
+  if (frame.type === "runtime_start_response") sizeConversationOnSight(frame);
   const sightUpdate = providerSight.observe(frame);
   // After the mirror saw the whole list: browsers do not get what was unticked.
   registry.handleUpstreamFrame(filterServedModels(frame, modelCaps.hiddenModels()));
@@ -367,6 +396,15 @@ contextWatchdog = new ContextWatchdog({
   usage: turnUsage,
   upstream,
   log,
+  // Measure a conversation against the room the sizer worked out for it when it
+  // knows one: an inflated window would otherwise hide a full conversation from
+  // the ratio, which is how one ends up over its compaction point unnoticed.
+  compactPoint: (agentId, conversationId) =>
+    contextSizer.compactPointFor(
+      conversationId && conversationId !== "default"
+        ? `conv:${conversationId}`
+        : `agent:${agentId}`,
+    ),
 });
 
 // Stops a turn at its agent's step limit (Agent → General) — see
@@ -1754,30 +1792,25 @@ app.get("/api/context-size", async (c) => {
     const resized = await contextSizer
       .ensure(agentId, agent.success ? (agent.agent ?? null) : null)
       .catch(() => false);
-    if (resized) [agent, conversation] = await retrieve();
+    // The same for the conversation's own window — the scope `ensure` never
+    // reached, and the one that can carry a raw size from before the reserve
+    // arithmetic existed. Both records are already in hand, so this costs extra
+    // reads only when the conversation really does carry an override.
+    const resizedConversation = await contextSizer
+      .ensureConversation(
+        agentId,
+        conversationId ?? "",
+        agent.success ? (agent.agent ?? null) : null,
+        conversation?.conversation ?? null,
+      )
+      .catch(() => false);
+    if (resized || resizedConversation) [agent, conversation] = await retrieve();
     const handle = modelHandleFrom(conversation, agent.success ? (agent.agent ?? null) : null);
     const declared = contextSizer.capsFor(handle);
     const inForce = effectiveContextLimit(
       agent.success ? (agent.agent ?? null) : null,
       conversation?.conversation ?? null,
     );
-    // A conversation carrying its own window was sized by hand before this kept
-    // any record of it — the agent's own window was just adopted by `ensure`. Do
-    // the same here, or the sheet shows the declaration over the number that is
-    // really in force for this conversation.
-    const conv = (conversation?.conversation ?? {}) as { context_window_limit?: unknown };
-    const convWindow =
-      typeof conv.context_window_limit === "number" && conv.context_window_limit > 0
-        ? conv.context_window_limit
-        : null;
-    if (
-      conversationId &&
-      convWindow !== null &&
-      contextSizes.get(`conv:${conversationId}`) === null &&
-      handSetWindow(convWindow, declared)
-    ) {
-      contextSizes.set(`conv:${conversationId}`, convWindow);
-    }
     return c.json(
       accounting({
         limit: inForce,

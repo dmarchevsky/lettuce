@@ -23,8 +23,23 @@ export interface ContextAccounting {
   window: number;
   /** What you typed, per scope — what "Use automatic" would clear. */
   typed: { agent: number | null; conversation: number | null };
+  /** Which of those the size above came from; names the scope to clear. */
+  typedScope: "agent" | "conversation" | null;
   /** What the model's declaration would produce, when an override is in force. */
   automatic: { context: number; compactAt: number } | null;
+  /**
+   * The window letta-code is using is not the one these numbers imply. Null when
+   * it is. `armedLate` is the dangerous half: the window compacts **after** the
+   * server would refuse the request, so the next over-large message is an error
+   * and not a summary. A window that only compacts early costs context, so it is
+   * said without alarm and fixed without a verb.
+   */
+  mismatch: {
+    window: number;
+    refusedAt: number;
+    engineAt: number;
+    armedLate: boolean;
+  } | null;
 }
 
 async function ok(response: Response): Promise<Response> {

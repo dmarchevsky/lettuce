@@ -81,19 +81,39 @@ export function formatTokens(n: number): string {
 export const CONTEXT_WARN_RATIO = 0.8;
 
 export interface ContextGauge {
-  /** "25k / 128k". */
+  /** "25k / 128k", or "235k / 225k over" once past the point. */
   label: string;
-  /** 0-100, clamped. */
+  /**
+   * The true share, allowed above 100: a conversation past its compaction point
+   * is at 104 % of it, and rounding that down to 100 hides the only number that
+   * says the point has been passed. Bars clamp it; text does not.
+   */
   percent: number;
   warn: boolean;
+  /**
+   * Past the compaction point: the bar is full and the conversation is over it.
+   * A distinct state, not a hotter shade of amber, because nothing automatic is
+   * coming to help — the next request is the one that fails.
+   */
+  over: boolean;
+  /** How far past, in tokens (0 unless `over`). */
+  overBy: number;
+}
+
+/** The bar's width: the true share, clamped to the bar. */
+export function gaugeWidth(gauge: ContextGauge): number {
+  return Math.max(0, Math.min(100, gauge.percent));
 }
 
 /** How full the context is, for the header gauge and the details panel. */
 export function contextGauge(used: number, limit: number): ContextGauge {
   const ratio = limit > 0 ? used / limit : 0;
+  const over = limit > 0 && used > limit;
   return {
-    label: `${formatTokens(used)} / ${formatTokens(limit)}`,
-    percent: Math.max(0, Math.min(100, Math.round(ratio * 100))),
-    warn: ratio >= CONTEXT_WARN_RATIO,
+    label: `${formatTokens(used)} / ${formatTokens(limit)}${over ? " over" : ""}`,
+    percent: Math.round(ratio * 100),
+    warn: !over && ratio >= CONTEXT_WARN_RATIO,
+    over,
+    overBy: over ? Math.round(used - limit) : 0,
   };
 }
