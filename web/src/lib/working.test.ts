@@ -347,6 +347,27 @@ describe("deriveWorking", () => {
       queue: [],
     });
     expect(longPrefill?.state).toBe("waiting-model");
+    // A witnessed step is still a step: a running tool or streaming text keeps
+    // its own state — the witness only changes what pure silence means.
+    const tool = entry({
+      kind: "tool_call",
+      toolName: "Bash",
+      toolCallId: "c1",
+      toolArgs: JSON.stringify({ command: "bun run build" }),
+    });
+    expect(
+      deriveWorking({ ...base, modelCallActive: true, entries: [tool], queue: [] })?.state,
+    ).toBe("tool");
+    const streamed = entry({ kind: "assistant", streaming: true, text: "hello" });
+    expect(
+      deriveWorking({
+        ...base,
+        modelCallActive: true,
+        entries: [streamed],
+        queue: [],
+        lastActivityAt: 100_000 - STALL_AFTER_MS - 1,
+      })?.state,
+    ).toBe("writing");
     // Inside the ordinary window nothing changed yet: still plain thinking.
     expect(deriveWorking({ ...base, modelCallActive: true, entries: [], queue: [] })?.state).toBe(
       "thinking",

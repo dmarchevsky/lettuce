@@ -92,6 +92,24 @@ export function queueShownIsStale(
 }
 
 /**
+ * Whether the app-server's loop status means the model call is in flight —
+ * sent, waiting, retrying, or streaming the response. Silence in one of these
+ * is the model's turn, not a stuck turn; the four API-side members of
+ * letta-code's `LoopStatus` (`src/types/loop-status-protocol.ts`). Tool and
+ * approval states are deliberately absent: a visible tool call never reaches
+ * the stall branch anyway, and approval silence is the human's, not the
+ * model's.
+ */
+export function isModelCallLoopStatus(status: unknown): boolean {
+  return (
+    status === "SENDING_API_REQUEST" ||
+    status === "WAITING_FOR_API_RESPONSE" ||
+    status === "RETRYING_API_REQUEST" ||
+    status === "PROCESSING_API_RESPONSE"
+  );
+}
+
+/**
  * Whether the stall watchdog asks the app-server for its opinion right now.
  *
  * Once per turn (the caller clears `probed` when `processing` goes false), never
