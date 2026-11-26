@@ -5,6 +5,17 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.50.3-letta_0.34.70] - 2026-11-26
+
+### Fixed
+- **A model that died mid-turn now says so in a sentence.** When the local model endpoint went away
+  mid-turn — an instance draining behind the model swap — the turn's error card was a wall of raw
+  JSON: the card splitter understood only a compact one-line error body, and upstream delivers
+  a terminal local-backend error as a pretty-printed multi-line one, so the payload shredded into
+  the headline and the plain sentence inside it ("this instance is draining; retry against the
+  next instance") went missing. The card now reads as that sentence, with the raw payload still
+  behind **Details** for the times the real cause is only in there.
+
 ## [v0.50.2-letta_0.34.70] - 2026-11-24
 
 ### Fixed

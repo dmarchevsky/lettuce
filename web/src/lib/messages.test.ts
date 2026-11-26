@@ -1400,6 +1400,42 @@ describe("provider error notices", () => {
     expect(result.headline).toBe("{not actually json");
   });
 
+  test("lifts from upstream's pretty-printed multi-line terminal error", () => {
+    // The shape upstream's `formatErrorDetails` fallback produces for a
+    // structured local-backend error: JSON.stringify(e, null, 2) of
+    // { error: { error: { type, message, detail }, run_id } }.
+    const pretty = [
+      "{",
+      '  "error": {',
+      '    "error": {',
+      '      "type": "local_backend_error",',
+      '      "message": "this instance is draining; retry against the next instance",',
+      '      "detail": "this instance is draining; retry against the next instance"',
+      "    },",
+      '    "run_id": "local-run-52"',
+      "  }",
+      "}",
+    ].join("\n");
+    expect(splitErrorDetail(pretty)).toEqual({
+      headline: "this instance is draining; retry against the next instance",
+      detail: pretty,
+    });
+  });
+
+  test("prose before a pretty-printed body keeps the lifted sentence", () => {
+    const pretty = ["{", '  "error": {', '    "message": "out of memory"', "  }", "}"].join("\n");
+    expect(splitErrorDetail(`Local provider failed:\n${pretty}`)).toEqual({
+      headline: "out of memory",
+      detail: pretty,
+    });
+  });
+
+  test("multi-line text that only starts like JSON falls back without throwing", () => {
+    const result = splitErrorDetail("{oops\n  still not json\n}");
+    expect(typeof result.headline).toBe("string");
+    expect(result.headline).not.toBe("");
+  });
+
   test("loop_error notices carry the headline and the payload separately", () => {
     const transcript: Transcript = new Map();
     applyStreamDelta(

@@ -1615,8 +1615,29 @@ function duplicateErrorNotice(
  *
  * The body is not discarded, only demoted: the caller shows it behind a
  * disclosure, because the actual cause is sometimes only in there.
+ *
+ * A terminal `loop_error` is not that shape: upstream formats a structured
+ * local-backend error through `formatErrorDetails`, whose fallback for a plain
+ * object is `JSON.stringify(e, null, 2)` — a *pretty-printed multi-line* body,
+ * which the line walk below shredded into a headline of JSON fragments (only
+ * the first `{` line landed in `machine`, the rest became "prose"). So any
+ * valid JSON block from the first brace-shaped line to the end is tried whole
+ * first; whatever does not parse falls through to the line walk unchanged.
  */
 export function splitErrorDetail(text: string): { headline: string; detail?: string } {
+  const lines = text.split("\n");
+  const blockStart = lines.findIndex((line) => {
+    const trimmed = line.trim();
+    return trimmed.startsWith("{") || trimmed.startsWith("[");
+  });
+  if (blockStart >= 0) {
+    const block = lines.slice(blockStart).join("\n").trim();
+    const lifted = liftParsed(block);
+    if (lifted) {
+      return { headline: lifted, detail: block };
+    }
+  }
+
   const prose: string[] = [];
   const machine: string[] = [];
   let lifted = "";
@@ -1642,6 +1663,15 @@ export function splitErrorDetail(text: string): { headline: string; detail?: str
   const headline = lifted || prose.join(" ") || text.trim();
   const detail = machine.length > 0 ? machine.join("\n") : undefined;
   return detail ? { headline, detail } : { headline };
+}
+
+/** Parse a whole JSON body and lift its message; "" when either fails. */
+function liftParsed(text: string): string {
+  try {
+    return liftErrorMessage(JSON.parse(text));
+  } catch {
+    return "";
+  }
 }
 
 /** The human sentence inside a provider error payload, if it has one. */
