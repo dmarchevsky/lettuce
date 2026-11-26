@@ -258,10 +258,10 @@ export function ContextSheet({
               </span>
             </li>
           </ul>
-          {accounting.mismatch ? (
-            /* The one state this sheet used to be unable to admit: its own numbers
-               are right, and the window the engine is using is not the one they
-               imply, so the conversation gets an error where it should get a
+          {accounting.mismatch?.armedLate ? (
+            /* The one state this sheet used to be unable to admit: every number it
+               prints is right, and the window the engine is using is not the one
+               they imply, so the conversation gets an error where it should get a
                summary. One verb, and it is the same write the sizer does. */
             <p className="ctx-hint warn">
               {accounting.typedScope === "conversation"
@@ -292,6 +292,14 @@ export function ContextSheet({
               >
                 Fix the window
               </button>
+            </p>
+          ) : accounting.mismatch ? (
+            /* The other direction: a window that compacts early costs context and
+               nothing else, so it is said plainly and offers no verb — a window
+               this far short of the wall was usually chosen, not forgotten. */
+            <p className="ctx-hint">
+              Its window compacts at {accounting.mismatch.engineAt.toLocaleString()}, before{" "}
+              {accounting.compactAt.toLocaleString()}, so it gives up context sooner than it has to.
             </p>
           ) : accounting.source === "typed" && accounting.automatic ? (
             <p className="ctx-hint">

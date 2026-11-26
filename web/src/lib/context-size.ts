@@ -28,15 +28,17 @@ export interface ContextAccounting {
   /** What the model's declaration would produce, when an override is in force. */
   automatic: { context: number; compactAt: number } | null;
   /**
-   * The window letta-code is using is armed to compact **after** the server would
-   * refuse the request, so the compact point above is not the one it will reach.
-   * Null when the window in force is the one these numbers imply.
+   * The window letta-code is using is not the one these numbers imply. Null when
+   * it is. `armedLate` is the dangerous half: the window compacts **after** the
+   * server would refuse the request, so the next over-large message is an error
+   * and not a summary. A window that only compacts early costs context, so it is
+   * said without alarm and fixed without a verb.
    */
   mismatch: {
     window: number;
-    want: number;
     refusedAt: number;
     engineAt: number;
+    armedLate: boolean;
   } | null;
 }
 

@@ -118,8 +118,38 @@ export function armedPastTheSlot(
   return upstreamThreshold(inForce) > size - maxOutput;
 }
 
+/**
+ * The first bad thing for a window in force over a size: where it compacts, or
+ * where the last prompt stops fitting when that comes first. The gauge and the
+ * watchdog both measure against this, so a window nobody derived cannot make
+ * either of them disagree with what the server will do.
+ */
+export function firstBadPoint(
+  windowInForce: number,
+  size: number,
+  maxOutput: number | null,
+): number {
+  const engineAt = upstreamThreshold(windowInForce);
+  return maxOutput === null ? engineAt : Math.min(engineAt, size - maxOutput);
+}
+
 /** Where a context size comes from, as the Context sheet words it. */
 export type ContextSource = "typed" | "declared" | "default";
+
+interface ContextMismatch {
+  /** The window letta-code is using for this scope. */
+  window: number;
+  /** The last prompt that fits: size − max output. The wall, not the trigger. */
+  refusedAt: number;
+  /** Where this window would actually compact — above `refusedAt` when armed late. */
+  engineAt: number;
+  /**
+   * The window compacts after the server refuses, so the next over-large message
+   * is an error and not a summary. The one state the sheet offers a verb for: a
+   * window that only compacts early costs context and nothing else.
+   */
+  armedLate: boolean;
+}
 
 export interface ContextAccounting {
   /** C — what one request gets. */
@@ -127,9 +157,15 @@ export interface ContextAccounting {
   source: ContextSource;
   /** M, the output every request promises, when the model declares it. */
   maxOutput: number | null;
-  /** T — where the conversation compacts. The gauge measures against this. */
+  /**
+   * The point past which the next message cannot be answered: where this window
+   * compacts, or where the last prompt stops fitting when that comes first. The
+   * gauge measures against this because it is the only number that answers "will
+   * the next message work" — and it is the engine's number, not our arithmetic,
+   * so a window nobody derived cannot make the sheet disagree with reality.
+   */
   compactAt: number;
-  /** The window that makes upstream's own threshold land on `compactAt`. */
+  /** The window that makes upstream's threshold land inside the slot. */
   window: number;
   /** What the operator typed, per scope — what "Use automatic" would clear. */
   typed: { agent: number | null; conversation: number | null };
@@ -137,21 +173,8 @@ export interface ContextAccounting {
   typedScope: "agent" | "conversation" | null;
   /** What the declaration would have produced, when an override is in force. */
   automatic: { context: number; compactAt: number } | null;
-  /**
-   * The window in force is armed to compact after the server refuses, so the
-   * compact point above is not the one the engine will reach. Null when the
-   * window in force is the one these numbers imply.
-   */
-  mismatch: {
-    /** The window letta-code is using for this scope. */
-    window: number;
-    /** The window that puts its trigger back inside the slot. */
-    want: number;
-    /** The last prompt that fits: size − max output. */
-    refusedAt: number;
-    /** Where that window would actually compact — above `refusedAt`. */
-    engineAt: number;
-  } | null;
+  /** Non-null when the window in force is not the one these numbers imply. */
+  mismatch: ContextMismatch | null;
 }
 
 /**
@@ -170,10 +193,15 @@ export function accounting(input: {
   const source: ContextSource = typed !== null ? "typed" : input.declared ? "declared" : "default";
   const context = typed ?? input.declared?.contextWindow ?? input.limit;
   const maxOutput = input.declared?.maxTokens ?? null;
-  // Nothing declared and nothing typed: the window in force is the only claim
-  // about the server, so its own threshold is the honest compact point.
-  const compactPoint =
-    source === "default" ? upstreamThreshold(input.limit) : compactAt(context, maxOutput);
+  // Where the window in force actually compacts. When the window was derived
+  // here this equals `compactAt(context, maxOutput)` by construction; when it
+  // was not, this is the truth and ours is a guess.
+  const engineAt = upstreamThreshold(input.limit);
+  // The wall: past it there is no answer that fits, and compaction has already
+  // had its chance. Taking the sooner of the two is what makes the default case
+  // (nothing declared, nothing typed) honest without special-casing it.
+  const refusedAt = maxOutput !== null ? context - maxOutput : null;
+  const compactPoint = firstBadPoint(input.limit, context, maxOutput);
   // What the declaration would produce is shown whenever there is one, so the
   // editor can offer "back to automatic" as a preset even before anything was
   // typed — and the hint line only offers it for real once something was.
@@ -185,19 +213,18 @@ export function accounting(input: {
     : null;
   // The window in force is a separate fact from the size these numbers come from:
   // a conversation can carry its own, written before any of this arithmetic
-  // existed. When that window's own trigger sits past the last prompt that fits,
-  // the sheet's honest compact point is not what the engine will do, so say so
-  // rather than let the two quietly disagree. Only asked where there is an output
-  // budget to run short of.
-  const armedLate = source !== "default" && armedPastTheSlot(input.limit, context, maxOutput);
-  const mismatch = armedLate
-    ? {
-        window: input.limit,
-        want: harnessWindow(context, maxOutput),
-        refusedAt: context - (maxOutput ?? 0),
-        engineAt: upstreamThreshold(input.limit),
-      }
-    : null;
+  // existed, or deliberately smaller. Either way the sheet says so — the danger
+  // case is flagged, the conservative one is just context left on the table.
+  const want = maxOutput !== null ? harnessWindow(context, maxOutput) : null;
+  const mismatch =
+    want !== null && input.limit !== want
+      ? {
+          window: input.limit,
+          refusedAt: refusedAt ?? context,
+          engineAt,
+          armedLate: refusedAt !== null && engineAt > refusedAt,
+        }
+      : null;
   return {
     context,
     source,
@@ -408,7 +435,7 @@ export class ContextSizer {
     }
     const size = this.sizeFor(scope, handle);
     if (!size) return false;
-    this.compactPoints.set(key, compactAt(size.context, caps?.maxTokens));
+    this.compactPoints.set(key, firstBadPoint(inForce, size.context, caps?.maxTokens ?? null));
     const want = harnessWindow(size.context, caps?.maxTokens);
     if (inForce === want) return false;
     return (await this.write(scope, want)) !== null;
@@ -416,14 +443,22 @@ export class ContextSizer {
 
   /**
    * One conversation that carries its **own** window. This is the scope the sizer
-   * never reached: `applyAll` iterates agents, so a conversation sized by hand —
-   * or by a version that wrote a raw size where a derived window belongs — kept
-   * that value forever, and this arithmetic simply did not apply to it.
+   * never reached: `applyAll` iterates agents, so a conversation sized before the
+   * output reserve was subtracted kept that value forever, got a refused request
+   * where it should have got a summary, and its sheet read 90 % full throughout.
    *
-   * Only a window armed past the slot is touched. A conversation window smaller
-   * than its agent's is usually a copy taken at creation, not a choice: retuning
-   * one would compact it far earlier than it needs to, and an early summary costs
-   * a little context where a late one costs the turn.
+   * Exactly one shape is rewritten here: the window equal to the model's own
+   * declaration, which is what the sheet wrote before it wrote a derived window.
+   * That is a value this app created and can prove the meaning of, and the size it
+   * stands for is the declaration — so the size is **not** recorded, because the
+   * declaration already says it and the sheet must keep calling it "by the model".
+   *
+   * Anything else that is armed late is reported, not rewritten. A window matching
+   * neither the declaration nor the derived value could be a person's chosen size
+   * or a copy taken at creation, and the two are indistinguishable from here: a
+   * rewrite would read a derived window as a size, and under an output reserve
+   * above upstream's own that shrinks a little further at every restart. The sheet
+   * says the numbers out loud and offers the verb, so a human decides which it was.
    */
   private async sizeConversation(
     agent: { id: string } | null,
@@ -435,6 +470,8 @@ export class ContextSizer {
       typeof conversation.context_window_limit === "number" && conversation.context_window_limit > 0
         ? conversation.context_window_limit
         : null;
+    // No window of its own: it inherits the agent's, and the agent path owns that
+    // one. Writing here would pin the conversation to today's answer.
     if (own === null) return false;
     const scope: SizeScope = {
       kind: "conversation",
@@ -449,29 +486,24 @@ export class ContextSizer {
           ? agentModelHandle(agent)
           : null;
     const caps = this.capsFor(handle);
-    const claim = this.sizeFor(scope, handle);
-    if (!claim) return false;
-    if (!armedPastTheSlot(own, claim.context, caps?.maxTokens)) return false;
-    if (this.sizes.get(key) === null) {
-      this.sizes.set(key, own);
-      this.deps.log(
-        `context sizing: ${key} keeps its ${own.toLocaleString()}-token window as the size you set`,
-      );
+    if (!caps) {
+      this.deps.log(`context sizing: ${key} runs a model this BFF cannot price; left as is`);
+      return false;
     }
-    const size = this.sizeFor(scope, handle);
-    if (!size) return false;
-    this.compactPoints.set(key, compactAt(size.context, caps?.maxTokens));
-    const want = harnessWindow(size.context, caps?.maxTokens);
-    if (own === want) return false;
-    const wrote = await this.write(scope, want);
-    if (wrote !== null) {
-      const fits = size.context - (caps?.maxTokens ?? 0);
-      this.deps.log(
-        `context sizing: ${key} compacted at ${upstreamThreshold(own).toLocaleString()}, ` +
-          `past the ${fits.toLocaleString()} the server gives a request`,
-      );
+    // Whatever the window is, the watchdog is told where this scope actually runs
+    // out, so an inflated window cannot hide a full conversation from the ratio.
+    this.compactPoints.set(key, firstBadPoint(own, caps.contextWindow, caps.maxTokens));
+    const derived = harnessWindow(caps.contextWindow, caps.maxTokens);
+    if (own !== caps.contextWindow || own === derived) {
+      // Not our old raw write: report-only, by the decision above.
+      return false;
     }
-    return wrote !== null;
+    this.deps.log(
+      `context sizing: ${key} carries a raw ${own.toLocaleString()}-token window from before the` +
+        ` output reserve was subtracted; it compacted at ${upstreamThreshold(own).toLocaleString()},` +
+        ` past the ${(caps.contextWindow - caps.maxTokens).toLocaleString()} a request gets`,
+    );
+    return (await this.write(scope, derived)) !== null;
   }
 
   /**
