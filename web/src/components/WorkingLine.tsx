@@ -16,6 +16,11 @@ interface Props {
   /** When a running `/compact` began; null when none is. See `lib/working.ts`. */
   compactStartedAt: number | null;
   usage: TurnUsage | null;
+  /**
+   * The app-server says this turn is inside a model call right now; see
+   * `modelCallActive` in `lib/working.ts`. Renders the neutral waiting face.
+   */
+  modelCallActive: boolean;
   /** This scope's live subagent snapshots; see `lib/working.ts`. */
   liveSubagents: Record<string, LiveSubagent>;
   onAbort: () => void;
@@ -140,6 +145,7 @@ export function WorkingLine({
   lastActivityAt,
   compactStartedAt,
   usage,
+  modelCallActive,
   liveSubagents,
   onAbort,
 }: Props) {
@@ -161,6 +167,7 @@ export function WorkingLine({
     turnStartedAt,
     lastActivityAt,
     compactStartedAt,
+    modelCallActive,
     liveSubagents,
   });
   if (!snap) return null;
@@ -170,9 +177,15 @@ export function WorkingLine({
     ? sampleSpeed(speedStoreRef.current, streamingChars(entries), true)
     : null;
   // A compaction owns its own clock: no turn is in flight, so the turn's would
-  // be the previous turn's start.
+  // be the previous turn's start. And while the line says "Waiting for model",
+  // the number that matters is the silence — how long the model has been
+  // quiet — not the whole turn, which may be long from earlier steps.
   const elapsed = formatElapsed(
-    now - (snap.state === "compacting" ? (compactStartedAt ?? now) : (turnStartedAt ?? now)),
+    snap.state === "compacting"
+      ? now - (compactStartedAt ?? now)
+      : snap.state === "waiting-model"
+        ? now - Math.max(lastActivityAt ?? 0, turnStartedAt ?? now)
+        : now - (turnStartedAt ?? now),
   );
   const queued = drainingQueueCount(queue);
 

@@ -18,6 +18,7 @@ import {
 import { upstreamReturned } from "../lib/link-status.ts";
 import {
   indicatorStaysOn,
+  isModelCallLoopStatus,
   QUEUE_HIDDEN,
   QUEUE_REVEAL_GRACE_MS,
   queueRevealDecision,
@@ -257,6 +258,14 @@ export interface ConversationApi {
    * is answered with.
    */
   lastActivityAt: number | null;
+  /**
+   * True while the app-server's last loop status for this turn was an
+   * API-side one (request sent, waiting, retrying, or response streaming) —
+   * the model call is in flight, so silence has a witness and the working line
+   * waits instead of warning. False is the conservative default (no frames
+   * seen, or the loop says something else).
+   */
+  modelCallActive: boolean;
 }
 
 /** The transcript's image entries for a send's prepared images (preview bytes). */
@@ -514,6 +523,7 @@ export function useConversation(
   );
   const [turnUsage, setTurnUsage] = useState<TurnUsage | null>(null);
   const [turnStartedAt, setTurnStartedAt] = useState<number | null>(null);
+  const [modelCallActive, setModelCallActive] = useState(false);
   const [lastActivityAt, setLastActivityAt] = useState<number | null>(null);
   /** Mirrors the last frame time; published to render state on every flush. */
   const lastActivityRef = useRef<number | null>(null);
@@ -589,6 +599,11 @@ export function useConversation(
 
   useEffect(() => {
     processingRef.current = processing;
+    // The model-call witness belongs to the turn that earned it. Every path
+    // that takes `processing` down — `turn_finished`, a probe-repaired
+    // stranding, a refused send — drops it with the turn, so a later turn can
+    // never inherit a stale "Waiting for model".
+    if (!processing) setModelCallActive(false);
   }, [processing]);
 
   // The turn clock starts when work starts and resets when it ends; the
@@ -913,6 +928,7 @@ export function useConversation(
     lastActivityRef.current = null;
     setEntries([]);
     setTurnStartedAt(null);
+    setModelCallActive(false);
     setQueue([]);
     setQueueShown([]);
     queueRef.current = [];
@@ -1119,6 +1135,11 @@ export function useConversation(
           const loop = (frame as { loop_status?: { status?: unknown } }).loop_status;
           const loopStatus = loop?.status;
           const loopBusy = typeof loopStatus === "string" && loopStatus !== "WAITING_ON_INPUT";
+          // The working line's patience is earned here: while the loop says the
+          // model call is running (sent, waiting, retrying, or streaming),
+          // silence is the model's turn, not a stall — see `modelCallActive`
+          // in `lib/working.ts`.
+          setModelCallActive(isModelCallLoopStatus(loopStatus));
           // Same force-send seam as in the device-status case above.
           if (seamAllowsFlip(expectResentTurnRef.current, loopBusy)) setProcessing(loopBusy);
           break;
@@ -1666,6 +1687,7 @@ export function useConversation(
     turnUsage,
     turnStartedAt,
     lastActivityAt,
+    modelCallActive,
   };
 }
 

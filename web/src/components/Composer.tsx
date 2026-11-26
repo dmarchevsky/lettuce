@@ -45,6 +45,9 @@ export interface TurnSnapshot {
   turnStartedAt: number | null;
   lastActivityAt: number | null;
   usage: TurnUsage | null;
+  /** The working line's patient witness: the loop said this turn is inside a
+   * model call; see `modelCallActive` in `lib/working.ts`. */
+  modelCallActive: boolean;
   /** Live subagent snapshots; the working line shows a delegated child's activity from these. */
   liveSubagents: Record<string, LiveSubagent>;
 }
@@ -629,6 +632,7 @@ export function Composer({
             lastActivityAt={turn.lastActivityAt}
             compactStartedAt={compactStartedAt}
             usage={turn.usage}
+            modelCallActive={turn.modelCallActive}
             liveSubagents={turn.liveSubagents}
             onAbort={onAbort}
           />

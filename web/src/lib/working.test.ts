@@ -325,6 +325,69 @@ describe("deriveWorking", () => {
     expect(stalled?.icon).toBeNull();
   });
 
+  test("a confirmed model call waits quietly: silence is prefill, not a stall", () => {
+    // The witness: the app-server's loop status says this step is a model call.
+    // Then any length of silence reads as "Waiting for model", never amber —
+    // a cold local prefill legitimately runs minutes with zero frames.
+    const prefill = deriveWorking({
+      ...base,
+      modelCallActive: true,
+      lastActivityAt: 100_000 - STALL_AFTER_MS - 1,
+      entries: [],
+      queue: [],
+    });
+    expect(prefill?.state).toBe("waiting-model");
+    expect(prefill?.verb).toBe("Waiting for model");
+    // However long it runs. Escalating a healthy prefill to amber was the bug.
+    const longPrefill = deriveWorking({
+      ...base,
+      modelCallActive: true,
+      lastActivityAt: 100_000 - 600_000,
+      entries: [],
+      queue: [],
+    });
+    expect(longPrefill?.state).toBe("waiting-model");
+    // A witnessed step is still a step: a running tool or streaming text keeps
+    // its own state — the witness only changes what pure silence means.
+    const tool = entry({
+      kind: "tool_call",
+      toolName: "Bash",
+      toolCallId: "c1",
+      toolArgs: JSON.stringify({ command: "bun run build" }),
+    });
+    expect(
+      deriveWorking({ ...base, modelCallActive: true, entries: [tool], queue: [] })?.state,
+    ).toBe("tool");
+    const streamed = entry({ kind: "assistant", streaming: true, text: "hello" });
+    expect(
+      deriveWorking({
+        ...base,
+        modelCallActive: true,
+        entries: [streamed],
+        queue: [],
+        lastActivityAt: 100_000 - STALL_AFTER_MS - 1,
+      })?.state,
+    ).toBe("writing");
+    // Inside the ordinary window nothing changed yet: still plain thinking.
+    expect(deriveWorking({ ...base, modelCallActive: true, entries: [], queue: [] })?.state).toBe(
+      "thinking",
+    );
+  });
+
+  test("without the witness the stall keeps its old face at the old hour", () => {
+    // No loop status seen this turn (or the loop says something else): exactly
+    // today's amber stall at STALL_AFTER_MS.
+    const unconfirmed = deriveWorking({
+      ...base,
+      modelCallActive: false,
+      lastActivityAt: 100_000 - STALL_AFTER_MS - 1,
+      entries: [],
+      queue: [],
+    });
+    expect(unconfirmed?.state).toBe("stall");
+    expect(unconfirmed?.verb).toBe("No activity");
+  });
+
   test("stopping the stall clock on any recent frame", () => {
     const fresh = deriveWorking({ ...base, entries: [], queue: [], lastActivityAt: 99_999 });
     expect(fresh?.state).toBe("thinking");

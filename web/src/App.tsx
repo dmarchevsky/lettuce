@@ -1081,6 +1081,7 @@ function Workspace({ status }: { status: Status }) {
                 turnStartedAt: conversation.turnStartedAt,
                 lastActivityAt: conversation.lastActivityAt,
                 usage: conversation.turnUsage,
+                modelCallActive: conversation.modelCallActive,
                 liveSubagents: conversation.liveSubagents,
               }}
               filters={filters.groups}

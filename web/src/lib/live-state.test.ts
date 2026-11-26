@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   indicatorStaysOn,
+  isModelCallLoopStatus,
   QUEUE_HIDDEN,
   QUEUE_REVEAL_GRACE_MS,
   queueRevealDecision,
@@ -102,5 +103,34 @@ describe("the queue strip's reveal grace", () => {
     expect(queueShownIsStale([item("a"), item("b")], [item("a")])).toBe(true);
     expect(queueShownIsStale([item("b")], [item("a")])).toBe(true);
     expect(queueShownIsStale([], [item("a")])).toBe(true);
+  });
+});
+
+describe("the model-call witness", () => {
+  test("the four API-side loop statuses all witness a model call", () => {
+    for (const status of [
+      "SENDING_API_REQUEST",
+      "WAITING_FOR_API_RESPONSE",
+      "RETRYING_API_REQUEST",
+      "PROCESSING_API_RESPONSE",
+    ]) {
+      expect(isModelCallLoopStatus(status)).toBe(true);
+    }
+  });
+
+  test("tools, approvals, idle, and junk all refuse to witness it", () => {
+    // A running tool never reaches the stall branch anyway; approval silence
+    // is the human's; and an unknown string must not earn patience.
+    for (const status of [
+      "EXECUTING_CLIENT_SIDE_TOOL",
+      "EXECUTING_COMMAND",
+      "WAITING_ON_APPROVAL",
+      "WAITING_ON_INPUT",
+      "WHATHAVENOT",
+      undefined,
+      42,
+    ]) {
+      expect(isModelCallLoopStatus(status)).toBe(false);
+    }
   });
 });
