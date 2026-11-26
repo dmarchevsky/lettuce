@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   accounting,
   agentModelHandle,
+  armedPastTheSlot,
   ContextSizer,
   ContextSizeStore,
   compactAt,
@@ -61,6 +62,32 @@ describe("harnessWindow", () => {
   });
 });
 
+describe("armedPastTheSlot", () => {
+  test("a raw size written as a window compacts after the server has refused", () => {
+    // The shape this exists for: the scope's window is the size itself, so
+    // letta-code's own 16 384 reserve sits past the last prompt that fits.
+    expect(armedPastTheSlot(262_144, 262_144, 32_768)).toBe(true);
+    expect(upstreamThreshold(262_144)).toBe(245_760);
+    expect(262_144 - 32_768).toBe(229_376);
+  });
+
+  test("the derived window is never armed late", () => {
+    expect(armedPastTheSlot(harnessWindow(262_144, 32_768), 262_144, 32_768)).toBe(false);
+    expect(armedPastTheSlot(harnessWindow(131_072, 8_192), 131_072, 8_192)).toBe(false);
+  });
+
+  test("a window that only understates the server is left alone", () => {
+    // Compact-early is wasteful and never fatal; shrinking it further would cost
+    // real context to fix a problem that cannot bite.
+    expect(armedPastTheSlot(128_000, 262_144, 32_768)).toBe(false);
+  });
+
+  test("nothing to promise means nothing to check", () => {
+    expect(armedPastTheSlot(262_144, 262_144, null)).toBe(false);
+    expect(armedPastTheSlot(262_144, 262_144, 0)).toBe(false);
+  });
+});
+
 describe("accounting", () => {
   const declared = { contextWindow: 262_144, maxTokens: 32_768 };
 
@@ -76,6 +103,44 @@ describe("accounting", () => {
     // Present even with nothing typed: the editor offers "back to the declared
     // size" as a preset, which needs to know what that size is.
     expect(a.automatic).toEqual({ context: 262_144, compactAt: 225_280 });
+    expect(a.typedScope).toBeNull();
+    expect(a.mismatch).toBeNull();
+  });
+
+  test("a window armed past the slot is reported as a mismatch, not hidden", () => {
+    // The conversation carries its own raw size, so the sheet's honest compact
+    // point and the engine's are different numbers. Showing only the first is
+    // how this sat invisible for as long as it did.
+    const a = accounting({ limit: 262_144, typedAgent: null, typedConversation: null, declared });
+    expect(a.mismatch).toEqual({
+      window: 262_144,
+      want: 241_664,
+      refusedAt: 229_376,
+      engineAt: 245_760,
+    });
+    expect(a.compactAt).toBe(225_280);
+  });
+
+  test("the mismatch names the scope that has to be fixed", () => {
+    const conv = accounting({
+      limit: 262_144,
+      typedAgent: null,
+      typedConversation: 262_144,
+      declared,
+    });
+    const agentScope = accounting({
+      limit: 262_144,
+      typedAgent: 262_144,
+      typedConversation: null,
+      declared,
+    });
+    expect(conv.typedScope).toBe("conversation");
+    expect(agentScope.typedScope).toBe("agent");
+  });
+
+  test("a conservative window is not called a mismatch", () => {
+    const a = accounting({ limit: 128_000, typedAgent: null, typedConversation: null, declared });
+    expect(a.mismatch).toBeNull();
   });
 
   test("a typed size wins and shows what automatic would have been", () => {
@@ -219,6 +284,117 @@ describe("ContextSizer", () => {
     const h = harness([{ id: "a1", model: "other/y" }]);
     expect(await h.sizer.applyAll()).toContain("0 agent(s)");
     expect(h.written).toEqual([]);
+  });
+});
+
+describe("ContextSizer, conversation scope", () => {
+  const declared = { contextWindow: 262_144, maxTokens: 32_768 };
+
+  /** A upstream that answers the two reads a conversation sizing needs and
+   * records every `/context-limit` write by the scope it targeted. */
+  function convHarness(opts: {
+    agent?: Record<string, unknown> | null;
+    conversation?: Record<string, unknown> | null;
+    caps?: Record<string, ModelWindowCaps>;
+  }) {
+    const written: string[] = [];
+    const upstream = {
+      isReady: () => true,
+      async request(command: Record<string, unknown>) {
+        if (command.type === "agent_retrieve") {
+          return { success: true, agent: opts.agent ?? null };
+        }
+        if (command.type === "conversation_retrieve") {
+          return { success: true, conversation: opts.conversation ?? null };
+        }
+        const runtime = (command.runtime ?? {}) as {
+          agent_id?: string;
+          conversation_id?: string;
+        };
+        written.push(`${runtime.conversation_id ?? runtime.agent_id} ${command.args}`);
+        return { success: true, output: "ok" };
+      },
+    } as unknown as SizerUpstream;
+    const dir = mkdtempSync(join(tmpdir(), "context-sizer-conv-"));
+    const store = new ContextSizeStore(join(dir, "sizes.json"));
+    const logs: string[] = [];
+    return {
+      store,
+      written,
+      sizer: new ContextSizer(
+        { upstream, caps: () => opts.caps ?? { "model/x": declared }, log: (m) => logs.push(m) },
+        store,
+      ),
+      logs,
+    };
+  }
+
+  const agent = { id: "a1", model: "model/x", model_settings: { context_window_limit: 241_664 } };
+
+  test("a conversation carrying a raw size is retuned, and remembers it as yours", async () => {
+    // The whole defect: this conversation's own window was written before the
+    // reserve arithmetic existed, so it compacted at 245 760 — 16 384 tokens past
+    // the point the server stops fitting the request at all.
+    const h = convHarness({
+      agent,
+      conversation: { id: "c1", model: "model/x", context_window_limit: 262_144 },
+    });
+    expect(await h.sizer.ensureConversation("a1", "c1")).toBe(true);
+    expect(h.written).toEqual(["c1 241664 --override"]);
+    expect(h.store.get("conv:c1")).toBe(262_144);
+    expect(h.logs.join(" ")).toContain("compacted at 245,760");
+  });
+
+  test("a conversation that already carries the derived window writes nothing", async () => {
+    const h = convHarness({
+      agent,
+      conversation: { id: "c1", model: "model/x", context_window_limit: 241_664 },
+    });
+    expect(await h.sizer.ensureConversation("a1", "c1")).toBe(false);
+    expect(h.written).toEqual([]);
+    expect(h.store.all()).toEqual({});
+  });
+
+  test("a smaller conversation window is left alone, though it is no one's derivation", async () => {
+    // Usually a copy taken when the conversation was created. It compacts early,
+    // which costs some context; shrinking it further to satisfy the arithmetic
+    // would cost more, so an over-conservative scope is nobody to retune.
+    const h = convHarness({
+      agent,
+      conversation: { id: "c1", model: "model/x", context_window_limit: 128_000 },
+    });
+    expect(await h.sizer.ensureConversation("a1", "c1")).toBe(false);
+    expect(h.written).toEqual([]);
+  });
+
+  test("a conversation that inherits its agent's window is not a conversation scope", async () => {
+    const h = convHarness({ agent, conversation: { id: "c1", model: "model/x" } });
+    expect(await h.sizer.ensureConversation("a1", "c1")).toBe(false);
+    expect(h.written).toEqual([]);
+  });
+
+  test("a retrieved record in hand is used instead of reading it again", async () => {
+    // The Context sheet already has both records; sizing from them must not cost
+    // two more requests. A conversation whose id is not the one asked for is a
+    // different conversation and must never be sized for it.
+    const h = convHarness({ agent: null, conversation: null });
+    const conversation = { id: "c1", model: "model/x", context_window_limit: 262_144 };
+    expect(await h.sizer.ensureConversation("a1", "c1", agent, conversation)).toBe(true);
+    expect(h.written).toEqual(["c1 241664 --override"]);
+    expect(await h.sizer.ensureConversation("a1", "c2", agent, conversation)).toBe(false);
+    expect(h.written).toEqual(["c1 241664 --override"]);
+  });
+
+  test("the compact point of a sized scope is what the watchdog measures against", async () => {
+    const h = convHarness({
+      agent,
+      conversation: { id: "c1", model: "model/x", context_window_limit: 262_144 },
+    });
+    expect(h.sizer.compactPointFor("conv:c1")).toBeNull();
+    await h.sizer.ensureConversation("a1", "c1");
+    // The honest room (225 280), not the inflated window (262 144): a ratio
+    // against the window is what let a full conversation read as 90%.
+    expect(h.sizer.compactPointFor("conv:c1")).toBe(225_280);
   });
 });
 

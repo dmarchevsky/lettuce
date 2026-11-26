@@ -72,6 +72,7 @@ function watchdog(deps: {
   contextTokens: number;
   upstream: FakeUpstream;
   now?: () => number;
+  compactPoint?: number | null;
 }) {
   return new ContextWatchdog({
     ratio: deps.ratio,
@@ -79,6 +80,7 @@ function watchdog(deps: {
     upstream: deps.upstream.upstream,
     log: () => {},
     ...(deps.now ? { now: deps.now } : {}),
+    ...(deps.compactPoint !== undefined ? { compactPoint: () => deps.compactPoint ?? null } : {}),
   });
 }
 
@@ -110,6 +112,47 @@ describe("effectiveContextLimit", () => {
 });
 
 describe("ContextWatchdog", () => {
+  test("an over-sized window cannot hide a full conversation from the ratio", async () => {
+    // The exact arithmetic that let a conversation sit past its compaction point
+    // unnoticed: 234 979 of an inflated 262 144 window is 89.7 %, under the 0.9
+    // trigger — while the room it really had was 225 280. The window is a claim;
+    // the compact point, once known, is the measurement.
+    const upstream = fakeUpstream(262_144);
+    watchdog({
+      ratio: 0.9,
+      contextTokens: 234_979,
+      upstream,
+      compactPoint: null,
+    }).observe(finished());
+    await settle();
+    expect(upstream.compacted).toEqual([]);
+
+    const withHonest = fakeUpstream(262_144);
+    watchdog({
+      ratio: 0.9,
+      contextTokens: 234_979,
+      upstream: withHonest,
+      compactPoint: 225_280,
+    }).observe(finished());
+    await settle();
+    expect(withHonest.compacted).toEqual(["conv-1"]);
+  });
+
+  test("a compact point larger than the window never loosens the trigger", async () => {
+    // The smaller claim is the measure: a scope whose declaration promises more
+    // room than its own window must not be told it has room it cannot use.
+    // 120 000 of a 128 000 window compacts, whatever the compact point claims.
+    const upstream = fakeUpstream(128_000);
+    watchdog({
+      ratio: 0.9,
+      contextTokens: 120_000,
+      upstream,
+      compactPoint: 225_280,
+    }).observe(finished());
+    await settle();
+    expect(upstream.compacted).toEqual(["conv-1"]);
+  });
+
   test("compacts a conversation that filled its declared window", async () => {
     const upstream = fakeUpstream(128_000);
     watchdog({ ratio: 0.9, contextTokens: 120_000, upstream }).observe(finished());

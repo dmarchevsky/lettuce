@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import type {
   AgentListResponseMessage,
+  AgentRetrieveResponseMessage,
+  ConversationRetrieveResponseMessage,
   ExecuteCommandResponseMessage,
   WsProtocolMessage,
 } from "@letta-ai/letta-code/app-server-protocol";
@@ -82,6 +84,40 @@ export function upstreamThreshold(window: number): number {
   );
 }
 
+/**
+ * An upstream record read field by field. The protocol types are exact objects
+ * with no index signature, so every read of an extra field (`model`,
+ * `context_window_limit`) needs the value as a plain field bag; each read below
+ * narrows what it takes out.
+ */
+function recordOf(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
+}
+
+/**
+ * Is the window in force armed to compact **after** the server would refuse the
+ * request? A prompt plus the promised output must fit in the size the server
+ * gives, so `size − M` is the last prompt that fits at all; if that window's own
+ * trigger sits above it, the conversation gets an error where it should have got
+ * a summary, and nothing done at the trigger's own value can save it.
+ *
+ * A *derived* window can never need this check — `harnessWindow` aims the trigger
+ * at `size − (M + slack)` — which is why the sizer never asked it. It can still be
+ * true of a window nobody derived: the raw value a conversation carried from
+ * before this arithmetic existed, or a declaration whose reserve is smaller than
+ * its own output. Nothing here shrinks a window that merely *understates* the
+ * server: an over-conservative scope compacts early, which is wasteful and never
+ * fatal.
+ */
+export function armedPastTheSlot(
+  inForce: number,
+  size: number,
+  maxOutput?: number | null,
+): boolean {
+  if (!maxOutput || maxOutput <= 0 || inForce <= 0) return false;
+  return upstreamThreshold(inForce) > size - maxOutput;
+}
+
 /** Where a context size comes from, as the Context sheet words it. */
 export type ContextSource = "typed" | "declared" | "default";
 
@@ -97,8 +133,25 @@ export interface ContextAccounting {
   window: number;
   /** What the operator typed, per scope — what "Use automatic" would clear. */
   typed: { agent: number | null; conversation: number | null };
+  /** Which of those the size above came from, so the sheet can name the scope. */
+  typedScope: "agent" | "conversation" | null;
   /** What the declaration would have produced, when an override is in force. */
   automatic: { context: number; compactAt: number } | null;
+  /**
+   * The window in force is armed to compact after the server refuses, so the
+   * compact point above is not the one the engine will reach. Null when the
+   * window in force is the one these numbers imply.
+   */
+  mismatch: {
+    /** The window letta-code is using for this scope. */
+    window: number;
+    /** The window that puts its trigger back inside the slot. */
+    want: number;
+    /** The last prompt that fits: size − max output. */
+    refusedAt: number;
+    /** Where that window would actually compact — above `refusedAt`. */
+    engineAt: number;
+  } | null;
 }
 
 /**
@@ -130,9 +183,31 @@ export function accounting(input: {
         compactAt: compactAt(input.declared.contextWindow, input.declared.maxTokens),
       }
     : null;
+  // The window in force is a separate fact from the size these numbers come from:
+  // a conversation can carry its own, written before any of this arithmetic
+  // existed. When that window's own trigger sits past the last prompt that fits,
+  // the sheet's honest compact point is not what the engine will do, so say so
+  // rather than let the two quietly disagree. Only asked where there is an output
+  // budget to run short of.
+  const armedLate = source !== "default" && armedPastTheSlot(input.limit, context, maxOutput);
+  const mismatch = armedLate
+    ? {
+        window: input.limit,
+        want: harnessWindow(context, maxOutput),
+        refusedAt: context - (maxOutput ?? 0),
+        engineAt: upstreamThreshold(input.limit),
+      }
+    : null;
   return {
     context,
     source,
+    typedScope:
+      input.typedConversation !== null
+        ? "conversation"
+        : input.typedAgent !== null
+          ? "agent"
+          : null,
+    mismatch,
     maxOutput,
     compactAt: compactPoint,
     window: source === "default" ? input.limit : harnessWindow(context, maxOutput),
@@ -259,6 +334,13 @@ function scopeKey(scope: SizeScope): string {
 export class ContextSizer {
   /** One sizing pass at a time: they all read and write the same few fields. */
   private running: Promise<unknown> = Promise.resolve();
+  /**
+   * The honest compact point per scope, from the last pass that sized it. The
+   * watchdog reads it so it can measure a conversation against the room it really
+   * has rather than against a window that may be lying — the one failure mode the
+   * ratio trigger cannot survive on its own.
+   */
+  private readonly compactPoints = new Map<string, number>();
 
   constructor(
     private readonly deps: ContextSizeDeps,
@@ -282,6 +364,14 @@ export class ContextSizer {
 
   capsFor(handle: string | null): ModelWindowCaps | null {
     return (handle && this.deps.caps()[handle]) || null;
+  }
+
+  /**
+   * The compact point last computed for a scope, keyed the store keys are keyed
+   * (`agent:<id>` / `conv:<id>`). Null until this process has sized it.
+   */
+  compactPointFor(key: string): number | null {
+    return this.compactPoints.get(key) ?? null;
   }
 
   /** The agents upstream will list; null when the list itself failed. */
@@ -318,9 +408,124 @@ export class ContextSizer {
     }
     const size = this.sizeFor(scope, handle);
     if (!size) return false;
+    this.compactPoints.set(key, compactAt(size.context, caps?.maxTokens));
     const want = harnessWindow(size.context, caps?.maxTokens);
     if (inForce === want) return false;
     return (await this.write(scope, want)) !== null;
+  }
+
+  /**
+   * One conversation that carries its **own** window. This is the scope the sizer
+   * never reached: `applyAll` iterates agents, so a conversation sized by hand —
+   * or by a version that wrote a raw size where a derived window belongs — kept
+   * that value forever, and this arithmetic simply did not apply to it.
+   *
+   * Only a window armed past the slot is touched. A conversation window smaller
+   * than its agent's is usually a copy taken at creation, not a choice: retuning
+   * one would compact it far earlier than it needs to, and an early summary costs
+   * a little context where a late one costs the turn.
+   */
+  private async sizeConversation(
+    agent: { id: string } | null,
+    conversation: Record<string, unknown>,
+  ): Promise<boolean> {
+    const conversationId = conversation.id;
+    if (typeof conversationId !== "string" || !conversationId) return false;
+    const own =
+      typeof conversation.context_window_limit === "number" && conversation.context_window_limit > 0
+        ? conversation.context_window_limit
+        : null;
+    if (own === null) return false;
+    const scope: SizeScope = {
+      kind: "conversation",
+      agentId: agent?.id ?? "",
+      conversationId,
+    };
+    const key = scopeKey(scope);
+    const handle =
+      typeof conversation.model === "string" && conversation.model
+        ? conversation.model
+        : agent
+          ? agentModelHandle(agent)
+          : null;
+    const caps = this.capsFor(handle);
+    const claim = this.sizeFor(scope, handle);
+    if (!claim) return false;
+    if (!armedPastTheSlot(own, claim.context, caps?.maxTokens)) return false;
+    if (this.sizes.get(key) === null) {
+      this.sizes.set(key, own);
+      this.deps.log(
+        `context sizing: ${key} keeps its ${own.toLocaleString()}-token window as the size you set`,
+      );
+    }
+    const size = this.sizeFor(scope, handle);
+    if (!size) return false;
+    this.compactPoints.set(key, compactAt(size.context, caps?.maxTokens));
+    const want = harnessWindow(size.context, caps?.maxTokens);
+    if (own === want) return false;
+    const wrote = await this.write(scope, want);
+    if (wrote !== null) {
+      const fits = size.context - (caps?.maxTokens ?? 0);
+      this.deps.log(
+        `context sizing: ${key} compacted at ${upstreamThreshold(own).toLocaleString()}, ` +
+          `past the ${fits.toLocaleString()} the server gives a request`,
+      );
+    }
+    return wrote !== null;
+  }
+
+  /**
+   * A scope this BFF has not sized yet, named only by its ids. Called on first
+   * sight of a conversation and from the Context sheet, both fire-and-forget, so
+   * a slow engine costs a background round-trip and never a turn.
+   */
+  async ensureConversation(
+    agentId: string,
+    conversationId: string,
+    retrievedAgent?: unknown,
+    retrievedConversation?: unknown,
+  ): Promise<boolean> {
+    return this.serialize(async () => {
+      if (!conversationId) return false;
+      const reusable = !!retrievedAgent && (retrievedAgent as { id?: unknown }).id === agentId;
+      const inHand =
+        retrievedConversation && (retrievedConversation as { id?: unknown }).id === conversationId
+          ? (retrievedConversation as Record<string, unknown>)
+          : null;
+      const [agent, conversation] = await Promise.all([
+        reusable
+          ? Promise.resolve(retrievedAgent as Record<string, unknown>)
+          : this.deps.upstream
+              .request<AgentRetrieveResponseMessage>(
+                {
+                  type: "agent_retrieve",
+                  request_id: `bff-sizer-agent-${randomUUID()}`,
+                  agent_id: agentId,
+                },
+                15_000,
+              )
+              .then((r) => (r.success ? recordOf(r.agent) : null))
+              .catch(() => null),
+        inHand
+          ? Promise.resolve(inHand)
+          : this.deps.upstream
+              .request<ConversationRetrieveResponseMessage>(
+                {
+                  type: "conversation_retrieve",
+                  request_id: `bff-sizer-conv-${randomUUID()}`,
+                  conversation_id: conversationId,
+                },
+                15_000,
+              )
+              .then((r) => (r.success ? recordOf(r.conversation) : null))
+              .catch(() => null),
+      ]);
+      if (!conversation) return false;
+      return this.sizeConversation(
+        (agent ?? { id: agentId }) as { id: string },
+        conversation as Record<string, unknown>,
+      );
+    });
   }
 
   /** Every agent whose model declares caps, sized to what those caps imply. */

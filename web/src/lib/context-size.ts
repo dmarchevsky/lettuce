@@ -23,8 +23,21 @@ export interface ContextAccounting {
   window: number;
   /** What you typed, per scope — what "Use automatic" would clear. */
   typed: { agent: number | null; conversation: number | null };
+  /** Which of those the size above came from; names the scope to clear. */
+  typedScope: "agent" | "conversation" | null;
   /** What the model's declaration would produce, when an override is in force. */
   automatic: { context: number; compactAt: number } | null;
+  /**
+   * The window letta-code is using is armed to compact **after** the server would
+   * refuse the request, so the compact point above is not the one it will reach.
+   * Null when the window in force is the one these numbers imply.
+   */
+  mismatch: {
+    window: number;
+    want: number;
+    refusedAt: number;
+    engineAt: number;
+  } | null;
 }
 
 async function ok(response: Response): Promise<Response> {

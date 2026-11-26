@@ -5056,6 +5056,13 @@ textarea.mono {
 .ctx-gauge.warn {
   color: var(--warn);
 }
+/* Past the compaction point. Amber means "nearing, and compaction will handle
+   it"; this means the conversation is already past the point and the next
+   request is the one that fails, so it is the failure colour, not a hotter
+   amber. Same state in the sheet's big gauge below. */
+.ctx-gauge.over {
+  color: var(--bad);
+}
 .ctx-bar {
   display: block;
   width: 64px;
@@ -5072,6 +5079,10 @@ textarea.mono {
 .ctx-gauge.warn .ctx-bar > i,
 .ctx-bar.warn > i {
   background: var(--warn);
+}
+.ctx-gauge.over .ctx-bar > i,
+.ctx-bar.over > i {
+  background: var(--bad);
 }
 .ctx-bar.big {
   width: auto;
@@ -5095,6 +5106,10 @@ textarea.mono {
 }
 .ctx-big .warn {
   color: var(--warn);
+  font-weight: 600;
+}
+.ctx-big .over {
+  color: var(--bad);
   font-weight: 600;
 }
 
