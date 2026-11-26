@@ -5,6 +5,8 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.51.1-letta_0.34.70] - 2026-11-26
+
 ### Fixed
 - **A long prefill no longer looks broken.** A cold or large-context prompt can spend minutes evaluating
   before the first token, and every one of those silent minutes could light the working line amber
