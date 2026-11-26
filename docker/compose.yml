@@ -191,9 +191,15 @@ services:
       # healthy run. Confirmed against a live llama.cpp log showing continuous
       # token generation and zero errors at the moment this fired.
       #
-      # 180s gives a cold multi-minute prefill far fewer silence windows to
+      # 180s gave a cold multi-minute prefill far fewer silence windows to
       # trip over; 15s gives the status lookup itself more slack under load.
-      LETTA_STREAM_STALL_RECONCILE_MS: "180000"
+      # And 600s because of the hole 180s cannot tune around: before the first
+      # streamed chunk there is no run id to look up, so a prefill that runs
+      # past the window is aborted by the no-run-id fast path with no status
+      # check at all — the window is effectively the maximum prefill tolerated,
+      # and a truly dead relayed read is not time-critical to recover (nothing
+      # is ever cancelled server-side; the resume just replays late).
+      LETTA_STREAM_STALL_RECONCILE_MS: "600000"
       LETTA_STREAM_STALL_STATUS_TIMEOUT_MS: "15000"
       # Web apps an agent serves to the user: the published range below, and the
       # host address the user's browser reaches it on (set AGENT_APP_HOST in

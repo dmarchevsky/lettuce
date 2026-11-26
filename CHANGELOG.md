@@ -5,6 +5,17 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+### Fixed
+- **A long prefill no longer looks broken.** A cold or large-context prompt can spend minutes evaluating
+  before the first token, and every one of those silent minutes could light the working line amber
+  ("No activity · last: the model") or drop a "Stream went silent" warning into a transcript whose turn
+  then completed normally — the app-server knows the wait is a model call in flight, and the UI did not
+  say so. While the app-server reports the model call running, the line now waits patiently with
+  "Waiting for model" and a silence timer, and the amber warning is reserved for silence nothing
+  explains. The upstream stream-recovery window that fired the false warnings, meanwhile, is raised from
+  3 to 10 minutes: before the first token there is no run id to status-check, so that window is the
+  longest prefill tolerated, and nothing server-side is recovered faster by a short one.
+
 ## [v0.51.0-letta_0.34.70] - 2026-11-26
 
 ### Fixed

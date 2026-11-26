@@ -17,7 +17,10 @@
  *   only while the model is generating, never while a tool runs, so a frozen
  *   counter never reads as a hang;
  * - elapsed counts from turn start and sits last, so its digits sit still;
- * - amber means "this looks stuck" (see the stall note), never an error.
+ * - amber means "this looks stuck" (see the stall note), never an error;
+ * - `waiting-model` is silence the app-server explains as a model call: same
+ *   neutral face as thinking, and it never escalates to amber while the
+ *   witness holds (see `modelCallActive`).
  */
 
 import type { TranscriptEntry } from "./messages.ts";
@@ -27,7 +30,14 @@ import { childActivityLabel, pickRunningChild } from "./subagents.ts";
 import { parseToolArgs, summarizeToolCall } from "./tool-summary.ts";
 
 /** The states the line can be in; `null` state means no line at all. */
-export type WorkingState = "thinking" | "writing" | "tool" | "stopping" | "stall" | "compacting";
+export type WorkingState =
+  | "thinking"
+  | "writing"
+  | "tool"
+  | "stopping"
+  | "waiting-model"
+  | "stall"
+  | "compacting";
 
 export interface WorkingSnapshot {
   state: WorkingState;
@@ -64,6 +74,14 @@ export interface WorkingInput {
    * is false. See `pendingCompactStartedAt` in `lib/messages.ts`.
    */
   compactStartedAt?: number | null;
+  /**
+   * True while the app-server says this turn's loop status is
+   * `PROCESSING_API_RESPONSE` — the silence has a witness: it is the model's
+   * turn, and prefill on a local runtime legitimately runs minutes with zero
+   * frames. `state/use-conversation.ts` folds the loop-status frames; a client
+   * that never saw one this turn passes false and gets the unconfirmed behavior.
+   */
+  modelCallActive?: boolean;
   /**
    * This scope's live subagent snapshots (`state/use-conversation.ts`). When the
    * in-flight tool is a `Task`/`Agent` and exactly one child is identifiable, the
@@ -293,6 +311,14 @@ export function deriveWorking(input: WorkingInput): WorkingSnapshot | null {
   const lastBeat = Math.max(input.lastActivityAt ?? 0, input.turnStartedAt ?? 0);
   const silent = lastBeat > 0 && input.now - lastBeat >= STALL_AFTER_MS;
   if (silent && !tool && !streaming) {
+    // A confirmed model call never reads as stuck, for no length of silence:
+    // prefill is exactly this shape — zero frames, nothing running, healthy.
+    // The line says "Waiting for model" and keeps counting; Stop is still one
+    // press away in the composer, and the app-server probe still fires under
+    // this label (live-state.ts), so a stranding still self-heals.
+    if (input.modelCallActive) {
+      return { state: "waiting-model", icon: null, verb: "Waiting for model" };
+    }
     return {
       state: "stall",
       // No icon for the fixed slot: the stall branch of the component already
