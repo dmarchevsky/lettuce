@@ -29,14 +29,24 @@
 # sit for minutes while a turn finishes. That is the drain working.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ENV_FILE="$ROOT/docker/.env"
-COMPOSE=(docker compose -f "$ROOT/docker/compose.yml")
-
 say()  { printf '\n\033[1m%s\033[0m\n' "$*"; }
 warn() { printf '\033[33m%s\033[0m\n' "$*"; }
 fail() { printf '\033[31m%s\033[0m\n' "$*" >&2; exit 1; }
-env_value() { [ -f "$ENV_FILE" ] && sed -nE "s/^$1=(.*)$/\1/p" "$ENV_FILE" | tail -1; }
+
+# The clone this deploys: LETTUCE_DIR if given, else the git work tree the
+# script sits in — wherever in it that is (scripts/, or copied to the root).
+# Never "the parent of the script's directory": a copy outside scripts/ then
+# points one level up, at no repo at all.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="${LETTUCE_DIR:-$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)}"
+[ -n "$ROOT" ] || fail "$SCRIPT_DIR is not inside a git clone of lettuce — run it from the clone, or set LETTUCE_DIR=<clone>"
+ROOT="$(cd "$ROOT" && pwd)"
+[ -f "$ROOT/docker/compose.yml" ] || fail "$ROOT has no docker/compose.yml — is it the lettuce clone?"
+git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || fail "$ROOT is not a git work tree"
+ENV_FILE="$ROOT/docker/.env"
+COMPOSE=(docker compose -f "$ROOT/docker/compose.yml")
+
+env_value(){ [ -f "$ENV_FILE" ] && sed -nE "s/^$1=(.*)$/\1/p" "$ENV_FILE" | tail -1; }
 
 YES=0
 TAG=""
@@ -54,8 +64,12 @@ cd "$ROOT"
 # ── Preconditions ────────────────────────────────────────────────────────────
 # docker/.env and secrets are gitignored, so a dirty tracked tree means someone
 # hand-edited the checkout — a checkout would carry or clobber that.
-git diff --quiet && git diff --cached --quiet \
-  || fail "the checkout has local changes to tracked files — resolve them first"
+# Exit 1 is "differences"; anything else is git failing, and must not be
+# reported as local changes.
+dirty=0
+git diff --quiet || { rc=$?; [ "$rc" = 1 ] || fail "git diff failed (exit $rc) in $ROOT"; dirty=1; }
+git diff --cached --quiet || { rc=$?; [ "$rc" = 1 ] || fail "git diff --cached failed (exit $rc) in $ROOT"; dirty=1; }
+[ "$dirty" = 0 ] || { git status --short --untracked-files=no >&2; fail "the checkout has local changes to tracked files — resolve them first"; }
 
 IMAGE_NS="${LETTA_IMAGE_NS:-$(env_value LETTA_IMAGE_NS || true)}"
 [ -n "$IMAGE_NS" ] \
