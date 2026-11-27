@@ -795,6 +795,18 @@ way a stale `LETTA_CODE_VERSION` does. `latest` is published too, from every
 merge to `main`, and passing `LETTA_IMAGE_TAG=latest` in the command is how you
 run main's tip without cutting a release.
 
+**`scripts/update-prod.sh` is the whole upgrade, for a host that runs Compose by
+hand.** Run it in the host's clone: it fetches tags, shows the newest release and
+the merges since the running one, asks, checks the tag out, pulls (putting the old
+checkout back if a publish is missing), refuses a bff image whose recorded commit
+is not the tag's — a registry tag can be overwritten, a git tag check cannot see
+that — runs an unscoped `up -d --wait` (printing the way back if it fails), and then
+removes old tags of the stack's images — keeping what runs now and what ran
+before, so a rollback (`scripts/update-prod.sh <older-tag>`) needs no download.
+It refuses a dirty checkout, a tag not on `origin/main`, and a `docker/.env` that
+sets `LETTA_IMAGE_TAG` or `LETTA_CODE_VERSION`. `-y` skips the question. A deploy
+manager that clones the stack itself does the same steps on its own.
+
 **A build made by the deploy manager cannot name its commit, and says so.**
 Pulling the published `bff` image names a real commit, because CI had one to
 stamp. When a host falls back to building — a publish run failed, or the namespace

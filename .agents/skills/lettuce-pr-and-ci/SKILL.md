@@ -189,6 +189,9 @@ alone, which is what `LETTA_IMAGE_TAG=latest` runs without a release.
 - **A tag push must match `VERSION`,** or the run refuses: images under a tag no checkout names are
   how a host ends up running bytes nobody can point at. `check-release-hygiene` holds compose's
   `LETTA_IMAGE_TAG` default to `VERSION` for the same reason from the other side.
+- **A release tag is published only from its own ref.** A dispatch's `tag` input naming `v*` from a
+  branch is refused: it would overwrite that release's images with the branch's build, and a deploy
+  host (`scripts/update-prod.sh`) trusts the tag. Republish a release by dispatching on the tag.
 - **`latest` is retagged server-side** (`docker buildx imagetools create`), never rebuilt, so it is
   byte-identical to the release it just pointed at, and `cancel-in-progress: false` because a
   half-published set of five is a deploy that pulls four. The run's last step inspects every image
