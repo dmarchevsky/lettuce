@@ -14,11 +14,14 @@
 #   2. Show what changes (merges since the running tag) and ask.
 #   3. Check out the tag detached — the checkout decides the release, because
 #      compose.yml's LETTA_IMAGE_TAG default IS the tag — and `compose pull`.
-#      A failed pull (publish run missing) puts the old checkout back.
+#      Then hold the pulled bff image's recorded commit to the tag's commit,
+#      since a registry tag can move after the git tag was cut. A failed pull
+#      or a mismatch puts the old checkout back before anything restarts.
 #   4. `compose up -d --wait`, unscoped: app-server is never recreated alone,
 #      since its network namespace holds bff and channel-gateway.
 #   5. Remove old tags of the images this stack uses, keeping the ones it runs
-#      now and the ones it ran before (the rollback set), then dangling layers.
+#      now and the ones it ran before (the rollback set). Never `image prune`:
+#      dangling images are host-wide and other stacks own theirs.
 #
 # An app-server recreate (new LETTA_CODE_VERSION or compose config) kills every
 # in-flight turn with no drain, including cron and Telegram turns the UI never
@@ -40,7 +43,7 @@ TAG=""
 for arg in "$@"; do
   case "$arg" in
     -y|--yes) YES=1 ;;
-    -h|--help) sed -n '2,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "${BASH_SOURCE[0]}"; exit 0 ;;
     -*) fail "unknown option: $arg" ;;
     *) TAG="$arg" ;;
   esac
@@ -54,7 +57,8 @@ cd "$ROOT"
 git diff --quiet && git diff --cached --quiet \
   || fail "the checkout has local changes to tracked files — resolve them first"
 
-[ -n "${LETTA_IMAGE_NS:-$(env_value LETTA_IMAGE_NS)}" ] \
+IMAGE_NS="${LETTA_IMAGE_NS:-$(env_value LETTA_IMAGE_NS || true)}"
+[ -n "$IMAGE_NS" ] \
   || warn "LETTA_IMAGE_NS is unset: nothing will be pulled and Compose builds every image from source."
 [ -z "$(env_value LETTA_IMAGE_TAG)" ] \
   || fail "docker/.env sets LETTA_IMAGE_TAG — it outranks the checkout and pins the old release. Remove it."
@@ -85,7 +89,10 @@ fi
 # ── 2. Show and confirm ──────────────────────────────────────────────────────
 if git merge-base --is-ancestor HEAD "$TAG^{commit}"; then
   say "Merged since $CURRENT"
-  git --no-pager log --merges --max-count=30 --format='  %s' "HEAD..$TAG"
+  # Commit subjects are anyone-with-push text shown right before a trust
+  # decision: strip control characters so no escape sequence can redraw it.
+  git --no-pager log --merges --max-count=30 --format='  %s' "HEAD..$TAG" \
+    | tr -d '\000-\010\013-\037\177'
 else
   warn "$TAG is not ahead of $CURRENT — this is a rollback."
 fi
@@ -111,16 +118,45 @@ say "Pulling images"
 # would skip exactly the images that matter. Without a namespace our names
 # cannot be pulled at all; tolerate that and let `up` build them.
 PULL=(pull)
-[ -n "${LETTA_IMAGE_NS:-$(env_value LETTA_IMAGE_NS)}" ] || PULL+=(--ignore-pull-failures)
-if ! "${COMPOSE[@]}" "${PULL[@]}"; then
-  warn "pull failed — putting $CURRENT back; nothing was restarted"
+[ -n "$IMAGE_NS" ] || PULL+=(--ignore-pull-failures)
+restore() {
+  warn "$1 — putting $CURRENT back; nothing was restarted"
   git -c advice.detachedHead=false checkout --quiet --detach "$PREV_REF"
   exit 1
+}
+"${COMPOSE[@]}" "${PULL[@]}" || restore "pull failed"
+
+# A registry tag can be overwritten after the git tag was cut, so the git checks
+# above say nothing about the bytes just pulled. The bff image records the
+# commit CI built it from (/app/BUILD_INFO, `sha=<8 hex>`): hold it to the tag's
+# commit. Read with create + cp so no pulled code runs before it is checked.
+# Only bff records a commit; the other images ride on the same publish run.
+if [ -n "$IMAGE_NS" ]; then
+  BFF_IMAGE="$("${COMPOSE[@]}" config --images bff | grep -E '(^|/)lettuce-bff:' | head -n1 || true)"
+  [ -n "$BFF_IMAGE" ] || restore "compose names no lettuce-bff image"
+  probe="$(docker create "$BFF_IMAGE")" || restore "cannot create a probe from $BFF_IMAGE"
+  built="$(docker cp "$probe:/app/BUILD_INFO" - 2>/dev/null | tar -xO 2>/dev/null \
+    | sed -nE 's/^sha=([0-9a-f]*)$/\1/p' || true)"
+  docker rm "$probe" >/dev/null
+  want="$(git rev-parse "$TAG^{commit}" | cut -c1-8)"
+  [ "$built" = "$want" ] \
+    || restore "$BFF_IMAGE was built from '${built:-unknown}', not $TAG ($want) — the registry tag moved"
+  printf '  %s built from %s ✓\n' "$BFF_IMAGE" "$want"
 fi
 
 # ── 4. Up ────────────────────────────────────────────────────────────────────
 say "Starting the stack (bff drains in-flight turns first; this can take minutes)"
-"${COMPOSE[@]}" up -d --wait --wait-timeout 900
+if ! "${COMPOSE[@]}" up -d --wait --wait-timeout 900; then
+  "${COMPOSE[@]}" ps --format 'table {{.Service}}\t{{.Image}}\t{{.Status}}' || true
+  warn "The stack did not come up healthy on $TAG; the checkout stays there. To go back:"
+  if git rev-parse -q --verify "refs/tags/$CURRENT" >/dev/null; then
+    printf '  %s %s\n' "$0" "$CURRENT" >&2
+  else
+    printf '  git -C %s checkout --detach %s && docker compose -f %s/docker/compose.yml up -d\n' \
+      "$ROOT" "$PREV_REF" "$ROOT" >&2
+  fi
+  exit 1
+fi
 "${COMPOSE[@]}" ps --format 'table {{.Service}}\t{{.Image}}\t{{.Status}}'
 
 # ── 5. Clean up ──────────────────────────────────────────────────────────────
@@ -142,7 +178,8 @@ while read -r ref; do
     removed=$((removed + 1))
   fi
 done < <(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -v ':<none>$')
-docker image prune -f >/dev/null
-printf '  %d tagged image(s) removed, dangling layers pruned\n' "$removed"
+# No `docker image prune`: dangling images are host-wide, and other stacks on
+# this host own theirs. Removing a tag above already frees its unshared layers.
+printf '  %d old image(s) removed\n' "$removed"
 
 say "Deployed $TAG"

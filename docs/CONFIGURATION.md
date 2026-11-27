@@ -798,7 +798,9 @@ run main's tip without cutting a release.
 **`scripts/update-prod.sh` is the whole upgrade, for a host that runs Compose by
 hand.** Run it in the host's clone: it fetches tags, shows the newest release and
 the merges since the running one, asks, checks the tag out, pulls (putting the old
-checkout back if a publish is missing), runs an unscoped `up -d --wait`, and then
+checkout back if a publish is missing), refuses a bff image whose recorded commit
+is not the tag's — a registry tag can be overwritten, a git tag check cannot see
+that — runs an unscoped `up -d --wait` (printing the way back if it fails), and then
 removes old tags of the stack's images — keeping what runs now and what ran
 before, so a rollback (`scripts/update-prod.sh <older-tag>`) needs no download.
 It refuses a dirty checkout, a tag not on `origin/main`, and a `docker/.env` that

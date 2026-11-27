@@ -84,6 +84,18 @@ jobs:
           if [ "${INPUT_TAG}" != "" ]; then
             tag="${INPUT_TAG}"
           fi
+          # A dispatched run builds whatever branch it was started on, so naming a
+          # release tag from anywhere but that tag's own ref would overwrite the
+          # release's images with other bytes — and a deploy host pulls by tag.
+          # Republishing a release stays possible: dispatch it ON the tag, where the
+          # VERSION check below holds it to the tree.
+          case "${tag}" in
+            v[0-9]*)
+              if [ "${GITHUB_REF}" != "refs/tags/${tag}" ]; then
+                echo "::error::release tag ${tag} may only be published from refs/tags/${tag}, not ${GITHUB_REF}"
+                exit 1
+              fi ;;
+          esac
           case "${tag}" in
             *[!A-Za-z0-9._-]*) echo "::error::refusing to publish image tag '${tag}'"; exit 1 ;;
           esac
