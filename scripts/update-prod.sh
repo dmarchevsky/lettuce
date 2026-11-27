@@ -67,7 +67,7 @@ git fetch --quiet --tags origin
 
 CURRENT="$(git describe --tags --exact-match HEAD 2>/dev/null || git rev-parse --short HEAD)"
 PREV_REF="$(git rev-parse HEAD)"
-LATEST="$(git tag -l 'v*-letta_*' --sort=-v:refname | head -1)"
+LATEST="$(git tag -l 'v*-letta_*' --sort=-v:refname | sed -n 1p)"
 TAG="${TAG:-$LATEST}"
 [ -n "$TAG" ] || fail "no v*-letta_* release tag found"
 git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || fail "no such tag: $TAG"
@@ -85,7 +85,7 @@ fi
 # ── 2. Show and confirm ──────────────────────────────────────────────────────
 if git merge-base --is-ancestor HEAD "$TAG^{commit}"; then
   say "Merged since $CURRENT"
-  git --no-pager log --merges --format='  %s' "HEAD..$TAG" | head -30
+  git --no-pager log --merges --max-count=30 --format='  %s' "HEAD..$TAG"
 else
   warn "$TAG is not ahead of $CURRENT — this is a rollback."
 fi
