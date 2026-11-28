@@ -251,10 +251,19 @@ export type Transcript = Map<string, TranscriptEntry>;
 export interface StreamIndex {
   byMessageId: Map<string, string>;
   byOtid: Map<string, string>;
+  /**
+   * User messages a history reload superseded, by `otid`.
+   *
+   * The reload drops the echo and the alias that pointed at it, so the next frame
+   * for that same message — a queued echo that lands just after the reload commits
+   * — would key a fresh entry and show the message twice again. A frame whose
+   * `otid` is here is dropped: the record that retired the echo is complete.
+   */
+  supersededOtid: Set<string>;
 }
 
 export function createStreamIndex(): StreamIndex {
-  return { byMessageId: new Map(), byOtid: new Map() };
+  return { byMessageId: new Map(), byOtid: new Map(), supersededOtid: new Set() };
 }
 
 /**
@@ -1443,6 +1452,7 @@ function applyMessage(
   options: { streaming: boolean; seq: number; subagentId?: string; index?: StreamIndex },
 ): void {
   if (!raw || typeof raw !== "object") return;
+
   const message = raw as Record<string, unknown>;
 
   const messageType = typeof message.message_type === "string" ? message.message_type : "";
@@ -1467,6 +1477,11 @@ function applyMessage(
   // stream path applies, so two records sharing one id can never overwrite each
   // other (see `historyKey`).
   const base = id || otid;
+  // A reload already retired the echo of this message in favour of the stored
+  // record, and the alias that would have merged it is gone with the entry — so a
+  // late echo (a message dequeued just as a reload committed) would key a second
+  // copy. The record it is a copy of is complete, so the frame is dropped.
+  if (kind === "user" && otid && options.index?.supersededOtid.has(otid)) return;
   const key = options.index
     ? resolveCanonicalKey(options.index, transcript, id, otid, kind)
     : historyKey(transcript, base, kind);
@@ -1967,7 +1982,11 @@ export function transcriptFromHistory(messages: readonly unknown[]): Transcript 
  * keeps its own counter at least as high, so entries that arrive later stay
  * above this transcript too.
  */
-export function mergeStreamIntoHistory(history: Transcript, stream: Transcript): void {
+export function mergeStreamIntoHistory(
+  history: Transcript,
+  stream: Transcript,
+  index?: StreamIndex,
+): void {
   const storedOtid = new Set<string>();
   for (const entry of history.values()) {
     if (entry.kind === "user" && entry.otid) storedOtid.add(entry.otid);
@@ -1975,7 +1994,10 @@ export function mergeStreamIntoHistory(history: Transcript, stream: Transcript):
   const extras: Array<[string, TranscriptEntry]> = [];
   for (const [key, entry] of stream) {
     if (history.has(key)) continue;
-    if (entry.kind === "user" && storedOtid.has(entry.otid ?? key)) continue;
+    if (entry.kind === "user" && storedOtid.has(entry.otid ?? key)) {
+      index?.supersededOtid.add(entry.otid ?? key);
+      continue;
+    }
     extras.push([key, entry]);
   }
   if (extras.length === 0) return;

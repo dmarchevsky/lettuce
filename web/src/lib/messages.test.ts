@@ -2220,6 +2220,51 @@ describe("a reload meeting the echo of the same message", () => {
     expect(entries.at(-1)?.delivery).toBe("unsent");
   });
 
+  test("a live user entry whose otid no record carries still survives", () => {
+    // The retire compares on `otid`, so an echo of a message the store has never
+    // seen must not be dropped because some other user record happens to exist.
+    const history = transcriptFromHistory([
+      record("ui-msg-7", "otid-old", "an older question", "2026-11-27T07:00:00.000Z"),
+    ]);
+    mergeStreamIntoHistory(history, echo("web-9", "Sync changes"));
+    expect(sortedEntries(history).map((e) => e.text)).toEqual([
+      "an older question",
+      "Sync changes",
+    ]);
+  });
+
+  test("an echo landing after the reload stays retired", () => {
+    // The reload dropped the echo and the index rebuild drops its alias, so a
+    // queued echo that arrives afterwards would key a fresh entry: the same
+    // message twice again, from the other direction.
+    const live = echo("web-9", "Sync changes");
+    const index = createStreamIndex();
+    index.byOtid.set("web-9", "web-9");
+    const history = transcriptFromHistory([
+      record("ui-msg-237", "web-9", "Sync changes", "2026-11-27T07:19:00.000Z"),
+    ]);
+    mergeStreamIntoHistory(history, live, index);
+    // ...which is what `commitHistory` leaves behind: only the surviving aliases.
+    const survivors = createStreamIndex();
+    for (const [alias, key] of index.byOtid) if (history.has(key)) survivors.byOtid.set(alias, key);
+    for (const otid of index.supersededOtid) survivors.supersededOtid.add(otid);
+
+    applyStreamDelta(
+      history,
+      survivors,
+      {
+        type: "message",
+        id: "user-msg-1",
+        otid: "web-9",
+        message_type: "user_message",
+        date: "2026-11-27T07:19:00.000Z",
+        content: [{ type: "text", text: "Sync changes" }],
+      },
+      9,
+    );
+    expect(sortedEntries(history).map((e) => e.text)).toEqual(["Sync changes"]);
+  });
+
   test("a live entry no record stands for still survives", () => {
     const history = transcriptFromHistory([
       {

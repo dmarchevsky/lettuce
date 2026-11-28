@@ -742,7 +742,7 @@ export function useConversation(
   const commitHistory = useCallback(
     (messages: readonly unknown[], errors: readonly TurnErrorRecord[]) => {
       const history = transcriptFromHistory(messages);
-      mergeStreamIntoHistory(history, transcriptRef.current);
+      mergeStreamIntoHistory(history, transcriptRef.current, streamIndexRef.current);
       mergeTurnErrors(history, errors);
       transcriptRef.current = history;
       const survived = (key: string) => history.has(key);
@@ -753,6 +753,11 @@ export function useConversation(
       for (const [alias, key] of streamIndexRef.current.byOtid) {
         if (survived(key)) index.byOtid.set(alias, key);
       }
+      // A retired echo stays retired. The fold dropped the entry and this rebuild drops
+      // the alias that pointed at it, so a late frame for that same message (a queued
+      // echo landing just after this commit) would key a second copy of what the
+      // history now holds. The set is the only thing left saying "that one is stored".
+      for (const otid of streamIndexRef.current.supersededOtid) index.supersededOtid.add(otid);
       streamIndexRef.current = index;
       // History numbers its entries from 0 and the live ones were lifted above them
       // by `mergeStreamIntoHistory`, so the next live entry must be numbered above
