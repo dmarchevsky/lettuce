@@ -129,6 +129,15 @@ export interface TranscriptEntry {
    */
   delivery?: "unsent" | "uncertain" | "refused";
   /**
+   * The message's own `otid` as the wire carries it.
+   *
+   * For an entry we drew ourselves this is the entry's key; for anything that
+   * arrived it is what ties the streamed copy to the record the store keeps
+   * under its own id — the only field the two agree on, and what lets a reload
+   * retire the copy it superseded (see `mergeStreamIntoHistory`).
+   */
+  otid?: string;
+  /**
    * Rendered by us on send, before any server frame. The app-server only echoes
    * a user message when it was queued, so without this your own message never
    * appears until a reload.
@@ -1476,6 +1485,9 @@ function applyMessage(
   // A later frame may reveal the concrete type after a generic first chunk.
   entry.kind = kind;
   entry.streaming = options.streaming;
+  // The `otid` is how a message is found again after a reload, whichever side it
+  // arrived on. A user record's `otid` is our own `client_message_id`.
+  if (otid) entry.otid = otid;
 
   switch (kind) {
     case "user":
@@ -1938,6 +1950,16 @@ export function transcriptFromHistory(messages: readonly unknown[]): Transcript 
  * otherwise delete them mid-flight. Nothing re-fetches them: the frames are
  * live-only and the server has not stored the turn yet.
  *
+ * One entry carries no id history can name: the message you sent. We drew it under
+ * `client_message_id`, and a queued echo keys under the echo's own id; the store
+ * files that message under its own id and carries yours as its `otid`. So the fold
+ * compares on `otid` for a user entry — otherwise a reload keeps both copies and
+ * your own message shows twice, the survivor renumbered below the answer it belongs
+ * above. Dropping it rather than merging is right: the record is the server's own
+ * text, its normalized pictures, and proof the message was delivered, so a "not
+ * delivered" note the echo carried is now false. A send nothing recorded keeps its
+ * echo, because nothing retired it.
+ *
  * The survivors are renumbered above every history entry, in their own relative
  * order: an entry numbered 1 because it arrived first must not render near the
  * top of a two-hundred-message history, and one numbered by a connection sequence
@@ -1946,9 +1968,15 @@ export function transcriptFromHistory(messages: readonly unknown[]): Transcript 
  * above this transcript too.
  */
 export function mergeStreamIntoHistory(history: Transcript, stream: Transcript): void {
+  const storedOtid = new Set<string>();
+  for (const entry of history.values()) {
+    if (entry.kind === "user" && entry.otid) storedOtid.add(entry.otid);
+  }
   const extras: Array<[string, TranscriptEntry]> = [];
   for (const [key, entry] of stream) {
-    if (!history.has(key)) extras.push([key, entry]);
+    if (history.has(key)) continue;
+    if (entry.kind === "user" && storedOtid.has(entry.otid ?? key)) continue;
+    extras.push([key, entry]);
   }
   if (extras.length === 0) return;
   let next = 0;
