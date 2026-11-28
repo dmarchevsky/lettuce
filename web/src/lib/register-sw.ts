@@ -10,19 +10,19 @@ export function registerServiceWorker(): void {
   // claims it — only an already-controlled page whose controller *changes* is
   // looking at an update.
   const controlledAtLoad = navigator.serviceWorker.controller !== null;
-  getServiceWorkerRegistration()
-    .then((reg) =>
-      watchForUpdates({
-        container: navigator.serviceWorker,
-        doc: document,
-        registration: reg,
-        controlledAtLoad,
-        reload: () => window.location.reload(),
-      }),
-    )
-    .catch((error: unknown) => {
-      console.error("Service worker registration failed:", error);
-    });
+  getServiceWorkerRegistration().catch((error: unknown) => {
+    console.error("Service worker registration failed:", error);
+  });
+  // Armed synchronously, before the registration settles: a worker install left
+  // over from a previous page can activate — and take this document over — at
+  // any moment, and only `update()` actually needs the registration.
+  watchForUpdates({
+    container: navigator.serviceWorker,
+    doc: document,
+    controlledAtLoad,
+    update: () => getServiceWorkerRegistration().then((reg) => reg.update()),
+    reload: () => window.location.reload(),
+  });
 }
 
 /**
@@ -53,10 +53,34 @@ export function getServiceWorkerRegistration(): Promise<ServiceWorkerRegistratio
 export interface UpdateWatchTargets {
   container: { addEventListener: (type: "controllerchange", listener: () => void) => void };
   doc: { visibilityState: string; addEventListener: (type: string, listener: () => void) => void };
-  registration: { update: () => Promise<unknown> };
+  update: () => Promise<unknown>;
   controlledAtLoad: boolean;
   reload: () => void;
   now?: () => number;
+}
+
+let reloadBlocked = false;
+let pendingReload: (() => void) | null = null;
+
+/**
+ * Hold the self-reload while the page holds work a reload would throw away with
+ * no way back — today that is only staged attachments (typed text has its own
+ * draft store). The app calls it with `false` the moment such work is gone; an
+ * update that arrived while blocked reloads then, so the reload is never a
+ * surprise *and* never a data loss.
+ */
+export function blockUpdateReload(blocked: boolean): void {
+  reloadBlocked = blocked;
+  if (!blocked && pendingReload) {
+    const reload = pendingReload;
+    pendingReload = null;
+    reload();
+  }
+}
+
+function takeReload(reload: () => void): void {
+  if (reloadBlocked) pendingReload = reload;
+  else reload();
 }
 
 /**
@@ -80,7 +104,9 @@ export interface UpdateWatchTargets {
 export function watchForUpdates(targets: UpdateWatchTargets): void {
   const now = targets.now ?? (() => Date.now());
   if (targets.controlledAtLoad) {
-    targets.container.addEventListener("controllerchange", () => targets.reload());
+    targets.container.addEventListener("controllerchange", () =>
+      takeReload(() => targets.reload()),
+    );
   }
   let lastCheckAt = now();
   targets.doc.addEventListener("visibilitychange", () => {
@@ -88,7 +114,7 @@ export function watchForUpdates(targets: UpdateWatchTargets): void {
     const at = now();
     if (at - lastCheckAt < UPDATE_CHECK_MIN_INTERVAL_MS) return;
     lastCheckAt = at;
-    void targets.registration.update().catch(() => {});
+    void targets.update().catch(() => {});
   });
 }
 

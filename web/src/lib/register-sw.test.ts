@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
+  blockUpdateReload,
+  registerServiceWorker,
   UPDATE_CHECK_MIN_INTERVAL_MS,
   type UpdateWatchTargets,
   watchForUpdates,
@@ -30,11 +32,9 @@ function fakes(overrides: Partial<UpdateWatchTargets> = {}) {
         docListeners.set(type, [...(docListeners.get(type) ?? []), listener]);
       },
     },
-    registration: {
-      update: async () => {
-        state.updates += 1;
-        if (state.updateRejects) throw new Error("offline");
-      },
+    update: async () => {
+      state.updates += 1;
+      if (state.updateRejects) throw new Error("offline");
     },
     controlledAtLoad: true,
     reload: () => {
@@ -70,6 +70,20 @@ describe("watchForUpdates controllerchange reload", () => {
     watchForUpdates(f.targets);
     f.fireControllerChange();
     expect(f.state.reloads).toBe(0);
+  });
+
+  test("an update landing while reloads are blocked lands when they unblock", () => {
+    // The app blocks self-reloads while staged attachments hold work a reload
+    // would throw away (App.tsx wires this to the composer tray).
+    const f = fakes();
+    watchForUpdates(f.targets);
+    blockUpdateReload(true);
+    f.fireControllerChange();
+    expect(f.state.reloads).toBe(0);
+    blockUpdateReload(false);
+    expect(f.state.reloads).toBe(1);
+    blockUpdateReload(false); // the pending reload was spent, not stored twice
+    expect(f.state.reloads).toBe(1);
   });
 });
 
@@ -125,3 +139,68 @@ describe("watchForUpdates foreground update check", () => {
     expect(f.state.updates).toBe(1);
   });
 });
+
+describe("registerServiceWorker wiring", () => {
+  // The module caches its registration promise, so the whole wiring test is
+  // one call; happy-dom (root bunfig preload) supplies `document`/`window`.
+  test("arms the reload on navigator.serviceWorker, keyed on the load-time controller", async () => {
+    const nav = savedNavigator();
+    const loc = Object.getOwnPropertyDescriptor(globalThis.window, "location");
+    try {
+      const fake = fakeContainer({ controller: {} as ServiceWorker });
+      Object.defineProperty(globalThis, "navigator", {
+        value: { serviceWorker: fake },
+        configurable: true,
+        writable: true,
+      });
+      const reloads: number[] = [];
+      stubLocation(() => reloads.push(1));
+      registerServiceWorker();
+      // Let the registration promise settle while the fake is still installed —
+      // after the finally restores the real navigator, its register is gone.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      fake.fire();
+      expect(reloads.length).toBe(1);
+
+      // Uncontrolled load: the same event must not reload a first visit.
+      const fake2 = fakeContainer({ controller: null });
+      Object.defineProperty(globalThis, "navigator", {
+        value: { serviceWorker: fake2 },
+        configurable: true,
+        writable: true,
+      });
+      registerServiceWorker();
+      fake2.fire();
+      expect(reloads.length).toBe(1);
+    } finally {
+      restoreNavigator(nav);
+      if (loc) Object.defineProperty(globalThis.window, "location", loc);
+    }
+  });
+});
+
+function savedNavigator(): PropertyDescriptor | undefined {
+  return Object.getOwnPropertyDescriptor(globalThis, "navigator");
+}
+
+function restoreNavigator(desc: PropertyDescriptor | undefined): void {
+  if (desc) Object.defineProperty(globalThis, "navigator", desc);
+  else delete (globalThis as Record<string, unknown>).navigator;
+}
+
+function fakeContainer(opts: { controller: ServiceWorker | null }) {
+  const listeners: Array<() => void> = [];
+  return {
+    controller: opts.controller,
+    addEventListener: (_type: string, listener: () => void) => listeners.push(listener),
+    register: () => Promise.resolve({ update: () => Promise.resolve() }),
+    fire: () => listeners.forEach((l) => void l()),
+  };
+}
+
+function stubLocation(reload: () => void): void {
+  Object.defineProperty(globalThis.window, "location", {
+    value: { reload },
+    configurable: true,
+  });
+}
