@@ -1,10 +1,28 @@
 let registration: Promise<ServiceWorkerRegistration> | null = null;
 
+/** Foreground update checks closer together than this are dropped (ms). */
+export const UPDATE_CHECK_MIN_INTERVAL_MS = 60_000;
+
 export function registerServiceWorker(): void {
   if (!("serviceWorker" in navigator)) return;
-  getServiceWorkerRegistration().catch((error: unknown) => {
-    console.error("Service worker registration failed:", error);
-  });
+  // Whether *this document* loaded under a worker's control. A page that loaded
+  // uncontrolled (a first visit) must not reload when its own fresh install
+  // claims it — only an already-controlled page whose controller *changes* is
+  // looking at an update.
+  const controlledAtLoad = navigator.serviceWorker.controller !== null;
+  getServiceWorkerRegistration()
+    .then((reg) =>
+      watchForUpdates({
+        container: navigator.serviceWorker,
+        doc: document,
+        registration: reg,
+        controlledAtLoad,
+        reload: () => window.location.reload(),
+      }),
+    )
+    .catch((error: unknown) => {
+      console.error("Service worker registration failed:", error);
+    });
 }
 
 /**
@@ -29,6 +47,49 @@ export function getServiceWorkerRegistration(): Promise<ServiceWorkerRegistratio
     }),
   );
   return registration;
+}
+
+/** The world `watchForUpdates` touches, as structural fakes can reach it. */
+export interface UpdateWatchTargets {
+  container: { addEventListener: (type: "controllerchange", listener: () => void) => void };
+  doc: { visibilityState: string; addEventListener: (type: string, listener: () => void) => void };
+  registration: { update: () => Promise<unknown> };
+  controlledAtLoad: boolean;
+  reload: () => void;
+  now?: () => number;
+}
+
+/**
+ * Make an open tab pick up a new build by itself.
+ *
+ * The worker side already activates immediately (`sw.ts` `skipWaiting` +
+ * `clientsClaim`) and the BFF serves `sw.js` `no-store`, but an open document
+ * keeps running the bundle it loaded until something reloads it — and a phone
+ * PWA parked in the back stack for days never navigates. So:
+ *
+ * - **`controllerchange` → reload**, but only for a page that was already
+ *   controlled at load: a controller change under an already-controlled page
+ *   can only mean a new worker took over, i.e. an update landed. (The load-time
+ *   guard is also what stops a reload loop: after the reload the page is
+ *   controlled by the new worker and no further change fires.)
+ * - **a foreground update check** at most once a minute: coming back into view
+ *   is the moment a returning user expects "latest", and it beats waiting for
+ *   the browser's own ≤ daily check. `update()` may reject (offline, abort) —
+ *   the next navigation re-checks anyway, so the result is dropped.
+ */
+export function watchForUpdates(targets: UpdateWatchTargets): void {
+  const now = targets.now ?? (() => Date.now());
+  if (targets.controlledAtLoad) {
+    targets.container.addEventListener("controllerchange", () => targets.reload());
+  }
+  let lastCheckAt = now();
+  targets.doc.addEventListener("visibilitychange", () => {
+    if (targets.doc.visibilityState !== "visible") return;
+    const at = now();
+    if (at - lastCheckAt < UPDATE_CHECK_MIN_INTERVAL_MS) return;
+    lastCheckAt = at;
+    void targets.registration.update().catch(() => {});
+  });
 }
 
 /** Registering after `load` keeps the worker's install off the first paint. */
