@@ -43,6 +43,7 @@ import {
   type RuntimeScope,
   scopeKey,
 } from "./lib/protocol.ts";
+import { blockUpdateReload } from "./lib/register-sw.ts";
 import type { LinkState } from "./lib/session-client.ts";
 import { readSettingsDeepLink } from "./lib/settings-link.ts";
 import {
@@ -671,6 +672,11 @@ function Workspace({ status }: { status: Status }) {
   useEffect(() => {
     setAttachments([]);
   }, [structuredKey]);
+  // An update self-reload (lib/register-sw) never throws this tray away: while
+  // it holds images the reload is held, and lands the moment the tray empties.
+  useEffect(() => {
+    blockUpdateReload(attachments.length > 0);
+  }, [attachments]);
 
   // The open conversation already shows its own state in the composer; the
   // menu badge is for turns running somewhere you are not looking.

@@ -5,6 +5,19 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.51.3-letta_0.34.70] - 2026-11-28
+
+### Fixed
+- **The installed app picks up new builds on its own again.** An open Lettuce PWA kept showing the
+  old UI after a release until you refreshed it by hand. The delivery was never the problem — the
+  service worker updated itself and took over immediately — but an open tab keeps running the bundle
+  it loaded, and a phone PWA parked in the back stack may not navigate again for days, so nothing
+  ever asked the page to change. Now an open tab reloads itself the moment a new build takes it
+  over, and bringing the app back from the background asks for an update right away instead of
+  waiting for the browser's once-a-day check. The self-reload never lands on half-finished work:
+  it waits while the composer holds images and lands the moment the tray empties — your typed text
+  was already safe, and a running turn keeps running server-side through the reload.
+
 ## [v0.51.2-letta_0.34.70] - 2026-11-27
 
 ### Fixed
