@@ -2194,7 +2194,9 @@ describe("a reload meeting the echo of the same message", () => {
         content: [{ type: "text", text: "Sync changes" }],
       },
     ]);
-    const history = transcriptFromHistory([record("ui-msg-237", "web-9", "Sync changes", "2026-11-27T07:19:00.000Z")]);
+    const history = transcriptFromHistory([
+      record("ui-msg-237", "web-9", "Sync changes", "2026-11-27T07:19:00.000Z"),
+    ]);
     mergeStreamIntoHistory(history, live);
     expect(sortedEntries(history).map((e) => e.text)).toEqual(["Sync changes"]);
   });
@@ -2205,7 +2207,12 @@ describe("a reload meeting the echo of the same message", () => {
     const live = echo("web-unsent", "Send me somewhere");
     live.get("web-unsent")!.delivery = "unsent";
     const history = transcriptFromHistory([
-      { id: "ui-msg-1", message_type: "assistant_message", date: "2026-11-27T07:00:00.000Z", content: "earlier" },
+      {
+        id: "ui-msg-1",
+        message_type: "assistant_message",
+        date: "2026-11-27T07:00:00.000Z",
+        content: "earlier",
+      },
     ]);
     mergeStreamIntoHistory(history, live);
     const entries = sortedEntries(history);
@@ -2215,7 +2222,12 @@ describe("a reload meeting the echo of the same message", () => {
 
   test("a live entry no record stands for still survives", () => {
     const history = transcriptFromHistory([
-      { id: "ui-msg-1", message_type: "assistant_message", date: "2026-11-27T07:00:00.000Z", content: "older" },
+      {
+        id: "ui-msg-1",
+        message_type: "assistant_message",
+        date: "2026-11-27T07:00:00.000Z",
+        content: "older",
+      },
     ]);
     const live = streamed([
       {
