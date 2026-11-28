@@ -2146,6 +2146,149 @@ describe("a history load meeting live frames", () => {
   });
 });
 
+describe("a reload meeting the echo of the same message", () => {
+  // The stored record for a message we drew ourselves is filed under its own id
+  // (`ui-msg-N`) and carries our `client_message_id` only as its `otid`, so a
+  // key comparison alone never finds the echo and the reload shows your own
+  // message twice — once where it happened, once at the bottom.
+  const echo = (id: string, text: string) => {
+    const transcript: Transcript = new Map();
+    addLocalUserMessage(transcript, createStreamIndex(), id, text, 1);
+    return transcript;
+  };
+  const record = (id: string, otid: string, text: string, date: string) => ({
+    id,
+    otid,
+    message_type: "user_message",
+    date,
+    content: [{ type: "text", text }],
+  });
+
+  test("the stored record retires the echo it stands for", () => {
+    const history = transcriptFromHistory([
+      record("ui-msg-237", "web-9", "Sync changes", "2026-11-27T07:19:00.000Z"),
+      {
+        id: "ui-msg-238",
+        message_type: "assistant_message",
+        date: "2026-11-27T07:20:00.000Z",
+        content: [{ type: "text", text: "Synced and audited." }],
+      },
+    ]);
+    mergeStreamIntoHistory(history, echo("web-9", "Sync changes"));
+    expect(sortedEntries(history).map((e) => `${e.kind} ${e.text}`)).toEqual([
+      "user Sync changes",
+      "assistant Synced and audited.",
+    ]);
+  });
+
+  test("a queued echo that arrived before the reload retires too", () => {
+    // The queued path echoes the message back before this tab ever stored it, so
+    // the live entry is keyed by the echo's own id and carries our id as `otid`.
+    const live = streamed([
+      {
+        type: "message",
+        id: "user-msg-1",
+        otid: "web-9",
+        message_type: "user_message",
+        date: "2026-11-27T07:19:00.000Z",
+        content: [{ type: "text", text: "Sync changes" }],
+      },
+    ]);
+    const history = transcriptFromHistory([
+      record("ui-msg-237", "web-9", "Sync changes", "2026-11-27T07:19:00.000Z"),
+    ]);
+    mergeStreamIntoHistory(history, live);
+    expect(sortedEntries(history).map((e) => e.text)).toEqual(["Sync changes"]);
+  });
+
+  test("an undelivered send keeps its echo and its note through a reload", () => {
+    // Nothing was recorded, so nothing can retire the echo: it is the only place
+    // the failed send — and the way out under it — still exists.
+    const live = echo("web-unsent", "Send me somewhere");
+    live.get("web-unsent")!.delivery = "unsent";
+    const history = transcriptFromHistory([
+      {
+        id: "ui-msg-1",
+        message_type: "assistant_message",
+        date: "2026-11-27T07:00:00.000Z",
+        content: "earlier",
+      },
+    ]);
+    mergeStreamIntoHistory(history, live);
+    const entries = sortedEntries(history);
+    expect(entries.map((e) => e.text)).toEqual(["earlier", "Send me somewhere"]);
+    expect(entries.at(-1)?.delivery).toBe("unsent");
+  });
+
+  test("a live user entry whose otid no record carries still survives", () => {
+    // The retire compares on `otid`, so an echo of a message the store has never
+    // seen must not be dropped because some other user record happens to exist.
+    const history = transcriptFromHistory([
+      record("ui-msg-7", "otid-old", "an older question", "2026-11-27T07:00:00.000Z"),
+    ]);
+    mergeStreamIntoHistory(history, echo("web-9", "Sync changes"));
+    expect(sortedEntries(history).map((e) => e.text)).toEqual([
+      "an older question",
+      "Sync changes",
+    ]);
+  });
+
+  test("an echo landing after the reload stays retired", () => {
+    // The reload dropped the echo and the index rebuild drops its alias, so a
+    // queued echo that arrives afterwards would key a fresh entry: the same
+    // message twice again, from the other direction.
+    const live = echo("web-9", "Sync changes");
+    const index = createStreamIndex();
+    index.byOtid.set("web-9", "web-9");
+    const history = transcriptFromHistory([
+      record("ui-msg-237", "web-9", "Sync changes", "2026-11-27T07:19:00.000Z"),
+    ]);
+    mergeStreamIntoHistory(history, live, index);
+    // ...which is what `commitHistory` leaves behind: only the surviving aliases.
+    const survivors = createStreamIndex();
+    for (const [alias, key] of index.byOtid) if (history.has(key)) survivors.byOtid.set(alias, key);
+    for (const otid of index.supersededOtid) survivors.supersededOtid.add(otid);
+
+    applyStreamDelta(
+      history,
+      survivors,
+      {
+        type: "message",
+        id: "user-msg-1",
+        otid: "web-9",
+        message_type: "user_message",
+        date: "2026-11-27T07:19:00.000Z",
+        content: [{ type: "text", text: "Sync changes" }],
+      },
+      9,
+    );
+    expect(sortedEntries(history).map((e) => e.text)).toEqual(["Sync changes"]);
+  });
+
+  test("a live entry no record stands for still survives", () => {
+    const history = transcriptFromHistory([
+      {
+        id: "ui-msg-1",
+        message_type: "assistant_message",
+        date: "2026-11-27T07:00:00.000Z",
+        content: "older",
+      },
+    ]);
+    const live = streamed([
+      {
+        type: "message",
+        id: "letta-msg-9",
+        otid: "otid-streaming",
+        message_type: "assistant_message",
+        date: "2026-11-27T07:21:00.000Z",
+        content: "still streaming",
+      },
+    ]);
+    mergeStreamIntoHistory(history, live);
+    expect(sortedEntries(history).map((e) => e.text)).toEqual(["older", "still streaming"]);
+  });
+});
+
 describe("the order a history page arrives in", () => {
   const said = (id: string, kind: string, text: string, date: string) => ({
     id,

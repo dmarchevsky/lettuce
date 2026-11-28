@@ -5,6 +5,21 @@ All notable user-facing changes to lettuce, newest first. Version tags and
 
 ## [Unreleased]
 
+## [v0.51.2-letta_0.34.70] - 2026-11-27
+
+### Fixed
+- **Your own message no longer turns up twice when the chat reloads.** Anything that rebuilt the
+  transcript from the server — the link dropping and coming back, which is what a phone does when it
+  sleeps, or tapping **Load older** — could show a message you had sent twice: once where you sent
+  it, and once again below the agent's answer, same minute, same text, the second copy still offering
+  the last-message actions. We draw your message ourselves the moment you send it and file it under
+  the send's own id; the server stores the same message under a different id and carries yours only as
+  its `otid`, so the merge that keeps live messages through a reload never recognised them as the same
+  message and kept both. They are matched on `otid` now, so the stored copy retires ours — and with it a
+  stale "not delivered / Send again" note, since a stored message is proof it arrived. A send the server
+  never recorded keeps its bubble and its note exactly as before.
+
+
 ## [v0.51.1-letta_0.34.70] - 2026-11-26
 
 ### Fixed

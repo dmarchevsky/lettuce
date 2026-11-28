@@ -167,6 +167,18 @@ browser as close code 1006 with no HTTP status, identical to a dropped network. 
   navigation is the only way through Access's login), at most every 5 minutes; after that the
   pill is a "Sign in again" button. A network error keeps the ordinary backoff.
 
+- **A reload retires our echo of a message by `otid`, never by key.** The app-server stores a message
+  you sent under its own record id (`ui-msg-N`) and carries our `client_message_id` only as its `otid`,
+  while the bubble we draw on send is keyed by that client id — so history and the live transcript never
+  share a key for the same message. `mergeStreamIntoHistory` therefore compares user entries on `otid`
+  (`TranscriptEntry.otid`, recorded on both paths) and the stored copy wins, taking any delivery note with
+  it; a send nothing recorded has nothing to retire it, so its echo and its `Send again` note survive. The
+  retirement is remembered on the stream index (`supersededOtid`, carried across `commitHistory`'s rebuild)
+  because the rebuild drops the alias a queued echo would have merged onto, and such an echo landing just
+  after a reload was otherwise a duplicate again from the other direction. Key-only comparison was the old
+  rule: it showed a sent message twice after any resync reload or **Load older** tap — once where it
+  happened, once below the answer, since survivors are renumbered above the history they join.
+
 ## Rendering cost while streaming
 
 - **A streaming bubble parses only its unsettled tail.** `Markdown` takes `streaming`; while true it
